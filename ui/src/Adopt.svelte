@@ -74,8 +74,8 @@
 <div class="h-full flex flex-col">
   <div class="flex items-center justify-between gap-6 mb-4 shrink-0">
     <div class="max-w-3xl">
-      <h2 class="text-2xl font-bold text-white">Adopt existing containers</h2>
-      <div class="text-sm text-slate-500">
+      <h2 class="text-2xl font-bold text-fjord-fg">Adopt existing containers</h2>
+      <div class="text-sm text-fjord-fg-dim">
         Containers and jails on this host that no stack owns — started by hand, a script, or another tool.
         Adopting one turns what the engine recorded into a stack: same image, mounts, network address and name.
       </div>
@@ -89,15 +89,15 @@
           >{#if allBusy}<Spinner size={13} /> {progress}{:else}Adopt &amp; replace all ({list.filter((c) => !c.error).length}){/if}</button
         >
       {/if}
-      <button on:click={() => dispatch('back')} class="text-sm text-slate-400 hover:text-white">← Stacks</button>
+      <button on:click={() => dispatch('back')} class="text-sm text-fjord-fg-muted hover:text-fjord-fg">← Stacks</button>
     </div>
   </div>
 
   <div class="flex-1 overflow-y-auto">
     {#if loading}
-      <div class="flex items-center gap-3 text-slate-500 text-sm"><Spinner size={18} /> Looking for containers…</div>
+      <div class="flex items-center gap-3 text-fjord-fg-dim text-sm"><Spinner size={18} /> Looking for containers…</div>
     {:else if !list.length}
-      <div class="text-sm text-slate-500">Nothing to adopt — every container on this host already belongs to a stack.</div>
+      <div class="text-sm text-fjord-fg-dim">Nothing to adopt — every container on this host already belongs to a stack.</div>
     {:else}
       <div class="border border-fjord-border rounded-xl overflow-hidden divide-y divide-fjord-border bg-fjord-card max-w-4xl">
         {#each list as c (c.engine + ':' + c.id)}
@@ -106,14 +106,14 @@
               <EngineMark engine={c.engine} size={16} />
               <div class="min-w-0 flex-1">
                 <div class="flex items-center gap-2">
-                  <span class="font-semibold text-white">{c.name}</span>
-                  <span class="text-[10px] font-semibold uppercase tracking-wide {c.state === 'running' ? 'text-fjord-success' : 'text-slate-500'}">{c.state}</span>
+                  <span class="font-semibold text-fjord-fg">{c.name}</span>
+                  <span class="text-[10px] font-semibold uppercase tracking-wide {c.state === 'running' ? 'text-fjord-success' : 'text-fjord-fg-dim'}">{c.state}</span>
                 </div>
-                <div class="text-xs text-slate-500 font-mono truncate">{c.image}</div>
+                <div class="text-xs text-fjord-fg-dim font-mono truncate">{c.image}</div>
                 {#if c.error}<div class="text-xs text-fjord-danger mt-1">{c.error}</div>{/if}
                 {#each c.notes || [] as n}<div class="text-xs text-fjord-warning mt-1">{n}</div>{/each}
               </div>
-              <button on:click={() => (open[c.name] = !open[c.name])} class="text-xs text-slate-400 hover:text-white px-2 py-1">
+              <button on:click={() => (open[c.name] = !open[c.name])} class="text-xs text-fjord-fg-muted hover:text-fjord-fg px-2 py-1">
                 {open[c.name] ? 'Hide' : 'Preview'}
               </button>
               <button
@@ -129,7 +129,7 @@
                 >{#if busy === c.name}<Spinner size={13} />{/if}Adopt &amp; replace</button>
             </div>
             {#if open[c.name] && c.compose}
-              <pre class="mt-3 text-xs bg-fjord-inset border border-fjord-border rounded-lg p-3 overflow-x-auto text-slate-300">{#if c.director}# appjail-director.yml
+              <pre class="mt-3 text-xs bg-fjord-inset border border-fjord-border rounded-lg p-3 overflow-x-auto text-fjord-fg-secondary">{#if c.director}# appjail-director.yml
 {c.director}
 {c.makejail}
 {c.template}

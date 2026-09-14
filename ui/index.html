@@ -5,6 +5,21 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>fjord</title>
+    <script>
+      // Resolve the theme before the stylesheet paints, otherwise a light-mode
+      // user sees a dark flash on every load. Stamps the attribute the CSS
+      // keys off; an unreadable localStorage just falls back to the OS.
+      (function () {
+        var t;
+        try { t = localStorage.getItem('fjord-theme'); } catch (e) {}
+        if (t !== 'light' && t !== 'dark') {
+          t = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches
+            ? 'light'
+            : 'dark';
+        }
+        document.documentElement.setAttribute('data-theme', t);
+      })();
+    </script>
   </head>
   <body>
     <div id="app"></div>

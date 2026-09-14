@@ -22,6 +22,7 @@
   import Toasts from './Toasts.svelte';
   import { toast, dismissToast } from './toast';
   import { expandVars } from './expand';
+  import { currentTheme, setTheme, watchSystem, type Theme } from './theme';
 
   type ContainerStatus = {
     name: string;
@@ -38,7 +39,7 @@
   const STATUS_STYLE: Record<string, string> = {
     running: 'bg-fjord-success/10 border-fjord-success/20 text-fjord-success',
     partial: 'bg-fjord-warning/10 border-fjord-warning/20 text-fjord-warning',
-    stopped: 'bg-slate-500/10 border-slate-500/20 text-slate-400',
+    stopped: 'bg-fjord-neutral/10 border-fjord-neutral/20 text-fjord-fg-muted',
     unknown: 'bg-fjord-danger/10 border-fjord-danger/20 text-fjord-danger',
   };
 
@@ -53,7 +54,7 @@
   const DOT: Record<string, string> = {
     running: 'bg-fjord-success',
     partial: 'bg-fjord-warning',
-    stopped: 'bg-slate-500',
+    stopped: 'bg-fjord-neutral',
     unknown: 'bg-fjord-danger',
   };
   function dot(status: StackStatus | undefined): string {
@@ -580,6 +581,15 @@
     } catch {}
   }
 
+  // Theme. index.html already stamped <html data-theme> before paint; this
+  // mirrors it for the button label and follows the OS until a choice is made.
+  let theme: Theme = 'dark';
+  let unwatchTheme: (() => void) | null = null;
+  function toggleTheme() {
+    theme = theme === 'dark' ? 'light' : 'dark';
+    setTheme(theme);
+  }
+
   // Fleet-wide update state (server-side cached; refreshed in the background).
   type UpdateInfo = { state: string; tag?: string; latest?: string; newTag?: string; toVersion?: string };
   let fleet: Record<string, UpdateInfo> = {};
@@ -814,6 +824,8 @@
     loadEngines();
     loadNetworks();
     loadVolumes();
+    theme = currentTheme();
+    unwatchTheme = watchSystem((t) => (theme = t));
     loadFleetUpdates();
     subscribeEvents();
     await restoreFromHash();
@@ -821,7 +833,10 @@
     window.addEventListener('hashchange', restoreFromHash);
   });
 
-  onDestroy(() => eventSource?.close());
+  onDestroy(() => {
+    eventSource?.close();
+    unwatchTheme?.();
+  });
 
   // Discard unsaved edits (compose/env, incl. mount-table changes) back to the
   // last saved version. Also clears the network/volume pickers and re-reads the
@@ -1281,12 +1296,12 @@
 {#if setupOpen}
   <SetupWizard on:done={setupDone} />
 {:else}
-<div class="h-screen flex text-slate-200 overflow-hidden">
+<div class="h-screen flex text-fjord-fg-body overflow-hidden">
   <!-- Sidebar: stack list (Dockge-style) -->
   <aside class="shrink-0 bg-fjord-bg flex flex-col" style="width:{sidebarWidth}px">
     <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
     <div
-      class="flex items-center gap-2.5 text-xl font-bold tracking-widest text-white cursor-pointer px-5 py-4 border-b border-fjord-border"
+      class="flex items-center gap-2.5 text-xl font-bold tracking-widest text-fjord-fg cursor-pointer px-5 py-4 border-b border-fjord-border"
       on:click={() => {
         selectStack(null);
         currentView = 'stacks';
@@ -1300,7 +1315,7 @@
       <input
         bind:value={search}
         placeholder="Search stacks…"
-        class="flex-1 min-w-0 bg-fjord-card border border-fjord-border rounded-md px-3 py-1.5 text-sm text-slate-200 focus:outline-none focus:border-fjord-accent"
+        class="flex-1 min-w-0 bg-fjord-card border border-fjord-border rounded-md px-3 py-1.5 text-sm text-fjord-fg-body focus:outline-none focus:border-fjord-accent"
       />
       <button
         title="New Stack"
@@ -1315,10 +1330,10 @@
     <div class="relative px-3 pb-1 pt-0.5">
       <button
         on:click={() => (groupMenuOpen = !groupMenuOpen)}
-        class="flex items-center gap-1.5 text-[11px] font-medium text-slate-500 hover:text-slate-300 transition-colors"
+        class="flex items-center gap-1.5 text-[11px] font-medium text-fjord-fg-dim hover:text-fjord-fg-secondary transition-colors"
       >
-        <span class="text-[10px] uppercase tracking-wide text-slate-600">Group by</span>
-        <span class="text-slate-300">{GROUP_MODES.find((g) => g.id === groupMode)?.label}</span>
+        <span class="text-[10px] uppercase tracking-wide text-fjord-fg-faint">Group by</span>
+        <span class="text-fjord-fg-secondary">{GROUP_MODES.find((g) => g.id === groupMode)?.label}</span>
         <Icon name={groupMenuOpen ? 'chevron-up' : 'chevron-down'} size={11} />
       </button>
       {#if groupMenuOpen}
@@ -1330,8 +1345,8 @@
               on:click={() => { setGroupMode(gm.id); groupMenuOpen = false; }}
               class="w-full flex items-center justify-between gap-3 px-3 py-1.5 rounded-md text-sm transition-colors {groupMode ===
               gm.id
-                ? 'bg-fjord-border text-white'
-                : 'text-slate-300 hover:bg-fjord-border/50'}"
+                ? 'bg-fjord-border text-fjord-fg'
+                : 'text-fjord-fg-secondary hover:bg-fjord-border/50'}"
             >
               {gm.label}
               {#if groupMode === gm.id}<Icon name="check" size={13} class="text-fjord-accent" />{/if}
@@ -1350,8 +1365,8 @@
             on:dragover={(e) => onGroupDragOver(e, group)}
             on:drop={() => commitReorder(null, false, group)}
             class="w-full flex items-center gap-1.5 px-3 pt-3 pb-1 text-[11px] font-semibold uppercase tracking-wide rounded {group
-              ? 'text-slate-500 hover:text-slate-300'
-              : 'text-slate-600'} {dropGroup === group ? '!bg-fjord-accent/20 ring-1 ring-fjord-accent/50 !text-slate-200' : ''}"
+              ? 'text-fjord-fg-dim hover:text-fjord-fg-secondary'
+              : 'text-fjord-fg-faint'} {dropGroup === group ? '!bg-fjord-accent/20 ring-1 ring-fjord-accent/50 !text-fjord-fg-body' : ''}"
           >
             {#if group}
               <Icon name={collapsedGroups[group] ? 'chevron-right' : 'chevron-down'} size={11} />
@@ -1360,7 +1375,7 @@
               <EngineMark engine={group} size={13} strokeWidth={2.25} />
             {/if}
             <span class="truncate">{group || 'Ungrouped'}</span>
-            <span class="text-slate-600 normal-case">{items.length}</span>
+            <span class="text-fjord-fg-faint normal-case">{items.length}</span>
           </button>
         {/if}
         {#if !collapsedGroups[group]}
@@ -1372,8 +1387,8 @@
                 on:drop={() => commitReorder(null, false, group)}
                 class="mx-3 my-1 px-3 py-3 text-[11px] text-center rounded border border-dashed transition-colors {dropGroup ===
                 group
-                  ? 'border-fjord-accent text-slate-200 bg-fjord-accent/10'
-                  : 'border-fjord-border text-slate-600'}"
+                  ? 'border-fjord-accent text-fjord-fg-body bg-fjord-accent/10'
+                  : 'border-fjord-border text-fjord-fg-faint'}"
               >
                 Drag here to remove from group
               </div>
@@ -1391,8 +1406,8 @@
                   ? 'cursor-grab active:cursor-grabbing'
                   : 'cursor-pointer'} text-sm transition-colors border-y-2 border-transparent {selectedStack?.name ===
                   stack.name && currentView === 'stacks'
-                  ? 'bg-fjord-border text-white'
-                  : 'text-slate-300 hover:bg-fjord-border/40'} {dragName === stack.name
+                  ? 'bg-fjord-border text-fjord-fg'
+                  : 'text-fjord-fg-secondary hover:bg-fjord-border/40'} {dragName === stack.name
                   ? 'opacity-40'
                   : ''} {dropTarget === stack.name && !dropAfter
                   ? '!border-t-fjord-accent'
@@ -1402,7 +1417,7 @@
                 {#if iconFor($appIcons, stack)}
                   <img src={iconFor($appIcons, stack)} alt="" class="w-4 h-4 rounded shrink-0 object-contain" />
                 {:else}
-                  <span class="w-4 h-4 rounded shrink-0 flex items-center justify-center text-[9px] font-bold text-white" style="background:{tile(label(stack))}">{initial(label(stack))}</span>
+                  <span class="w-4 h-4 rounded shrink-0 flex items-center justify-center text-[9px] font-bold text-fjord-fg" style="background:{tile(label(stack))}">{initial(label(stack))}</span>
                 {/if}
                 <span class="truncate">{label(stack)}</span>
                 {#if behind(fleet[stack.name])}
@@ -1425,7 +1440,7 @@
         </div>
       {/if}
       {#if filtered.length === 0}
-        <p class="px-4 py-2 text-xs text-slate-600 italic">No stacks{search ? ' match' : ' yet'}.</p>
+        <p class="px-4 py-2 text-xs text-fjord-fg-faint italic">No stacks{search ? ' match' : ' yet'}.</p>
       {/if}
     </div>
 
@@ -1437,8 +1452,8 @@
         }}
         class="flex items-center gap-2.5 text-left px-3 py-2 rounded-md text-sm font-medium transition-colors {currentView ===
         'store'
-          ? 'bg-fjord-border text-white'
-          : 'text-slate-400 hover:text-white'}"><Icon name="store" size={15} /> App Store</button
+          ? 'bg-fjord-border text-fjord-fg'
+          : 'text-fjord-fg-muted hover:text-fjord-fg'}"><Icon name="store" size={15} /> App Store</button
       >
       <button
         on:click={() => {
@@ -1447,8 +1462,8 @@
         }}
         class="flex items-center gap-2.5 text-left px-3 py-2 rounded-md text-sm font-medium transition-colors {currentView ===
         'volumes'
-          ? 'bg-fjord-border text-white'
-          : 'text-slate-400 hover:text-white'}"><Icon name="drive" size={15} /> Volumes</button
+          ? 'bg-fjord-border text-fjord-fg'
+          : 'text-fjord-fg-muted hover:text-fjord-fg'}"><Icon name="drive" size={15} /> Volumes</button
       >
       <button
         on:click={() => {
@@ -1457,8 +1472,8 @@
         }}
         class="flex items-center gap-2.5 text-left px-3 py-2 rounded-md text-sm font-medium transition-colors {currentView ===
         'system'
-          ? 'bg-fjord-border text-white'
-          : 'text-slate-400 hover:text-white'}"><Icon name="activity" size={15} /> System</button
+          ? 'bg-fjord-border text-fjord-fg'
+          : 'text-fjord-fg-muted hover:text-fjord-fg'}"><Icon name="activity" size={15} /> System</button
       >
       <button
         on:click={() => {
@@ -1467,8 +1482,8 @@
         }}
         class="flex items-center gap-2.5 text-left px-3 py-2 rounded-md text-sm font-medium transition-colors {currentView ===
         'settings'
-          ? 'bg-fjord-border text-white'
-          : 'text-slate-400 hover:text-white'}"><Icon name="settings" size={15} /> Settings</button
+          ? 'bg-fjord-border text-fjord-fg'
+          : 'text-fjord-fg-muted hover:text-fjord-fg'}"><Icon name="settings" size={15} /> Settings</button
       >
     </nav>
   </aside>
@@ -1483,7 +1498,16 @@
     <div class="absolute inset-y-0 -left-1 -right-1 group-hover:bg-fjord-accent/60 transition-colors"></div>
   </div>
 
-  <main class="flex-1 min-w-0 bg-fjord-bg/95 flex flex-col h-screen overflow-hidden">
+  <main class="relative flex-1 min-w-0 bg-fjord-bg/95 flex flex-col h-screen overflow-hidden pr-8">
+    <!-- Theme toggle: floats in main's right gutter so it stays top-right in
+         every view without colliding with each view's own action row. -->
+    <button
+      on:click={toggleTheme}
+      title={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
+      aria-label={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
+      class="absolute top-4 right-4 z-30 w-8 h-8 flex items-center justify-center rounded-lg text-fjord-fg-muted hover:text-fjord-fg hover:bg-fjord-border transition-colors"
+      ><Icon name={theme === 'dark' ? 'sun' : 'moon'} size={16} /></button
+    >
     {#if selectedStack}
       <div class="flex flex-col h-full overflow-hidden p-6">
         <!-- Header -->
@@ -1499,14 +1523,14 @@
                   else if (e.key === 'Escape') editingName = false;
                 }}
                 on:blur={() => (editingName = false)}
-                class="text-2xl font-semibold text-white bg-fjord-inset border rounded-md px-2 py-0.5 min-w-0 focus:outline-none {nameEdit && !nameEditValid ? 'border-fjord-danger/60' : 'border-fjord-accent'}"
+                class="text-2xl font-semibold text-fjord-fg bg-fjord-inset border rounded-md px-2 py-0.5 min-w-0 focus:outline-none {nameEdit && !nameEditValid ? 'border-fjord-danger/60' : 'border-fjord-accent'}"
               />
             {:else}
               <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
               <h2
                 on:click={() => { editingName = true; nameEdit = label(selectedStack); }}
                 title="Click to rename (id: {selectedStack.name})"
-                class="text-2xl font-semibold text-white truncate cursor-text hover:bg-fjord-border/40 rounded px-1 -mx-1 transition-colors"
+                class="text-2xl font-semibold text-fjord-fg truncate cursor-text hover:bg-fjord-border/40 rounded px-1 -mx-1 transition-colors"
               >{label(selectedStack)}</h2>
             {/if}
             <span
@@ -1519,7 +1543,7 @@
               <span class="shrink-0 text-xs text-fjord-warning truncate" title={c.name}>{c.detail}</span>
             {/each}
             {#if selectedStack.state?.engine}
-              <span class="shrink-0 flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-fjord-bg border border-fjord-border text-slate-400" title="Runtime engine"
+              <span class="shrink-0 flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-fjord-bg border border-fjord-border text-fjord-fg-muted" title="Runtime engine"
                 ><EngineMark engine={selectedStack.state.engine} size={12} strokeWidth={2.25} />{selectedStack.state.engine}</span
               >
             {/if}
@@ -1542,7 +1566,7 @@
               on:change={(e) => setStackGroup(selectedStack!.name, e.currentTarget.value)}
               placeholder="+ group"
               title="Assign this stack to a sidebar group"
-              class="shrink-0 w-28 bg-fjord-card border border-fjord-border rounded-full px-3 py-0.5 text-[11px] text-slate-400 placeholder:text-slate-600 focus:outline-none focus:border-fjord-accent"
+              class="shrink-0 w-28 bg-fjord-card border border-fjord-border rounded-full px-3 py-0.5 text-[11px] text-fjord-fg-muted placeholder:text-fjord-fg-faint focus:outline-none focus:border-fjord-accent"
             />
             <datalist id="fjord-groups">
               {#each existingGroups as g}<option value={g}></option>{/each}
@@ -1556,12 +1580,12 @@
           <div class="flex items-center gap-3 shrink-0">
             {#if isDraft && engines.length > 1}
               <!-- Runtime for a new stack: podman = compose, appjail = native director + Makejail. -->
-              <label class="flex items-center gap-2 text-xs text-slate-400">
+              <label class="flex items-center gap-2 text-xs text-fjord-fg-muted">
                 Engine
                 <select
                   value={selectedStack.engine ?? defaultEngine}
                   on:change={(e) => setDraftEngine(e.currentTarget.value)}
-                  class="bg-fjord-inset border border-fjord-border rounded-lg px-2 py-1 text-sm text-slate-200 focus:border-fjord-accent outline-none"
+                  class="bg-fjord-inset border border-fjord-border rounded-lg px-2 py-1 text-sm text-fjord-fg-body focus:border-fjord-accent outline-none"
                 >
                   {#each engines.filter((e) => e.available && e.enabled) as e}
                     <option value={e.name}>{e.name}</option>
@@ -1573,7 +1597,7 @@
               <button
                 on:click={revert}
                 title="Discard unsaved changes and restore the last saved version"
-                class="text-slate-400 hover:text-white text-sm font-medium py-1.5 px-3 rounded-lg border border-fjord-border hover:border-fjord-accent/40 transition-colors"
+                class="text-fjord-fg-muted hover:text-fjord-fg text-sm font-medium py-1.5 px-3 rounded-lg border border-fjord-border hover:border-fjord-accent/40 transition-colors"
                 >Revert</button
               >
             {/if}
@@ -1591,7 +1615,7 @@
           <div
             role="alertdialog"
             aria-live="polite"
-            class="flex items-center gap-3 mb-4 shrink-0 px-4 py-2.5 rounded-lg bg-fjord-danger/10 border border-fjord-danger/30 text-sm text-slate-200"
+            class="flex items-center gap-3 mb-4 shrink-0 px-4 py-2.5 rounded-lg bg-fjord-danger/10 border border-fjord-danger/30 text-sm text-fjord-fg-body"
           >
             <span class="flex-1">
               {#if pendingAction.kind === 'delete'}
@@ -1602,7 +1626,7 @@
             </span>
             <button
               on:click={() => (pendingAction = null)}
-              class="shrink-0 px-3 py-1.5 rounded-lg text-sm font-medium text-slate-400 hover:text-white transition-colors"
+              class="shrink-0 px-3 py-1.5 rounded-lg text-sm font-medium text-fjord-fg-muted hover:text-fjord-fg transition-colors"
               >Cancel</button
             >
             <button
@@ -1619,7 +1643,7 @@
         <!-- HIG banner: persistent saved-but-unapplied state, with its action -->
         {#if needsApply[selectedStack.name]}
           <div
-            class="flex items-center gap-3 mb-4 shrink-0 px-4 py-2.5 rounded-lg bg-fjord-warning/10 border border-fjord-warning/25 text-sm text-slate-200"
+            class="flex items-center gap-3 mb-4 shrink-0 px-4 py-2.5 rounded-lg bg-fjord-warning/10 border border-fjord-warning/25 text-sm text-fjord-fg-body"
           >
             <span class="flex-1"
               >The running containers still use the old configuration — apply the saved changes to recreate them.</span
@@ -1627,7 +1651,7 @@
             <button
               on:click={() => (needsApply[selectedStack!.name] = false)}
               title="Keep the running containers as-is; the saved config applies next time you Start/recreate"
-              class="shrink-0 px-3 py-1.5 rounded-lg text-sm font-medium text-slate-400 hover:text-white transition-colors"
+              class="shrink-0 px-3 py-1.5 rounded-lg text-sm font-medium text-fjord-fg-muted hover:text-fjord-fg transition-colors"
               >Not now</button
             >
             <button
@@ -1670,7 +1694,7 @@
           >
           <!-- update-availability badge -->
           {#if checkingUpdate}
-            <span class="text-xs text-slate-500 self-center">Checking…</span>
+            <span class="text-xs text-fjord-fg-dim self-center">Checking…</span>
           {:else if updateInfo?.state === 'available'}
             <span class="text-xs text-fjord-warning self-center" title="Registry has a newer image than what's pulled"
               >Update available</span
@@ -1702,7 +1726,7 @@
               on:click={() => (actionsMenuOpen = !actionsMenuOpen)}
               disabled={execStatus[selectedStack.name] === 'running'}
               title="More Actions"
-              class="flex items-center px-2.5 py-2 rounded-lg text-sm font-medium bg-fjord-border hover:bg-fjord-border/70 hover:text-white transition-colors disabled:opacity-40"
+              class="flex items-center px-2.5 py-2 rounded-lg text-sm font-medium bg-fjord-border hover:bg-fjord-border/70 hover:text-fjord-fg transition-colors disabled:opacity-40"
               ><Icon name="menu" size={16} /></button
             >
             {#if actionsMenuOpen}
@@ -1716,8 +1740,8 @@
                     actionsMenuOpen = false;
                     restart(selectedStack!.name);
                   }}
-                  class="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-slate-200 hover:bg-fjord-border transition-colors"
-                  ><Icon name="restart" size={14} class="text-slate-400" /> Restart</button
+                  class="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-fjord-fg-body hover:bg-fjord-border transition-colors"
+                  ><Icon name="restart" size={14} class="text-fjord-fg-muted" /> Restart</button
                 >
                 {#if !multiImage}
                   <button
@@ -1730,8 +1754,8 @@
                       };
                     }}
                     disabled={!stackImage(selectedStack.compose)}
-                    class="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-slate-200 hover:bg-fjord-border transition-colors disabled:opacity-40"
-                    ><Icon name="swap" size={14} class="text-slate-400" /> Change Version…{#if /@sha256:/.test(selectedStack.compose)}<Icon
+                    class="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-fjord-fg-body hover:bg-fjord-border transition-colors disabled:opacity-40"
+                    ><Icon name="swap" size={14} class="text-fjord-fg-muted" /> Change Version…{#if /@sha256:/.test(selectedStack.compose)}<Icon
                       name="pin"
                       size={12}
                       class="text-fjord-accent ml-auto"
@@ -1756,13 +1780,13 @@
         <!-- Services (only shown when the stack has more than one) -->
         {#if serviceCount > 1}
           <div class="mb-4 shrink-0 border border-fjord-border rounded-xl overflow-hidden">
-            <div class="bg-fjord-border/40 px-4 py-2 text-xs font-semibold text-slate-300">Services</div>
+            <div class="bg-fjord-border/40 px-4 py-2 text-xs font-semibold text-fjord-fg-secondary">Services</div>
             <div class="divide-y divide-fjord-border">
               {#each selectedStack.status?.containers ?? [] as c}
                 <div class="flex items-center gap-3 px-4 py-2 text-sm">
                   <span class="w-2 h-2 rounded-full shrink-0 {DOT[c.state === 'running' ? 'running' : 'stopped']}"></span>
-                  <span class="text-slate-200">{c.name}</span>
-                  <span class="text-slate-500 text-xs">{c.state}</span>
+                  <span class="text-fjord-fg-body">{c.name}</span>
+                  <span class="text-fjord-fg-dim text-xs">{c.state}</span>
                 </div>
               {/each}
             </div>
@@ -1771,12 +1795,12 @@
 
         <!-- Editor + tabs -->
         <div class="flex-1 flex flex-col bg-fjord-card border border-fjord-border rounded-xl shadow-xl overflow-hidden min-h-0">
-          <div class="bg-fjord-border/50 flex border-b border-fjord-border text-xs font-semibold text-slate-300">
+          <div class="bg-fjord-border/50 flex border-b border-fjord-border text-xs font-semibold text-fjord-fg-secondary">
             <button
               on:click={() => (activeTab = 'compose')}
               class="px-4 py-2.5 border-r border-fjord-border flex items-center gap-2 {activeTab === 'compose'
-                ? 'bg-fjord-card text-white border-b-2 border-b-fjord-accent'
-                : 'text-slate-400 hover:text-slate-200'}"
+                ? 'bg-fjord-card text-fjord-fg border-b-2 border-b-fjord-accent'
+                : 'text-fjord-fg-muted hover:text-fjord-fg-body'}"
             >
               {#if isDirector}appjail-director.yml{#if (selectedStack.director ?? '') !== originalDirector}<span class="text-fjord-warning font-bold">*</span>{/if}{:else}compose.yaml{#if selectedStack.compose !== originalCompose}<span class="text-fjord-warning font-bold">*</span>{/if}{/if}
             </button>
@@ -1784,8 +1808,8 @@
               <button
                 on:click={() => (activeTab = 'makejail')}
                 class="px-4 py-2.5 border-r border-fjord-border flex items-center gap-2 {activeTab === 'makejail'
-                  ? 'bg-fjord-card text-white border-b-2 border-b-fjord-accent'
-                  : 'text-slate-400 hover:text-slate-200'}"
+                  ? 'bg-fjord-card text-fjord-fg border-b-2 border-b-fjord-accent'
+                  : 'text-fjord-fg-muted hover:text-fjord-fg-body'}"
               >
                 Makejail{#if (selectedStack.makejail ?? '') !== originalMakejail}<span class="text-fjord-warning font-bold">*</span>{/if}
               </button>
@@ -1793,16 +1817,16 @@
             <button
               on:click={() => (activeTab = 'env')}
               class="px-4 py-2.5 border-r border-fjord-border flex items-center gap-2 {activeTab === 'env'
-                ? 'bg-fjord-card text-white border-b-2 border-b-fjord-accent'
-                : 'text-slate-400 hover:text-slate-200'}"
+                ? 'bg-fjord-card text-fjord-fg border-b-2 border-b-fjord-accent'
+                : 'text-fjord-fg-muted hover:text-fjord-fg-body'}"
             >
               .env{#if selectedStack.env !== originalEnv}<span class="text-fjord-warning font-bold">*</span>{/if}
             </button>
             <button
               on:click={() => { activeTab = 'net'; loadMounts(); }}
               class="px-4 py-2.5 border-r border-fjord-border {activeTab === 'net'
-                ? 'bg-fjord-card text-white border-b-2 border-b-fjord-accent'
-                : 'text-slate-400 hover:text-slate-200'}">Resources</button
+                ? 'bg-fjord-card text-fjord-fg border-b-2 border-b-fjord-accent'
+                : 'text-fjord-fg-muted hover:text-fjord-fg-body'}">Resources</button
             >
           </div>
 
@@ -1837,15 +1861,15 @@
               />
             {:else}
               <div class="p-6 overflow-y-auto h-full">
-                <h3 class="text-lg font-bold text-white mb-1">Networking</h3>
+                <h3 class="text-lg font-bold text-fjord-fg mb-1">Networking</h3>
                 {#if networks.length}
-                  <p class="text-xs text-slate-400 mb-4 max-w-lg">
+                  <p class="text-xs text-fjord-fg-muted mb-4 max-w-lg">
                     Give this stack its own IP on an attachable network and binds its ports without colliding on
                     the host. Applied to the compose on <b>Save</b> (only when the service has no network yet).
                   </p>
                   <select
                     bind:value={netChoice}
-                    class="w-full max-w-md bg-fjord-inset border border-fjord-border rounded-lg px-3 py-2 text-sm text-slate-200 focus:border-fjord-accent outline-none"
+                    class="w-full max-w-md bg-fjord-inset border border-fjord-border rounded-lg px-3 py-2 text-sm text-fjord-fg-body focus:border-fjord-accent outline-none"
                   >
                     <option value="">Host ports (default)</option>
                     {#each networks as n}
@@ -1856,17 +1880,17 @@
                     <input
                       bind:value={netIP}
                       placeholder="IP (optional — auto-assign if blank)"
-                      class="w-full max-w-md mt-3 bg-fjord-inset border border-fjord-border rounded-lg px-3 py-2 text-sm text-slate-200 font-mono focus:border-fjord-accent outline-none"
+                      class="w-full max-w-md mt-3 bg-fjord-inset border border-fjord-border rounded-lg px-3 py-2 text-sm text-fjord-fg-body font-mono focus:border-fjord-accent outline-none"
                     />
                   {/if}
                 {:else}
-                  <p class="text-xs text-slate-500 mb-4 max-w-lg">
+                  <p class="text-xs text-fjord-fg-dim mb-4 max-w-lg">
                     No attachable networks on this host — the stack publishes ports on the host address.
                   </p>
                 {/if}
 
-                <h3 class="text-lg font-bold text-white mb-1 mt-8">Storage</h3>
-                <p class="text-xs text-slate-400 mb-4 max-w-lg">
+                <h3 class="text-lg font-bold text-fjord-fg mb-1 mt-8">Storage</h3>
+                <p class="text-xs text-fjord-fg-muted mb-4 max-w-lg">
                   Folders and volumes mounted into this stack. Changes edit the compose — <b>Save</b> to apply
                   (running containers pick it up on <b>Apply</b>/recreate).
                 </p>
@@ -1876,24 +1900,24 @@
                   <div class="border border-fjord-border rounded-lg divide-y divide-fjord-border max-w-2xl mb-4">
                     {#each mounts as m}
                       <div class="flex items-center gap-3 px-3 py-2 text-sm">
-                        <Icon name={m.kind === 'volume' ? 'drive' : 'folder'} size={15} class="text-slate-500 shrink-0" />
-                        <span class="font-mono text-slate-300 truncate" title={m.source}>{m.source}</span>
-                        <Icon name="chevron-right" size={13} class="text-slate-600 shrink-0" />
-                        <span class="font-mono text-white truncate shrink-0" title={m.dest}>{m.dest}</span>
+                        <Icon name={m.kind === 'volume' ? 'drive' : 'folder'} size={15} class="text-fjord-fg-dim shrink-0" />
+                        <span class="font-mono text-fjord-fg-secondary truncate" title={m.source}>{m.source}</span>
+                        <Icon name="chevron-right" size={13} class="text-fjord-fg-faint shrink-0" />
+                        <span class="font-mono text-fjord-fg truncate shrink-0" title={m.dest}>{m.dest}</span>
                         {#if m.readOnly}
-                          <span class="shrink-0 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-fjord-bg border border-fjord-border text-slate-400">RO</span>
+                          <span class="shrink-0 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-fjord-bg border border-fjord-border text-fjord-fg-muted">RO</span>
                         {/if}
-                        <span class="shrink-0 ml-auto text-[10px] px-1.5 py-0.5 rounded bg-fjord-bg border border-fjord-border text-slate-500">{m.kind}</span>
+                        <span class="shrink-0 ml-auto text-[10px] px-1.5 py-0.5 rounded bg-fjord-bg border border-fjord-border text-fjord-fg-dim">{m.kind}</span>
                         <button
                           on:click={() => removeMount(m.dest)}
                           title="Remove this mount"
-                          class="shrink-0 text-slate-500 hover:text-fjord-danger transition-colors"><Icon name="trash" size={14} /></button
+                          class="shrink-0 text-fjord-fg-dim hover:text-fjord-danger transition-colors"><Icon name="trash" size={14} /></button
                         >
                       </div>
                     {/each}
                   </div>
                 {:else}
-                  <p class="text-xs text-slate-600 mb-4">No storage mounted yet.</p>
+                  <p class="text-xs text-fjord-fg-faint mb-4">No storage mounted yet.</p>
                 {/if}
 
                 <!-- add a mount: host path (Browse) or, on podman, a named volume -->
@@ -1902,22 +1926,22 @@
                     <div class="flex rounded-lg overflow-hidden border border-fjord-border shrink-0">
                       <button
                         on:click={() => { addKind = 'bind'; addSource = ''; }}
-                        class="px-3 py-2 text-xs font-medium {addKind === 'bind' ? 'bg-fjord-accent text-white' : 'bg-fjord-inset text-slate-400 hover:text-white'}">Host path</button
+                        class="px-3 py-2 text-xs font-medium {addKind === 'bind' ? 'bg-fjord-accent text-white' : 'bg-fjord-inset text-fjord-fg-muted hover:text-fjord-fg'}">Host path</button
                       >
                       <button
                         on:click={() => { addKind = 'volume'; addSource = ''; }}
-                        class="px-3 py-2 text-xs font-medium border-l border-fjord-border {addKind === 'volume' ? 'bg-fjord-accent text-white' : 'bg-fjord-inset text-slate-400 hover:text-white'}">Volume</button
+                        class="px-3 py-2 text-xs font-medium border-l border-fjord-border {addKind === 'volume' ? 'bg-fjord-accent text-white' : 'bg-fjord-inset text-fjord-fg-muted hover:text-fjord-fg'}">Volume</button
                       >
                       <button
                         on:click={() => { addKind = 'remote'; addSource = ''; }}
-                        class="px-3 py-2 text-xs font-medium border-l border-fjord-border {addKind === 'remote' ? 'bg-fjord-accent text-white' : 'bg-fjord-inset text-slate-400 hover:text-white'}">NFS / SMB</button
+                        class="px-3 py-2 text-xs font-medium border-l border-fjord-border {addKind === 'remote' ? 'bg-fjord-accent text-white' : 'bg-fjord-inset text-fjord-fg-muted hover:text-fjord-fg'}">NFS / SMB</button
                       >
                     </div>
                   {/if}
                   {#if addKind === 'remote'}
                     <!-- Remote folder: same form as the folder-set editor; mounted at the container path on the right. -->
                     <div class="flex items-center gap-2">
-                      <select bind:value={addRemoteKind} class="bg-fjord-inset border border-fjord-border rounded-lg px-2 py-2 text-xs text-slate-300 focus:border-fjord-accent outline-none">
+                      <select bind:value={addRemoteKind} class="bg-fjord-inset border border-fjord-border rounded-lg px-2 py-2 text-xs text-fjord-fg-secondary focus:border-fjord-accent outline-none">
                         <option value="nfs">NFS</option>
                         <option value="smb">SMB</option>
                       </select>
@@ -1928,7 +1952,7 @@
                   {:else if addKind === 'volume'}
                     <select
                       bind:value={addSource}
-                      class="bg-fjord-inset border border-fjord-border rounded-lg px-3 py-2 text-sm text-slate-200 focus:border-fjord-accent outline-none"
+                      class="bg-fjord-inset border border-fjord-border rounded-lg px-3 py-2 text-sm text-fjord-fg-body focus:border-fjord-accent outline-none"
                     >
                       <option value="">Volume…</option>
                       {#each namedVolumes as v}
@@ -1940,18 +1964,18 @@
                       <input
                         bind:value={addSource}
                         placeholder="/host/path"
-                        class="w-52 bg-fjord-inset border border-fjord-border rounded-lg px-3 py-2 text-sm text-slate-200 font-mono focus:border-fjord-accent outline-none"
+                        class="w-52 bg-fjord-inset border border-fjord-border rounded-lg px-3 py-2 text-sm text-fjord-fg-body font-mono focus:border-fjord-accent outline-none"
                       />
                       <button
                         on:click={() => (pickingMount = true)}
                         title="Browse the host filesystem"
-                        class="shrink-0 px-2.5 py-2 rounded-lg text-xs font-medium bg-fjord-inset border border-fjord-border text-slate-300 hover:text-white hover:border-fjord-accent/40 transition-colors">Browse…</button
+                        class="shrink-0 px-2.5 py-2 rounded-lg text-xs font-medium bg-fjord-inset border border-fjord-border text-fjord-fg-secondary hover:text-fjord-fg hover:border-fjord-accent/40 transition-colors">Browse…</button
                       >
                       {#if folderSets.length}
                         <select
                           aria-label="Add a folder set"
                           title="Mounts the set's folders under the container path on the right"
-                          class="shrink-0 bg-fjord-inset border border-fjord-border rounded-lg px-2 py-2 text-xs text-slate-300 focus:border-fjord-accent outline-none"
+                          class="shrink-0 bg-fjord-inset border border-fjord-border rounded-lg px-2 py-2 text-xs text-fjord-fg-secondary focus:border-fjord-accent outline-none"
                           on:change={(e) => { addFolderSet(e.currentTarget.value); e.currentTarget.value = ''; }}
                         >
                           <option value="">Add folder set…</option>
@@ -1960,13 +1984,13 @@
                       {/if}
                     </div>
                   {/if}
-                  <Icon name="chevron-right" size={14} class="text-slate-600 shrink-0 mb-2.5" />
+                  <Icon name="chevron-right" size={14} class="text-fjord-fg-faint shrink-0 mb-2.5" />
                   <input
                     bind:value={addDest}
                     placeholder="/container/path"
-                    class="w-48 bg-fjord-inset border border-fjord-border rounded-lg px-3 py-2 text-sm text-slate-200 font-mono focus:border-fjord-accent outline-none"
+                    class="w-48 bg-fjord-inset border border-fjord-border rounded-lg px-3 py-2 text-sm text-fjord-fg-body font-mono focus:border-fjord-accent outline-none"
                   />
-                  <label class="flex items-center gap-1.5 text-sm text-slate-300 cursor-pointer select-none mb-2">
+                  <label class="flex items-center gap-1.5 text-sm text-fjord-fg-secondary cursor-pointer select-none mb-2">
                     <input type="checkbox" bind:checked={addRO} class="accent-fjord-accent" /> RO
                   </label>
                   {#if addKind !== 'remote'}
@@ -1978,7 +2002,7 @@
                   {/if}
                 </div>
                 {#if addKind === 'volume' && namedVolumes.length === 0}
-                  <p class="text-xs text-slate-600 mt-2">No named volumes yet — create one on the Volumes page.</p>
+                  <p class="text-xs text-fjord-fg-faint mt-2">No named volumes yet — create one on the Volumes page.</p>
                 {/if}
               </div>
             {/if}
@@ -2003,15 +2027,15 @@
                 on:click={() => showTab(selectedStack!.name, 'output')}
                 class="flex items-center gap-1.5 px-3 py-1 rounded-t-md text-xs font-medium transition-colors {drawerTab ===
                 'output'
-                  ? 'bg-fjord-card text-white border-b-2 border-fjord-accent'
-                  : 'text-slate-400 hover:text-white'}"><Icon name="list" size={13} /> Output</button
+                  ? 'bg-fjord-card text-fjord-fg border-b-2 border-fjord-accent'
+                  : 'text-fjord-fg-muted hover:text-fjord-fg'}"><Icon name="list" size={13} /> Output</button
               >
               <button
                 on:click={() => showTab(selectedStack!.name, 'logs')}
                 class="px-3 py-1 rounded-t-md text-xs font-medium transition-colors flex items-center gap-1.5 {drawerTab ===
                 'logs'
-                  ? 'bg-fjord-card text-white border-b-2 border-fjord-accent'
-                  : 'text-slate-400 hover:text-white'}"
+                  ? 'bg-fjord-card text-fjord-fg border-b-2 border-fjord-accent'
+                  : 'text-fjord-fg-muted hover:text-fjord-fg'}"
               >
                 <Icon name="logs" size={13} /> Logs
                 {#if logStacking === selectedStack.name}
@@ -2024,7 +2048,7 @@
                     on:click={() => (logsMenuOpen = !logsMenuOpen)}
                     title="Choose which services' logs to show"
                     class="bg-fjord-bg border border-fjord-border rounded px-2 py-0.5 text-[11px] font-mono focus:outline-none {logsAll
-                      ? 'text-slate-300'
+                      ? 'text-fjord-fg-secondary'
                       : 'text-fjord-accent border-fjord-accent/50'}"
                     ><span class="flex items-center gap-1"
                       >{logsAll ? 'Services' : `${logsSelected.length}/${shellContainers.length} services`}
@@ -2036,7 +2060,7 @@
                     <div class="fixed inset-0 z-20" on:click={() => (logsMenuOpen = false)}></div>
                     <div class="absolute z-30 top-full left-0 mt-1 bg-fjord-card border border-fjord-border rounded-lg shadow-2xl p-2 min-w-48">
                       {#each shellContainers as c}
-                        <label class="flex items-center gap-2 px-1.5 py-1 rounded text-xs text-slate-300 cursor-pointer hover:bg-fjord-border/50 hover:text-white select-none">
+                        <label class="flex items-center gap-2 px-1.5 py-1 rounded text-xs text-fjord-fg-secondary cursor-pointer hover:bg-fjord-border/50 hover:text-fjord-fg select-none">
                           <input
                             type="checkbox"
                             checked={logsSel[c.name] !== false}
@@ -2058,15 +2082,15 @@
                 on:click={() => showTab(selectedStack!.name, 'shell')}
                 class="flex items-center gap-1.5 px-3 py-1 rounded-t-md text-xs font-medium transition-colors {drawerTab ===
                 'shell'
-                  ? 'bg-fjord-card text-white border-b-2 border-fjord-accent'
-                  : 'text-slate-400 hover:text-white'}"><Icon name="terminal" size={13} /> Shell</button
+                  ? 'bg-fjord-card text-fjord-fg border-b-2 border-fjord-accent'
+                  : 'text-fjord-fg-muted hover:text-fjord-fg'}"><Icon name="terminal" size={13} /> Shell</button
               >
               {#if drawerTab === 'shell' && shellContainers.length > 1}
                 <select
                   value={shellContainer}
                   on:change={(e) => (shellPick = e.currentTarget.value)}
                   title="Container to open a shell in"
-                  class="ml-1 bg-fjord-bg border border-fjord-border rounded px-2 py-0.5 text-[11px] text-slate-300 font-mono focus:outline-none focus:border-fjord-accent"
+                  class="ml-1 bg-fjord-bg border border-fjord-border rounded px-2 py-0.5 text-[11px] text-fjord-fg-secondary font-mono focus:outline-none focus:border-fjord-accent"
                 >
                   {#each shellContainers as c}
                     <option value={c.name}>{serviceLabel(selectedStack.name, c.name)}</option>
@@ -2079,7 +2103,7 @@
                   stopLogs();
                   setDrawerOpen(false);
                 }}
-                class="flex items-center gap-1 text-xs font-medium text-slate-400 hover:text-white"
+                class="flex items-center gap-1 text-xs font-medium text-fjord-fg-muted hover:text-fjord-fg"
                 ><Icon name="chevron-down" size={12} /> Hide</button
               >
             </div>
@@ -2095,7 +2119,7 @@
                 {/key}
               {:else}
                 <div
-                  class="flex-1 flex items-center justify-center text-sm text-slate-500 bg-fjord-card border border-fjord-border rounded-xl"
+                  class="flex-1 flex items-center justify-center text-sm text-fjord-fg-dim bg-fjord-card border border-fjord-border rounded-xl"
                 >
                   Start the stack to open a shell.
                 </div>
@@ -2111,13 +2135,13 @@
         {:else}
           <button
             on:click={() => setDrawerOpen(true)}
-            class="shrink-0 mt-3 flex items-center gap-2 px-4 py-2 border border-fjord-border rounded-lg text-xs font-medium text-slate-400 hover:text-white hover:border-fjord-accent/40 transition-colors"
+            class="shrink-0 mt-3 flex items-center gap-2 px-4 py-2 border border-fjord-border rounded-lg text-xs font-medium text-fjord-fg-muted hover:text-fjord-fg hover:border-fjord-accent/40 transition-colors"
           >
             <Icon name="chevron-up" size={12} /> Panel
             {#if execStatus[selectedStack.name] === 'running'}
               <span class="w-1.5 h-1.5 rounded-full bg-fjord-warning animate-ping"></span>
             {:else if logs[selectedStack.name]}
-              <span class="text-slate-500">· last output</span>
+              <span class="text-fjord-fg-dim">· last output</span>
             {/if}
           </button>
         {/if}
@@ -2212,8 +2236,8 @@
         <Spinner size={26} class="text-fjord-danger" />
       </div>
       <div>
-        <h3 class="text-lg font-bold text-white">Deleting {deleting}</h3>
-        <p class="text-sm text-slate-400 mt-1">Stopping and removing its containers. This can take a few seconds…</p>
+        <h3 class="text-lg font-bold text-fjord-fg">Deleting {deleting}</h3>
+        <p class="text-sm text-fjord-fg-muted mt-1">Stopping and removing its containers. This can take a few seconds…</p>
       </div>
     </div>
   </div>

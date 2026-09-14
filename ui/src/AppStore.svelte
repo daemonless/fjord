@@ -188,8 +188,8 @@
   <header class="shrink-0 mb-5">
     <div class="flex justify-between items-end gap-4 mb-4">
       <div>
-        <h2 class="text-3xl font-semibold text-white tracking-tight">App Store</h2>
-        <p class="text-slate-400 mt-1">
+        <h2 class="text-3xl font-semibold text-fjord-fg tracking-tight">App Store</h2>
+        <p class="text-fjord-fg-muted mt-1">
           {#if catalog}
             {filtered.length} of {catalog.apps.length} apps
           {:else}
@@ -202,7 +202,7 @@
           <input
             bind:value={search}
             placeholder="Search apps…"
-            class="w-64 bg-fjord-card border border-fjord-border rounded-md px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-fjord-accent"
+            class="w-64 bg-fjord-card border border-fjord-border rounded-md px-3 py-2 text-sm text-fjord-fg-body focus:outline-none focus:border-fjord-accent"
           />
           <button
             on:click={refreshCatalog}
@@ -210,7 +210,7 @@
             title={sourceCount > 0
               ? `Re-fetch ${sourceCount === 1 ? 'the configured catalog' : `all ${sourceCount} catalogs`}`
               : 'No catalogs configured — add one in Settings'}
-            class="flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium bg-fjord-card border border-fjord-border text-slate-300 hover:text-white hover:border-fjord-accent/40 transition-colors disabled:opacity-50"
+            class="flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium bg-fjord-card border border-fjord-border text-fjord-fg-secondary hover:text-fjord-fg hover:border-fjord-accent/40 transition-colors disabled:opacity-50"
             ><Icon name="refresh" size={13} class={refreshing ? 'animate-spin' : ''} />
             {refreshing ? 'Refreshing…' : 'Refresh'}</button
           >
@@ -224,7 +224,7 @@
             on:click={() => (selectedCategory = c)}
             class="px-3 py-1 rounded-full text-xs font-medium border transition-colors {selectedCategory === c
               ? 'bg-fjord-accent border-fjord-accent text-white'
-              : 'bg-fjord-card border-fjord-border text-slate-400 hover:text-white hover:border-fjord-accent/40'}"
+              : 'bg-fjord-card border-fjord-border text-fjord-fg-muted hover:text-fjord-fg hover:border-fjord-accent/40'}"
             >{c}</button
           >
         {/each}
@@ -233,7 +233,7 @@
   </header>
 
   {#if loading}
-    <div class="flex-1 flex items-center justify-center gap-3 text-slate-400">
+    <div class="flex-1 flex items-center justify-center gap-3 text-fjord-fg-muted">
       <Spinner size={22} /> Loading catalog…
     </div>
   {:else if error}
@@ -271,7 +271,7 @@
     </div>
   {:else if catalog}
     {#if hiddenUnsupported || showUnsupported}
-      <p class="text-xs text-slate-500 mb-3">
+      <p class="text-xs text-fjord-fg-dim mb-3">
         {#if showUnsupported}
           Showing apps not built for <span class="font-mono">{hostArch}</span> too — they can't be installed here.
           <button on:click={() => (showUnsupported = false)} class="ml-1 text-fjord-accent hover:underline">Hide</button>
@@ -292,7 +292,7 @@
                         {#if app.icon}
                             <img src={app.icon} alt={app.name} class="w-8 h-8 object-contain" on:error={handleImgError} />
                         {:else}
-                            <span class="text-xl font-bold text-slate-500">{app.name[0]}</span>
+                            <span class="text-xl font-bold text-fjord-fg-dim">{app.name[0]}</span>
                         {/if}
                     </div>
                     {#if app.catalog_icon}
@@ -306,21 +306,21 @@
                     {/if}
                 </div>
                 <div class="min-w-0 flex-1">
-                    <h3 class="text-xl font-bold text-white break-words leading-tight group-hover:text-fjord-accent transition-colors">{app.name}</h3>
+                    <h3 class="text-xl font-bold text-fjord-fg break-words leading-tight group-hover:text-fjord-accent transition-colors">{app.name}</h3>
                     <p class="text-xs text-fjord-accent font-medium mt-0.5">{app.category}</p>
                     {#if (app.sources?.length ?? 1) > 1}
-                        <span class="inline-block mt-1 text-[10px] font-medium px-1.5 py-0.5 rounded bg-fjord-bg border border-fjord-border text-slate-400" title="Available from {app.sources?.map((s) => s.catalog_name).join(', ')} — pick one when installing">{app.sources?.length} catalogs</span>
+                        <span class="inline-block mt-1 text-[10px] font-medium px-1.5 py-0.5 rounded bg-fjord-bg border border-fjord-border text-fjord-fg-muted" title="Available from {app.sources?.map((s) => s.catalog_name).join(', ')} — pick one when installing">{app.sources?.length} catalogs</span>
                     {:else if multiCatalog && app.catalog_name}
-                        <span class="inline-block mt-1 text-[10px] font-medium px-1.5 py-0.5 rounded bg-fjord-bg border border-fjord-border text-slate-400" title="From the {app.catalog_name} catalog">{app.catalog_name}</span>
+                        <span class="inline-block mt-1 text-[10px] font-medium px-1.5 py-0.5 rounded bg-fjord-bg border border-fjord-border text-fjord-fg-muted" title="From the {app.catalog_name} catalog">{app.catalog_name}</span>
                     {/if}
                 </div>
             </div>
             {#if app.description}
-                <p class="text-xs text-slate-400 leading-relaxed line-clamp-2 mb-2">{app.description}</p>
+                <p class="text-xs text-fjord-fg-muted leading-relaxed line-clamp-2 mb-2">{app.description}</p>
             {/if}
 
             <div class="mt-auto pt-4 border-t border-fjord-border/50 flex justify-between items-center gap-3">
-                {#if ver(app.version)}<span class="text-xs font-mono text-slate-400 truncate min-w-0" title={ver(app.version)}>{ver(app.version)}</span>{/if}
+                {#if ver(app.version)}<span class="text-xs font-mono text-fjord-fg-muted truncate min-w-0" title={ver(app.version)}>{ver(app.version)}</span>{/if}
                 {#if !supported(app)}
                     <span class="text-[10px] font-medium px-1.5 py-0.5 rounded bg-fjord-warning/10 border border-fjord-warning/30 text-fjord-warning" title="Image is built for {(app.architectures || []).join(', ')} — this host is {hostArch}">{(app.architectures || []).join('/')} only</span>
                 {/if}
@@ -349,39 +349,39 @@
             {#if detailApp.icon}
               <img src={detailApp.icon} alt={detailApp.name} class="w-11 h-11 object-contain" on:error={handleImgError} />
             {:else}
-              <span class="text-2xl font-bold text-slate-500">{detailApp.name[0]}</span>
+              <span class="text-2xl font-bold text-fjord-fg-dim">{detailApp.name[0]}</span>
             {/if}
           </div>
           <div class="min-w-0 flex-1">
             <div class="flex items-center gap-2">
-              <h3 class="text-2xl font-bold text-white truncate">{detailApp.name}</h3>
+              <h3 class="text-2xl font-bold text-fjord-fg truncate">{detailApp.name}</h3>
               {#if detailApp.class === 'stack'}
                 <span class="shrink-0 text-[11px] font-medium bg-fjord-accent/20 text-fjord-accent px-1.5 py-0.5 rounded" title="Multi-service stack">Stack</span>
               {/if}
             </div>
             <p class="text-sm text-fjord-accent font-medium">{detailApp.category}{ver(detailApp.version) ? ` · ${ver(detailApp.version)}` : ''}</p>
             {#if detailApp.image}
-              <p class="text-xs font-mono text-slate-500 mt-1 truncate">{detailApp.image}</p>
+              <p class="text-xs font-mono text-fjord-fg-dim mt-1 truncate">{detailApp.image}</p>
             {/if}
           </div>
           <button
             on:click={() => (detailApp = null)}
             title="Close"
-            class="p-1.5 rounded-full text-slate-400 hover:text-white hover:bg-fjord-border shrink-0"
+            class="p-1.5 rounded-full text-fjord-fg-muted hover:text-fjord-fg hover:bg-fjord-border shrink-0"
             ><Icon name="close" size={16} /></button
           >
         </div>
 
         {#if detailApp.description}
-          <p class="text-sm text-slate-300 leading-relaxed mt-5">{detailApp.description}</p>
+          <p class="text-sm text-fjord-fg-secondary leading-relaxed mt-5">{detailApp.description}</p>
         {/if}
 
         {#if detailApp.variants?.length > 1}
           <div class="mt-5">
-            <div class="text-xs font-semibold text-slate-500 mb-1.5">Builds</div>
+            <div class="text-xs font-semibold text-fjord-fg-dim mb-1.5">Builds</div>
             <div class="flex flex-wrap gap-1.5">
               {#each detailApp.variants as v}
-                <span class="text-xs px-2 py-1 rounded bg-fjord-bg border border-fjord-border text-slate-300">
+                <span class="text-xs px-2 py-1 rounded bg-fjord-bg border border-fjord-border text-fjord-fg-secondary">
                   {v.label}{v.version ? ` · ${v.version}` : ''}{v.default ? ' ★' : ''}
                 </span>
               {/each}

@@ -27,7 +27,7 @@
   const DOT: Record<string, string> = {
     running: 'bg-fjord-success',
     partial: 'bg-fjord-warning',
-    stopped: 'bg-slate-500',
+    stopped: 'bg-fjord-neutral',
     unknown: 'bg-fjord-danger',
   };
   const label = (s?: StackStatus) => s?.state ?? 'unknown';
@@ -115,8 +115,8 @@
 <div class="h-full flex flex-col">
   <div class="flex items-center justify-between mb-4 shrink-0">
     <div>
-      <h2 class="text-2xl font-bold text-white">Stacks</h2>
-      <div class="text-sm text-slate-500">
+      <h2 class="text-2xl font-bold text-fjord-fg">Stacks</h2>
+      <div class="text-sm text-fjord-fg-dim">
         {stacks.length} stack{stacks.length === 1 ? '' : 's'} · {runningCount} running{#if updateCount}
           · <span class="text-fjord-warning">{updateCount} update{updateCount === 1 ? '' : 's'} available</span>{/if}
       </div>
@@ -125,7 +125,7 @@
       <button
         on:click={() => dispatch('adopt')}
         title="Turn containers started outside fjord into stacks"
-        class="flex items-center gap-2 bg-fjord-border hover:bg-fjord-accent hover:text-white text-slate-300 font-medium py-2 px-4 rounded-lg text-sm"
+        class="flex items-center gap-2 bg-fjord-border hover:bg-fjord-accent hover:text-white text-fjord-fg-secondary font-medium py-2 px-4 rounded-lg text-sm"
         ><Icon name="download" size={14} /> Adopt existing…</button
       >
       <button
@@ -158,7 +158,7 @@
               {#if iconOf(s)}
                 <img src={iconOf(s)} alt="" class="w-9 h-9 rounded-lg object-contain bg-fjord-bg p-0.5" />
               {:else}
-                <div class="w-9 h-9 rounded-lg flex items-center justify-center font-bold text-white text-sm" style="background:{tile(s.displayName || s.name)}">
+                <div class="w-9 h-9 rounded-lg flex items-center justify-center font-bold text-fjord-fg text-sm" style="background:{tile(s.displayName || s.name)}">
                   {(s.displayName || s.name)[0]?.toUpperCase()}
                 </div>
               {/if}
@@ -178,18 +178,18 @@
             </div>
             <!-- name + image -->
             <div class="min-w-0 flex-1">
-              <div class="text-white font-semibold text-sm truncate">{s.displayName || s.name}</div>
-              <div class="text-xs text-slate-500 font-mono truncate">{info[s.name]?.tag ? ':' + info[s.name].tag : ''}</div>
+              <div class="text-fjord-fg font-semibold text-sm truncate">{s.displayName || s.name}</div>
+              <div class="text-xs text-fjord-fg-dim font-mono truncate">{info[s.name]?.tag ? ':' + info[s.name].tag : ''}</div>
             </div>
             <!-- status -->
-            <div class="flex items-center gap-2 text-xs text-slate-400 w-24 shrink-0">
+            <div class="flex items-center gap-2 text-xs text-fjord-fg-muted w-24 shrink-0">
               <span class="w-2 h-2 rounded-full {DOT[label(s.status)]}"></span>
               <span class="capitalize">{label(s.status)}</span>
             </div>
             <!-- update badge -->
             <div class="w-32 shrink-0 text-center">
               {#if !u && fleetRefreshing}
-                <span class="text-xs text-slate-600">…</span>
+                <span class="text-xs text-fjord-fg-faint">…</span>
               {:else if u?.state === 'available'}
                 <span
                   class="inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full text-fjord-warning bg-fjord-warning/10 border border-fjord-warning/30"
@@ -210,7 +210,7 @@
                   ><Icon name="check" size={11} /> Up to date</span
                 >
               {:else if u?.state === 'unknown'}
-                <span class="inline-flex items-center gap-1 text-xs text-slate-500 cursor-help" title={u.detail || 'Could not compare the local image with the registry'}
+                <span class="inline-flex items-center gap-1 text-xs text-fjord-fg-dim cursor-help" title={u.detail || 'Could not compare the local image with the registry'}
                   ><Icon name="help" size={11} /> Unknown</span
                 >
               {/if}
@@ -237,21 +237,21 @@
                 <button
                   on:click={() => act(s.name, 'down')}
                   title="Stop"
-                  class="w-8 h-8 flex items-center justify-center rounded-lg bg-fjord-bg border border-fjord-border text-slate-400 hover:bg-fjord-border hover:text-white"
+                  class="w-8 h-8 flex items-center justify-center rounded-lg bg-fjord-bg border border-fjord-border text-fjord-fg-muted hover:bg-fjord-border hover:text-fjord-fg"
                   ><Icon name="stop" size={13} /></button
                 >
               {:else}
                 <button
                   on:click={() => act(s.name, 'up')}
                   title="Start"
-                  class="w-8 h-8 flex items-center justify-center rounded-lg bg-fjord-bg border border-fjord-border text-slate-400 hover:bg-fjord-success/80 hover:text-white"
+                  class="w-8 h-8 flex items-center justify-center rounded-lg bg-fjord-bg border border-fjord-border text-fjord-fg-muted hover:bg-fjord-success/80 hover:text-white"
                   ><Icon name="play" size={13} /></button
                 >
               {/if}
               <button
                 on:click={() => act(s.name, 'restart')}
                 title="Restart"
-                class="w-8 h-8 flex items-center justify-center rounded-lg bg-fjord-bg border border-fjord-border text-slate-400 hover:bg-fjord-border hover:text-white"
+                class="w-8 h-8 flex items-center justify-center rounded-lg bg-fjord-bg border border-fjord-border text-fjord-fg-muted hover:bg-fjord-border hover:text-fjord-fg"
                 ><Icon name="restart" size={13} /></button
               >
               <button
@@ -259,7 +259,7 @@
                 title="Update"
                 class="w-8 h-8 flex items-center justify-center rounded-lg {u?.state === 'available'
                   ? 'bg-fjord-warning/10 border border-fjord-warning/40 text-fjord-warning'
-                  : 'bg-fjord-bg border border-fjord-border text-slate-400 hover:bg-fjord-border hover:text-white'}"
+                  : 'bg-fjord-bg border border-fjord-border text-fjord-fg-muted hover:bg-fjord-border hover:text-fjord-fg'}"
                 ><Icon name="update" size={13} /></button
               >
             </div>

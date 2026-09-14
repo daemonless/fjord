@@ -432,53 +432,53 @@
 <div class="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
   <div class="bg-fjord-bg border border-fjord-border rounded-xl shadow-2xl w-full max-w-2xl flex flex-col overflow-hidden max-h-full">
     <div class="p-6 border-b border-fjord-border flex justify-between items-center bg-fjord-card">
-      <h3 class="text-2xl font-bold text-white">Install {appName}</h3>
-      <button on:click={close} title="Close" class="p-1.5 rounded-full text-slate-400 hover:text-white hover:bg-fjord-border"
+      <h3 class="text-2xl font-bold text-fjord-fg">Install {appName}</h3>
+      <button on:click={close} title="Close" class="p-1.5 rounded-full text-fjord-fg-muted hover:text-fjord-fg hover:bg-fjord-border"
         ><Icon name="close" size={16} /></button
       >
     </div>
 
     <div class="p-6 overflow-y-auto flex-1">
       {#if loading}
-        <div class="flex items-center gap-3 text-slate-400"><Spinner size={18} /> Loading configuration…</div>
+        <div class="flex items-center gap-3 text-fjord-fg-muted"><Spinner size={18} /> Loading configuration…</div>
       {:else if error}
         <p class="text-fjord-danger">{error}</p>
       {:else}
         <div class="space-y-5">
           <div class="flex flex-col gap-1">
-            <label class="text-sm font-semibold text-slate-300" for="stackname">Name</label>
+            <label class="text-sm font-semibold text-fjord-fg-secondary" for="stackname">Name</label>
             <input
               id="stackname"
               bind:value={stackName}
               placeholder={appId}
-              class="bg-fjord-inset border rounded-md px-3 py-2 text-slate-200 font-mono focus:outline-none focus:border-fjord-accent transition-colors {stackName && !validName ? 'border-fjord-danger/60' : 'border-fjord-border'}"
+              class="bg-fjord-inset border rounded-md px-3 py-2 text-fjord-fg-body font-mono focus:outline-none focus:border-fjord-accent transition-colors {stackName && !validName ? 'border-fjord-danger/60' : 'border-fjord-border'}"
             />
             {#if stackName && !validName}
               <div class="text-xs text-fjord-danger">Letters, digits, spaces, dots, dashes and underscores; up to 64 characters.</div>
             {:else}
-              <div class="text-xs text-slate-500">Change it to run more than one copy, e.g. <span class="font-mono">{appId}-4k</span>.</div>
+              <div class="text-xs text-fjord-fg-dim">Change it to run more than one copy, e.g. <span class="font-mono">{appId}-4k</span>.</div>
             {/if}
           </div>
 
           {#snippet varField(v: any)}
             <div class="flex flex-col gap-1">
-              <label class="text-sm font-semibold text-slate-300 flex items-center gap-2" for={v.name}>
+              <label class="text-sm font-semibold text-fjord-fg-secondary flex items-center gap-2" for={v.name}>
                 <span class="font-mono text-fjord-accent/90">{v.name}</span>
                 {#if v.optional !== true}<span class="text-fjord-danger" title="Required">*</span>{/if}
-                {#if v.type === 'path'}<span class="text-[10px] font-normal uppercase tracking-wide text-slate-500 border border-fjord-border rounded px-1.5 py-0.5">host path</span>{/if}
+                {#if v.type === 'path'}<span class="text-[10px] font-normal uppercase tracking-wide text-fjord-fg-dim border border-fjord-border rounded px-1.5 py-0.5">host path</span>{/if}
               </label>
               {#if v.label}
-                <div class="text-xs text-slate-500">{#each linkify(v.label) as seg}{#if seg.url}<a href={seg.url} target="_blank" rel="noopener noreferrer" class="text-fjord-accent hover:underline">{seg.text}</a>{:else}{seg.text}{/if}{/each}</div>
+                <div class="text-xs text-fjord-fg-dim">{#each linkify(v.label) as seg}{#if seg.url}<a href={seg.url} target="_blank" rel="noopener noreferrer" class="text-fjord-accent hover:underline">{seg.text}</a>{:else}{seg.text}{/if}{/each}</div>
               {/if}
               {#if v.type === 'zfs_dataset'}
-                <div class="text-xs text-slate-500">Auto-provisioned by fjord ({v.host_permissions?.uid ?? 1000}:{v.host_permissions?.gid ?? 1000}); no need to change.</div>
+                <div class="text-xs text-fjord-fg-dim">Auto-provisioned by fjord ({v.host_permissions?.uid ?? 1000}:{v.host_permissions?.gid ?? 1000}); no need to change.</div>
               {:else if v.type === 'image_tag'}
-                <div class="text-xs text-slate-500">
+                <div class="text-xs text-fjord-fg-dim">
                   Tag for <span class="font-mono">{v.image}</span> — follows the build/channel above when that
                   image publishes it. Edit to override.
                 </div>
               {:else if v.type === 'path'}
-                <div class="text-xs text-slate-500">Absolute path on the host — e.g. <span class="font-mono">{pathHint(v)}</span></div>
+                <div class="text-xs text-fjord-fg-dim">Absolute path on the host — e.g. <span class="font-mono">{pathHint(v)}</span></div>
               {/if}
               {#if v.type === 'path'}
                 <div class="flex flex-col gap-1.5">
@@ -490,33 +490,33 @@
                         bind:value={paths[v.name][i]}
                         on:input={() => touched.add(v.name)}
                         placeholder={pathHint(v)}
-                        class="flex-1 min-w-0 bg-fjord-inset border rounded-md px-3 py-2 text-slate-200 font-mono text-sm focus:outline-none focus:border-fjord-accent transition-colors {v.optional !== true && missingRequired.includes(v) ? 'border-fjord-danger/60' : 'border-fjord-border'}"
+                        class="flex-1 min-w-0 bg-fjord-inset border rounded-md px-3 py-2 text-fjord-fg-body font-mono text-sm focus:outline-none focus:border-fjord-accent transition-colors {v.optional !== true && missingRequired.includes(v) ? 'border-fjord-danger/60' : 'border-fjord-border'}"
                       />
                       {#if remoteKind(paths[v.name][i])}
-                        <span class="shrink-0 text-[10px] font-semibold uppercase tracking-wide text-slate-400 border border-fjord-border rounded px-1.5 py-0.5" title="Mounted as a named volume">{remoteKind(paths[v.name][i])}</span>
+                        <span class="shrink-0 text-[10px] font-semibold uppercase tracking-wide text-fjord-fg-muted border border-fjord-border rounded px-1.5 py-0.5" title="Mounted as a named volume">{remoteKind(paths[v.name][i])}</span>
                       {/if}
                       {#if hostMode && !isTemplated(paths[v.name][i]) && !remoteKind(paths[v.name][i])}
                         <button
                           type="button"
                           on:click={() => (picking = { name: v.name, i })}
                           title="Browse the host filesystem"
-                          class="shrink-0 px-3 py-2 rounded-md text-sm bg-fjord-border hover:bg-fjord-border/70 text-slate-200">Browse…</button
+                          class="shrink-0 px-3 py-2 rounded-md text-sm bg-fjord-border hover:bg-fjord-border/70 text-fjord-fg-body">Browse…</button
                         >
                       {/if}
                       {#if (paths[v.name] || []).length > 1}
-                        <button type="button" on:click={() => removeFolder(v.name, i)} title="Remove folder" class="shrink-0 text-slate-500 hover:text-fjord-danger"><Icon name="close" size={13} /></button>
+                        <button type="button" on:click={() => removeFolder(v.name, i)} title="Remove folder" class="shrink-0 text-fjord-fg-dim hover:text-fjord-danger"><Icon name="close" size={13} /></button>
                       {/if}
                     </div>
                     {#if isTemplated(paths[v.name][i])}
-                      <div class="text-xs text-slate-500 font-mono pl-1">→ {previewOf(paths[v.name][i])}</div>
+                      <div class="text-xs text-fjord-fg-dim font-mono pl-1">→ {previewOf(paths[v.name][i])}</div>
                     {/if}
                   {/each}
                   <div class="flex items-center gap-3">
-                    <button type="button" on:click={() => addFolder(v.name)} class="text-xs text-slate-400 hover:text-white flex items-center gap-1"><Icon name="plus" size={12} /> Add folder</button>
+                    <button type="button" on:click={() => addFolder(v.name)} class="text-xs text-fjord-fg-muted hover:text-fjord-fg flex items-center gap-1"><Icon name="plus" size={12} /> Add folder</button>
                     {#if folderSets.length}
                       <select
                         aria-label="Add a folder set"
-                        class="text-xs bg-fjord-inset border border-fjord-border rounded-md px-2 py-1 text-slate-300 focus:outline-none focus:border-fjord-accent"
+                        class="text-xs bg-fjord-inset border border-fjord-border rounded-md px-2 py-1 text-fjord-fg-secondary focus:outline-none focus:border-fjord-accent"
                         on:change={(e) => { addFolderSet(v.name, e.currentTarget.value); e.currentTarget.value = ''; }}
                       >
                         <option value="">Add folder set…</option>
@@ -525,10 +525,10 @@
                     {/if}
                   </div>
                   {#if defaultedFrom[v.name]}
-                    <div class="text-xs text-slate-500">Defaults from your <b class="text-slate-400">{defaultedFrom[v.name]}</b> folder set — edit freely.</div>
+                    <div class="text-xs text-fjord-fg-dim">Defaults from your <b class="text-fjord-fg-muted">{defaultedFrom[v.name]}</b> folder set — edit freely.</div>
                   {/if}
                   {#if (paths[v.name] || []).filter((p) => p.trim()).length > 1}
-                    <div class="text-xs text-slate-500">Several folders: each is mounted as its own sub-folder inside the container.</div>
+                    <div class="text-xs text-fjord-fg-dim">Several folders: each is mounted as its own sub-folder inside the container.</div>
                   {/if}
                 </div>
               {:else}
@@ -538,7 +538,7 @@
                   bind:value={formData[v.name]}
                   on:input={() => touched.add(v.name)}
                   placeholder={v.default || (v.optional !== true ? 'required' : '')}
-                  class="w-full bg-fjord-inset border rounded-md px-3 py-2 text-slate-200 focus:outline-none focus:border-fjord-accent transition-colors {v.optional !== true && isEmpty(v) ? 'border-fjord-danger/60' : 'border-fjord-border'}"
+                  class="w-full bg-fjord-inset border rounded-md px-3 py-2 text-fjord-fg-body focus:outline-none focus:border-fjord-accent transition-colors {v.optional !== true && isEmpty(v) ? 'border-fjord-danger/60' : 'border-fjord-border'}"
                 />
               {/if}
             </div>
@@ -547,11 +547,11 @@
           {#each primaryVars as v}{@render varField(v)}{/each}
 
           <!-- the defaults being accepted, in one line; Options is one click -->
-          <div class="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-slate-400 border-t border-fjord-border pt-4">
+          <div class="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-fjord-fg-muted border-t border-fjord-border pt-4">
             <span>
-              Installs <b class="text-slate-200">{appName} {summaryVersion}</b>{#if summaryTrain}{' '}({summaryTrain}){/if}
-              on <b class="text-slate-200">{engineChoice || 'podman'}</b>
-              · data in <span class="font-mono text-slate-300">{storageBase}/{slugOf(stackName, appId || 'app')}</span>
+              Installs <b class="text-fjord-fg-body">{appName} {summaryVersion}</b>{#if summaryTrain}{' '}({summaryTrain}){/if}
+              on <b class="text-fjord-fg-body">{engineChoice || 'podman'}</b>
+              · data in <span class="font-mono text-fjord-fg-secondary">{storageBase}/{slugOf(stackName, appId || 'app')}</span>
             </span>
             <button
               type="button"
@@ -566,7 +566,7 @@
             <div class="space-y-5">
               {#if sources.length > 1}
           <div class="flex flex-col gap-1">
-            <label class="text-sm font-semibold text-slate-300" for="repo">Repository</label>
+            <label class="text-sm font-semibold text-fjord-fg-secondary" for="repo">Repository</label>
             <div class="flex items-center gap-2">
               {#if activeSource?.catalog_icon}
                 <div class="shrink-0 w-8 h-8 rounded-md bg-fjord-bg border border-fjord-border flex items-center justify-center overflow-hidden">
@@ -578,7 +578,7 @@
                 bind:value={sourceIdx}
                 disabled={sources.length < 2}
                 title={sources.length < 2 ? 'Only one catalog offers this app' : 'Choose which catalog to install from'}
-                class="flex-1 bg-fjord-inset border border-fjord-border rounded-md px-3 py-2 text-slate-200 focus:outline-none focus:border-fjord-accent disabled:opacity-50 disabled:cursor-not-allowed"
+                class="flex-1 bg-fjord-inset border border-fjord-border rounded-md px-3 py-2 text-fjord-fg-body focus:outline-none focus:border-fjord-accent disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {#each sources as s, i}
                   <option value={i}>{s.catalog_name}</option>
@@ -590,12 +590,12 @@
           {#if variants.length}
             <div class="grid grid-cols-2 gap-3">
               <div class="flex flex-col gap-1">
-                <label class="text-sm font-semibold text-slate-300" for="train">Build / channel</label>
+                <label class="text-sm font-semibold text-fjord-fg-secondary" for="train">Build / channel</label>
                 <select
                   id="train"
                   bind:value={train}
                   on:change={() => (versionTag = '')}
-                  class="bg-fjord-inset border border-fjord-border rounded-md px-3 py-2 text-slate-200 focus:outline-none focus:border-fjord-accent"
+                  class="bg-fjord-inset border border-fjord-border rounded-md px-3 py-2 text-fjord-fg-body focus:outline-none focus:border-fjord-accent"
                 >
                   {#each trainList as t}
                     <option value={t.id}>{t.label}</option>
@@ -603,29 +603,29 @@
                 </select>
               </div>
               <div class="flex flex-col gap-1">
-                <label class="text-sm font-semibold text-slate-300" for="ver">Version</label>
+                <label class="text-sm font-semibold text-fjord-fg-secondary" for="ver">Version</label>
                 <select
                   id="ver"
                   bind:value={versionTag}
-                  class="bg-fjord-inset border border-fjord-border rounded-md px-3 py-2 text-slate-200 focus:outline-none focus:border-fjord-accent"
+                  class="bg-fjord-inset border border-fjord-border rounded-md px-3 py-2 text-fjord-fg-body focus:outline-none focus:border-fjord-accent"
                 >
                   <option value="">Latest (rolling)</option>
                   {#each trains[train] || [] as v}
                     <option value={v.tag}>{v.version}</option>
                   {/each}
                 </select>
-                {#if loadingVersions}<span class="text-xs text-slate-500">Loading versions…</span>{/if}
+                {#if loadingVersions}<span class="text-xs text-fjord-fg-dim">Loading versions…</span>{/if}
               </div>
             </div>
           {/if}
           {#if appDataLocations.length > 1}
             <div class="flex flex-col gap-1">
-              <label class="text-sm font-semibold text-slate-300" for="appdata">App data</label>
-              <p class="text-xs text-slate-500">Where this app's own folders go — <span class="font-mono">{storageBase}/{slugOf(stackName, appId || 'app')}/…</span></p>
+              <label class="text-sm font-semibold text-fjord-fg-secondary" for="appdata">App data</label>
+              <p class="text-xs text-fjord-fg-dim">Where this app's own folders go — <span class="font-mono">{storageBase}/{slugOf(stackName, appId || 'app')}/…</span></p>
               <select
                 id="appdata"
                 bind:value={appDataChoice}
-                class="bg-fjord-inset border border-fjord-border rounded-md px-3 py-2 text-slate-200 font-mono text-sm focus:outline-none focus:border-fjord-accent"
+                class="bg-fjord-inset border border-fjord-border rounded-md px-3 py-2 text-fjord-fg-body font-mono text-sm focus:outline-none focus:border-fjord-accent"
               >
                 {#each appDataLocations as l, i}
                   <option value={l}>{l}{i === 0 ? ' (default)' : ''}</option>
@@ -638,19 +638,19 @@
 
               {#if advancedVars.length || availableEngines.length > 1 || networks.length || variants.length}
                 <details class="group border-t border-fjord-border pt-4" open={advancedOpen}>
-                  <summary class="flex items-center gap-1.5 cursor-pointer text-sm font-semibold text-slate-300 hover:text-white select-none list-none">
+                  <summary class="flex items-center gap-1.5 cursor-pointer text-sm font-semibold text-fjord-fg-secondary hover:text-fjord-fg select-none list-none">
                     <Icon name="chevron-right" size={14} class="transition-transform group-open:rotate-90" />
                     Advanced
                   </summary>
                   <div class="mt-4 space-y-5">
           {#if availableEngines.length > 1}
             <div class="flex flex-col gap-1">
-              <label class="text-sm font-semibold text-slate-300" for="engine">Engine</label>
-              <p class="text-xs text-slate-500">The runtime this stack runs on — fixed once installed.</p>
+              <label class="text-sm font-semibold text-fjord-fg-secondary" for="engine">Engine</label>
+              <p class="text-xs text-fjord-fg-dim">The runtime this stack runs on — fixed once installed.</p>
               <select
                 id="engine"
                 bind:value={engineChoice}
-                class="bg-fjord-inset border border-fjord-border rounded-md px-3 py-2 text-slate-200 focus:outline-none focus:border-fjord-accent"
+                class="bg-fjord-inset border border-fjord-border rounded-md px-3 py-2 text-fjord-fg-body focus:outline-none focus:border-fjord-accent"
               >
                 {#each availableEngines as e}
                   <option value={e.name}>{e.name}{e.default ? ' (default)' : ''}</option>
@@ -668,20 +668,20 @@
               <input
                 bind:value={customTag}
                 placeholder="Custom tag (optional override)"
-                class="flex-1 bg-fjord-inset border border-fjord-border rounded-md px-3 py-1.5 text-slate-200 font-mono text-xs focus:outline-none focus:border-fjord-accent"
+                class="flex-1 bg-fjord-inset border border-fjord-border rounded-md px-3 py-1.5 text-fjord-fg-body font-mono text-xs focus:outline-none focus:border-fjord-accent"
               />
-              <span class="text-xs text-slate-500 shrink-0">→ <span class="font-mono text-slate-300">:{tag}</span></span>
+              <span class="text-xs text-fjord-fg-dim shrink-0">→ <span class="font-mono text-fjord-fg-secondary">:{tag}</span></span>
             </div>
                     {/if}
                     {#each advancedVars as v}{@render varField(v)}{/each}
           {#if networks.length}
             <div class="pt-4 border-t border-fjord-border">
-              <label class="text-sm font-semibold text-slate-300" for="net">Networking</label>
-              <p class="text-xs text-slate-500 mb-2">Give this app its own IP so it binds its ports without colliding on the host.</p>
+              <label class="text-sm font-semibold text-fjord-fg-secondary" for="net">Networking</label>
+              <p class="text-xs text-fjord-fg-dim mb-2">Give this app its own IP so it binds its ports without colliding on the host.</p>
               <select
                 id="net"
                 bind:value={netChoice}
-                class="w-full bg-fjord-inset border border-fjord-border rounded-md px-3 py-2 text-slate-200 focus:outline-none focus:border-fjord-accent"
+                class="w-full bg-fjord-inset border border-fjord-border rounded-md px-3 py-2 text-fjord-fg-body focus:outline-none focus:border-fjord-accent"
               >
                 <option value="">Host ports (default)</option>
                 {#each networks as n}
@@ -693,7 +693,7 @@
                   type="text"
                   bind:value={netIP}
                   placeholder="IP (optional — auto-assign if blank)"
-                  class="w-full mt-2 bg-fjord-inset border border-fjord-border rounded-md px-3 py-2 text-slate-200 font-mono text-sm focus:outline-none focus:border-fjord-accent"
+                  class="w-full mt-2 bg-fjord-inset border border-fjord-border rounded-md px-3 py-2 text-fjord-fg-body font-mono text-sm focus:outline-none focus:border-fjord-accent"
                 />
               {/if}
             </div>
@@ -708,7 +708,7 @@
     </div>
 
     <div class="p-4 border-t border-fjord-border bg-fjord-card flex justify-end gap-3">
-      <button on:click={close} class="px-4 py-2 rounded-md font-medium text-slate-300 hover:text-white hover:bg-fjord-border transition-all">Cancel</button>
+      <button on:click={close} class="px-4 py-2 rounded-md font-medium text-fjord-fg-secondary hover:text-fjord-fg hover:bg-fjord-border transition-all">Cancel</button>
       <button
         on:click={deploy}
         disabled={loading || !!error || !validName || missingRequired.length > 0}

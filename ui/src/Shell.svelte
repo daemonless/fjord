@@ -118,8 +118,8 @@
 </script>
 
 <div class="flex-1 flex flex-col min-h-0 bg-fjord-card border border-fjord-border rounded-xl overflow-hidden">
-  <div class="flex items-center gap-2 px-3 py-1 border-b border-fjord-border text-[11px] text-slate-500">
-    <span class="font-mono text-slate-400">{container}</span>
+  <div class="flex items-center gap-2 px-3 py-1 border-b border-fjord-border text-[11px] text-fjord-fg-dim">
+    <span class="font-mono text-fjord-fg-muted">{container}</span>
     <span class="flex-1"></span>
     {#if state === 'connected'}
       <span class="text-fjord-success">● connected</span>
@@ -128,7 +128,7 @@
     {:else if state === 'error'}
       <span class="text-fjord-danger">● connection error</span>
     {:else}
-      <span class="text-slate-500">● closed</span>
+      <span class="text-fjord-fg-dim">● closed</span>
     {/if}
   </div>
   <div bind:this={el} class="flex-1 min-h-0 p-1.5"></div>

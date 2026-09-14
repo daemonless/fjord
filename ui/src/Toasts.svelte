@@ -9,8 +9,8 @@
       <div
         class="pointer-events-auto flex items-center gap-3 max-w-lg rounded-full pl-4 pr-2 py-1.5 shadow-2xl border text-sm
           {t.kind === 'error'
-          ? 'bg-fjord-card border-fjord-danger/40 text-slate-100'
-          : 'bg-fjord-card border-fjord-border text-slate-100'}"
+          ? 'bg-fjord-card border-fjord-danger/40 text-fjord-fg-strong'
+          : 'bg-fjord-card border-fjord-border text-fjord-fg-strong'}"
         role="status"
       >
         {#if t.kind === 'error'}
@@ -31,7 +31,7 @@
         {/if}
         <button
           on:click={() => dismissToast(t.id)}
-          class="shrink-0 p-1.5 rounded-full text-slate-400 hover:text-white hover:bg-fjord-border transition-colors"
+          class="shrink-0 p-1.5 rounded-full text-fjord-fg-muted hover:text-fjord-fg hover:bg-fjord-border transition-colors"
           title="Dismiss"><Icon name="close" size={13} /></button
         >
       </div>

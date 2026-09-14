@@ -318,21 +318,21 @@
     ok: { icon: 'check', cls: 'text-fjord-success' },
     warn: { icon: 'alert', cls: 'text-fjord-warning' },
     fail: { icon: 'alert', cls: 'text-fjord-danger' },
-    unknown: { icon: 'alert', cls: 'text-slate-500' },
+    unknown: { icon: 'alert', cls: 'text-fjord-fg-dim' },
   };
 </script>
 
-<div class="h-screen flex items-center justify-center bg-fjord-bg text-slate-200 p-6 overflow-y-auto">
+<div class="h-screen flex items-center justify-center bg-fjord-bg text-fjord-fg-body p-6 overflow-y-auto">
   <div class="w-full max-w-2xl">
     <!-- step indicator -->
     <div class="flex items-center gap-2 mb-6">
       {#each STEPS as label, i}
         <button
           on:click={() => i < step && (step = i)}
-          class="flex items-center gap-2 text-xs font-medium {i === step ? 'text-white' : i < step ? 'text-slate-400 hover:text-slate-200' : 'text-slate-600'}"
+          class="flex items-center gap-2 text-xs font-medium {i === step ? 'text-fjord-fg' : i < step ? 'text-fjord-fg-muted hover:text-fjord-fg-body' : 'text-fjord-fg-faint'}"
           disabled={i > step}
         >
-          <span class="w-5 h-5 rounded-full flex items-center justify-center text-[10px] {i === step ? 'bg-fjord-accent text-white' : i < step ? 'bg-fjord-border text-slate-300' : 'border border-fjord-border'}"
+          <span class="w-5 h-5 rounded-full flex items-center justify-center text-[10px] {i === step ? 'bg-fjord-accent text-white' : i < step ? 'bg-fjord-border text-fjord-fg-secondary' : 'border border-fjord-border'}"
             >{#if i < step}<Icon name="check" size={11} />{:else}{i + 1}{/if}</span
           >
           {label}
@@ -343,33 +343,33 @@
 
     <div class="bg-fjord-card border border-fjord-border rounded-xl p-7 shadow-2xl">
       {#if step === 0}
-        <h2 class="text-2xl font-bold text-white mb-2">Welcome to fjord</h2>
-        <p class="text-sm text-slate-400 mb-5">
+        <h2 class="text-2xl font-bold text-fjord-fg mb-2">Welcome to fjord</h2>
+        <p class="text-sm text-fjord-fg-muted mb-5">
           An app store for your own host. Pick an app, answer a couple of questions, and it runs as a
           stack you can see, update, and remove. This takes about two minutes and nothing here is final.
         </p>
         <div class="flex items-center justify-between mb-2">
-          <h3 class="text-sm font-semibold text-slate-300">Host readiness{#if engineName} · {engineName}{/if}</h3>
+          <h3 class="text-sm font-semibold text-fjord-fg-secondary">Host readiness{#if engineName} · {engineName}{/if}</h3>
           <!-- Fixes are applied in a root shell outside fjord; re-run without leaving the page. -->
           <button
             on:click={loadChecks}
             disabled={checksLoading}
-            class="flex items-center gap-1.5 text-xs font-medium text-slate-400 hover:text-white py-1 px-2.5 rounded-md border border-fjord-border hover:border-fjord-accent/40 transition-colors disabled:opacity-40"
+            class="flex items-center gap-1.5 text-xs font-medium text-fjord-fg-muted hover:text-fjord-fg py-1 px-2.5 rounded-md border border-fjord-border hover:border-fjord-accent/40 transition-colors disabled:opacity-40"
             ><Icon name="refresh" size={13} /> Re-check</button
           >
         </div>
         {#if checksLoading}
-          <div class="flex items-center gap-2 text-sm text-slate-500"><Spinner size={14} /> Checking the host…</div>
+          <div class="flex items-center gap-2 text-sm text-fjord-fg-dim"><Spinner size={14} /> Checking the host…</div>
         {:else if checks.length === 0}
-          <p class="text-sm text-slate-500">No checks reported.</p>
+          <p class="text-sm text-fjord-fg-dim">No checks reported.</p>
         {:else}
           <div class="border border-fjord-border rounded-xl overflow-hidden divide-y divide-fjord-border">
             {#each checks as c (c.id)}
               <div class="flex items-start gap-3 px-4 py-2.5">
                 <Icon name={STATUS[c.status]?.icon || 'alert'} size={15} class="shrink-0 mt-0.5 {STATUS[c.status]?.cls || ''}" />
                 <div class="min-w-0 flex-1">
-                  <div class="text-sm text-slate-200">{c.name}{#if c.detail}<span class="text-slate-500"> · {c.detail}</span>{/if}</div>
-                  {#if c.why}<div class="text-xs text-slate-500 mt-0.5">{c.why}</div>{/if}
+                  <div class="text-sm text-fjord-fg-body">{c.name}{#if c.detail}<span class="text-fjord-fg-dim"> · {c.detail}</span>{/if}</div>
+                  {#if c.why}<div class="text-xs text-fjord-fg-dim mt-0.5">{c.why}</div>{/if}
                   {#if c.status !== 'ok' && c.fix}<div class="mt-1.5"><FixSnippet fix={c.fix} /></div>{/if}
                 </div>
               </div>
@@ -383,8 +383,8 @@
           {/if}
         {/if}
       {:else if step === 1}
-        <h2 class="text-2xl font-bold text-white mb-2">Engine</h2>
-        <p class="text-sm text-slate-400 mb-5">
+        <h2 class="text-2xl font-bold text-fjord-fg mb-2">Engine</h2>
+        <p class="text-sm text-fjord-fg-muted mb-5">
           The runtime new apps are installed on. Both run the same images as FreeBSD jails; each install can still
           pick the other, and a stack's engine is fixed once installed. Change the default any time under
           Settings → Engines.
@@ -395,20 +395,20 @@
               class="flex items-start gap-3 p-3 rounded-xl border transition-colors {e.enabled
                 ? engineChoice === e.name
                   ? 'border-fjord-accent bg-fjord-accent/10 cursor-pointer'
-                  : 'border-fjord-border hover:border-slate-500 cursor-pointer'
+                  : 'border-fjord-border hover:border-fjord-neutral cursor-pointer'
                 : 'border-fjord-border opacity-60 cursor-not-allowed'}"
             >
               <input type="radio" name="engine" value={e.name} bind:group={engineChoice} disabled={!e.enabled} class="mt-1 accent-fjord-accent" />
-              <span class="flex items-center justify-center w-8 h-8 rounded-lg bg-fjord-bg border border-fjord-border shrink-0 text-slate-300"
+              <span class="flex items-center justify-center w-8 h-8 rounded-lg bg-fjord-bg border border-fjord-border shrink-0 text-fjord-fg-secondary"
                 ><EngineMark engine={e.name} size={18} /></span
               >
               <span class="min-w-0">
                 <span class="flex items-center gap-2">
-                  <span class="font-semibold text-white">{e.name}</span>
-                  {#if !e.available}<span class="text-[10px] font-medium px-1.5 py-0.5 rounded bg-fjord-bg border border-fjord-border text-slate-500">not installed</span>{/if}
+                  <span class="font-semibold text-fjord-fg">{e.name}</span>
+                  {#if !e.available}<span class="text-[10px] font-medium px-1.5 py-0.5 rounded bg-fjord-bg border border-fjord-border text-fjord-fg-dim">not installed</span>{/if}
                 </span>
-                <span class="block text-xs text-slate-400 mt-0.5">{e.description}</span>
-                {#if !e.available && e.reason}<span class="block text-xs text-slate-500 mt-0.5">{e.reason} — the System page shows how to install it.</span>{/if}
+                <span class="block text-xs text-fjord-fg-muted mt-0.5">{e.description}</span>
+                {#if !e.available && e.reason}<span class="block text-xs text-fjord-fg-dim mt-0.5">{e.reason} — the System page shows how to install it.</span>{/if}
                 {#if e.warning}<span class="flex items-start gap-1.5 text-xs text-fjord-warning mt-1"><Icon name="alert" size={12} class="shrink-0 mt-0.5" /> {e.warning}</span>{/if}
               </span>
             </label>
@@ -418,32 +418,32 @@
           <p class="text-sm text-fjord-warning">No engine is available yet — install one (see the readiness checks) and restart fjordd.</p>
         {/if}
       {:else if step === 2}
-        <h2 class="text-2xl font-bold text-white mb-2">Storage</h2>
-        <p class="text-sm text-slate-400 mb-5">
+        <h2 class="text-2xl font-bold text-fjord-fg mb-2">Storage</h2>
+        <p class="text-sm text-fjord-fg-muted mb-5">
           Where apps keep their data. Each app gets its own folder under this location. Pick a disk with room;
           you can add more locations later under Settings → Storage.
         </p>
-        <label class="text-sm font-semibold text-slate-300" for="appdata">App data location</label>
+        <label class="text-sm font-semibold text-fjord-fg-secondary" for="appdata">App data location</label>
         <div class="flex items-center gap-2 mt-1.5 mb-1">
           <input
             id="appdata"
             bind:value={appData}
             placeholder={appDataDefault}
-            class="flex-1 min-w-0 bg-fjord-inset border border-fjord-border rounded-md px-3 py-2 text-slate-200 font-mono text-sm focus:outline-none focus:border-fjord-accent"
+            class="flex-1 min-w-0 bg-fjord-inset border border-fjord-border rounded-md px-3 py-2 text-fjord-fg-body font-mono text-sm focus:outline-none focus:border-fjord-accent"
           />
           {#if hostMode}
             <button on:click={() => (pickDir = true)} class="px-3 py-2 rounded-md text-sm font-medium bg-fjord-border hover:bg-fjord-accent hover:text-white transition-colors">Browse…</button>
           {/if}
         </div>
-        <p class="text-xs text-slate-500 mb-6">Leave it empty to use <span class="font-mono">{appDataDefault}</span>.</p>
+        <p class="text-xs text-fjord-fg-dim mb-6">Leave it empty to use <span class="font-mono">{appDataDefault}</span>.</p>
 
         <div class="border border-fjord-border px-4 py-3 flex items-center gap-3 {homelab && presets.length ? 'rounded-t-xl' : 'rounded-xl'}">
           <div class="min-w-0 flex-1">
             <div class="flex items-center gap-2">
-              <span class="text-sm font-medium text-white">Homelab presets</span>
+              <span class="text-sm font-medium text-fjord-fg">Homelab presets</span>
               <span class="text-[10px] font-semibold uppercase tracking-wide text-fjord-success">suggested</span>
             </div>
-            <div class="text-xs text-slate-500">
+            <div class="text-xs text-fjord-fg-dim">
               Movies, TV, Music, Downloads, Books, Photos as ready-made folder sets. Apps that want one of those
               folders pick it up at install instead of asking. Turn it off if this host isn't a media box.
             </div>
@@ -459,7 +459,7 @@
 
         {#if homelab && presets.length}
           <div class="border border-fjord-border border-t-0 rounded-b-xl -mt-px px-4 pt-3 pb-4">
-            <p class="text-xs text-slate-500 mb-3">
+            <p class="text-xs text-fjord-fg-dim mb-3">
               Where these folders live on this host. Add the ones you have (local paths or NFS/SMB);
               leave the rest empty. You can edit them later under Settings → Storage.
             </p>
@@ -467,8 +467,8 @@
               {#each presets as pr (pr.name)}
                 <div class="py-3 first:pt-0 last:pb-0">
                   <div class="flex items-center gap-2 mb-1.5">
-                    <Icon name={presetIcon(pr.name)} size={14} class="shrink-0 text-slate-500" />
-                    <span class="text-sm font-medium text-slate-300">{pr.name}</span>
+                    <Icon name={presetIcon(pr.name)} size={14} class="shrink-0 text-fjord-fg-dim" />
+                    <span class="text-sm font-medium text-fjord-fg-secondary">{pr.name}</span>
                   </div>
                   <FolderRows bind:folders={presetFolders[pr.name]} />
                 </div>
@@ -477,8 +477,8 @@
           </div>
         {/if}
       {:else if step === 3}
-        <h2 class="text-2xl font-bold text-white mb-2">Catalog</h2>
-        <p class="text-sm text-slate-400 mb-5">
+        <h2 class="text-2xl font-bold text-fjord-fg mb-2">Catalog</h2>
+        <p class="text-sm text-fjord-fg-muted mb-5">
           Where apps come from. A catalog is a URL publishing an app list, icons and install manifests.
           The daemonless catalog is the default; your own, or another fjord's <span class="font-mono">/catalog</span>, works the same way.
         </p>
@@ -492,28 +492,28 @@
                   <Icon name="check" size={15} class="shrink-0 text-fjord-success" />
                 {/if}
                 <div class="min-w-0 flex-1">
-                  <div class="text-sm text-white">{c.name} <span class="text-[11px] text-slate-500">{c.apps} apps</span></div>
-                  <div class="text-xs text-slate-500 font-mono truncate">{c.url}</div>
+                  <div class="text-sm text-fjord-fg">{c.name} <span class="text-[11px] text-fjord-fg-dim">{c.apps} apps</span></div>
+                  <div class="text-xs text-fjord-fg-dim font-mono truncate">{c.url}</div>
                 </div>
                 <button
                   on:click={() => removeCatalog(c)}
                   title="Remove this catalog"
-                  class="shrink-0 text-slate-500 hover:text-fjord-danger"><Icon name="close" size={14} /></button
+                  class="shrink-0 text-fjord-fg-dim hover:text-fjord-danger"><Icon name="close" size={14} /></button
                 >
               </div>
             {/each}
           </div>
-          <p class="text-xs text-slate-500 mb-4">{totalApps} apps ready. The default is the daemonless catalog; remove it or add your own below — all of this is editable later under Settings → Catalogs.</p>
+          <p class="text-xs text-fjord-fg-dim mb-4">{totalApps} apps ready. The default is the daemonless catalog; remove it or add your own below — all of this is editable later under Settings → Catalogs.</p>
         {:else}
           <p class="text-xs text-fjord-warning mb-4">No catalog configured — the store will be empty until one is added.</p>
         {/if}
-        <label class="text-sm font-semibold text-slate-300" for="caturl">Add another catalog</label>
+        <label class="text-sm font-semibold text-fjord-fg-secondary" for="caturl">Add another catalog</label>
         <div class="flex items-center gap-2 mt-1.5">
           <input
             id="caturl"
             bind:value={catalogURL}
             placeholder={defaultCatalogURL || 'https://…/v1/<source>'}
-            class="flex-1 min-w-0 bg-fjord-inset border border-fjord-border rounded-md px-3 py-2 text-slate-200 font-mono text-sm focus:outline-none focus:border-fjord-accent"
+            class="flex-1 min-w-0 bg-fjord-inset border border-fjord-border rounded-md px-3 py-2 text-fjord-fg-body font-mono text-sm focus:outline-none focus:border-fjord-accent"
           />
           <button
             on:click={() => addCatalog()}
@@ -526,13 +526,13 @@
           <button
             on:click={() => addCatalog(defaultCatalogURL)}
             disabled={addingCatalog}
-            class="mt-3 flex items-center gap-1.5 text-xs font-medium text-slate-400 hover:text-white py-1 px-2.5 rounded-md border border-fjord-border hover:border-fjord-accent/40 transition-colors disabled:opacity-40"
+            class="mt-3 flex items-center gap-1.5 text-xs font-medium text-fjord-fg-muted hover:text-fjord-fg py-1 px-2.5 rounded-md border border-fjord-border hover:border-fjord-accent/40 transition-colors disabled:opacity-40"
             ><Icon name="plus" size={12} /> Re-add the daemonless catalog</button
           >
         {/if}
       {:else if step === 4}
-        <h2 class="text-2xl font-bold text-white mb-2">Already running on this host</h2>
-        <p class="text-sm text-slate-400 mb-5">
+        <h2 class="text-2xl font-bold text-fjord-fg mb-2">Already running on this host</h2>
+        <p class="text-sm text-fjord-fg-muted mb-5">
           These containers and jails were started outside fjord. Adopting one turns what the engine recorded
           into a stack — same image, mounts, network address and name — and starts it in place of the old one.
           Data stays where it is. Untick anything you'd rather leave alone; you can adopt later from the Stacks
@@ -544,12 +544,12 @@
               <input type="checkbox" bind:checked={picked[c.name]} disabled={!!c.error || adopting} class="accent-fjord-accent" />
               <EngineMark engine={c.engine} size={14} />
               <span class="min-w-0 flex-1">
-                <span class="text-sm text-slate-200">{c.name}</span>
-                <span class="block text-xs text-slate-500 font-mono truncate">{c.image}</span>
+                <span class="text-sm text-fjord-fg-body">{c.name}</span>
+                <span class="block text-xs text-fjord-fg-dim font-mono truncate">{c.image}</span>
                 {#if c.error}<span class="block text-xs text-fjord-danger">{c.error}</span>{/if}
                 {#each c.notes || [] as n}<span class="block text-xs text-fjord-warning">{n}</span>{/each}
               </span>
-              <span class="text-[10px] font-semibold uppercase tracking-wide {c.state === 'running' ? 'text-fjord-success' : 'text-slate-500'}">{c.state}</span>
+              <span class="text-[10px] font-semibold uppercase tracking-wide {c.state === 'running' ? 'text-fjord-success' : 'text-fjord-fg-dim'}">{c.state}</span>
             </label>
           {/each}
         </div>
@@ -563,7 +563,7 @@
           <p class="text-xs text-fjord-success mt-3">{adoptedCount} adopted — they're on the Stacks page.</p>
         {/if}
       {:else}
-        <h2 class="text-2xl font-bold text-white mb-2">How it works</h2>
+        <h2 class="text-2xl font-bold text-fjord-fg mb-2">How it works</h2>
         <div class="space-y-3 mb-2">
           {#each [
             { icon: 'store', title: 'App Store', text: 'Browse, pick an app, press Install. The wizard asks only what it must; the defaults are chosen so the app works untouched.' },
@@ -574,8 +574,8 @@
             <div class="flex items-start gap-3">
               <span class="shrink-0 w-8 h-8 rounded-lg bg-fjord-bg border border-fjord-border flex items-center justify-center text-fjord-accent"><Icon name={g.icon} size={16} /></span>
               <div>
-                <div class="text-sm font-semibold text-white">{g.title}</div>
-                <div class="text-xs text-slate-400">{g.text}</div>
+                <div class="text-sm font-semibold text-fjord-fg">{g.title}</div>
+                <div class="text-xs text-fjord-fg-muted">{g.text}</div>
               </div>
             </div>
           {/each}
@@ -585,11 +585,11 @@
       <!-- footer -->
       <div class="flex items-center gap-3 mt-7 pt-5 border-t border-fjord-border">
         {#if step > 0}
-          <button on:click={back} class="px-3 py-2 rounded-lg text-sm font-medium text-slate-400 hover:text-white">Back</button>
+          <button on:click={back} class="px-3 py-2 rounded-lg text-sm font-medium text-fjord-fg-muted hover:text-fjord-fg">Back</button>
         {/if}
         <div class="flex-1"></div>
         {#if step < STEPS.length - 1}
-          <button on:click={finish} disabled={finishing} class="px-3 py-2 rounded-lg text-sm font-medium text-slate-500 hover:text-slate-300">Skip setup</button>
+          <button on:click={finish} disabled={finishing} class="px-3 py-2 rounded-lg text-sm font-medium text-fjord-fg-dim hover:text-fjord-fg-secondary">Skip setup</button>
           <button
             on:click={next}
             disabled={savingStorage || savingEngine || adopting}
