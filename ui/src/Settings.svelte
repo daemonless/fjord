@@ -546,13 +546,13 @@
 
 <div class="flex flex-col h-full">
   <div class="mb-4 shrink-0">
-    <h2 class="text-2xl font-bold text-white">Settings</h2>
-    <p class="text-sm text-slate-500">Daemon identity and effective configuration.</p>
+    <h2 class="text-2xl font-bold text-fjord-fg">Settings</h2>
+    <p class="text-sm text-fjord-fg-dim">Daemon identity and effective configuration.</p>
   </div>
 
   <div class="flex-1 overflow-y-auto">
     {#if loading}
-      <div class="flex items-center gap-3 text-slate-500 text-sm"><Spinner size={18} /> Loading…</div>
+      <div class="flex items-center gap-3 text-fjord-fg-dim text-sm"><Spinner size={18} /> Loading…</div>
     {:else if error}
       <EmptyState icon="alert" title="Daemon Info Unavailable" description={error} />
     {:else if about}
@@ -561,16 +561,16 @@
           <Icon name="mountain" size={26} />
         </div>
         <div>
-          <div class="text-lg font-bold text-white">fjord</div>
-          <div class="text-sm text-slate-500 font-mono">v{about.version}</div>
+          <div class="text-lg font-bold text-fjord-fg">fjord</div>
+          <div class="text-sm text-fjord-fg-dim font-mono">v{about.version}</div>
         </div>
       </div>
 
       <div class="border border-fjord-border rounded-xl overflow-hidden divide-y divide-fjord-border max-w-2xl">
         {#each rows as r}
           <div class="flex items-center gap-4 px-4 py-3">
-            <span class="w-40 shrink-0 text-sm text-slate-400">{r.label}</span>
-            <span class="min-w-0 flex-1 text-sm text-slate-200 font-mono truncate" title={r.value}>{r.value}</span>
+            <span class="w-40 shrink-0 text-sm text-fjord-fg-muted">{r.label}</span>
+            <span class="min-w-0 flex-1 text-sm text-fjord-fg-body font-mono truncate" title={r.value}>{r.value}</span>
           </div>
         {/each}
       </div>
@@ -581,26 +581,26 @@
         <button
           on:click={() => selectTab('storage')}
           class="px-4 py-2 text-sm font-medium -mb-px border-b-2 transition-colors {activeTab === 'storage'
-            ? 'border-fjord-accent text-white'
-            : 'border-transparent text-slate-400 hover:text-slate-200'}">Storage</button
+            ? 'border-fjord-accent text-fjord-fg'
+            : 'border-transparent text-fjord-fg-muted hover:text-fjord-fg-body'}">Storage</button
         >
         <button
           on:click={() => selectTab('extensions')}
           class="px-4 py-2 text-sm font-medium -mb-px border-b-2 transition-colors {activeTab === 'extensions'
-            ? 'border-fjord-accent text-white'
-            : 'border-transparent text-slate-400 hover:text-slate-200'}">Extensions</button
+            ? 'border-fjord-accent text-fjord-fg'
+            : 'border-transparent text-fjord-fg-muted hover:text-fjord-fg-body'}">Extensions</button
         >
         <button
           on:click={() => selectTab('catalogs')}
           class="px-4 py-2 text-sm font-medium -mb-px border-b-2 transition-colors {activeTab === 'catalogs'
-            ? 'border-fjord-accent text-white'
-            : 'border-transparent text-slate-400 hover:text-slate-200'}">Catalogs</button
+            ? 'border-fjord-accent text-fjord-fg'
+            : 'border-transparent text-fjord-fg-muted hover:text-fjord-fg-body'}">Catalogs</button
         >
         <button
           on:click={() => selectTab('advanced')}
           class="px-4 py-2 text-sm font-medium -mb-px border-b-2 transition-colors {activeTab === 'advanced'
-            ? 'border-fjord-accent text-white'
-            : 'border-transparent text-slate-400 hover:text-slate-200'}">Advanced</button
+            ? 'border-fjord-accent text-fjord-fg'
+            : 'border-transparent text-fjord-fg-muted hover:text-fjord-fg-body'}">Advanced</button
         >
       </div>
 
@@ -608,18 +608,18 @@
       <!-- app data (managed storage base) -->
       <div class="max-w-2xl">
         <div class="flex items-center gap-1.5 mb-1.5">
-          <h3 class="text-sm font-semibold text-slate-300">App data</h3>
+          <h3 class="text-sm font-semibold text-fjord-fg-secondary">App data</h3>
           <button
             type="button"
             on:click={() => (helpOpen = helpOpen === 'appdata' ? '' : 'appdata')}
             aria-expanded={helpOpen === 'appdata'}
             aria-label="About the App data folder"
-            class="flex items-center justify-center w-5 h-5 rounded-full text-slate-500 hover:text-white hover:bg-fjord-border transition-colors {helpOpen === 'appdata' ? 'text-white bg-fjord-border' : ''}"
+            class="flex items-center justify-center w-5 h-5 rounded-full text-fjord-fg-dim hover:text-fjord-fg hover:bg-fjord-border transition-colors {helpOpen === 'appdata' ? 'text-fjord-fg bg-fjord-border' : ''}"
             ><Icon name="help" size={13} /></button
           >
         </div>
         {#if helpOpen === 'appdata'}
-          <div class="text-xs text-slate-400 bg-fjord-inset border border-fjord-border rounded-md px-3 py-2 mb-2 whitespace-pre-line leading-relaxed">{storageHelp}</div>
+          <div class="text-xs text-fjord-fg-muted bg-fjord-inset border border-fjord-border rounded-md px-3 py-2 mb-2 whitespace-pre-line leading-relaxed">{storageHelp}</div>
         {/if}
         <div class="space-y-1.5">
           {#each appData as _, i (i)}
@@ -628,22 +628,22 @@
                 bind:value={appData[i]}
                 spellcheck="false"
                 placeholder="/containers"
-                class="flex-1 min-w-0 bg-fjord-inset border border-fjord-border rounded-md px-3 py-2 text-sm text-slate-200 font-mono focus:outline-none focus:border-fjord-accent"
+                class="flex-1 min-w-0 bg-fjord-inset border border-fjord-border rounded-md px-3 py-2 text-sm text-fjord-fg-body font-mono focus:outline-none focus:border-fjord-accent"
               />
               {#if i === 0}
-                <span class="shrink-0 text-[10px] font-semibold uppercase tracking-wide text-slate-500 border border-fjord-border rounded px-1.5 py-0.5">default</span>
+                <span class="shrink-0 text-[10px] font-semibold uppercase tracking-wide text-fjord-fg-dim border border-fjord-border rounded px-1.5 py-0.5">default</span>
               {/if}
-              <button on:click={() => (pickAppData = i)} title="Browse" class="shrink-0 px-2 py-1.5 rounded-md text-xs bg-fjord-inset border border-fjord-border text-slate-300 hover:text-white">Browse…</button>
+              <button on:click={() => (pickAppData = i)} title="Browse" class="shrink-0 px-2 py-1.5 rounded-md text-xs bg-fjord-inset border border-fjord-border text-fjord-fg-secondary hover:text-fjord-fg">Browse…</button>
               {#if appData.length > 1}
-                <button on:click={() => moveAppData(i, -1)} disabled={i === 0} title="Move up (the top one is the default)" class="shrink-0 text-slate-500 hover:text-white disabled:opacity-30">↑</button>
-                <button on:click={() => moveAppData(i, 1)} disabled={i === appData.length - 1} title="Move down" class="shrink-0 text-slate-500 hover:text-white disabled:opacity-30">↓</button>
-                <button on:click={() => (appData = appData.filter((_, x) => x !== i))} title="Remove location" class="shrink-0 text-slate-500 hover:text-fjord-danger"><Icon name="close" size={13} /></button>
+                <button on:click={() => moveAppData(i, -1)} disabled={i === 0} title="Move up (the top one is the default)" class="shrink-0 text-fjord-fg-dim hover:text-fjord-fg disabled:opacity-30">↑</button>
+                <button on:click={() => moveAppData(i, 1)} disabled={i === appData.length - 1} title="Move down" class="shrink-0 text-fjord-fg-dim hover:text-fjord-fg disabled:opacity-30">↓</button>
+                <button on:click={() => (appData = appData.filter((_, x) => x !== i))} title="Remove location" class="shrink-0 text-fjord-fg-dim hover:text-fjord-danger"><Icon name="close" size={13} /></button>
               {/if}
             </div>
           {/each}
         </div>
         <div class="flex items-center gap-2 mt-2">
-          <button on:click={() => (appData = [...appData, ''])} class="text-xs text-slate-400 hover:text-white flex items-center gap-1"><Icon name="plus" size={12} /> Add location</button>
+          <button on:click={() => (appData = [...appData, ''])} class="text-xs text-fjord-fg-muted hover:text-fjord-fg flex items-center gap-1"><Icon name="plus" size={12} /> Add location</button>
           <button
             on:click={saveStorage}
             disabled={savingStorage}
@@ -651,12 +651,12 @@
             >{savingStorage ? 'Saving…' : 'Save'}</button
           >
         </div>
-        <p class="text-xs text-slate-500 mt-1.5">
+        <p class="text-xs text-fjord-fg-dim mt-1.5">
           Each app gets its own folder in the location chosen at install, like
-          <span class="font-mono text-slate-400">{(appData[0] || '').trim().replace(/\/+$/, '') || '…'}/radarr</span>
+          <span class="font-mono text-fjord-fg-muted">{(appData[0] || '').trim().replace(/\/+$/, '') || '…'}/radarr</span>
           — created at install; an existing folder is kept as-is.
         </p>
-        <p class="text-xs text-slate-600 mt-3">
+        <p class="text-xs text-fjord-fg-faint mt-3">
           fjord keeps its own files (compose files, settings, catalog cache) in
           <span class="font-mono">{about.fjordRoot}</span>. Nothing of yours lives there.
         </p>
@@ -665,26 +665,26 @@
         <!-- Folder sets (homelab provider plugin) -->
         <div class="max-w-2xl mt-8">
           <div class="flex items-center gap-1.5 mb-1">
-            <h3 class="text-sm font-semibold text-slate-300">Folder sets</h3>
+            <h3 class="text-sm font-semibold text-fjord-fg-secondary">Folder sets</h3>
             <button
               type="button"
               on:click={() => (helpOpen = helpOpen === 'sets' ? '' : 'sets')}
               aria-expanded={helpOpen === 'sets'}
               aria-label="About folder sets"
-              class="flex items-center justify-center w-5 h-5 rounded-full text-slate-500 hover:text-white hover:bg-fjord-border transition-colors {helpOpen === 'sets' ? 'text-white bg-fjord-border' : ''}"
+              class="flex items-center justify-center w-5 h-5 rounded-full text-fjord-fg-dim hover:text-fjord-fg hover:bg-fjord-border transition-colors {helpOpen === 'sets' ? 'text-fjord-fg bg-fjord-border' : ''}"
               ><Icon name="help" size={13} /></button
             >
           </div>
           {#if helpOpen === 'sets'}
-            <div class="text-xs text-slate-400 bg-fjord-inset border border-fjord-border rounded-md px-3 py-2 mb-2 whitespace-pre-line leading-relaxed">{folderSetHelp}</div>
+            <div class="text-xs text-fjord-fg-muted bg-fjord-inset border border-fjord-border rounded-md px-3 py-2 mb-2 whitespace-pre-line leading-relaxed">{folderSetHelp}</div>
           {/if}
-          <p class="text-xs text-slate-500 mb-3">Reusable host folders, offered on any path field at install.</p>
+          <p class="text-xs text-fjord-fg-dim mb-3">Reusable host folders, offered on any path field at install.</p>
 
           {#each folderSets as lib, i (i)}
             <div class="border border-fjord-border rounded-xl p-3 mb-3">
               <div class="flex items-center gap-2 mb-2">
                 <span
-                  class="shrink-0 w-7 h-7 rounded-md border flex items-center justify-center {lib.match ? 'text-fjord-accent border-fjord-accent/40 bg-fjord-accent/10' : 'text-slate-500 border-fjord-border bg-fjord-inset'}"
+                  class="shrink-0 w-7 h-7 rounded-md border flex items-center justify-center {lib.match ? 'text-fjord-accent border-fjord-accent/40 bg-fjord-accent/10' : 'text-fjord-fg-dim border-fjord-border bg-fjord-inset'}"
                   title={lib.match ? `Apps with a ${lib.name.trim().toLowerCase() || 'matching'} folder get this set at install` : 'Added to apps by hand'}
                   ><Icon name={setIcon(lib)} size={15} /></span
                 >
@@ -693,9 +693,9 @@
                   bind:value={lib.name}
                   on:input={touchSets}
                   placeholder="Name (Movies)"
-                  class="flex-1 min-w-0 bg-fjord-inset border rounded-md px-2 py-1.5 text-sm text-slate-200 focus:outline-none focus:border-fjord-accent {dupSetNames.has(lib.name.trim().toLowerCase()) ? 'border-fjord-danger/60' : 'border-fjord-border'}"
+                  class="flex-1 min-w-0 bg-fjord-inset border rounded-md px-2 py-1.5 text-sm text-fjord-fg-body focus:outline-none focus:border-fjord-accent {dupSetNames.has(lib.name.trim().toLowerCase()) ? 'border-fjord-danger/60' : 'border-fjord-border'}"
                 />
-                <button on:click={() => removeFolderSet(i)} title="Remove folder set" class="shrink-0 text-slate-500 hover:text-fjord-danger transition-colors"><Icon name="trash" size={15} /></button>
+                <button on:click={() => removeFolderSet(i)} title="Remove folder set" class="shrink-0 text-fjord-fg-dim hover:text-fjord-danger transition-colors"><Icon name="trash" size={15} /></button>
               </div>
               {#if dupSetNames.has(lib.name.trim().toLowerCase())}
                 <p class="text-xs text-fjord-danger mb-2">Another folder set already has this name — rename it or move its folders into the other one.</p>
@@ -707,9 +707,9 @@
           <datalist id="set-presets">{#each setPresets as p}<option value={p.name}></option>{/each}</datalist>
 
           <div class="flex items-center gap-2 flex-wrap">
-            <button on:click={() => addFolderSet()} class="flex items-center gap-1.5 text-sm text-slate-300 hover:text-white border border-fjord-border rounded-lg px-3 py-1.5"><Icon name="plus" size={13} /> Add folder set</button>
+            <button on:click={() => addFolderSet()} class="flex items-center gap-1.5 text-sm text-fjord-fg-secondary hover:text-fjord-fg border border-fjord-border rounded-lg px-3 py-1.5"><Icon name="plus" size={13} /> Add folder set</button>
             {#each unusedPresets as p}
-              <button on:click={() => addFolderSet(p.name, p.match)} title="Add a {p.name} set that apps pick up automatically" class="flex items-center gap-1 text-xs text-slate-400 hover:text-white border border-fjord-border/60 rounded-lg px-2 py-1"><Icon name={PRESET_ICON[p.name.toLowerCase()] || 'folder'} size={12} /> {p.name}</button>
+              <button on:click={() => addFolderSet(p.name, p.match)} title="Add a {p.name} set that apps pick up automatically" class="flex items-center gap-1 text-xs text-fjord-fg-muted hover:text-fjord-fg border border-fjord-border/60 rounded-lg px-2 py-1"><Icon name={PRESET_ICON[p.name.toLowerCase()] || 'folder'} size={12} /> {p.name}</button>
             {/each}
             {#if setsDirty}
               <button on:click={saveFolderSets} disabled={savingSets || dupSetNames.size > 0} title={dupSetNames.size ? 'Fix duplicate folder set names first' : ''} class="ml-auto bg-fjord-accent hover:bg-fjord-accent-hover text-white text-sm font-medium py-1.5 px-4 rounded-lg disabled:opacity-50">{savingSets ? 'Saving…' : 'Save folder sets'}</button>
@@ -721,8 +721,8 @@
 
       {#if activeTab === 'extensions'}
         <div class="max-w-2xl">
-          <h3 class="text-sm font-semibold text-slate-300 mb-1">Engines</h3>
-          <p class="text-xs text-slate-500 mb-3">
+          <h3 class="text-sm font-semibold text-fjord-fg-secondary mb-1">Engines</h3>
+          <p class="text-xs text-fjord-fg-dim mb-3">
             Container runtimes stacks can run on. <b>Enable</b> the ones this host should use; the
             <b>default</b> (checkmark) is used by new installs unless you pick another in the wizard. A stack's
             engine is fixed once installed, so an engine can't be disabled while stacks run on it.
@@ -743,12 +743,12 @@
                 >
                 <div class="min-w-0 flex-1">
                   <div class="flex items-center gap-2">
-                    <span class="text-sm font-medium text-white">{e.name}</span>
+                    <span class="text-sm font-medium text-fjord-fg">{e.name}</span>
                     {#if e.default}<span class="text-[10px] font-semibold uppercase tracking-wide text-fjord-accent">default</span>{/if}
-                    {#if e.available && !e.enabled}<span class="text-[10px] font-medium px-1.5 py-0.5 rounded bg-fjord-bg border border-fjord-border text-slate-500">disabled</span>{/if}
-                    {#if !e.available}<span class="text-[10px] font-medium px-1.5 py-0.5 rounded bg-fjord-bg border border-fjord-border text-slate-500">not installed</span>{/if}
+                    {#if e.available && !e.enabled}<span class="text-[10px] font-medium px-1.5 py-0.5 rounded bg-fjord-bg border border-fjord-border text-fjord-fg-dim">disabled</span>{/if}
+                    {#if !e.available}<span class="text-[10px] font-medium px-1.5 py-0.5 rounded bg-fjord-bg border border-fjord-border text-fjord-fg-dim">not installed</span>{/if}
                   </div>
-                  <div class="text-xs text-slate-500 truncate" title={e.available ? e.description : e.reason}>
+                  <div class="text-xs text-fjord-fg-dim truncate" title={e.available ? e.description : e.reason}>
                     {e.available ? e.description : e.reason || e.description}
                   </div>
                   {#if e.warning}
@@ -783,17 +783,17 @@
 
         <!-- features (provider plugins) -->
         <div class="max-w-2xl mt-8">
-          <h3 class="text-sm font-semibold text-slate-300 mb-1">Features</h3>
-          <p class="text-xs text-slate-500 mb-3">Optional behaviours on top of the core. Homelab adds the Movies, TV, Music… presets under Storage → Folder sets and their automatic pick-up at install.</p>
+          <h3 class="text-sm font-semibold text-fjord-fg-secondary mb-1">Features</h3>
+          <p class="text-xs text-fjord-fg-dim mb-3">Optional behaviours on top of the core. Homelab adds the Movies, TV, Music… presets under Storage → Folder sets and their automatic pick-up at install.</p>
           <div class="border border-fjord-border rounded-xl divide-y divide-fjord-border">
               {#each plugins as p (p.name)}
                 <div class="flex items-center gap-3 px-4 py-3">
                   <div class="min-w-0 flex-1">
                     <div class="flex items-center gap-2">
-                      <span class="text-sm font-medium text-white">{p.label}</span>
-                      {#if !p.enabled}<span class="text-[10px] font-medium px-1.5 py-0.5 rounded bg-fjord-bg border border-fjord-border text-slate-500">off</span>{/if}
+                      <span class="text-sm font-medium text-fjord-fg">{p.label}</span>
+                      {#if !p.enabled}<span class="text-[10px] font-medium px-1.5 py-0.5 rounded bg-fjord-bg border border-fjord-border text-fjord-fg-dim">off</span>{/if}
                     </div>
-                    <div class="text-xs text-slate-500">{p.description}</div>
+                    <div class="text-xs text-fjord-fg-dim">{p.description}</div>
                   </div>
                   <button
                     on:click={() => togglePlugin(p.name, !p.enabled)}
@@ -815,8 +815,8 @@
 
       {#if activeTab === 'catalogs'}
       <div class="max-w-2xl">
-        <h3 class="text-sm font-semibold text-slate-300 mb-1">Catalogs</h3>
-        <p class="text-xs text-slate-500 mb-3">
+        <h3 class="text-sm font-semibold text-fjord-fg-secondary mb-1">Catalogs</h3>
+        <p class="text-xs text-fjord-fg-dim mb-3">
           App sources for the store. Each is a base URL publishing <code>catalog.json</code>, icons and
           manifests — another fjord instance's <code>/catalog</code> URL also works. Apps from every
           catalog appear together; order sets <b>priority</b> (top wins) — the highest-priority catalog
@@ -825,7 +825,7 @@
 
         <!-- automatic refresh -->
         <div class="flex flex-wrap items-center gap-x-3 gap-y-2 mb-4">
-          <span class="text-xs font-semibold text-slate-400">Refresh automatically</span>
+          <span class="text-xs font-semibold text-fjord-fg-muted">Refresh automatically</span>
           <div class="flex items-center gap-1">
             {#each refreshOptions as o}
               <button
@@ -833,12 +833,12 @@
                 disabled={savingRefresh}
                 class="px-2.5 py-1 rounded-md text-xs font-medium transition-colors {refreshInterval === o
                   ? 'bg-fjord-accent text-white'
-                  : 'bg-fjord-card border border-fjord-border text-slate-300 hover:text-white'}"
+                  : 'bg-fjord-card border border-fjord-border text-fjord-fg-secondary hover:text-fjord-fg'}"
                 >{REFRESH_LABELS[o] ?? o}{#if o === refreshDefault && refreshInterval !== o}<span class="ml-1 text-[9px] uppercase tracking-wide opacity-60">default</span>{/if}</button
               >
             {/each}
           </div>
-          <span class="text-[11px] text-slate-500">
+          <span class="text-[11px] text-fjord-fg-dim">
             {#if refreshInterval === 'off'}Only the Refresh buttons update the store.
             {:else if refreshLastError}<span class="text-fjord-warning">Last automatic refresh failed: {refreshLastError}</span>
             {:else if refreshNextDue}Next {until(refreshNextDue)}{#if refreshLastRun} · last run {ago(refreshLastRun)}{/if}
@@ -869,19 +869,19 @@
                       on:click={() => moveCatalog(i, -1)}
                       disabled={i === 0}
                       title="Higher priority"
-                      class="text-slate-500 hover:text-white disabled:opacity-30 disabled:hover:text-slate-500"
+                      class="text-fjord-fg-dim hover:text-fjord-fg disabled:opacity-30 disabled:hover:text-fjord-fg-dim"
                       ><Icon name="chevron-up" size={14} /></button
                     >
                     <button
                       on:click={() => moveCatalog(i, 1)}
                       disabled={i === movableCount - 1}
                       title="Lower priority"
-                      class="text-slate-500 hover:text-white disabled:opacity-30 disabled:hover:text-slate-500"
+                      class="text-fjord-fg-dim hover:text-fjord-fg disabled:opacity-30 disabled:hover:text-fjord-fg-dim"
                       ><Icon name="chevron-down" size={14} /></button
                     >
                   </div>
                 {/if}
-                <div class="shrink-0 w-8 h-8 rounded-md bg-fjord-bg border border-fjord-border flex items-center justify-center overflow-hidden text-slate-400">
+                <div class="shrink-0 w-8 h-8 rounded-md bg-fjord-bg border border-fjord-border flex items-center justify-center overflow-hidden text-fjord-fg-muted">
                   {#if c.icon}
                     <img src={c.icon} alt={c.name} class="w-5 h-5 object-contain" />
                   {:else}
@@ -897,22 +897,22 @@
                         bind:value={catalogNameEdit}
                         on:keydown={(e) => { if (e.key === 'Enter') commitCatalogRename(c.id); else if (e.key === 'Escape') editingCatalog = null; }}
                         on:blur={() => (editingCatalog = null)}
-                        class="text-sm font-medium text-white bg-fjord-inset border border-fjord-accent rounded px-1.5 py-0.5 min-w-0 focus:outline-none"
+                        class="text-sm font-medium text-fjord-fg bg-fjord-inset border border-fjord-accent rounded px-1.5 py-0.5 min-w-0 focus:outline-none"
                       />
                     {:else if c.builtin}
-                      <span class="text-sm font-medium text-white">{c.name}</span>
+                      <span class="text-sm font-medium text-fjord-fg">{c.name}</span>
                     {:else}
                       <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
                       <span
                         on:click={() => { editingCatalog = c.id; catalogNameEdit = c.name; }}
                         title="Click to rename"
-                        class="text-sm font-medium text-white cursor-text hover:bg-fjord-border/40 rounded px-1 -mx-1"
+                        class="text-sm font-medium text-fjord-fg cursor-text hover:bg-fjord-border/40 rounded px-1 -mx-1"
                       >{c.name}</span>
                     {/if}
-                    <span class="text-[11px] text-slate-500">{c.apps} apps{#if c.fetchedAt} · fetched {ago(c.fetchedAt)}{/if}</span>
-                    {#if c.enabled === false}<span class="text-[10px] font-medium px-1.5 py-0.5 rounded bg-fjord-bg border border-fjord-border text-slate-500">disabled</span>{/if}
+                    <span class="text-[11px] text-fjord-fg-dim">{c.apps} apps{#if c.fetchedAt} · fetched {ago(c.fetchedAt)}{/if}</span>
+                    {#if c.enabled === false}<span class="text-[10px] font-medium px-1.5 py-0.5 rounded bg-fjord-bg border border-fjord-border text-fjord-fg-dim">disabled</span>{/if}
                   </div>
-                  <div class="text-xs text-slate-500 font-mono truncate" title={c.url}>
+                  <div class="text-xs text-fjord-fg-dim font-mono truncate" title={c.url}>
                     {c.url || 'seeded on disk — remove to stop serving it'}
                   </div>
                 </div>
@@ -929,17 +929,17 @@
                     on:click={() => refreshCatalog(c.id)}
                     disabled={busy === c.id}
                     title="Re-fetch this catalog"
-                    class="shrink-0 flex items-center justify-center w-7 h-7 rounded-md text-slate-400 hover:text-white hover:bg-fjord-border transition-colors disabled:opacity-50"
+                    class="shrink-0 flex items-center justify-center w-7 h-7 rounded-md text-fjord-fg-muted hover:text-fjord-fg hover:bg-fjord-border transition-colors disabled:opacity-50"
                     ><Icon name="refresh" size={14} class={busy === c.id ? 'animate-spin' : ''} /></button
                   >
                 {/if}
                 {#if confirmDelete === c.id}
                   <button on:click={() => removeCatalog(c.id)} class="text-xs px-2 py-1 rounded bg-fjord-danger hover:bg-fjord-danger-hover text-white">Confirm</button>
-                  <button on:click={() => (confirmDelete = '')} class="text-xs px-2 py-1 rounded text-slate-400 hover:text-white">Cancel</button>
+                  <button on:click={() => (confirmDelete = '')} class="text-xs px-2 py-1 rounded text-fjord-fg-muted hover:text-fjord-fg">Cancel</button>
                 {:else}
                   <button
                     on:click={() => (confirmDelete = c.id)}
-                    class="text-xs px-2 py-1 rounded text-slate-400 hover:text-fjord-danger hover:bg-fjord-border transition-colors"
+                    class="text-xs px-2 py-1 rounded text-fjord-fg-muted hover:text-fjord-danger hover:bg-fjord-border transition-colors"
                     >Remove</button
                   >
                 {/if}
@@ -947,19 +947,19 @@
             {/each}
           </div>
         {:else}
-          <p class="text-xs text-slate-600 italic mb-3">No catalogs configured — the App Store is empty.</p>
+          <p class="text-xs text-fjord-fg-faint italic mb-3">No catalogs configured — the App Store is empty.</p>
         {/if}
 
         <div class="flex gap-2">
           <input
             bind:value={newName}
             placeholder="name (e.g. daemonless)"
-            class="w-44 shrink-0 bg-fjord-inset border border-fjord-border rounded-md px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-fjord-accent"
+            class="w-44 shrink-0 bg-fjord-inset border border-fjord-border rounded-md px-3 py-2 text-sm text-fjord-fg-body focus:outline-none focus:border-fjord-accent"
           />
           <input
             bind:value={newURL}
             placeholder={defaultCatalogURL || 'https://…/v1/<source>'}
-            class="flex-1 min-w-0 bg-fjord-inset border border-fjord-border rounded-md px-3 py-2 text-sm text-slate-200 font-mono focus:outline-none focus:border-fjord-accent"
+            class="flex-1 min-w-0 bg-fjord-inset border border-fjord-border rounded-md px-3 py-2 text-sm text-fjord-fg-body font-mono focus:outline-none focus:border-fjord-accent"
           />
           <button
             on:click={addCatalog}
@@ -972,7 +972,7 @@
           <button
             on:click={readdDefault}
             disabled={adding}
-            class="mt-3 flex items-center gap-1.5 text-xs font-medium text-slate-400 hover:text-white py-1 px-2.5 rounded-md border border-fjord-border hover:border-fjord-accent/40 transition-colors disabled:opacity-40"
+            class="mt-3 flex items-center gap-1.5 text-xs font-medium text-fjord-fg-muted hover:text-fjord-fg py-1 px-2.5 rounded-md border border-fjord-border hover:border-fjord-accent/40 transition-colors disabled:opacity-40"
             ><Icon name="plus" size={12} /> Re-add the daemonless catalog</button
           >
         {/if}
@@ -980,7 +980,7 @@
 
       {/if}
 
-      <p class="text-xs text-slate-600 mt-6 max-w-2xl">
+      <p class="text-xs text-fjord-fg-faint mt-6 max-w-2xl">
         Everything else comes from the daemon's environment (<code>FJORD_*</code> variables — via rc.conf on FreeBSD
         or the container environment). Host readiness checks live on the <b>System</b> page.
       </p>
@@ -988,8 +988,8 @@
 
     {#if activeTab === 'advanced'}
       <div class="max-w-2xl">
-        <h3 class="text-sm font-semibold text-slate-300 mb-1">Install wizard detail</h3>
-        <p class="text-xs text-slate-500 mb-3">
+        <h3 class="text-sm font-semibold text-fjord-fg-secondary mb-1">Install wizard detail</h3>
+        <p class="text-xs text-fjord-fg-dim mb-3">
           How much the install wizard shows before you click anything. The defaults are chosen so an app works
           without touching them; every field is still one click away at the lowest level. Raise this only if
           you change the same fields on every install and know what they do.
@@ -1013,17 +1013,17 @@
               >
               <div class="min-w-0 flex-1">
                 <div class="flex items-center gap-2">
-                  <span class="text-sm font-medium text-white">{o.label}</span>
+                  <span class="text-sm font-medium text-fjord-fg">{o.label}</span>
                   {#if o.v === 1}<span class="text-[10px] font-semibold uppercase tracking-wide text-fjord-success">recommended</span>{/if}
                 </div>
-                <div class="text-xs text-slate-500">{o.hint}</div>
+                <div class="text-xs text-fjord-fg-dim">{o.hint}</div>
               </div>
             </div>
           {/each}
         </div>
 
-        <h3 class="text-sm font-semibold text-slate-300 mt-8 mb-1">First-run setup</h3>
-        <p class="text-xs text-slate-500 mb-3">Storage, Homelab presets, catalog and the quick guide, as shown on first launch. Nothing is reset; it only walks through the same settings again.</p>
+        <h3 class="text-sm font-semibold text-fjord-fg-secondary mt-8 mb-1">First-run setup</h3>
+        <p class="text-xs text-fjord-fg-dim mb-3">Storage, Homelab presets, catalog and the quick guide, as shown on first launch. Nothing is reset; it only walks through the same settings again.</p>
         <button
           on:click={async () => {
             try {

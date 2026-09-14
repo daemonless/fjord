@@ -88,7 +88,7 @@
 
 <div class="flex-1 bg-fjord-card border border-fjord-border rounded-xl shadow-xl flex flex-col overflow-hidden">
   <div
-    class="bg-fjord-border/50 px-4 py-2.5 flex items-center justify-between border-b border-fjord-border text-xs font-semibold text-slate-300"
+    class="bg-fjord-border/50 px-4 py-2.5 flex items-center justify-between border-b border-fjord-border text-xs font-semibold text-fjord-fg-secondary"
   >
     <div class="flex items-center gap-3">
       <span>Terminal</span>
@@ -113,13 +113,13 @@
       <div class="flex items-center gap-2">
         <button
           on:click={copyLogs}
-          class="text-slate-400 hover:text-white transition-colors px-2 py-0.5 rounded bg-fjord-border/40 hover:bg-fjord-border text-[11px] font-normal"
+          class="text-fjord-fg-muted hover:text-fjord-fg transition-colors px-2 py-0.5 rounded bg-fjord-border/40 hover:bg-fjord-border text-[11px] font-normal"
         >
           {copied ? 'Copied' : 'Copy'}
         </button>
         <button
           on:click={clearLogs}
-          class="text-slate-400 hover:text-white transition-colors px-2 py-0.5 rounded bg-fjord-border/40 hover:bg-fjord-border text-[11px] font-normal"
+          class="text-fjord-fg-muted hover:text-fjord-fg transition-colors px-2 py-0.5 rounded bg-fjord-border/40 hover:bg-fjord-border text-[11px] font-normal"
         >
           Clear
         </button>
@@ -130,7 +130,7 @@
   <div class="flex-1 bg-fjord-inset relative overflow-hidden">
     <div bind:this={el} class="absolute inset-0 p-2"></div>
     {#if !logs}
-      <p class="absolute top-3 left-4 text-slate-600 text-sm font-mono italic pointer-events-none">
+      <p class="absolute top-3 left-4 text-fjord-fg-faint text-sm font-mono italic pointer-events-none">
         Waiting for output…
       </p>
     {/if}

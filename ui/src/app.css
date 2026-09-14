@@ -14,10 +14,65 @@
   --color-fjord-danger: #ed333b;
   --color-fjord-danger-hover: #f24d53;
   --color-fjord-warning: #f8e45c;
+
+  /* Foreground ladder, lightest first. Components address text through these
+   * rather than Tailwind's slate ramp so a second theme only has to redefine
+   * the tokens. The values here are the exact slate/white values the markup
+   * used before, so the dark theme is unchanged by construction. */
+  --color-fjord-fg: #fff;                                /* headings, emphasis */
+  --color-fjord-fg-strong: oklch(96.8% 0.007 247.896);   /* was slate-100 */
+  --color-fjord-fg-body: oklch(92.9% 0.013 255.508);     /* was slate-200 */
+  --color-fjord-fg-secondary: oklch(86.9% 0.022 252.894);/* was slate-300 */
+  --color-fjord-fg-muted: oklch(70.4% 0.04 256.788);     /* was slate-400 */
+  --color-fjord-fg-dim: oklch(55.4% 0.046 257.417);      /* was slate-500 */
+  --color-fjord-fg-faint: oklch(44.6% 0.043 257.281);    /* was slate-600 */
+  /* Labels that sit on a saturated brand surface (accent/danger/success
+   * buttons, active pills) keep a literal text-white: they stay white in
+   * every theme, so they are deliberately not part of this ladder.
+   * Neutral fill/border for the "stopped" status pill. */
+  --color-fjord-neutral: oklch(55.4% 0.046 257.417);     /* was slate-500 */
+}
+
+/* Light theme. index.html stamps data-theme on <html> before this stylesheet
+ * paints (resolving the stored choice, else the OS preference), so the theme
+ * is always explicit here and these values need declaring only once.
+ * Surfaces inverted: in dark, inset sits below the page and cards rise above
+ * it; in light the page is the tint and cards go white, so the same elevation
+ * order reads correctly. Brand colours are the GNOME palette's darker steps --
+ * the dark theme's Blue 3 / Green 3 / Yellow 2 are too light to read on white,
+ * and hover darkens here instead of lightening. */
+:root[data-theme='light'] {
+  --color-fjord-bg: #f6f6f8;
+  --color-fjord-card: #ffffff;
+  --color-fjord-border: #dcdce1;
+  --color-fjord-inset: #f0f0f3;
+  --color-fjord-accent: #3584e4;      /* Blue 3 holds up on white */
+  --color-fjord-accent-hover: #1c71d8;/* Blue 4: hover darkens */
+  --color-fjord-success: #26a269;     /* Green 5, not Green 3 */
+  --color-fjord-danger: #c01c28;      /* Red 4 */
+  --color-fjord-danger-hover: #a51d2d;/* Red 5 */
+  --color-fjord-warning: #e5a50a;     /* Yellow 5; Yellow 2 is invisible here */
+
+  --color-fjord-fg: #121217;
+  --color-fjord-fg-strong: #1d1d22;
+  --color-fjord-fg-body: #2a2a31;
+  --color-fjord-fg-secondary: #45454e;
+  --color-fjord-fg-muted: #61616b;
+  --color-fjord-fg-dim: #7c7c87;
+  --color-fjord-fg-faint: #9a9aa4;
+  --color-fjord-neutral: #8b8b95;
+}
+
+/* Native widgets (scrollbars, form controls, spellcheck) follow the theme. */
+:root {
+  color-scheme: dark;
+}
+:root[data-theme='light'] {
+  color-scheme: light;
 }
 
 body {
-  @apply bg-fjord-bg text-slate-200 antialiased;
+  @apply bg-fjord-bg text-fjord-fg-body antialiased;
 }
 
 /* Visible keyboard focus (HIG: keyboard navigation must be discoverable).

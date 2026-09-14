@@ -29,25 +29,25 @@
   on:click|self={() => dispatch('cancel')}
 >
   <div class="bg-fjord-card border border-fjord-border rounded-xl shadow-2xl w-full max-w-md p-6">
-    <h3 class="text-lg font-bold text-white mb-2">{title}</h3>
-    {#if message}<p class="text-slate-400 text-sm leading-relaxed mb-5">{message}</p>{/if}
+    <h3 class="text-lg font-bold text-fjord-fg mb-2">{title}</h3>
+    {#if message}<p class="text-fjord-fg-muted text-sm leading-relaxed mb-5">{message}</p>{/if}
 
     {#if confirmText}
-      <p class="text-xs text-slate-400 mb-2">
-        Type <span class="font-mono text-slate-200">{confirmText}</span> to confirm:
+      <p class="text-xs text-fjord-fg-muted mb-2">
+        Type <span class="font-mono text-fjord-fg-body">{confirmText}</span> to confirm:
       </p>
       <!-- svelte-ignore a11y-autofocus -->
       <input
         bind:value={typed}
         autofocus
-        class="w-full mb-5 bg-fjord-inset border border-fjord-border rounded-md px-3 py-2 text-slate-200 font-mono text-sm focus:outline-none focus:border-fjord-accent"
+        class="w-full mb-5 bg-fjord-inset border border-fjord-border rounded-md px-3 py-2 text-fjord-fg-body font-mono text-sm focus:outline-none focus:border-fjord-accent"
       />
     {/if}
 
     <div class="flex justify-end gap-3">
       <button
         on:click={() => dispatch('cancel')}
-        class="px-4 py-2 rounded-md font-medium text-slate-300 hover:bg-fjord-border transition-colors"
+        class="px-4 py-2 rounded-md font-medium text-fjord-fg-secondary hover:bg-fjord-border transition-colors"
       >
         Cancel
       </button>

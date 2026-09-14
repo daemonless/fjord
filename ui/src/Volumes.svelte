@@ -134,10 +134,10 @@
 <div class="h-full flex flex-col">
   <div class="flex items-center justify-between mb-4 shrink-0">
     <div>
-      <h2 class="text-2xl font-bold text-white">Volumes</h2>
-      <p class="text-sm text-slate-500">
+      <h2 class="text-2xl font-bold text-fjord-fg">Volumes</h2>
+      <p class="text-sm text-fjord-fg-dim">
         Engine-managed storage — local and NFS shares. Attach one to a stack from that stack's
-        <b class="text-slate-400">Resources</b> tab (podman stacks only).
+        <b class="text-fjord-fg-muted">Resources</b> tab (podman stacks only).
       </p>
     </div>
     <button
@@ -148,7 +148,7 @@
   </div>
 
   {#if anonCount > 0}
-    <label class="flex items-center gap-2 text-xs text-slate-500 mb-3 shrink-0 cursor-pointer select-none">
+    <label class="flex items-center gap-2 text-xs text-fjord-fg-dim mb-3 shrink-0 cursor-pointer select-none">
       <input type="checkbox" bind:checked={showAnonymous} class="accent-fjord-accent" />
       Show {anonCount} anonymous volume{anonCount === 1 ? '' : 's'} (container-managed)
     </label>
@@ -156,7 +156,7 @@
 
   <div class="flex-1 overflow-y-auto">
     {#if loading}
-      <div class="flex items-center gap-3 text-slate-500 text-sm"><Spinner size={18} /> Loading…</div>
+      <div class="flex items-center gap-3 text-fjord-fg-dim text-sm"><Spinner size={18} /> Loading…</div>
     {:else if error}
       <EmptyState icon="alert" title="Volumes Unavailable" description={error} />
     {:else if named.length === 0}
@@ -171,37 +171,37 @@
       <div class="border border-fjord-border rounded-xl overflow-hidden divide-y divide-fjord-border">
         {#each named as v}
           <div class="flex items-center gap-3 px-4 py-3">
-            <div class="shrink-0 text-slate-400"><Icon name={isNFS(v) ? 'globe' : 'drive'} size={18} /></div>
+            <div class="shrink-0 text-fjord-fg-muted"><Icon name={isNFS(v) ? 'globe' : 'drive'} size={18} /></div>
             <div class="min-w-0 flex-1">
               <div class="flex items-center gap-2">
-                <span class="font-mono text-sm text-white truncate">{v.name}</span>
+                <span class="font-mono text-sm text-fjord-fg truncate">{v.name}</span>
                 {#if isNFS(v)}
                   <span class="text-[11px] font-medium bg-fjord-accent/20 text-fjord-accent px-1.5 py-0.5 rounded">NFS</span>
                 {/if}
               </div>
-              <div class="text-xs text-slate-500 font-mono truncate">
+              <div class="text-xs text-fjord-fg-dim font-mono truncate">
                 {#if isNFS(v)}{v.options?.device}{v.options?.o ? ` (${v.options.o})` : ''}{:else}{v.mountpoint}{/if}
               </div>
             </div>
             {#if v.usedBy?.length}
               <div class="flex items-center gap-1 shrink-0" title="Stacks mounting this volume">
                 {#each v.usedBy as st}
-                  <span class="text-[10px] px-1.5 py-0.5 rounded bg-fjord-bg border border-fjord-border text-slate-400">{st}</span>
+                  <span class="text-[10px] px-1.5 py-0.5 rounded bg-fjord-bg border border-fjord-border text-fjord-fg-muted">{st}</span>
                 {/each}
               </div>
             {/if}
             {#if v.usedBy?.length}
-              <span class="text-xs px-2 py-1 text-slate-600 cursor-not-allowed" title="In use by {v.usedBy.join(', ')} — detach it from those stacks first">Delete</span>
+              <span class="text-xs px-2 py-1 text-fjord-fg-faint cursor-not-allowed" title="In use by {v.usedBy.join(', ')} — detach it from those stacks first">Delete</span>
             {:else if forceDelete === v.name}
               <button on:click={() => del(v.name, true)} class="text-xs px-2 py-1 rounded bg-fjord-danger hover:bg-fjord-danger-hover text-white" title="Remove even though a container has it mounted">Force Remove</button>
-              <button on:click={() => (forceDelete = '')} class="text-xs px-2 py-1 rounded text-slate-400 hover:text-white">Cancel</button>
+              <button on:click={() => (forceDelete = '')} class="text-xs px-2 py-1 rounded text-fjord-fg-muted hover:text-fjord-fg">Cancel</button>
             {:else if confirmDelete === v.name}
               <button on:click={() => del(v.name)} class="text-xs px-2 py-1 rounded bg-fjord-danger hover:bg-fjord-danger-hover text-white">Confirm Delete</button>
-              <button on:click={() => (confirmDelete = '')} class="text-xs px-2 py-1 rounded text-slate-400 hover:text-white">Cancel</button>
+              <button on:click={() => (confirmDelete = '')} class="text-xs px-2 py-1 rounded text-fjord-fg-muted hover:text-fjord-fg">Cancel</button>
             {:else}
               <button
                 on:click={() => (confirmDelete = v.name)}
-                class="text-xs px-2 py-1 rounded text-slate-400 hover:text-fjord-danger hover:bg-fjord-border transition-colors"
+                class="text-xs px-2 py-1 rounded text-fjord-fg-muted hover:text-fjord-danger hover:bg-fjord-border transition-colors"
                 >Delete</button
               >
             {/if}
@@ -219,16 +219,16 @@
     on:click|self={() => (creating = false)}
   >
     <div class="bg-fjord-card border border-fjord-border rounded-xl shadow-2xl w-full max-w-md p-6">
-      <h3 class="text-lg font-bold text-white mb-4">New Volume</h3>
+      <h3 class="text-lg font-bold text-fjord-fg mb-4">New Volume</h3>
 
       <div class="flex flex-col gap-4">
         <div class="flex flex-col gap-1">
-          <label class="text-sm font-semibold text-slate-300" for="v-name">Name</label>
+          <label class="text-sm font-semibold text-fjord-fg-secondary" for="v-name">Name</label>
           <input
             id="v-name"
             bind:value={form.name}
             placeholder="media, backups, …"
-            class="bg-fjord-inset border border-fjord-border rounded-md px-3 py-2 text-slate-200 font-mono text-sm focus:outline-none focus:border-fjord-accent"
+            class="bg-fjord-inset border border-fjord-border rounded-md px-3 py-2 text-fjord-fg-body font-mono text-sm focus:outline-none focus:border-fjord-accent"
           />
         </div>
 
@@ -238,48 +238,48 @@
             class="flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-md text-sm font-medium border transition-colors {form.type ===
             'local'
               ? 'bg-fjord-accent/20 text-fjord-accent border-fjord-accent/50'
-              : 'border-fjord-border text-slate-300 hover:bg-fjord-border'}"><Icon name="drive" size={14} /> Local</button
+              : 'border-fjord-border text-fjord-fg-secondary hover:bg-fjord-border'}"><Icon name="drive" size={14} /> Local</button
           >
           <button
             on:click={() => (form.type = 'nfs')}
             class="flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-md text-sm font-medium border transition-colors {form.type ===
             'nfs'
               ? 'bg-fjord-accent/20 text-fjord-accent border-fjord-accent/50'
-              : 'border-fjord-border text-slate-300 hover:bg-fjord-border'}"><Icon name="globe" size={14} /> NFS</button
+              : 'border-fjord-border text-fjord-fg-secondary hover:bg-fjord-border'}"><Icon name="globe" size={14} /> NFS</button
           >
           <button
             on:click={() => (form.type = 'smb')}
             class="flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-md text-sm font-medium border transition-colors {form.type ===
             'smb'
               ? 'bg-fjord-accent/20 text-fjord-accent border-fjord-accent/50'
-              : 'border-fjord-border text-slate-300 hover:bg-fjord-border'}"><Icon name="globe" size={14} /> SMB</button
+              : 'border-fjord-border text-fjord-fg-secondary hover:bg-fjord-border'}"><Icon name="globe" size={14} /> SMB</button
           >
         </div>
 
         {#if form.type === 'smb'}
           <div class="grid grid-cols-2 gap-2">
             <div class="flex flex-col gap-1">
-              <label class="text-xs font-semibold text-slate-400" for="v-smb-server">Server</label>
-              <input id="v-smb-server" bind:value={form.server} placeholder="mars" class="bg-fjord-inset border border-fjord-border rounded-md px-3 py-2 text-slate-200 font-mono text-sm focus:outline-none focus:border-fjord-accent" />
+              <label class="text-xs font-semibold text-fjord-fg-muted" for="v-smb-server">Server</label>
+              <input id="v-smb-server" bind:value={form.server} placeholder="mars" class="bg-fjord-inset border border-fjord-border rounded-md px-3 py-2 text-fjord-fg-body font-mono text-sm focus:outline-none focus:border-fjord-accent" />
             </div>
             <div class="flex flex-col gap-1">
-              <label class="text-xs font-semibold text-slate-400" for="v-smb-share">Share</label>
-              <input id="v-smb-share" bind:value={form.path} placeholder="media" class="bg-fjord-inset border border-fjord-border rounded-md px-3 py-2 text-slate-200 font-mono text-sm focus:outline-none focus:border-fjord-accent" />
+              <label class="text-xs font-semibold text-fjord-fg-muted" for="v-smb-share">Share</label>
+              <input id="v-smb-share" bind:value={form.path} placeholder="media" class="bg-fjord-inset border border-fjord-border rounded-md px-3 py-2 text-fjord-fg-body font-mono text-sm focus:outline-none focus:border-fjord-accent" />
             </div>
             <div class="flex flex-col gap-1">
-              <label class="text-xs font-semibold text-slate-400" for="v-smb-user">User</label>
-              <input id="v-smb-user" bind:value={form.user} placeholder="guest" autocomplete="off" class="bg-fjord-inset border border-fjord-border rounded-md px-3 py-2 text-slate-200 font-mono text-sm focus:outline-none focus:border-fjord-accent" />
+              <label class="text-xs font-semibold text-fjord-fg-muted" for="v-smb-user">User</label>
+              <input id="v-smb-user" bind:value={form.user} placeholder="guest" autocomplete="off" class="bg-fjord-inset border border-fjord-border rounded-md px-3 py-2 text-fjord-fg-body font-mono text-sm focus:outline-none focus:border-fjord-accent" />
             </div>
             <div class="flex flex-col gap-1">
-              <label class="text-xs font-semibold text-slate-400" for="v-smb-pass">Password</label>
-              <input id="v-smb-pass" type="password" bind:value={form.password} placeholder="stored on the host, root-only" autocomplete="new-password" class="bg-fjord-inset border border-fjord-border rounded-md px-3 py-2 text-slate-200 font-mono text-sm focus:outline-none focus:border-fjord-accent" />
+              <label class="text-xs font-semibold text-fjord-fg-muted" for="v-smb-pass">Password</label>
+              <input id="v-smb-pass" type="password" bind:value={form.password} placeholder="stored on the host, root-only" autocomplete="new-password" class="bg-fjord-inset border border-fjord-border rounded-md px-3 py-2 text-fjord-fg-body font-mono text-sm focus:outline-none focus:border-fjord-accent" />
             </div>
           </div>
-          <label class="flex items-center gap-2 text-sm text-slate-300 cursor-pointer select-none">
+          <label class="flex items-center gap-2 text-sm text-fjord-fg-secondary cursor-pointer select-none">
             <input type="checkbox" bind:checked={form.ro} class="accent-fjord-accent" /> Read-only
           </label>
           {#if smbPreview}
-            <p class="text-xs text-slate-500">mounts <span class="font-mono text-slate-400">{smbPreview}</span> — leave the password empty to reuse one already stored for this user and server.</p>
+            <p class="text-xs text-fjord-fg-dim">mounts <span class="font-mono text-fjord-fg-muted">{smbPreview}</span> — leave the password empty to reuse one already stored for this user and server.</p>
           {/if}
           {#if hostOS === 'freebsd'}
             <p class="flex items-start gap-1.5 text-xs text-fjord-warning"><Icon name="alert" size={12} class="shrink-0 mt-0.5" /><span>FreeBSD's built-in SMB client only speaks SMB1, which most servers refuse. If the server also exports NFS, use that instead.</span></p>
@@ -289,29 +289,29 @@
         {#if form.type === 'nfs'}
           <div class="grid grid-cols-3 gap-2">
             <div class="flex flex-col gap-1">
-              <label class="text-xs font-semibold text-slate-400" for="v-server">Server</label>
+              <label class="text-xs font-semibold text-fjord-fg-muted" for="v-server">Server</label>
               <input
                 id="v-server"
                 bind:value={form.server}
                 placeholder="mars"
-                class="bg-fjord-inset border border-fjord-border rounded-md px-3 py-2 text-slate-200 font-mono text-sm focus:outline-none focus:border-fjord-accent"
+                class="bg-fjord-inset border border-fjord-border rounded-md px-3 py-2 text-fjord-fg-body font-mono text-sm focus:outline-none focus:border-fjord-accent"
               />
             </div>
             <div class="col-span-2 flex flex-col gap-1">
-              <label class="text-xs font-semibold text-slate-400" for="v-path">Export path</label>
+              <label class="text-xs font-semibold text-fjord-fg-muted" for="v-path">Export path</label>
               <input
                 id="v-path"
                 bind:value={form.path}
                 placeholder="/mnt/tide"
-                class="bg-fjord-inset border border-fjord-border rounded-md px-3 py-2 text-slate-200 font-mono text-sm focus:outline-none focus:border-fjord-accent"
+                class="bg-fjord-inset border border-fjord-border rounded-md px-3 py-2 text-fjord-fg-body font-mono text-sm focus:outline-none focus:border-fjord-accent"
               />
             </div>
           </div>
-          <label class="flex items-center gap-2 text-sm text-slate-300 cursor-pointer select-none">
+          <label class="flex items-center gap-2 text-sm text-fjord-fg-secondary cursor-pointer select-none">
             <input type="checkbox" bind:checked={form.ro} class="accent-fjord-accent" /> Read-only
           </label>
           {#if nfsPreview}
-            <p class="text-xs text-slate-500">mounts <span class="font-mono text-slate-400">{nfsPreview}</span></p>
+            <p class="text-xs text-fjord-fg-dim">mounts <span class="font-mono text-fjord-fg-muted">{nfsPreview}</span></p>
           {/if}
         {/if}
 
@@ -319,7 +319,7 @@
       </div>
 
       <div class="flex justify-end gap-3 mt-6">
-        <button on:click={() => (creating = false)} class="px-4 py-2 rounded-md font-medium text-slate-300 hover:bg-fjord-border transition-colors">Cancel</button>
+        <button on:click={() => (creating = false)} class="px-4 py-2 rounded-md font-medium text-fjord-fg-secondary hover:bg-fjord-border transition-colors">Cancel</button>
         <button
           on:click={submitCreate}
           disabled={submitting || !form.name.trim()}

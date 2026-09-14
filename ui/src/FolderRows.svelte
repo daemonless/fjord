@@ -38,23 +38,23 @@
 <div class="space-y-1.5 mb-2 pl-1">
   {#each folders as _, j (j)}
     <div class="flex items-center gap-2">
-      <input bind:value={folders[j]} on:input={changed} placeholder={'/mnt/movies or {{appdata}}/{{stack}}/data'} class="flex-1 min-w-0 bg-fjord-inset border border-fjord-border rounded-md px-2 py-1 text-xs text-slate-200 font-mono focus:outline-none focus:border-fjord-accent" />
+      <input bind:value={folders[j]} on:input={changed} placeholder={'/mnt/movies or {{appdata}}/{{stack}}/data'} class="flex-1 min-w-0 bg-fjord-inset border border-fjord-border rounded-md px-2 py-1 text-xs text-fjord-fg-body font-mono focus:outline-none focus:border-fjord-accent" />
       {#if remoteKind(folders[j])}
-        <span class="shrink-0 text-[10px] font-semibold uppercase tracking-wide text-slate-400 border border-fjord-border rounded px-1.5 py-0.5" title="Mounted as a named volume at install">{remoteKind(folders[j])}</span>
+        <span class="shrink-0 text-[10px] font-semibold uppercase tracking-wide text-fjord-fg-muted border border-fjord-border rounded px-1.5 py-0.5" title="Mounted as a named volume at install">{remoteKind(folders[j])}</span>
       {:else}
-        <button on:click={() => (pick = j)} title="Browse" class="shrink-0 px-2 py-1 rounded-md text-xs bg-fjord-inset border border-fjord-border text-slate-300 hover:text-white">Browse…</button>
+        <button on:click={() => (pick = j)} title="Browse" class="shrink-0 px-2 py-1 rounded-md text-xs bg-fjord-inset border border-fjord-border text-fjord-fg-secondary hover:text-fjord-fg">Browse…</button>
       {/if}
-      <button on:click={() => removeFolder(j)} title="Remove folder" class="shrink-0 text-slate-500 hover:text-fjord-danger"><Icon name="close" size={13} /></button>
+      <button on:click={() => removeFolder(j)} title="Remove folder" class="shrink-0 text-fjord-fg-dim hover:text-fjord-danger"><Icon name="close" size={13} /></button>
     </div>
   {/each}
   {#if folders.length === 0}
-    <p class="text-xs text-slate-600 italic">No folders yet — add one below.</p>
+    <p class="text-xs text-fjord-fg-faint italic">No folders yet — add one below.</p>
   {/if}
 </div>
 <div class="flex items-center gap-3 pl-1">
-  <button on:click={addFolder} class="text-xs text-slate-400 hover:text-white flex items-center gap-1"><Icon name="plus" size={12} /> Add folder</button>
-  <button on:click={() => (remoteOpen = 'nfs')} class="text-xs text-slate-400 hover:text-white flex items-center gap-1"><Icon name="globe" size={12} /> Add NFS…</button>
-  <button on:click={() => (remoteOpen = 'smb')} class="text-xs text-slate-400 hover:text-white flex items-center gap-1"><Icon name="globe" size={12} /> Add SMB…</button>
+  <button on:click={addFolder} class="text-xs text-fjord-fg-muted hover:text-fjord-fg flex items-center gap-1"><Icon name="plus" size={12} /> Add folder</button>
+  <button on:click={() => (remoteOpen = 'nfs')} class="text-xs text-fjord-fg-muted hover:text-fjord-fg flex items-center gap-1"><Icon name="globe" size={12} /> Add NFS…</button>
+  <button on:click={() => (remoteOpen = 'smb')} class="text-xs text-fjord-fg-muted hover:text-fjord-fg flex items-center gap-1"><Icon name="globe" size={12} /> Add SMB…</button>
 </div>
 {#if remoteOpen}
   <div class="mt-2 ml-1">

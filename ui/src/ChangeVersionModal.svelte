@@ -67,35 +67,35 @@
   on:click|self={() => dispatch('close')}
 >
   <div class="bg-fjord-card border border-fjord-border rounded-xl shadow-2xl w-full max-w-md p-6">
-    <h3 class="text-lg font-bold text-white mb-1">Change Version — {name}</h3>
-    <p class="text-slate-400 text-sm mb-5">
-      Currently running <span class="font-mono text-slate-200">:{currentTag}</span>{#if currentlyPinned}
+    <h3 class="text-lg font-bold text-fjord-fg mb-1">Change Version — {name}</h3>
+    <p class="text-fjord-fg-muted text-sm mb-5">
+      Currently running <span class="font-mono text-fjord-fg-body">:{currentTag}</span>{#if currentlyPinned}
         <span class="text-fjord-accent font-medium inline-flex items-center gap-1"> · <Icon name="pin" size={11} /> pinned</span>{/if}
     </p>
 
     {#if loading}
-      <p class="text-slate-500 text-sm">Loading published versions…</p>
+      <p class="text-fjord-fg-dim text-sm">Loading published versions…</p>
     {:else if trainList.length === 0}
-      <p class="text-slate-500 text-sm">No published tags found for this image.</p>
+      <p class="text-fjord-fg-dim text-sm">No published tags found for this image.</p>
     {:else}
       <div class="grid grid-cols-2 gap-3">
         <div class="flex flex-col gap-1">
-          <label class="text-sm font-semibold text-slate-300" for="cv-train">Build / channel</label>
+          <label class="text-sm font-semibold text-fjord-fg-secondary" for="cv-train">Build / channel</label>
           <select
             id="cv-train"
             bind:value={train}
             on:change={() => (versionTag = '')}
-            class="bg-fjord-inset border border-fjord-border rounded-md px-3 py-2 text-slate-200 focus:outline-none focus:border-fjord-accent"
+            class="bg-fjord-inset border border-fjord-border rounded-md px-3 py-2 text-fjord-fg-body focus:outline-none focus:border-fjord-accent"
           >
             {#each trainList as t}<option value={t}>{t}</option>{/each}
           </select>
         </div>
         <div class="flex flex-col gap-1">
-          <label class="text-sm font-semibold text-slate-300" for="cv-ver">Version</label>
+          <label class="text-sm font-semibold text-fjord-fg-secondary" for="cv-ver">Version</label>
           <select
             id="cv-ver"
             bind:value={versionTag}
-            class="bg-fjord-inset border border-fjord-border rounded-md px-3 py-2 text-slate-200 focus:outline-none focus:border-fjord-accent"
+            class="bg-fjord-inset border border-fjord-border rounded-md px-3 py-2 text-fjord-fg-body focus:outline-none focus:border-fjord-accent"
           >
             <option value="">Latest (rolling)</option>
             {#each trains[train] || [] as v}<option value={v.tag}>{v.version}</option>{/each}
@@ -106,20 +106,20 @@
         <input
           bind:value={customTag}
           placeholder="Custom tag (optional)"
-          class="flex-1 bg-fjord-inset border border-fjord-border rounded-md px-3 py-1.5 text-slate-200 font-mono text-xs focus:outline-none focus:border-fjord-accent"
+          class="flex-1 bg-fjord-inset border border-fjord-border rounded-md px-3 py-1.5 text-fjord-fg-body font-mono text-xs focus:outline-none focus:border-fjord-accent"
         />
-        <span class="text-xs text-slate-500 shrink-0">→ <span class="font-mono text-slate-300">:{tag}</span></span>
+        <span class="text-xs text-fjord-fg-dim shrink-0">→ <span class="font-mono text-fjord-fg-secondary">:{tag}</span></span>
       </div>
     {/if}
 
     {#if !loading}
       <label class="flex items-start gap-2 mt-4 cursor-pointer select-none">
         <input type="checkbox" bind:checked={pin} class="mt-0.5 accent-fjord-accent" />
-        <span class="text-sm text-slate-300">
-          Pin to exact image <span class="font-mono text-xs text-slate-500">(sha256 digest)</span>
-          <span class="block text-xs text-slate-500">
-            Locks to the exact <span class="font-mono text-slate-400">sha256:…</span> that
-            <span class="font-mono text-slate-400">:{tag}</span> points to right now, so if that tag is later
+        <span class="text-sm text-fjord-fg-secondary">
+          Pin to exact image <span class="font-mono text-xs text-fjord-fg-dim">(sha256 digest)</span>
+          <span class="block text-xs text-fjord-fg-dim">
+            Locks to the exact <span class="font-mono text-fjord-fg-muted">sha256:…</span> that
+            <span class="font-mono text-fjord-fg-muted">:{tag}</span> points to right now, so if that tag is later
             re-published to a different image, this stack stays on the bytes you pinned. Update won't move it
             until you unpin.
           </span>
@@ -130,7 +130,7 @@
     <div class="flex justify-end gap-3 mt-6">
       <button
         on:click={() => dispatch('close')}
-        class="px-4 py-2 rounded-md font-medium text-slate-300 hover:bg-fjord-border transition-colors">Cancel</button
+        class="px-4 py-2 rounded-md font-medium text-fjord-fg-secondary hover:bg-fjord-border transition-colors">Cancel</button
       >
       <button
         on:click={apply}

@@ -120,7 +120,7 @@
     ok: { icon: 'check', cls: 'text-fjord-success', label: 'OK' },
     warn: { icon: 'alert', cls: 'text-fjord-warning', label: 'Warning' },
     fail: { icon: 'alert', cls: 'text-fjord-danger', label: 'Failed' },
-    unknown: { icon: 'alert', cls: 'text-slate-500', label: 'Unverified' },
+    unknown: { icon: 'alert', cls: 'text-fjord-fg-dim', label: 'Unverified' },
   } as const;
 
   $: failCount = report?.checks.filter((c) => c.status === 'fail').length ?? 0;
@@ -134,19 +134,19 @@
 <div class="flex flex-col h-full">
   <div class="flex items-center justify-between mb-4 shrink-0">
     <div>
-      <h2 class="text-2xl font-bold text-white">System</h2>
-      <p class="text-sm text-slate-500">Host readiness — platform, deployment mode, and engine requirements.</p>
+      <h2 class="text-2xl font-bold text-fjord-fg">System</h2>
+      <p class="text-sm text-fjord-fg-dim">Host readiness — platform, deployment mode, and engine requirements.</p>
     </div>
     <button
       on:click={load}
-      class="flex items-center gap-2 bg-fjord-card hover:bg-fjord-border border border-fjord-border text-slate-300 font-medium py-2 px-4 rounded-lg text-sm"
+      class="flex items-center gap-2 bg-fjord-card hover:bg-fjord-border border border-fjord-border text-fjord-fg-secondary font-medium py-2 px-4 rounded-lg text-sm"
       ><Icon name="refresh" size={14} /> Re-check</button
     >
   </div>
 
   <div class="flex-1 overflow-y-auto">
     {#if loading}
-      <div class="flex items-center gap-3 text-slate-500 text-sm"><Spinner size={18} /> Running checks…</div>
+      <div class="flex items-center gap-3 text-fjord-fg-dim text-sm"><Spinner size={18} /> Running checks…</div>
     {:else if error}
       <EmptyState icon="alert" title="System Report Unavailable" description={error} />
     {:else if report}
@@ -154,11 +154,11 @@
         {#if daemonVersion}
           <span class="text-[11px] font-semibold px-2.5 py-1 rounded-full bg-fjord-accent/15 text-fjord-accent border border-fjord-accent/40" title="fjordd daemon version">fjord {daemonVersion}</span>
         {/if}
-        <span class="text-[11px] font-semibold uppercase tracking-wide px-2.5 py-1 rounded-full bg-fjord-card border border-fjord-border text-slate-300">{report.os}</span>
+        <span class="text-[11px] font-semibold uppercase tracking-wide px-2.5 py-1 rounded-full bg-fjord-card border border-fjord-border text-fjord-fg-secondary">{report.os}</span>
         <span
           class="text-[11px] font-semibold uppercase tracking-wide px-2.5 py-1 rounded-full border {report.mode === 'host'
             ? 'bg-fjord-accent/15 text-fjord-accent border-fjord-accent/40'
-            : 'bg-fjord-card text-slate-400 border-fjord-border'}"
+            : 'bg-fjord-card text-fjord-fg-muted border-fjord-border'}"
           title={report.mode === 'host'
             ? 'fjordd can see and repair the host directly'
             : 'fjordd cannot see or repair the host from here — fixes are commands for the operator'}
@@ -169,7 +169,7 @@
               : 'deployment mode unknown'}</span
         >
         {#if engineName}
-          <span class="text-[11px] font-semibold uppercase tracking-wide px-2.5 py-1 rounded-full bg-fjord-card border border-fjord-border text-slate-300">default engine: {engineName}</span>
+          <span class="text-[11px] font-semibold uppercase tracking-wide px-2.5 py-1 rounded-full bg-fjord-card border border-fjord-border text-fjord-fg-secondary">default engine: {engineName}</span>
         {/if}
         {#if failCount > 0}
           <span class="text-[11px] font-semibold px-2.5 py-1 rounded-full bg-fjord-danger/15 text-fjord-danger border border-fjord-danger/40"
@@ -188,12 +188,12 @@
                 <Icon name={STATUS[c.status].icon} size={18} />
               </div>
               <div class="min-w-0 flex-1">
-                <span class="text-sm font-medium text-white">{c.name}</span>
+                <span class="text-sm font-medium text-fjord-fg">{c.name}</span>
                 {#if c.detail}
-                  <div class="text-xs text-slate-500 font-mono truncate" title={c.detail}>{c.detail}</div>
+                  <div class="text-xs text-fjord-fg-dim font-mono truncate" title={c.detail}>{c.detail}</div>
                 {/if}
                 {#if c.why}
-                  <div class="text-xs text-slate-500 mt-0.5">{c.why}</div>
+                  <div class="text-xs text-fjord-fg-dim mt-0.5">{c.why}</div>
                 {/if}
               </div>
               <span class="shrink-0 text-[11px] font-semibold uppercase tracking-wide {STATUS[c.status].cls}">{STATUS[c.status].label}</span>
@@ -206,8 +206,8 @@
       </div>
 
       <!-- Storage cleanup (prune) -->
-      <h3 class="text-lg font-bold text-white mt-8 mb-1">Storage cleanup</h3>
-      <p class="text-sm text-slate-500 mb-3">
+      <h3 class="text-lg font-bold text-fjord-fg mt-8 mb-1">Storage cleanup</h3>
+      <p class="text-sm text-fjord-fg-dim mb-3">
         Reclaim disk held by resources no stack uses. What can be cleaned depends on the engine.
       </p>
       {#if pruneEngines.length > 1}
@@ -217,15 +217,15 @@
               on:click={() => pickPruneEngine(e)}
               class="px-3 py-1.5 rounded-lg text-sm font-medium transition-colors {pruneEngine === e
                 ? 'bg-fjord-accent text-white'
-                : 'bg-fjord-card border border-fjord-border text-slate-300 hover:text-white'}">{e}{#if e === engineName}<span class="ml-1.5 text-[10px] uppercase tracking-wide opacity-70">default</span>{/if}</button>
+                : 'bg-fjord-card border border-fjord-border text-fjord-fg-secondary hover:text-fjord-fg'}">{e}{#if e === engineName}<span class="ml-1.5 text-[10px] uppercase tracking-wide opacity-70">default</span>{/if}</button>
           {/each}
         </div>
       {:else if pruneEngine}
-        <div class="text-xs text-slate-500 mb-3">Engine: <b class="text-slate-400">{pruneEngine}</b></div>
+        <div class="text-xs text-fjord-fg-dim mb-3">Engine: <b class="text-fjord-fg-muted">{pruneEngine}</b></div>
       {/if}
 
       {#if dfLoading && !df.length}
-        <div class="flex items-center gap-2 text-slate-500 text-sm mb-4"><Spinner size={14} /> Measuring…</div>
+        <div class="flex items-center gap-2 text-fjord-fg-dim text-sm mb-4"><Spinner size={14} /> Measuring…</div>
       {:else if df.length}
         <div class="border border-fjord-border rounded-xl overflow-hidden divide-y divide-fjord-border mb-4 max-w-2xl transition-opacity {dfLoading ? 'opacity-50' : ''}">
           {#each df as row}
@@ -233,15 +233,15 @@
                  rows; the note lives inside the row, not as a sibling. -->
             <div class="px-4 py-2.5">
               <div class="flex items-center gap-3 text-sm">
-                <span class="w-32 shrink-0 text-slate-300">{row.type}</span>
-                <span class="text-xs text-slate-500 w-28 shrink-0">{row.active}/{row.total} in use</span>
-                <span class="text-xs text-slate-500 flex-1 truncate">{row.size}</span>
-                <span class="shrink-0 text-xs font-semibold {row.rawReclaimable > 0 ? 'text-fjord-warning' : 'text-slate-600'}"
+                <span class="w-32 shrink-0 text-fjord-fg-secondary">{row.type}</span>
+                <span class="text-xs text-fjord-fg-dim w-28 shrink-0">{row.active}/{row.total} in use</span>
+                <span class="text-xs text-fjord-fg-dim flex-1 truncate">{row.size}</span>
+                <span class="shrink-0 text-xs font-semibold {row.rawReclaimable > 0 ? 'text-fjord-warning' : 'text-fjord-fg-faint'}"
                   >{row.reclaimable} reclaimable</span
                 >
               </div>
               {#if row.note}
-                <div class="mt-1.5 text-xs text-slate-500 leading-snug">{row.note}</div>
+                <div class="mt-1.5 text-xs text-fjord-fg-dim leading-snug">{row.note}</div>
               {/if}
             </div>
           {/each}
@@ -250,32 +250,32 @@
 
       <div class="flex flex-wrap items-center gap-x-5 gap-y-2 mb-3 max-w-2xl">
         {#if caps.containers}
-        <label class="flex items-center gap-1.5 text-sm text-slate-300 cursor-pointer select-none">
+        <label class="flex items-center gap-1.5 text-sm text-fjord-fg-secondary cursor-pointer select-none">
           <input type="checkbox" bind:checked={pruneOpts.containers} disabled={pruneOpts.build} class="accent-fjord-accent" /> Stopped containers
         </label>
         {/if}
         {#if caps.images}
-        <label class="flex items-center gap-1.5 text-sm text-slate-300 cursor-pointer select-none">
+        <label class="flex items-center gap-1.5 text-sm text-fjord-fg-secondary cursor-pointer select-none">
           <input type="checkbox" bind:checked={pruneOpts.images} disabled={pruneOpts.build} class="accent-fjord-accent" /> Dangling images
         </label>
         {/if}
         {#if caps.networks}
-        <label class="flex items-center gap-1.5 text-sm text-slate-300 cursor-pointer select-none" title="Networks no container is attached to">
+        <label class="flex items-center gap-1.5 text-sm text-fjord-fg-secondary cursor-pointer select-none" title="Networks no container is attached to">
           <input type="checkbox" bind:checked={pruneOpts.networks} disabled={pruneOpts.build} class="accent-fjord-accent" /> Unused networks
         </label>
         {/if}
         {#if caps.build}
-        <label class="flex items-center gap-1.5 text-sm text-slate-300 cursor-pointer select-none" title="Working containers and cache left behind by image builds. Includes stopped containers, dangling images and unused networks.">
+        <label class="flex items-center gap-1.5 text-sm text-fjord-fg-secondary cursor-pointer select-none" title="Working containers and cache left behind by image builds. Includes stopped containers, dangling images and unused networks.">
           <input type="checkbox" bind:checked={pruneOpts.build} class="accent-fjord-accent" /> Build leftovers
         </label>
         {/if}
         {#if caps.allImages}
-        <label class="flex items-center gap-1.5 text-sm text-slate-300 cursor-pointer select-none" title="Removes every image not used by a container — they re-pull when next needed">
+        <label class="flex items-center gap-1.5 text-sm text-fjord-fg-secondary cursor-pointer select-none" title="Removes every image not used by a container — they re-pull when next needed">
           <input type="checkbox" bind:checked={pruneOpts.allImages} class="accent-fjord-accent" /> All unused images
         </label>
         {/if}
         {#if caps.volumes}
-        <label class="flex items-center gap-1.5 text-sm cursor-pointer select-none {pruneOpts.volumes ? 'text-fjord-warning' : 'text-slate-300'}" title="Deletes volumes not attached to any container — this can destroy data">
+        <label class="flex items-center gap-1.5 text-sm cursor-pointer select-none {pruneOpts.volumes ? 'text-fjord-warning' : 'text-fjord-fg-secondary'}" title="Deletes volumes not attached to any container — this can destroy data">
           <input type="checkbox" bind:checked={pruneOpts.volumes} class="accent-fjord-accent" /> Unused volumes
         </label>
         {/if}
@@ -286,9 +286,9 @@
 
       {#if confirmPrune}
         <div class="flex items-center gap-3">
-          <span class="text-sm text-slate-300">Remove the selected unused resources now?</span>
+          <span class="text-sm text-fjord-fg-secondary">Remove the selected unused resources now?</span>
           <button on:click={runPrune} class="px-4 py-2 rounded-lg text-sm font-medium bg-fjord-danger hover:bg-fjord-danger-hover text-white">Confirm cleanup</button>
-          <button on:click={() => (confirmPrune = false)} class="px-4 py-2 rounded-lg text-sm font-medium text-slate-400 hover:text-white">Cancel</button>
+          <button on:click={() => (confirmPrune = false)} class="px-4 py-2 rounded-lg text-sm font-medium text-fjord-fg-muted hover:text-fjord-fg">Cancel</button>
         </div>
       {:else}
         <button

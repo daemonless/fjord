@@ -108,15 +108,15 @@
 <div class="flex-1 flex flex-col min-h-0 bg-fjord-card border border-fjord-border rounded-xl overflow-hidden">
   <!-- search / options bar -->
   <div class="flex items-center gap-2 px-3 py-1.5 border-b border-fjord-border text-xs">
-    <span class="text-slate-500 shrink-0"><Icon name="search" size={13} /></span>
+    <span class="text-fjord-fg-dim shrink-0"><Icon name="search" size={13} /></span>
     <input
       bind:this={searchInput}
       bind:value={query}
       placeholder="Find in logs…  (Ctrl+F)"
-      class="flex-1 min-w-0 bg-transparent text-slate-200 outline-none placeholder:text-slate-600"
+      class="flex-1 min-w-0 bg-transparent text-fjord-fg-body outline-none placeholder:text-fjord-fg-faint"
     />
     {#if query}
-      <span class="text-slate-500 shrink-0 tabular-nums">{matchCount} match{matchCount === 1 ? '' : 'es'}</span>
+      <span class="text-fjord-fg-dim shrink-0 tabular-nums">{matchCount} match{matchCount === 1 ? '' : 'es'}</span>
     {/if}
     <button class="chip" class:on={doFilter} on:click={() => (doFilter = !doFilter)} title="Show only matching lines">Filter</button>
     <button class="chip" class:on={doHighlight} on:click={() => (doHighlight = !doHighlight)} title="Highlight matches">Highlight</button>
@@ -132,13 +132,13 @@
   <div
     bind:this={scroller}
     on:scroll={onScroll}
-    class="flex-1 overflow-auto font-mono text-[11.5px] leading-[1.45] p-2 text-slate-300"
+    class="flex-1 overflow-auto font-mono text-[11.5px] leading-[1.45] p-2 text-fjord-fg-secondary"
   >
     {#if shown.length === 0 || (shown.length === 1 && shown[0] === '')}
-      <div class="text-slate-600 italic px-1">{query ? 'No matching lines.' : 'No output yet…'}</div>
+      <div class="text-fjord-fg-faint italic px-1">{query ? 'No matching lines.' : 'No output yet…'}</div>
     {:else}
       {#each rows as row}
-        <div class="whitespace-pre-wrap break-all">{#each row as s}{#if s.m}<mark class="bg-fjord-warning/40 text-slate-100 rounded-[2px] px-px">{s.t}</mark>{:else}{s.t}{/if}{/each}</div>
+        <div class="whitespace-pre-wrap break-all">{#each row as s}{#if s.m}<mark class="bg-fjord-warning/40 text-fjord-fg-strong rounded-[2px] px-px">{s.t}</mark>{:else}{s.t}{/if}{/each}</div>
       {/each}
     {/if}
   </div>
