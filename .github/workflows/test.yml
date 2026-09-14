@@ -101,6 +101,7 @@ jobs:
             pkg install -y go git
           run: |
             set -e
+            export GOFLAGS=-buildvcs=false
             go version
             test -f ui/dist/index.html || { echo "ui/dist missing"; exit 1; }
             go build ./...
