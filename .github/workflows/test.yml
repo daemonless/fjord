@@ -1,0 +1,92 @@
+name: Test
+
+on:
+  push:
+    branches: [main]
+    tags-ignore: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A new push to the same PR supersedes the previous run.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Fast lane: formatting, vet and the UI's own type check. Everything here is
+  # platform-neutral, so it runs on Linux and reports within a minute or two --
+  # a PR that fails gofmt shouldn't have to wait for a FreeBSD VM to boot.
+  check:
+    name: Lint and type-check
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: gofmt
+        run: |
+          unformatted="$(gofmt -l $(git ls-files '*.go'))"
+          if [ -n "$unformatted" ]; then
+            echo "These files need gofmt:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: go vet
+        run: go vet ./...
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - name: Install UI deps
+        working-directory: ui
+        run: npm ci
+
+      - name: svelte-check / tsc
+        working-directory: ui
+        run: npm run check
+
+      # The binary embeds ui/dist, so a UI that fails to build breaks the
+      # release too -- catch it here rather than at tag time.
+      - name: Build UI
+        working-directory: ui
+        run: npm run build
+
+  # Authoritative lane: fjordd targets FreeBSD, so the tests run there. The
+  # suite is pure Go with no jails or ZFS, but running it on the real platform
+  # is what keeps a FreeBSD-only assumption from reaching a release untested.
+  test-freebsd:
+    name: Go tests (FreeBSD 15)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: go test ./...
+        uses: vmactions/freebsd-vm@83b151f58c6047089f4c80eb5ba2039d158ce093 # v1.5.3
+        with:
+          release: "15"
+          usesh: true
+          copyback: false
+          prepare: |
+            pkg update
+            pkg install -y go git
+          run: |
+            set -e
+            go version
+            go build ./...
+            # Vet here as well as in the Linux lane: platform_freebsd.go is
+            # behind a build tag, so a Linux-only vet never sees it.
+            go vet ./...
+            go test ./... 2>&1

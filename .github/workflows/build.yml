@@ -12,6 +12,14 @@ on:
         required: false
         default: ""
 
+permissions:
+  contents: read
+
+# A new push to the same PR supersedes the previous run.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 # fjordd is pure Go (CGO off), so a Linux runner cross-compiles the FreeBSD
 # binary directly -- no FreeBSD VM needed. The UI is built with vite, whose
 # output is platform-neutral and gets embedded into the binary (ui/dist).
