@@ -17,8 +17,8 @@ concurrency:
 
 jobs:
   # Fast lane: formatting, vet and the UI's own type check. Everything here is
-  # platform-neutral, so it runs on Linux and reports within a minute or two --
-  # a PR that fails gofmt shouldn't have to wait for a FreeBSD VM to boot.
+  # platform-neutral, so it runs on Linux and reports quickly -- a PR that
+  # fails gofmt shouldn't have to wait for a FreeBSD VM to boot.
   check:
     name: Lint and type-check
     runs-on: ubuntu-latest
@@ -40,9 +40,6 @@ jobs:
             exit 1
           fi
 
-      - name: go vet
-        run: go vet ./...
-
       - uses: actions/setup-node@v4
         with:
           node-version: "24"
@@ -57,21 +54,41 @@ jobs:
         working-directory: ui
         run: npm run check
 
-      # The binary embeds ui/dist, so a UI that fails to build breaks the
-      # release too -- catch it here rather than at tag time.
+      # Must come before any Go step: ui/embed.go embeds ui/dist, which is
+      # gitignored, so `go vet`/`go build` fail with "pattern dist/*: no
+      # matching files found" until the UI has been built.
       - name: Build UI
         working-directory: ui
         run: npm run build
+
+      - name: go vet
+        run: go vet ./...
+
+      # Hand the built UI to the FreeBSD lane so it doesn't need node at all.
+      - name: Upload UI assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-dist
+          path: ui/dist
+          retention-days: 1
+          if-no-files-found: error
 
   # Authoritative lane: fjordd targets FreeBSD, so the tests run there. The
   # suite is pure Go with no jails or ZFS, but running it on the real platform
   # is what keeps a FreeBSD-only assumption from reaching a release untested.
   test-freebsd:
     name: Go tests (FreeBSD 15)
+    needs: check
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v6
+
+      - name: Download UI assets
+        uses: actions/download-artifact@v4
+        with:
+          name: ui-dist
+          path: ui/dist
 
       - name: go test ./...
         uses: vmactions/freebsd-vm@83b151f58c6047089f4c80eb5ba2039d158ce093 # v1.5.3
@@ -85,6 +102,7 @@ jobs:
           run: |
             set -e
             go version
+            test -f ui/dist/index.html || { echo "ui/dist missing"; exit 1; }
             go build ./...
             # Vet here as well as in the Linux lane: platform_freebsd.go is
             # behind a build tag, so a Linux-only vet never sees it.
