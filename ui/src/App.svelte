@@ -23,6 +23,7 @@
   import { toast, dismissToast } from './toast';
   import { expandVars } from './expand';
   import { currentTheme, setTheme, watchSystem, type Theme } from './theme';
+  import { networkLabel, HOST_NETWORK, DEFAULT_NETWORK } from './network';
 
   type ContainerStatus = {
     name: string;
@@ -250,14 +251,15 @@
   $: ordered = [...filtered].sort(
     (a, b) => orderKey(a) - orderKey(b) || a.name.localeCompare(b.name, undefined, { numeric: true }),
   );
-  // Sidebar grouping mode: user-defined groups, by engine, by status, or flat.
+  // Sidebar grouping mode: user-defined groups, by engine, network, status,
+  // or flat.
   // Only 'groups' is drag-editable (the others are derived buckets).
-  type GroupMode = 'groups' | 'engine' | 'app' | 'status' | 'flat';
+  type GroupMode = 'groups' | 'engine' | 'app' | 'network' | 'status' | 'flat';
   let groupMode: GroupMode = 'groups';
   let groupMenuOpen = false;
   try {
     const m = localStorage.getItem('fjord.groupMode') as GroupMode;
-    if (['groups', 'engine', 'app', 'status', 'flat'].includes(m)) groupMode = m;
+    if (['groups', 'engine', 'app', 'network', 'status', 'flat'].includes(m)) groupMode = m;
   } catch {}
   function setGroupMode(m: GroupMode) {
     groupMode = m;
@@ -269,6 +271,7 @@
     { id: 'groups', label: 'Groups' },
     { id: 'engine', label: 'Engine' },
     { id: 'app', label: 'App' },
+    { id: 'network', label: 'Network' },
     { id: 'status', label: 'Status' },
     { id: 'flat', label: 'Flat' },
   ];
@@ -276,6 +279,7 @@
   const bucketOf = (s: Stack): string => {
     if (groupMode === 'engine') return s.state?.engine || 'podman';
     if (groupMode === 'status') return s.status?.state || 'unknown';
+    if (groupMode === 'network') return networkLabel(s.compose);
     if (groupMode === 'flat') return '';
     // By app: the catalog app id (two installs of the same app group together),
     // falling back to the display name for stacks with no recorded origin (BYO).
@@ -300,7 +304,14 @@
     if (groupMode === 'status') {
       return [...m.entries()].sort((a, b) => (STATUS_RANK[a[0]] ?? 9) - (STATUS_RANK[b[0]] ?? 9));
     }
-    return [...m.entries()].sort((a, b) => a[0].localeCompare(b[0])); // engine / flat
+    if (groupMode === 'network') {
+      // Named networks first -- those are the interesting buckets; the generic
+      // default bridge, host mode and unparseable compose sink to the bottom.
+      const rank = (n: string) =>
+        n === 'unknown' ? 3 : n === HOST_NETWORK ? 2 : n === DEFAULT_NETWORK ? 1 : 0;
+      return [...m.entries()].sort((a, b) => rank(a[0]) - rank(b[0]) || a[0].localeCompare(b[0]));
+    }
+    return [...m.entries()].sort((a, b) => a[0].localeCompare(b[0])); // engine / app / flat
   })();
   // Headers show for user groups (when present) and always for engine/status
   // buckets; flat has no headers. Drag-to-regroup is groups-only.
