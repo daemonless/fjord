@@ -295,9 +295,9 @@ func startOnBoot(srv *server) {
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		// A fjordd restart is not a host boot: a stack that is already running
-		// must be left alone. `podman-compose up` RECREATES its containers
-		// (killing open shells and restarting the app), so only bring up what
-		// is actually down.
+		// must be left alone. `podman-compose up` recreates its containers when
+		// the compose file has changed (killing open shells and restarting the
+		// app), so only bring up what is actually down.
 		if st, err := srv.backendFor(full).Status(ctx, full); err == nil && st.State == "running" {
 			cancel()
 			continue

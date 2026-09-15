@@ -48,7 +48,7 @@ func (b *Backend) Up(ctx context.Context, s *stack.Stack) (io.ReadCloser, error)
 	pr, pw := io.Pipe()
 	go func() {
 		defer pw.Close()
-		b.bringUp(ctx, pw, s)
+		b.bringUp(ctx, pw, s, false)
 	}()
 	return pr, nil
 }
@@ -62,9 +62,39 @@ func (b *Backend) Up(ctx context.Context, s *stack.Stack) (io.ReadCloser, error)
 // containers as a safety net (a no-op when compose already started them).
 // Single-service stacks -- fjord's whole catalog -- don't need a pod's shared
 // netns anyway.
-func (b *Backend) bringUp(ctx context.Context, pw *io.PipeWriter, s *stack.Stack) {
+func (b *Backend) bringUp(ctx context.Context, pw *io.PipeWriter, s *stack.Stack, forceRecreate bool) {
 	b.removeOrphanStorage(ctx, pw, s.Name)
-	_ = b.runStreaming(ctx, pw, s.Dir, "podman-compose", "--in-pod=false", "up", "-d", "--remove-orphans")
+	args := []string{"--in-pod=false", "up", "-d", "--remove-orphans"}
+	if forceRecreate {
+		// podman-compose decides whether to recreate by comparing a hash of the
+		// compose FILE, not the image: `up -d` after a pull leaves the existing
+		// container in place and `podman start` then starts it on the old image.
+		// An update that changes the tag edits the compose and so recreates by
+		// itself; one that pulls a moved tag (:latest) does not, and silently
+		// keeps running the image it already had.
+		args = append(args, "--force-recreate")
+	}
+	err := b.runStreaming(ctx, pw, s.Dir, "podman-compose", args...)
+	// A plain up tolerates a failure here: compose can leave a container in
+	// "created" and the explicit `podman start` below recovers it. A recreate
+	// cannot -- if the teardown was refused the OLD container is still there,
+	// and starting it would report a successful update while running the image
+	// the stack already had. That is the failure this whole path exists to stop.
+	if err != nil && forceRecreate {
+		// The usual reason a teardown is refused is a lingering exec session:
+		// podman keeps the record even after the process is gone, `stop`, `rm`
+		// and `container cleanup` all refuse ("container state improper"), and
+		// libpod has no endpoint to drop it. Only a force-remove clears it.
+		// Safe to do here and nowhere else -- an update is replacing these
+		// containers anyway.
+		fmt.Fprintf(pw, "\n[warn] recreate refused (%v); force-removing the stack's containers and retrying\n", err)
+		b.forceRemoveStackContainers(ctx, pw, s)
+		err = b.runStreaming(ctx, pw, s.Dir, "podman-compose", args...)
+	}
+	if err != nil && forceRecreate {
+		fmt.Fprintf(pw, "\n[error] recreate failed, the stack still runs its previous image: %v\n", err)
+		return
+	}
 	names := containerNames(listOrNil(b.listStackContainers(ctx, s.Name)))
 	if len(names) == 0 {
 		fmt.Fprintf(pw, "\n[error] compose created no containers to start\n")
@@ -72,6 +102,19 @@ func (b *Backend) bringUp(ctx context.Context, pw *io.PipeWriter, s *stack.Stack
 	}
 	if err := b.runStreaming(ctx, pw, s.Dir, "podman", append([]string{"start"}, names...)...); err != nil {
 		fmt.Fprintf(pw, "\n[error] start: %v\n", err)
+	}
+}
+
+// forceRemoveStackContainers force-removes this stack's own containers, used
+// only to unwedge a refused recreate. Scoped to the stack's containers, so it
+// can never touch anything else on the host.
+func (b *Backend) forceRemoveStackContainers(ctx context.Context, pw *io.PipeWriter, s *stack.Stack) {
+	names := containerNames(listOrNil(b.listStackContainers(ctx, s.Name)))
+	if len(names) == 0 {
+		return
+	}
+	if err := b.runStreaming(ctx, pw, s.Dir, "podman", append([]string{"rm", "-f"}, names...)...); err != nil {
+		fmt.Fprintf(pw, "[warn] force-remove: %v\n", err)
 	}
 }
 
@@ -176,14 +219,17 @@ func (b *Backend) Restart(ctx context.Context, s *stack.Stack) (io.ReadCloser, e
 			fmt.Fprintf(pw, "\n[error] stop: %v\n", err)
 			return
 		}
-		b.bringUp(ctx, pw, s)
+		b.bringUp(ctx, pw, s, false)
 	}()
 	return pr, nil
 }
 
-// Update pulls the latest images then recreates the stack. If pull fails it
-// stops before recreating so a bad pull can't tear down a working stack. The
-// recreate uses the same robust create-then-start as Up.
+// Update pulls the latest images then FORCE-recreates the stack. If pull fails
+// it stops before recreating so a bad pull can't tear down a working stack.
+//
+// The force matters: podman-compose only recreates when the compose file's hash
+// changes, so pulling a moved tag left the old container running on the old
+// image -- the pull succeeded, the UI said updated, and nothing had changed.
 func (b *Backend) Update(ctx context.Context, s *stack.Stack) (io.ReadCloser, error) {
 	pr, pw := io.Pipe()
 	go func() {
@@ -192,7 +238,7 @@ func (b *Backend) Update(ctx context.Context, s *stack.Stack) (io.ReadCloser, er
 			fmt.Fprintf(pw, "\n[error] pull: %v\n", err)
 			return
 		}
-		b.bringUp(ctx, pw, s)
+		b.bringUp(ctx, pw, s, true)
 	}()
 	return pr, nil
 }
