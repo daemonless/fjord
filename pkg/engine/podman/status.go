@@ -9,14 +9,17 @@ import (
 	"strings"
 
 	"github.com/daemonless/fjord/pkg/engine"
+	"github.com/daemonless/fjord/pkg/hostnet"
 	"github.com/daemonless/fjord/pkg/stack"
 )
 
 // libpodContainer is the subset of the libpod /containers/json response we need.
 type libpodContainer struct {
-	Names []string `json:"Names"`
-	State string   `json:"State"`
-	Ports []struct {
+	ID       string   `json:"Id"`
+	Names    []string `json:"Names"`
+	State    string   `json:"State"`
+	Networks []string `json:"Networks"`
+	Ports    []struct {
 		HostPort      int    `json:"host_port"`
 		ContainerPort int    `json:"container_port"`
 		Protocol      string `json:"protocol"`
@@ -148,7 +151,9 @@ func aggregateStatus(containers []libpodContainer) engine.StackStatus {
 				ports = append(ports, engine.Port{HostPort: p.HostPort, ContainerPort: p.ContainerPort, Protocol: p.Protocol})
 			}
 		}
-		out.Containers = append(out.Containers, engine.ContainerStatus{Name: name, State: c.State, Ports: ports})
+		out.Containers = append(out.Containers, engine.ContainerStatus{
+			Name: name, State: c.State, Ports: ports, Address: containerAddress(c),
+		})
 		if c.State == "running" {
 			running++
 		}
@@ -163,4 +168,24 @@ func aggregateStatus(containers []libpodContainer) engine.StackStatus {
 		out.State = "partial"
 	}
 	return out
+}
+
+// containerAddress reports the address a container holds on an attachable
+// network, or "" when it has none.
+//
+// It is read from CNI's IPAM state rather than from podman: on FreeBSD podman
+// does not parse a third-party plugin's conflist, so its own view of an epair
+// network carries no address at all. The compose only records one when the
+// user pinned it, which leaves every auto-assigned stack with no address to
+// report -- and nothing to build a working link from.
+func containerAddress(c libpodContainer) string {
+	if c.ID == "" {
+		return ""
+	}
+	for _, n := range c.Networks {
+		if addr := hostnet.AddressOf(n, c.ID); addr != "" {
+			return addr
+		}
+	}
+	return ""
 }

@@ -6,6 +6,7 @@
   import Terminal from './Terminal.svelte';
   import AppStore from './AppStore.svelte';
   import Volumes from './Volumes.svelte';
+  import Networks from './Networks.svelte';
   import Adopt from './Adopt.svelte';
   import System from './System.svelte';
   import Settings from './Settings.svelte';
@@ -30,6 +31,7 @@
     state: string;
     ports?: { hostPort: number; containerPort: number; protocol?: string }[];
     detail?: string; // one-line reason for a non-running state (appjail: crash-looping app)
+    address?: string; // the container's own IP on an attachable network
   };
   type StackStatus = { state: string; containers: ContainerStatus[] };
   type StackState = { group?: string; desired_state?: string; engine?: string; order?: number; origin?: { app_id?: string } };
@@ -72,7 +74,7 @@
   let originalEnv = '';
   let originalDirector = '';
   let originalMakejail = '';
-  let currentView: 'stacks' | 'store' | 'volumes' | 'system' | 'settings' | 'adopt' = 'stacks';
+  let currentView: 'stacks' | 'store' | 'volumes' | 'networks' | 'system' | 'settings' | 'adopt' = 'stacks';
   // Settings sub-tab, mirrored into the URL (#/settings/<tab>) like the views.
   let settingsTab: 'storage' | 'extensions' | 'catalogs' | 'advanced' = 'storage';
 
@@ -385,13 +387,18 @@
     await loadStacks(); // reconcile with server truth
   }
 
-  // Derive a clickable URL for a webapp stack: its macvlan IP (if it has one)
+  // Derive a clickable URL for a webapp stack: its own IP when it has one,
   // else the host you're browsing fjord on, plus its primary published web
   // port. Empty when the stack publishes nothing web-ish.
   function appUrl(stack: Stack | null): string {
     if (!stack) return '';
     const c = stack.compose || '';
-    const ip = (c.match(/ipv4_address:\s*([0-9.]+)/) || [])[1];
+    // The RUNTIME address first: an auto-assigned one exists nowhere else.
+    // The compose only carries ipv4_address when the user pinned it, and a
+    // stack on its own IP publishes nothing on the host -- so falling back to
+    // location.hostname gives a link that times out.
+    const running = (stack.status?.containers || []).find((x: any) => x.address)?.address;
+    const ip = running || (c.match(/ipv4_address:\s*([0-9.]+)/) || [])[1];
     const host = ip || location.hostname;
 
     const env: Record<string, string> = {};
@@ -472,6 +479,10 @@
   type Network = { name: string; driver: string; subnet: string; gateway: string };
   let networks: Network[] = [];
   let netChoice = ''; // '' = host ports (default), else a network name
+  // What the SAVED compose says, so revert() and post-save reset go back to it
+  // rather than blanking the picker.
+  let savedNetwork = '';
+  let savedNetworkIP = '';
   let netIP = ''; // optional predictable IP within the chosen network
 
   $: isDirty = selectedStack
@@ -500,6 +511,8 @@
         ? '#/store'
         : currentView === 'volumes'
           ? '#/volumes'
+          : currentView === 'networks'
+            ? '#/networks'
           : currentView === 'adopt'
             ? '#/adopt'
           : currentView === 'system'
@@ -556,6 +569,12 @@
     originalEnv = stack!.env;
     originalDirector = stack!.director ?? '';
     originalMakejail = stack!.makejail ?? '';
+    // Show the network the stack is ACTUALLY on. The picker is otherwise
+    // write-only and reads "Host ports (default)" for every attached stack.
+    savedNetwork = (stack as any)!.network ?? '';
+    savedNetworkIP = (stack as any)!.networkIp ?? '';
+    netChoice = savedNetwork;
+    netIP = savedNetworkIP;
     // Resources tab is engine-scoped to this stack (see loadNetworks/loadVolumes).
     loadNetworks(stack!.name);
     loadVolumes(stack!.name);
@@ -798,6 +817,9 @@
     } else if (section === 'volumes') {
       currentView = 'volumes';
       await selectStack(null);
+    } else if (section === 'networks') {
+      currentView = 'networks';
+      await selectStack(null);
     } else if (section === 'adopt') {
       currentView = 'adopt';
       await selectStack(null);
@@ -855,8 +877,8 @@
   function revert() {
     if (!selectedStack) return;
     selectedStack = { ...selectedStack, compose: originalCompose, env: originalEnv, ...(isDirector ? { director: originalDirector, makejail: originalMakejail } : {}) };
-    netChoice = '';
-    netIP = '';
+    netChoice = savedNetwork;
+    netIP = savedNetworkIP;
     addSource = '';
     addDest = '';
     addRO = false;
@@ -878,9 +900,12 @@
       }
       if (isDraft && selectedStack.engine) body.engine = selectedStack.engine;
       if (isDraft && selectedStack.displayName && selectedStack.displayName !== selectedStack.name) body.displayName = selectedStack.displayName;
-      // Attaching a network/volume injects blocks into the compose -- one-shot
-      // actions, so the pickers are cleared after a successful save.
-      if (netChoice) {
+      // Attaching a volume injects a block into the compose -- a one-shot
+      // action, so that picker is cleared after a successful save.
+      // The network is only injected when it CHANGED: the picker now shows the
+      // stack's current network, and re-injecting one the compose already
+      // declares fails ("service already declares networks").
+      if (netChoice && netChoice !== savedNetwork) {
         body.network = netChoice;
         if (netIP.trim()) body.ip = netIP.trim();
       }
@@ -897,11 +922,15 @@
       if (res.ok) {
         // If we injected a network/volume the on-disk compose changed;
         // re-fetch it so the editor shows the real (injected) compose.
-        if (netChoice || body.volume) {
+        if (body.network || body.volume) {
           const detail = await fetch(`/api/stacks/${selectedStack.name}`);
           if (detail.ok) selectedStack = await detail.json();
-          netChoice = '';
-          netIP = '';
+          // Re-read the picker from what was just written, so it keeps showing
+          // the stack's network instead of snapping back to "Host ports".
+          savedNetwork = (selectedStack as any)!.network ?? '';
+          savedNetworkIP = (selectedStack as any)!.networkIp ?? '';
+          netChoice = savedNetwork;
+          netIP = savedNetworkIP;
           volChoice = '';
           volPath = '';
           volRO = false;
@@ -1475,6 +1504,16 @@
         'volumes'
           ? 'bg-fjord-border text-fjord-fg'
           : 'text-fjord-fg-muted hover:text-fjord-fg'}"><Icon name="drive" size={15} /> Volumes</button
+      >
+      <button
+        on:click={() => {
+          selectStack(null);
+          currentView = 'networks';
+        }}
+        class="flex items-center gap-2.5 text-left px-3 py-2 rounded-md text-sm font-medium transition-colors {currentView ===
+        'networks'
+          ? 'bg-fjord-border text-fjord-fg'
+          : 'text-fjord-fg-muted hover:text-fjord-fg'}"><Icon name="globe" size={15} /> Networks</button
       >
       <button
         on:click={() => {
@@ -2164,6 +2203,10 @@
     {:else if currentView === 'volumes'}
       <div class="p-6 h-full overflow-hidden">
         <Volumes />
+      </div>
+    {:else if currentView === 'networks'}
+      <div class="p-6 h-full overflow-hidden">
+        <Networks />
       </div>
     {:else if currentView === 'adopt'}
       <div class="p-6 h-full overflow-hidden">

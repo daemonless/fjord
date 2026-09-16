@@ -44,6 +44,10 @@ type ContainerStatus struct {
 	// Detail explains a non-running state in one line (e.g. "crash-looping:
 	// see Logs") -- shown as a hint, never parsed.
 	Detail string `json:"detail,omitempty"`
+	// Address is the container's own IP on an attachable network, when it has
+	// one. Reported by the backend because the compose records an address only
+	// when the user pinned it: an auto-assigned one exists solely at runtime.
+	Address string `json:"address,omitempty"`
 }
 
 // StackStatus is the aggregate lifecycle state of a stack's containers.
@@ -61,6 +65,56 @@ type Network struct {
 	Driver  string `json:"driver"`
 	Subnet  string `json:"subnet,omitempty"`
 	Gateway string `json:"gateway,omitempty"`
+	// UsedBy names what is currently attached. A network with attachments
+	// must not be deletable from the UI: removing it strands every attached
+	// container on an address nothing can route or clean up.
+	UsedBy []string `json:"usedBy,omitempty"`
+}
+
+// NetworkKind is one shape of network a backend can create, and which spec
+// fields that shape uses. The UI builds its form from this rather than
+// branching on an engine name: the two runtimes genuinely differ (a LAN
+// network needs a parent interface and a gateway; a NAT network derives its
+// own gateway and has no parent), so a field that is required for one is
+// meaningless for the other.
+type NetworkKind struct {
+	ID    string `json:"id"`    // "lan" | "nat"
+	Label string `json:"label"` // e.g. "Own IP on an existing bridge"
+	// Help is one line explaining what a container on this network gets.
+	Help string `json:"help,omitempty"`
+	// ParentLabel names what Parent must be for this runtime ("Bridge" on
+	// FreeBSD, "Interface" on Linux); empty when the kind takes no parent.
+	ParentLabel         string `json:"parentLabel,omitempty"`
+	NeedsGateway        bool   `json:"needsGateway,omitempty"`
+	SupportsMTU         bool   `json:"supportsMtu,omitempty"`
+	SupportsRange       bool   `json:"supportsRange,omitempty"`
+	SupportsDescription bool   `json:"supportsDescription,omitempty"`
+}
+
+// NetworkSpec describes a network to create in runtime-neutral terms; the
+// backend translates it (a CNI conflist on FreeBSD podman, `appjail network
+// add` on appjail). Mirrors VolumeSpec.
+type NetworkSpec struct {
+	Name string `json:"name"`
+	Kind string `json:"kind"` // a NetworkKind.ID from Capabilities
+	// Parent is the host interface the network hangs off -- a bridge on
+	// FreeBSD, a NIC or VLAN subinterface on Linux. Empty for kinds whose
+	// ParentLabel is empty.
+	Parent      string `json:"parent,omitempty"`
+	Subnet      string `json:"subnet"`
+	Gateway     string `json:"gateway,omitempty"`
+	MTU         int    `json:"mtu,omitempty"`
+	RangeStart  string `json:"rangeStart,omitempty"`
+	RangeEnd    string `json:"rangeEnd,omitempty"`
+	Description string `json:"description,omitempty"`
+}
+
+// NetworkParent is a host interface a "lan" network can attach to.
+// InUse marks one that already backs a network, so the UI can say so without
+// forbidding it (several networks on one bridge is legal).
+type NetworkParent struct {
+	Name  string `json:"name"`
+	InUse bool   `json:"inUse,omitempty"`
 }
 
 // Volume is a runtime-managed named volume. Kind is the backend's
@@ -202,6 +256,9 @@ type Capabilities struct {
 	// RemoteVolumes: the engine can mount nfs:// / smb:// folders as named
 	// volumes (and store SMB credentials for them).
 	RemoteVolumes bool `json:"remoteVolumes"`
+	// NetworkKinds are the networks this engine can create. Empty means
+	// CreateNetwork/RemoveNetwork are unsupported and the UI offers neither.
+	NetworkKinds []NetworkKind `json:"networkKinds,omitempty"`
 }
 
 // PruneReport summarizes a prune run: a human total and the raw command output.
@@ -232,6 +289,16 @@ type Backend interface {
 	Status(ctx context.Context, s *stack.Stack) (StackStatus, error)
 	// Networks lists container networks a stack can attach to for its own IP.
 	Networks(ctx context.Context) ([]Network, error)
+	// CreateNetwork creates a network per spec. Supported only for the kinds
+	// in Capabilities().NetworkKinds.
+	CreateNetwork(ctx context.Context, spec NetworkSpec) (Network, error)
+	// RemoveNetwork deletes a network. It returns ErrInUse when containers are
+	// still attached, unless force is set -- deleting a network out from under
+	// a running container leaves it with an address nothing can route.
+	RemoveNetwork(ctx context.Context, name string, force bool) error
+	// NetworkParents lists host interfaces a "lan" network can hang off.
+	// Empty when the engine creates no kind that takes a parent.
+	NetworkParents(ctx context.Context) ([]NetworkParent, error)
 	// Volumes lists podman-managed named volumes.
 	Volumes(ctx context.Context) ([]Volume, error)
 	// CreateVolume creates a named volume (local driver, optional NFS opts).

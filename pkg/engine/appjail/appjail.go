@@ -20,6 +20,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -27,6 +28,7 @@ import (
 	"github.com/creack/pty"
 	composepkg "github.com/daemonless/fjord/pkg/compose"
 	"github.com/daemonless/fjord/pkg/engine"
+	"github.com/daemonless/fjord/pkg/hostnet"
 	"github.com/daemonless/fjord/pkg/stack"
 )
 
@@ -205,6 +207,29 @@ func (b *Backend) Status(ctx context.Context, s *stack.Stack) (engine.StackStatu
 	return engine.StackStatus{State: state, Containers: containers}, nil
 }
 
+// crashedInLog reports whether a container log tail shows s6 restarting a
+// service after a genuine fault.
+//
+// s6 logs a deliberate stop with the same wording it uses for a fault:
+//
+//	[s6] Service 'zensical' crashed (Exit: 256, Signal: 15)
+//
+// Signal 15 is SIGTERM -- that line IS the shutdown, so a stack that was
+// stopped and started again reads as crashed for as long as it stays in the
+// tail. Only faults we did not cause count.
+func crashedInLog(t string) bool {
+	for _, ln := range strings.Split(t, "\n") {
+		if !strings.Contains(ln, "] Service '") || !strings.Contains(ln, "crashed") {
+			continue
+		}
+		if strings.Contains(ln, "Signal: 15") || strings.Contains(ln, "Signal: 2") {
+			continue // SIGTERM / SIGINT: a stop, not a fault
+		}
+		return true
+	}
+	return false
+}
+
 // serviceHealth reports whether the app inside an up jail is actually
 // serving: "running" when a published port is listening (or the service
 // publishes none, which leaves nothing to probe), "crashed" when nothing
@@ -223,8 +248,7 @@ func serviceHealth(ctx context.Context, jail string, svc composepkg.Service) (st
 		if err != nil {
 			return false
 		}
-		t := string(tail)
-		return strings.Contains(t, "] Service '") && strings.Contains(t, "crashed") || strings.Contains(t, "before restart")
+		return crashedInLog(string(tail))
 	}
 
 	// A listening published port is definitive proof the app is serving, so
@@ -322,10 +346,48 @@ func latestLog(jail string) string {
 // promises, and the director spec does not take a per-service network from
 // fjord yet. listVirtualnets() below parses them for when it does.
 func (b *Backend) Networks(ctx context.Context) ([]engine.Network, error) {
-	return []engine.Network{}, nil
+	nets := []engine.Network{}
+	// LAN networks are shared with podman: both engines attach to the same
+	// host bridge, so "vlan5" means one thing on this host rather than a
+	// conflist to one engine and a bridge to the other.
+	for _, n := range hostnet.List() {
+		if n.Bridge == "" || n.Subnet == "" {
+			continue // not something a jail can be placed on
+		}
+		nets = append(nets, engine.Network{
+			Name: n.Name, Driver: "bridge", Subnet: n.Subnet, Gateway: n.Gateway,
+			UsedBy: jailsOnBridge(ctx, n.Bridge),
+		})
+	}
+	// appjail's own NAT networks are listed so a jail already on one is not
+	// invisible, but fjord neither creates nor attaches to them.
+	nets = append(nets, listVirtualnets(ctx)...)
+	return nets, nil
 }
 
-// listVirtualnets enumerates appjail's virtual networks (unused until Networks() offers them).
+// jailsOnBridge names the jails with an epair on a host bridge. appjail names
+// the host side "sa_<iface>" and a jail's vnet interface "sb_<iface>", so the
+// bridge's member list is the attachment record.
+func jailsOnBridge(ctx context.Context, bridge string) []string {
+	out, err := exec.CommandContext(ctx, "ifconfig", bridge).Output()
+	if err != nil {
+		return nil
+	}
+	var ifaces []string
+	for _, ln := range strings.Split(string(out), "\n") {
+		f := strings.Fields(ln)
+		if len(f) < 2 || f[0] != "member:" {
+			continue
+		}
+		if name, ok := strings.CutPrefix(f[1], "sa_"); ok {
+			ifaces = append(ifaces, name)
+		}
+	}
+	sort.Strings(ifaces)
+	return ifaces
+}
+
+// listVirtualnets enumerates appjail's virtual networks.
 func listVirtualnets(ctx context.Context) []engine.Network {
 	// -H no header, -p tab-separated columns; keywords are space-separated args.
 	out, err := exec.CommandContext(ctx, "appjail", "network", "list", "-Hp", "name", "network", "cidr", "gateway").Output()
@@ -343,9 +405,44 @@ func listVirtualnets(ctx context.Context) []engine.Network {
 		if f[2] != "" {
 			subnet = f[1] + "/" + f[2]
 		}
-		nets = append(nets, engine.Network{Name: f[0], Driver: "virtualnet", Subnet: subnet, Gateway: f[3]})
+		nets = append(nets, engine.Network{
+			Name: f[0], Driver: "virtualnet", Subnet: subnet, Gateway: f[3],
+			UsedBy: virtualnetUsers(ctx, f[0], f[3]),
+		})
 	}
 	return nets
+}
+
+// virtualnetUsers names the jails holding a reserved address on a virtualnet.
+// `network hosts -r -H` lists "<address>\t<name>"; the network's own gateway
+// entry ("<net>.appjail") is infrastructure, not a user.
+func virtualnetUsers(ctx context.Context, name, gateway string) []string {
+	out, err := exec.CommandContext(ctx, "appjail", "network", "hosts", "-r", "-n", name, "-H").Output()
+	if err != nil {
+		return nil // best-effort: RemoveNetwork still refuses via appjail itself
+	}
+	return parseReservedHosts(string(out), name, gateway)
+}
+
+// parseReservedHosts reads `appjail network hosts -r -H` output: tab-separated
+// "<address>\t<name>", the name column padded, every name suffixed ".appjail".
+// The network's own gateway row is infrastructure, not a user.
+func parseReservedHosts(out, name, gateway string) []string {
+	var users []string
+	sc := bufio.NewScanner(strings.NewReader(out))
+	for sc.Scan() {
+		f := strings.Split(sc.Text(), "\t")
+		if len(f) < 2 {
+			continue
+		}
+		host := strings.TrimSuffix(strings.TrimSpace(f[1]), ".appjail")
+		if host == "" || strings.TrimSpace(f[0]) == gateway || host == name {
+			continue
+		}
+		users = append(users, host)
+	}
+	sort.Strings(users)
+	return users
 }
 
 // --- not yet implemented on appjail (honest stubs) ---

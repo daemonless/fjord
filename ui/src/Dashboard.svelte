@@ -9,6 +9,7 @@
     name: string;
     state: string;
     ports?: { hostPort: number; containerPort: number; protocol?: string }[];
+    address?: string; // the container's own IP on an attachable network
   };
   type StackStatus = { state: string; containers: ContainerStatus[] };
   type Stack = { name: string; displayName?: string; icon?: string; compose?: string; env?: string; status?: StackStatus; state?: { origin?: { app_id?: string }; engine?: string } };

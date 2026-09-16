@@ -193,6 +193,10 @@ func (s *server) handleInstall(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if req.Network != "" {
+		if msg := s.networkUnusable(r.Context(), req.Engine, req.Network); msg != "" {
+			http.Error(w, msg, 400)
+			return
+		}
 		composeYAML, err = composepkg.InjectNetwork(composeYAML, req.Network, req.IP)
 		if err != nil {
 			http.Error(w, "network attach: "+err.Error(), 400)
@@ -310,7 +314,7 @@ func (s *server) handleInstall(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "this app's catalog entry has no AppJail bundle (the catalog was built without dbuild, or the app opts out with appjail: false); install it on podman, or refresh the catalog", 400)
 			return
 		}
-		env, err := writeAppjailBundle(st.Dir, id, b, res.Env, composeYAML)
+		env, err := writeAppjailBundle(st.Dir, id, b, res.Env, composeYAML, req.Network, req.IP)
 		if err != nil {
 			http.Error(w, "appjail bundle: "+err.Error(), 500)
 			return

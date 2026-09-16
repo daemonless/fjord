@@ -321,7 +321,18 @@
     }
   }
 
-  // Attachable macvlan networks (empty on hosts without them).
+  // A stack whose services declare network_mode shares the host's (or another
+  // container's) network stack and addresses its own parts over localhost, so
+  // it cannot be moved onto a network -- and `networks:` alongside
+  // `network_mode:` is not valid compose. Don't offer what would only fail on
+  // submit (immich: 4 host-networked services talking over localhost).
+  $: hostNetworked = /^\s*network_mode\s*:/m.test(manifestText);
+  $: if (hostNetworked && netChoice) {
+    netChoice = '';
+    netIP = '';
+  }
+
+  // Attachable networks (empty on hosts without them).
   type Network = { name: string; subnet: string };
   let networks: Network[] = [];
   let netChoice = '';
@@ -674,7 +685,16 @@
             </div>
                     {/if}
                     {#each advancedVars as v}{@render varField(v)}{/each}
-          {#if networks.length}
+          {#if networks.length && hostNetworked}
+            <div class="pt-4 border-t border-fjord-border">
+              <span class="text-sm font-semibold text-fjord-fg-secondary">Networking</span>
+              <p class="text-xs text-fjord-fg-dim mt-1">
+                This app runs on host networking — its services reach each other over
+                <span class="font-mono">localhost</span>, so it cannot take an address of its own. It
+                answers on the host's IP.
+              </p>
+            </div>
+          {:else if networks.length}
             <div class="pt-4 border-t border-fjord-border">
               <label class="text-sm font-semibold text-fjord-fg-secondary" for="net">Networking</label>
               <p class="text-xs text-fjord-fg-dim mb-2">Give this app its own IP so it binds its ports without colliding on the host.</p>

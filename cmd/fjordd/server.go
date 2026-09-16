@@ -149,6 +149,9 @@ func (s *server) routes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/maintenance/df", s.handleDiskUsage)
 	mux.HandleFunc("/api/maintenance/prune", s.handlePrune)
 	mux.HandleFunc("/api/networks", s.handleNetworks)
+	mux.HandleFunc("/api/networks/kinds", s.handleNetworkKinds)
+	mux.HandleFunc("/api/networks/parents", s.handleNetworkParents)
+	mux.HandleFunc("/api/networks/", s.handleNetworkDelete)
 	mux.HandleFunc("/api/volumes", s.handleVolumes)
 	mux.HandleFunc("/api/volumes/ensure", s.handleVolumeEnsure)
 	mux.HandleFunc("/api/volumes/smb-credentials", s.handleSMBCredentials)
@@ -175,6 +178,11 @@ func (s *server) routes(mux *http.ServeMux) {
 type stackWithStatus struct {
 	*stack.Stack
 	Status engine.StackStatus `json:"status"`
+	// Network/NetworkIP are read back out of the compose so the Resources tab
+	// can show what the stack is actually attached to. Without them its picker
+	// defaults to "Host ports", which is wrong for every stack on a network.
+	Network   string `json:"network,omitempty"`
+	NetworkIP string `json:"networkIp,omitempty"`
 }
 
 // buildEnv renders resolved variables into .env lines, sorted for determinism.

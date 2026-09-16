@@ -136,7 +136,8 @@ func (s *server) stackDetail(w http.ResponseWriter, r *http.Request, name string
 		status = engine.StackStatus{State: "unknown"}
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(stackWithStatus{Stack: st, Status: status})
+	net, ip := composepkg.AttachedNetwork(st.Compose)
+	json.NewEncoder(w).Encode(stackWithStatus{Stack: st, Status: status, Network: net, NetworkIP: ip})
 }
 
 // stackDelete stops the stack's containers, then removes its stack dir.
@@ -263,6 +264,16 @@ func (s *server) stackSave(w http.ResponseWriter, r *http.Request, name string) 
 	// same strip the catalog install path applies.
 	composeYAML := composepkg.DropTopLevelKey(payload.Compose, "name")
 	if payload.Network != "" {
+		eng := payload.Engine
+		if eng == "" {
+			if existing, err := s.manager.Get(name); err == nil {
+				eng = existing.EngineName()
+			}
+		}
+		if msg := s.networkUnusable(r.Context(), eng, payload.Network); msg != "" {
+			http.Error(w, msg, 400)
+			return
+		}
 		injected, err := composepkg.InjectNetwork(composeYAML, payload.Network, payload.IP)
 		if err != nil {
 			http.Error(w, "network attach: "+err.Error(), 400)
