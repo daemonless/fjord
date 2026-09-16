@@ -21,7 +21,13 @@
   };
   type Parent = { name: string; inUse?: boolean };
 
-  export let engine = '';
+  // Which engine's networks to show. Each engine has its own view: podman
+  // reads the conflists, appjail reads those plus its own virtualnets, and a
+  // network can be creatable on one and not the other. Defaulting to the
+  // server's choice left the other engine's networks unreachable from here.
+  let engine = '';
+  let engines: { name: string; available: boolean; default: boolean }[] = [];
+  $: availableEngines = engines.filter((e) => e.available);
 
   let networks: Network[] = [];
   let kinds: Kind[] = [];
@@ -49,8 +55,19 @@
     }
   }
 
-  onMount(load);
-  $: engine, load();
+  onMount(async () => {
+    try {
+      const res = await fetch('/api/engine');
+      if (res.ok) {
+        const d = await res.json();
+        engines = d.engines || [];
+        engine = d.default || '';
+      }
+    } catch {
+      // no engine info -> the server falls back to its default
+    }
+    await load();
+  });
 
   // ---- create ----
   let creating = false;
@@ -137,6 +154,19 @@
         installing, or from a stack's <b class="text-fjord-fg-muted">Resources</b> tab.
       </p>
     </div>
+    <div class="flex items-center gap-2 shrink-0">
+      {#if availableEngines.length > 1}
+        <select
+          bind:value={engine}
+          on:change={load}
+          title="Which engine's networks to show"
+          class="bg-fjord-inset border border-fjord-border rounded-md px-2 py-2 text-sm text-fjord-fg-body focus:outline-none focus:border-fjord-accent"
+        >
+          {#each availableEngines as e}
+            <option value={e.name}>{e.name}</option>
+          {/each}
+        </select>
+      {/if}
     {#if kinds.length > 0}
       <button
         on:click={openCreate}
@@ -144,6 +174,7 @@
         ><Icon name="plus" size={14} /> New Network…</button
       >
     {/if}
+    </div>
   </div>
 
   <div class="flex-1 overflow-y-auto">
