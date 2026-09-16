@@ -105,7 +105,7 @@ func (s *server) handleRegistryVersions(w http.ResponseWriter, r *http.Request) 
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
 	defer cancel()
-	trains, err := registry.CachedTrains(ctx, image)
+	trains, err := registry.CachedTrains(ctx, image, s.schemeFor(registry.Repo(image)))
 	if err != nil {
 		http.Error(w, err.Error(), 502)
 		return

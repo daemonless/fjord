@@ -534,3 +534,76 @@ func (c *Cache) get(ctx context.Context, url string) ([]byte, error) {
 func safeID(id string) string {
 	return path.Base(filepath.Clean("/" + id))
 }
+
+// TagScheme returns the tag scheme an image repo's catalog entry declares:
+// every rolling channel tag it publishes (each variant's id, plus that
+// variant's aliases), and a mapping from each alias to the channel it follows.
+// Both are empty when no catalog entry claims the repo -- an adopted stack on
+// a third-party image -- and the caller falls back to inferring the scheme.
+//
+// The lookup is by image repo, not app id, because a stack's images need not
+// all belong to the app that installed it: a sparkyfitness compose pulls
+// ghcr.io/daemonless/postgres, whose scheme lives on the postgres entry.
+func (c *Cache) TagScheme(repo string) (channels []string, aliases map[string]string) {
+	repo = strings.TrimSpace(repo)
+	if repo == "" {
+		return nil, nil
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	scan := func(dir string) bool {
+		raw, err := os.ReadFile(filepath.Join(dir, "catalog.json"))
+		if err != nil {
+			return false
+		}
+		var doc struct {
+			Apps []struct {
+				Image    string `json:"image"`
+				Variants []struct {
+					ID      string   `json:"id"`
+					Aliases []string `json:"aliases"`
+				} `json:"variants"`
+			} `json:"apps"`
+		}
+		if json.Unmarshal(raw, &doc) != nil {
+			return false
+		}
+		for _, a := range doc.Apps {
+			if a.Image != repo || len(a.Variants) == 0 {
+				continue
+			}
+			aliases = map[string]string{}
+			for _, v := range a.Variants {
+				if v.ID == "" {
+					continue
+				}
+				channels = append(channels, v.ID)
+				for _, al := range v.Aliases {
+					if al == "" || al == v.ID {
+						continue
+					}
+					channels = append(channels, al)
+					aliases[al] = v.ID
+				}
+			}
+			return true
+		}
+		return false
+	}
+
+	// Same priority order as Merged, so the entry that supplies the app's
+	// install fields is the one that describes its tags.
+	for _, s := range c.Sources() {
+		if s.Disabled {
+			continue
+		}
+		if scan(filepath.Join(c.dir, s.ID)) {
+			return channels, aliases
+		}
+	}
+	if c.LocalSeed() && scan(c.dir) {
+		return channels, aliases
+	}
+	return nil, nil
+}

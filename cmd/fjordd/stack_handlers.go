@@ -218,7 +218,7 @@ func (s *server) stackUpdateCheck(w http.ResponseWriter, name string) {
 	images := resolvedImages(st)
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	status, err := updates.Check(ctx, s.backendFor(st), images)
+	status, err := updates.Check(ctx, s.backendFor(st), images, s.schemeFor)
 	if err != nil {
 		http.Error(w, err.Error(), 502)
 		return
