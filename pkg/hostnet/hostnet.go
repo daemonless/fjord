@@ -29,11 +29,16 @@ var NameRe = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,62}$`)
 
 // Network is one LAN network definition.
 type Network struct {
-	Name    string
+	Name string
+	// Type is the CNI plugin the network runs on ("epair", "bridge", ...).
+	Type    string
 	Bridge  string // the host bridge it hangs off
 	Subnet  string
 	Gateway string
 	MTU     int
+	// DHCP: addresses come from the segment's own server, so there is no
+	// subnet here to read. Without this a DHCP network looks like a broken one.
+	DHCP bool
 }
 
 // Path returns the conflist path for a network name.
@@ -75,10 +80,12 @@ func List() []Network {
 func parse(name string, data []byte) (Network, bool) {
 	var doc struct {
 		Plugins []struct {
+			Type   string `json:"type"`
 			Master string `json:"master"`
 			Bridge string `json:"bridge"` // the plugin accepts either spelling
 			MTU    int    `json:"mtu"`
 			IPAM   struct {
+				Type   string `json:"type"`
 				Ranges [][]struct {
 					Subnet  string `json:"subnet"`
 					Gateway string `json:"gateway"`
@@ -90,7 +97,7 @@ func parse(name string, data []byte) (Network, bool) {
 		return Network{}, false
 	}
 	p := doc.Plugins[0]
-	n := Network{Name: name, Bridge: p.Master, MTU: p.MTU}
+	n := Network{Name: name, Type: p.Type, Bridge: p.Master, MTU: p.MTU, DHCP: p.IPAM.Type == "dhcp"}
 	if n.Bridge == "" {
 		n.Bridge = p.Bridge
 	}

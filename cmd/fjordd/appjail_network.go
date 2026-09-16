@@ -64,8 +64,11 @@ func setDirectorNetwork(directorYML, stackID, network, ip string) (string, error
 	if _, p, found := strings.Cut(net.Subnet, "/"); found {
 		prefix = p
 	}
-	if ip == "" {
-		return "", fmt.Errorf("an address is required to place a jail on %q: appjail has no address pool for a network it does not manage", network)
+	// A pool network is allocated by the podman side's IPAM, which appjail
+	// cannot ask -- so an address has to be given. A DHCP network has no pool
+	// at all: the jail asks the segment's server, exactly as a container does.
+	if ip == "" && !net.DHCP {
+		return "", fmt.Errorf("an address is required to place a jail on %q: that network hands out addresses from a pool this host manages, and appjail cannot draw from it", network)
 	}
 
 	var doc yaml.Node
@@ -78,12 +81,17 @@ func setDirectorNetwork(directorYML, stackID, network, ip string) (string, error
 	root := doc.Content[0]
 
 	iface := epairName(stackID)
+	// DHCP is done by dhclient inside the jail, which needs bpf: appjail hides
+	// it by default, so the rule has to come with the option or the lease
+	// never arrives.
+	addr := [][2]string{{"ifconfig", fmt.Sprintf("sb_%s:%s/%s", iface, ip, prefix)}, {"defaultrouter", net.Gateway}}
+	if ip == "" && net.DHCP {
+		addr = [][2]string{{"dhcp", "sb_" + iface}, {"device", "path bpf unhide"}}
+	}
 	opts := &yaml.Node{Kind: yaml.SequenceNode}
-	for _, kv := range [][2]string{
+	for _, kv := range append([][2]string{
 		{"bridge", fmt.Sprintf("epair:%s bridge:%s", iface, net.Bridge)},
-		{"ifconfig", fmt.Sprintf("sb_%s:%s/%s", iface, ip, prefix)},
-		{"defaultrouter", net.Gateway},
-	} {
+	}, addr...) {
 		if kv[1] == "" {
 			continue
 		}

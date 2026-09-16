@@ -351,8 +351,8 @@ func (b *Backend) Networks(ctx context.Context) ([]engine.Network, error) {
 	// host bridge, so "vlan5" means one thing on this host rather than a
 	// conflist to one engine and a bridge to the other.
 	for _, n := range hostnet.List() {
-		if n.Bridge == "" || n.Subnet == "" {
-			continue // not something a jail can be placed on
+		if n.Bridge == "" || (n.Subnet == "" && !n.DHCP) {
+			continue // nothing a jail could be placed on
 		}
 		nets = append(nets, engine.Network{
 			Name: n.Name, Driver: "bridge", Subnet: n.Subnet, Gateway: n.Gateway,

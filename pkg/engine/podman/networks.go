@@ -54,6 +54,31 @@ func (b *Backend) Networks(ctx context.Context) ([]engine.Network, error) {
 			}
 		}
 	}
+	// A conflist the runtime rejected -- typically a plugin that is not
+	// installed -- never appears in its list. Add it anyway: an invisible
+	// network is one the user cannot delete either.
+	// Compare against every name the runtime reported, not the attachable
+	// subset: a project's bridge network is filtered out on purpose and is not
+	// missing.
+	var all []struct {
+		Name string `json:"name"`
+	}
+	json.Unmarshal(data, &all)
+	seen := map[string]bool{}
+	for _, n := range all {
+		seen[n.Name] = true
+	}
+	for _, d := range hostnet.List() {
+		// Only this plugin's networks: a conflist for something else is not
+		// fjord's to explain.
+		if seen[d.Name] || d.Type != epairPlugin {
+			continue
+		}
+		nets = append(nets, engine.Network{
+			Name: d.Name, Driver: epairPlugin, Subnet: d.Subnet, Gateway: d.Gateway,
+			Problem: networkProblem(),
+		})
+	}
 	// Attachments, so the UI can refuse to delete a network in use.
 	if users, err := b.networkUsersAll(ctx); err == nil {
 		for i, n := range nets {
@@ -98,4 +123,12 @@ func parseNetworks(data []byte) ([]engine.Network, error) {
 		out = append(out, net)
 	}
 	return out, nil
+}
+
+// networkProblem explains why the runtime ignored a network fjord can see.
+func networkProblem() string {
+	if !pluginInstalled() {
+		return "podman cannot load this network: the " + epairPlugin + " plugin is not installed (pkg install cni-epair)"
+	}
+	return "podman did not load this network; check its config"
 }
