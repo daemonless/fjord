@@ -4,8 +4,9 @@
   import Spinner from './Spinner.svelte';
   import EmptyState from './EmptyState.svelte';
   import { toast } from './toast';
+  import FixSnippet from './FixSnippet.svelte';
 
-  type Network = { name: string; driver: string; subnet?: string; gateway?: string; usedBy?: string[] };
+  type Network = { name: string; driver: string; subnet?: string; gateway?: string; usedBy?: string[]; problem?: string };
   // A kind is the engine's own declaration of what it can create and which
   // fields that shape uses -- the form is built from this rather than from
   // anything the UI knows about a specific runtime.
@@ -14,12 +15,20 @@
     label: string;
     help?: string;
     parentLabel?: string;
+    parentSetup?: string;
     needsGateway?: boolean;
+    supportsDhcp?: boolean;
     supportsMtu?: boolean;
     supportsRange?: boolean;
     supportsDescription?: boolean;
   };
-  type Parent = { name: string; inUse?: boolean };
+  type Parent = {
+    name: string;
+    inUse?: boolean;
+    subnet?: string;   // what the host already knows about this segment
+    gateway?: string;
+    hostIp?: string;
+  };
 
   // Which engine's networks to show. Each engine has its own view: podman
   // reads the conflists, appjail reads those plus its own virtualnets, and a
@@ -31,6 +40,9 @@
 
   let networks: Network[] = [];
   let kinds: Kind[] = [];
+  // Why creating is unavailable, when it is -- an absent button with no
+  // explanation is its own kind of confusing.
+  let kindsNote = '';
   let parents: Parent[] = [];
   let loading = true;
   let error = '';
@@ -46,7 +58,9 @@
       networks = await res.json();
       // Kinds and parents are advisory: a failure here disables creating but
       // must not hide the networks that already exist.
-      kinds = await fetch('/api/networks/kinds' + q).then((r) => (r.ok ? r.json() : [])).catch(() => []);
+      const k = await fetch('/api/networks/kinds' + q).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+      kinds = k?.kinds ?? [];
+      kindsNote = k?.note ?? '';
       parents = await fetch('/api/networks/parents' + q).then((r) => (r.ok ? r.json() : [])).catch(() => []);
     } catch (e: any) {
       error = e.message || 'Failed to load networks';
@@ -75,6 +89,9 @@
   let createError = '';
   let kindID = '';
   let form = { name: '', parent: '', subnet: '', gateway: '', mtu: '', rangeStart: '', rangeEnd: '', description: '' };
+  // "dhcp" = the segment's own server allocates; "pool" = this host does.
+  let addressSource: 'dhcp' | 'pool' = 'dhcp';
+  let advanced = false;
 
   $: kind = kinds.find((k) => k.id === kindID) || kinds[0];
   $: needsParent = !!kind?.parentLabel;
@@ -85,6 +102,10 @@
   function openCreate() {
     form = { name: '', parent: '', subnet: '', gateway: '', mtu: '', rangeStart: '', rangeEnd: '', description: '' };
     kindID = kinds[0]?.id || '';
+    // One allocator beats two on the same wire, so DHCP leads where the
+    // plugin can do it. A pool is the fallback, not the default.
+    addressSource = kinds[0]?.supportsDhcp ? 'dhcp' : 'pool';
+    advanced = false;
     createError = '';
     creating = true;
   }
@@ -95,16 +116,63 @@
     if (m && !form.gateway) form.gateway = m[1] + '.1';
   }
 
+  $: chosenParent = parents.find((p) => p.name === form.parent);
+
+  // Picking a parent fills in what the host already knows: the segment's
+  // subnet and gateway, a name following the bridge, and a default range.
+  // Only empty fields are touched, so nothing typed is overwritten.
+  function applyParent() {
+    const p = chosenParent;
+    if (!p) return;
+    if (!form.name.trim()) {
+      const base = p.name.replace(/bridge$/, '') || p.name;
+      let n = base;
+      for (let i = 2; networks.some((x) => x.name === n); i++) n = base + i;
+      form.name = n;
+    }
+    if (addressSource !== 'pool') return;
+    if (!form.subnet.trim() && p.subnet) form.subnet = p.subnet;
+    if (!form.gateway.trim() && p.gateway) form.gateway = p.gateway;
+    defaultRange();
+  }
+
+  // A blank range means host-local may hand out the WHOLE subnet, on a segment
+  // where a DHCP server is usually leasing from the same pool -- a duplicate
+  // address that surfaces days later. Default to a slice near the top instead,
+  // so the safe choice is the one you get by doing nothing.
+  function defaultRange() {
+    if (addressSource !== 'pool' || !kind?.supportsRange) return;
+    if (form.rangeStart.trim() || form.rangeEnd.trim()) return;
+    const m = form.subnet.trim().match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)\/(\d+)$/);
+    if (!m) return;
+    const prefix = +m[5];
+    const size = 2 ** (32 - prefix);
+    if (size < 64) return; // too small to carve a range out of
+    const base = ((+m[1] << 24) >>> 0) + (+m[2] << 16) + (+m[3] << 8) + +m[4];
+    const end = base + size - 1 - 5; // stay clear of the broadcast address
+    const start = end - 50;
+    const fmt = (n: number) => [24, 16, 8, 0].map((sh) => (n >>> sh) & 255).join('.');
+    form.rangeStart = fmt(start);
+    form.rangeEnd = fmt(end);
+  }
+
+  $: nameTaken = !!form.name.trim() && networks.some((n) => n.name === form.name.trim());
+  $: canSubmit = form.name.trim() && !nameTaken && (!needsParent || form.parent) &&
+    (addressSource === 'dhcp' || form.subnet.trim());
+
   async function submitCreate() {
-    if (!form.name.trim()) return;
+    if (!canSubmit) return;
     submitting = true;
     createError = '';
-    const body: any = { name: form.name.trim(), kind: kind?.id, subnet: form.subnet.trim() };
+    const body: any = { name: form.name.trim(), kind: kind?.id, addressSource };
     if (needsParent) body.parent = form.parent;
-    if (kind?.needsGateway) body.gateway = form.gateway.trim();
+    if (addressSource === 'pool') {
+      body.subnet = form.subnet.trim();
+      if (kind?.needsGateway) body.gateway = form.gateway.trim();
+    }
     if (kind?.supportsMtu && form.mtu.trim()) body.mtu = parseInt(form.mtu, 10);
-    if (kind?.supportsRange && form.rangeStart.trim()) body.rangeStart = form.rangeStart.trim();
-    if (kind?.supportsRange && form.rangeEnd.trim()) body.rangeEnd = form.rangeEnd.trim();
+    if (addressSource === 'pool' && form.rangeStart.trim()) body.rangeStart = form.rangeStart.trim();
+    if (addressSource === 'pool' && form.rangeEnd.trim()) body.rangeEnd = form.rangeEnd.trim();
     if (kind?.supportsDescription && form.description.trim()) body.description = form.description.trim();
     try {
       const res = await fetch('/api/networks' + q, {
@@ -167,6 +235,9 @@
           {/each}
         </select>
       {/if}
+      {#if kinds.length === 0 && kindsNote}
+        <span class="text-xs text-fjord-fg-dim max-w-72 leading-tight">{kindsNote}</span>
+      {/if}
     {#if kinds.length > 0}
       <button
         on:click={openCreate}
@@ -187,7 +258,7 @@
         icon="globe"
         title="No Networks"
         description={kinds.length === 0
-          ? 'This engine cannot create networks on this host.'
+          ? kindsNote || 'This engine cannot create networks on this host.'
           : 'Create one to give stacks their own address on your network.'}
         actionLabel={kinds.length > 0 ? 'New Network…' : undefined}
         on:action={openCreate}
@@ -203,8 +274,11 @@
                 <span class="text-[11px] font-medium bg-fjord-accent/20 text-fjord-accent px-1.5 py-0.5 rounded">{n.driver}</span>
               </div>
               <div class="text-xs text-fjord-fg-dim font-mono truncate">
-                {n.subnet || '—'}{n.gateway ? ` · gw ${n.gateway}` : ''}
+                {n.subnet || 'DHCP'}{n.gateway ? ` · gw ${n.gateway}` : ''}
               </div>
+              {#if n.problem}
+                <div class="text-xs text-fjord-warning mt-0.5">{n.problem}</div>
+              {/if}
             </div>
             {#if n.usedBy?.length}
               <div class="flex items-center gap-1 shrink-0 max-w-[45%] overflow-hidden" title="Attached: {n.usedBy.join(', ')}">
@@ -244,7 +318,7 @@
     class="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4"
     on:click|self={() => (creating = false)}
   >
-    <div class="bg-fjord-card border border-fjord-border rounded-xl shadow-2xl w-full max-w-md p-6">
+    <div class="bg-fjord-card border border-fjord-border rounded-xl shadow-2xl w-full max-w-lg p-6">
       <h3 class="text-lg font-bold text-fjord-fg mb-4">New Network</h3>
 
       <div class="flex flex-col gap-4">
@@ -266,10 +340,25 @@
         {/if}
 
         {#if blocked}
-          <div class="text-sm text-fjord-fg-secondary bg-fjord-inset border border-fjord-border rounded-md p-3">
-            No {kind.parentLabel?.toLowerCase()} is available on this host. fjord does not create one —
-            it is persistent host configuration. Add it to <code class="font-mono text-fjord-fg-muted">/etc/rc.conf</code>
-            and bring it up, then reopen this dialog.
+          <div class="flex flex-col gap-2">
+            {#if kind.parentSetup}
+              <p class="text-sm text-fjord-fg-secondary">
+                No {kind.parentLabel?.toLowerCase()} on this host yet. A {kind.parentLabel?.toLowerCase()} is
+                persistent host configuration, so fjord does not create one — here is what to add:
+              </p>
+              <FixSnippet fix={kind.parentSetup} />
+              <p class="text-xs text-fjord-fg-dim">
+                Then reopen this dialog. For an <b class="text-fjord-fg-muted">untagged</b> LAN you would
+                add the interface itself to a bridge instead — that can cut off a remote host, so do it
+                from the console.
+              </p>
+            {:else}
+              <p class="text-sm text-fjord-fg-secondary">
+                No {kind.parentLabel?.toLowerCase()} on this host yet. A {kind.parentLabel?.toLowerCase()} is
+                persistent host configuration, so fjord does not create one — make one on the host, then
+                reopen this dialog.
+              </p>
+            {/if}
           </div>
         {:else}
           <div class="flex flex-col gap-1">
@@ -280,7 +369,7 @@
           {#if needsParent}
             <div class="flex flex-col gap-1">
               <label class="text-sm font-semibold text-fjord-fg-secondary" for="n-parent">{kind.parentLabel}</label>
-              <select id="n-parent" bind:value={form.parent} class={inputCls}>
+              <select id="n-parent" bind:value={form.parent} on:change={applyParent} class={inputCls}>
                 <option value="">Select a {kind.parentLabel?.toLowerCase()}…</option>
                 {#each parents as p}
                   <option value={p.name}>{p.name}{p.inUse ? ' (already has a network)' : ''}</option>
@@ -289,50 +378,89 @@
             </div>
           {/if}
 
-          <div class="grid grid-cols-2 gap-2">
-            <div class="flex flex-col gap-1">
-              <label class="text-xs font-semibold text-fjord-fg-muted" for="n-subnet">Subnet</label>
-              <input id="n-subnet" bind:value={form.subnet} on:blur={guessGateway} placeholder="192.168.4.0/24" class={inputCls} />
-            </div>
-            {#if kind?.needsGateway}
-              <div class="flex flex-col gap-1">
-                <label class="text-xs font-semibold text-fjord-fg-muted" for="n-gw">Gateway</label>
-                <input id="n-gw" bind:value={form.gateway} placeholder="192.168.4.1" class={inputCls} />
-              </div>
-            {/if}
-          </div>
+          <button
+            type="button"
+            on:click={() => (advanced = !advanced)}
+            class="flex items-center gap-1.5 text-xs text-fjord-fg-muted hover:text-fjord-fg self-start"
+          >
+            <Icon name={advanced ? 'chevron-up' : 'chevron-down'} size={12} /> Advanced
+          </button>
 
-          {#if kind?.supportsRange}
-            <div class="grid grid-cols-2 gap-2">
-              <div class="flex flex-col gap-1">
-                <label class="text-xs font-semibold text-fjord-fg-muted" for="n-rs">Range start <span class="font-normal">(optional)</span></label>
-                <input id="n-rs" bind:value={form.rangeStart} placeholder="192.168.4.200" class={inputCls} />
-              </div>
-              <div class="flex flex-col gap-1">
-                <label class="text-xs font-semibold text-fjord-fg-muted" for="n-re">Range end</label>
-                <input id="n-re" bind:value={form.rangeEnd} placeholder="192.168.4.250" class={inputCls} />
-              </div>
-            </div>
-            <p class="text-xs text-fjord-fg-dim -mt-2">
-              Confine automatic allocation to part of the subnet, so it cannot collide with DHCP or
-              static addresses.
+          {#if !advanced && addressSource === 'dhcp'}
+            <p class="text-xs text-fjord-fg-dim -mt-1">
+              Addresses come from the DHCP server on that segment, using each container's MAC — so
+              your existing reservations apply and nothing here has to know the subnet.
             </p>
           {/if}
 
-          <div class="grid grid-cols-2 gap-2">
-            {#if kind?.supportsMtu}
+          {#if advanced}
+            {#if kind?.supportsDhcp}
               <div class="flex flex-col gap-1">
-                <label class="text-xs font-semibold text-fjord-fg-muted" for="n-mtu">MTU <span class="font-normal">(optional)</span></label>
+                <span class="text-xs font-semibold text-fjord-fg-muted">Addresses</span>
+                <div class="flex gap-2">
+                  <button
+                    type="button"
+                    on:click={() => (addressSource = 'dhcp')}
+                    class="flex-1 px-3 py-2 rounded-md text-sm font-medium border transition-colors {addressSource ===
+                    'dhcp'
+                      ? 'bg-fjord-accent/20 text-fjord-accent border-fjord-accent/50'
+                      : 'border-fjord-border text-fjord-fg-secondary hover:bg-fjord-border'}"
+                    >From my DHCP server</button
+                  >
+                  <button
+                    type="button"
+                    on:click={() => { addressSource = 'pool'; applyParent(); }}
+                    class="flex-1 px-3 py-2 rounded-md text-sm font-medium border transition-colors {addressSource ===
+                    'pool'
+                      ? 'bg-fjord-accent/20 text-fjord-accent border-fjord-accent/50'
+                      : 'border-fjord-border text-fjord-fg-secondary hover:bg-fjord-border'}"
+                    >A pool fjord manages</button
+                  >
+                </div>
+              </div>
+            {/if}
+
+            {#if addressSource === 'pool'}
+              <div class="grid grid-cols-2 gap-2">
+                <div class="flex flex-col gap-1">
+                  <label class="text-xs font-semibold text-fjord-fg-muted" for="n-subnet">Subnet</label>
+                  <input id="n-subnet" bind:value={form.subnet} on:blur={() => { guessGateway(); defaultRange(); }} placeholder="192.168.4.0/24" class={inputCls} />
+                </div>
+                {#if kind?.needsGateway}
+                  <div class="flex flex-col gap-1">
+                    <label class="text-xs font-semibold text-fjord-fg-muted" for="n-gw">Gateway</label>
+                    <input id="n-gw" bind:value={form.gateway} placeholder="192.168.4.1" class={inputCls} />
+                  </div>
+                {/if}
+              </div>
+
+              {#if kind?.supportsRange}
+                <div class="grid grid-cols-2 gap-2">
+                  <div class="flex flex-col gap-1">
+                    <label class="text-xs font-semibold text-fjord-fg-muted" for="n-rs">Range start</label>
+                    <input id="n-rs" bind:value={form.rangeStart} placeholder="192.168.4.200" class={inputCls} />
+                  </div>
+                  <div class="flex flex-col gap-1">
+                    <label class="text-xs font-semibold text-fjord-fg-muted" for="n-re">Range end</label>
+                    <input id="n-re" bind:value={form.rangeEnd} placeholder="192.168.4.250" class={inputCls} />
+                  </div>
+                </div>
+                <p class="text-xs text-fjord-fg-dim -mt-2">
+                  fjord hands out addresses from this range. Your router does not know about it, so keep
+                  it clear of whatever it leases.{#if chosenParent?.hostIp}
+                    This host is <span class="font-mono text-fjord-fg-muted">{chosenParent.hostIp}</span> on
+                    that segment.{/if}
+                </p>
+              {/if}
+            {/if}
+
+            {#if kind?.supportsMtu}
+              <div class="flex flex-col gap-1 max-w-40">
+                <label class="text-xs font-semibold text-fjord-fg-muted" for="n-mtu">MTU</label>
                 <input id="n-mtu" bind:value={form.mtu} placeholder="1500" class={inputCls} />
               </div>
             {/if}
-            {#if kind?.supportsDescription}
-              <div class="flex flex-col gap-1">
-                <label class="text-xs font-semibold text-fjord-fg-muted" for="n-desc">Description</label>
-                <input id="n-desc" bind:value={form.description} placeholder="optional" class={inputCls} />
-              </div>
-            {/if}
-          </div>
+          {/if}
         {/if}
 
         {#if createError}
@@ -343,7 +471,7 @@
           <button on:click={() => (creating = false)} class="px-4 py-2 rounded-md text-sm text-fjord-fg-secondary hover:bg-fjord-border">Cancel</button>
           <button
             on:click={submitCreate}
-            disabled={submitting || blocked || !form.name.trim()}
+            disabled={submitting || blocked || !canSubmit}
             class="px-4 py-2 rounded-md text-sm font-medium bg-fjord-accent hover:bg-fjord-accent-hover text-white disabled:opacity-50 disabled:cursor-not-allowed"
             >{submitting ? 'Creating…' : 'Create'}</button
           >

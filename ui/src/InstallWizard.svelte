@@ -333,10 +333,16 @@
   }
 
   // Attachable networks (empty on hosts without them).
-  type Network = { name: string; subnet: string };
+  // A network with no subnet gets its addresses from DHCP -- nothing here
+  // needs to know the segment, and no address has to be supplied.
+  type Network = { name: string; subnet?: string };
   let networks: Network[] = [];
   let netChoice = '';
   let netIP = '';
+  $: chosenNet = networks.find((n) => n.name === netChoice);
+  // appjail cannot draw from the pool the podman side's IPAM manages, so on a
+  // pool network it needs an address given to it. On DHCP nothing does.
+  $: ipRequired = !!netChoice && engineChoice === 'appjail' && !!chosenNet?.subnet;
 
   onMount(async () => {
     try {
@@ -712,9 +718,19 @@
                 <input
                   type="text"
                   bind:value={netIP}
-                  placeholder="IP (optional — auto-assign if blank)"
+                  placeholder={ipRequired
+                    ? 'IP (required on this engine)'
+                    : chosenNet?.subnet
+                      ? 'IP (optional — auto-assign if blank)'
+                      : 'IP (optional — DHCP assigns one)'}
                   class="w-full mt-2 bg-fjord-inset border border-fjord-border rounded-md px-3 py-2 text-fjord-fg-body font-mono text-sm focus:outline-none focus:border-fjord-accent"
                 />
+                {#if ipRequired && !netIP.trim()}
+                  <p class="text-xs text-fjord-warning mt-1">
+                    {netChoice} hands out addresses from a pool this host manages, which appjail cannot
+                    draw from — give this jail an address, or pick a DHCP network.
+                  </p>
+                {/if}
               {/if}
             </div>
           {/if}
@@ -731,7 +747,7 @@
       <button on:click={close} class="px-4 py-2 rounded-md font-medium text-fjord-fg-secondary hover:text-fjord-fg hover:bg-fjord-border transition-all">Cancel</button>
       <button
         on:click={deploy}
-        disabled={loading || !!error || !validName || missingRequired.length > 0}
+        disabled={loading || !!error || !validName || missingRequired.length > 0 || (ipRequired && !netIP.trim())}
         title={!validName ? 'Enter a valid stack name' : missingRequired.length ? `Fill required: ${missingRequired.map((v) => v.name).join(', ')}` : ''}
         class="bg-fjord-accent hover:bg-fjord-accent-hover text-white px-6 py-2 rounded-md font-medium shadow-lg transition-all disabled:opacity-50"
         >Install</button
