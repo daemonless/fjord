@@ -62,7 +62,9 @@ func (s *server) handleNetworkKinds(w http.ResponseWriter, r *http.Request) {
 		kinds = []engine.NetworkKind{}
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{"kinds": kinds, "note": caps.NetworkNote})
+	json.NewEncoder(w).Encode(map[string]any{
+		"kinds": kinds, "note": caps.NetworkNote, "canRemove": caps.NetworkRemove,
+	})
 }
 
 // handleNetworkParents lists host interfaces a "lan" network can attach to.

@@ -282,6 +282,9 @@ type Capabilities struct {
 	// NetworkKinds are the networks this engine can create. Empty means
 	// CreateNetwork/RemoveNetwork are unsupported and the UI offers neither.
 	NetworkKinds []NetworkKind `json:"networkKinds,omitempty"`
+	// NetworkRemove: this engine can delete a network. False where networks
+	// are defined elsewhere -- offering Delete would only ever error.
+	NetworkRemove bool `json:"networkRemove"`
 	// NetworkNote says why NetworkKinds is empty, so the UI can explain the
 	// absence instead of silently hiding a button. Empty when creating works.
 	NetworkNote string `json:"networkNote,omitempty"`

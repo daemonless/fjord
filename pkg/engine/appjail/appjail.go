@@ -351,8 +351,10 @@ func (b *Backend) Networks(ctx context.Context) ([]engine.Network, error) {
 	// host bridge, so "vlan5" means one thing on this host rather than a
 	// conflist to one engine and a bridge to the other.
 	for _, n := range hostnet.List() {
-		if n.Bridge == "" || (n.Subnet == "" && !n.DHCP) {
-			continue // nothing a jail could be placed on
+		// Only this plugin's networks: a CNI bridge conflist is a project's
+		// private NAT segment, not a LAN bridge a jail can join.
+		if n.Type != "epair" || n.Bridge == "" || (n.Subnet == "" && !n.DHCP) {
+			continue
 		}
 		nets = append(nets, engine.Network{
 			Name: n.Name, Driver: "bridge", Subnet: n.Subnet, Gateway: n.Gateway,

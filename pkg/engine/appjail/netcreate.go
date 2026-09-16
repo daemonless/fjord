@@ -28,7 +28,7 @@ func (b *Backend) CreateNetwork(ctx context.Context, spec engine.NetworkSpec) (e
 
 // RemoveNetwork is unsupported for the same reason as CreateNetwork.
 func (b *Backend) RemoveNetwork(ctx context.Context, name string, force bool) error {
-	return fmt.Errorf("the appjail engine does not remove networks; remove it on the podman engine")
+	return fmt.Errorf("networks are managed on the podman engine; remove %q there", name)
 }
 
 // NetworkParents is empty: appjail does not create networks here, so there is

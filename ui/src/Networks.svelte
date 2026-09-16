@@ -43,6 +43,8 @@
   // Why creating is unavailable, when it is -- an absent button with no
   // explanation is its own kind of confusing.
   let kindsNote = '';
+  // Whether this engine can delete a network at all.
+  let canRemove = true;
   let parents: Parent[] = [];
   let loading = true;
   let error = '';
@@ -61,6 +63,7 @@
       const k = await fetch('/api/networks/kinds' + q).then((r) => (r.ok ? r.json() : null)).catch(() => null);
       kinds = k?.kinds ?? [];
       kindsNote = k?.note ?? '';
+      canRemove = k?.canRemove ?? true;
       parents = await fetch('/api/networks/parents' + q).then((r) => (r.ok ? r.json() : [])).catch(() => []);
     } catch (e: any) {
       error = e.message || 'Failed to load networks';
@@ -290,7 +293,9 @@
                 {/if}
               </div>
             {/if}
-            {#if n.usedBy?.length}
+            {#if !canRemove}
+              <!-- nothing: this engine does not own these networks -->
+            {:else if n.usedBy?.length}
               <span
                 class="text-xs px-2 py-1 text-fjord-fg-faint cursor-not-allowed"
                 title="In use by {n.usedBy.join(', ')} — detach those first">Delete</span

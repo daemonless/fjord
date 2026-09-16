@@ -18,7 +18,7 @@
         {:else if t.kind === 'success'}
           <Icon name="check" size={15} class="text-fjord-success" />
         {/if}
-        <span class="truncate max-w-md" title={t.message}>{t.message}</span>
+        <span class="max-w-md line-clamp-2" title={t.message}>{t.message}</span>
         {#if t.actionLabel}
           <button
             on:click={() => {
