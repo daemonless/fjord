@@ -56,12 +56,13 @@ func (s *server) handleNetworks(w http.ResponseWriter, r *http.Request) {
 // engine's own declaration instead of branching on an engine name. An empty
 // list means this engine creates no networks (e.g. podman on Linux).
 func (s *server) handleNetworkKinds(w http.ResponseWriter, r *http.Request) {
-	kinds := s.backendForRequest(r).Capabilities().NetworkKinds
+	caps := s.backendForRequest(r).Capabilities()
+	kinds := caps.NetworkKinds
 	if kinds == nil {
 		kinds = []engine.NetworkKind{}
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(kinds)
+	json.NewEncoder(w).Encode(map[string]any{"kinds": kinds, "note": caps.NetworkNote})
 }
 
 // handleNetworkParents lists host interfaces a "lan" network can attach to.

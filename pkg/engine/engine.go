@@ -69,6 +69,10 @@ type Network struct {
 	// must not be deletable from the UI: removing it strands every attached
 	// container on an address nothing can route or clean up.
 	UsedBy []string `json:"usedBy,omitempty"`
+	// Problem is why the runtime will not use this network, when it is defined
+	// on the host but rejected. Such a network has to stay visible: fjord
+	// wrote it, so fjord has to let you see and remove it.
+	Problem string `json:"problem,omitempty"`
 }
 
 // NetworkKind is one shape of network a backend can create, and which spec
@@ -84,11 +88,19 @@ type NetworkKind struct {
 	Help string `json:"help,omitempty"`
 	// ParentLabel names what Parent must be for this runtime ("Bridge" on
 	// FreeBSD, "Interface" on Linux); empty when the kind takes no parent.
-	ParentLabel         string `json:"parentLabel,omitempty"`
-	NeedsGateway        bool   `json:"needsGateway,omitempty"`
-	SupportsMTU         bool   `json:"supportsMtu,omitempty"`
-	SupportsRange       bool   `json:"supportsRange,omitempty"`
-	SupportsDescription bool   `json:"supportsDescription,omitempty"`
+	ParentLabel string `json:"parentLabel,omitempty"`
+	// ParentSetup is a shell snippet showing how to provision a parent when
+	// the host has none. It comes from the backend because the commands are
+	// platform-specific, and the UI only renders what it is given.
+	ParentSetup  string `json:"parentSetup,omitempty"`
+	NeedsGateway bool   `json:"needsGateway,omitempty"`
+	// SupportsDHCP: addresses can come from the segment's own DHCP server
+	// instead of a pool this host manages. When available it is the better
+	// default: one allocator instead of two on the same wire.
+	SupportsDHCP        bool `json:"supportsDhcp,omitempty"`
+	SupportsMTU         bool `json:"supportsMtu,omitempty"`
+	SupportsRange       bool `json:"supportsRange,omitempty"`
+	SupportsDescription bool `json:"supportsDescription,omitempty"`
 }
 
 // NetworkSpec describes a network to create in runtime-neutral terms; the
@@ -100,13 +112,17 @@ type NetworkSpec struct {
 	// Parent is the host interface the network hangs off -- a bridge on
 	// FreeBSD, a NIC or VLAN subinterface on Linux. Empty for kinds whose
 	// ParentLabel is empty.
-	Parent      string `json:"parent,omitempty"`
-	Subnet      string `json:"subnet"`
-	Gateway     string `json:"gateway,omitempty"`
-	MTU         int    `json:"mtu,omitempty"`
-	RangeStart  string `json:"rangeStart,omitempty"`
-	RangeEnd    string `json:"rangeEnd,omitempty"`
-	Description string `json:"description,omitempty"`
+	Parent string `json:"parent,omitempty"`
+	// AddressSource is "dhcp" (the segment's DHCP server allocates) or "pool"
+	// / "" (this host allocates from Subnet). A dhcp network needs no subnet,
+	// gateway or range: the lease carries them.
+	AddressSource string `json:"addressSource,omitempty"`
+	Subnet        string `json:"subnet"`
+	Gateway       string `json:"gateway,omitempty"`
+	MTU           int    `json:"mtu,omitempty"`
+	RangeStart    string `json:"rangeStart,omitempty"`
+	RangeEnd      string `json:"rangeEnd,omitempty"`
+	Description   string `json:"description,omitempty"`
 }
 
 // NetworkParent is a host interface a "lan" network can attach to.
@@ -115,6 +131,13 @@ type NetworkSpec struct {
 type NetworkParent struct {
 	Name  string `json:"name"`
 	InUse bool   `json:"inUse,omitempty"`
+	// Subnet, Gateway and HostIP are what the host already knows about the
+	// segment this parent is on, so the form can prefill instead of asking for
+	// facts the machine can read. Empty when nothing on the parent carries an
+	// address -- then the user supplies them.
+	Subnet  string `json:"subnet,omitempty"`
+	Gateway string `json:"gateway,omitempty"`
+	HostIP  string `json:"hostIp,omitempty"`
 }
 
 // Volume is a runtime-managed named volume. Kind is the backend's
@@ -259,6 +282,9 @@ type Capabilities struct {
 	// NetworkKinds are the networks this engine can create. Empty means
 	// CreateNetwork/RemoveNetwork are unsupported and the UI offers neither.
 	NetworkKinds []NetworkKind `json:"networkKinds,omitempty"`
+	// NetworkNote says why NetworkKinds is empty, so the UI can explain the
+	// absence instead of silently hiding a button. Empty when creating works.
+	NetworkNote string `json:"networkNote,omitempty"`
 }
 
 // PruneReport summarizes a prune run: a human total and the raw command output.

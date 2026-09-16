@@ -7,25 +7,17 @@ import (
 	"github.com/daemonless/fjord/pkg/engine"
 )
 
-// networkKinds is appjail's contribution to Capabilities.
+// networkKinds is appjail's contribution to Capabilities: none.
 //
-// fjord does not create appjail networks: `appjail network add` puts the
+// fjord does not create appjail networks. `appjail network add` puts the
 // gateway address on the bridge it creates, which for a LAN segment means
-// claiming the router's address. A jail is instead attached to a bridge that
-// already exists, exactly as a podman container is -- so the only kind here is
-// the same "lan" kind podman offers, and a network means the same thing to
-// both engines.
-func networkKinds() []engine.NetworkKind {
-	return []engine.NetworkKind{{
-		ID:            "lan",
-		Label:         "Own IP on a bridge",
-		Help:          "Jails get their own address on the segment the bridge is on, so they can bind :80/:443 without colliding with the host.",
-		ParentLabel:   "Bridge",
-		NeedsGateway:  true,
-		SupportsMTU:   true,
-		SupportsRange: true,
-	}}
-}
+// claiming the router's address. Jails are attached to a bridge that already
+// exists instead, and that bridge is described by a conflist the podman engine
+// writes -- so a network is defined once and both engines attach to it.
+//
+// Declaring no kinds is what stops the UI offering a create form whose submit
+// can only fail.
+func networkKinds() []engine.NetworkKind { return nil }
 
 // CreateNetwork is unsupported: a LAN network is defined by its conflist,
 // which the podman backend writes, and both engines then attach to the same
