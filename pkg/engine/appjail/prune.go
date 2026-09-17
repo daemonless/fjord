@@ -23,8 +23,9 @@ func (b *Backend) PruneCapabilities() engine.PruneCapabilities {
 // SMB1-only and the OCI path doesn't mount nfs:// / smb:// folders.
 func (b *Backend) Capabilities() engine.Capabilities {
 	return engine.Capabilities{
-		RemoteVolumes: false, NetworkKinds: networkKinds(),
-		NetworkNote: "Jails attach to networks but this engine does not create them — switch to podman to add one.",
+		RemoteVolumes: false,
+		NetworkKinds:  networkKinds(),
+		NetworkRemove: true,
 	}
 }
 

@@ -57,12 +57,19 @@ func setDirectorNetwork(directorYML, stackID, network, ip string) (string, error
 	if !ok {
 		return "", fmt.Errorf("no network named %q is defined on this host", network)
 	}
-	if net.Bridge == "" || net.Subnet == "" {
-		return "", fmt.Errorf("network %q has no bridge or subnet to place a jail on", network)
+	if net.Bridge == "" {
+		return "", fmt.Errorf("network %q has no bridge to attach a jail to", network)
 	}
 	prefix := "24"
 	if _, p, found := strings.Cut(net.Subnet, "/"); found {
 		prefix = p
+	}
+	// A DHCP network: hand the jail appjail's own dhcp option. It writes
+	// SYNCDHCP into the jail's rc.conf and rc runs dhclient there, which needs
+	// bpf -- appjail hides it, so the devfs rule has to come along.
+	dhcp := net.DHCP
+	if !dhcp && net.Subnet == "" {
+		return "", fmt.Errorf("network %q has no subnet to place a jail on", network)
 	}
 	// A pool network is allocated by the podman side's IPAM, which appjail
 	// cannot ask -- so an address has to be given. A DHCP network has no pool
@@ -81,11 +88,11 @@ func setDirectorNetwork(directorYML, stackID, network, ip string) (string, error
 	root := doc.Content[0]
 
 	iface := epairName(stackID)
-	// DHCP is done by dhclient inside the jail, which needs bpf: appjail hides
-	// it by default, so the rule has to come with the option or the lease
-	// never arrives.
 	addr := [][2]string{{"ifconfig", fmt.Sprintf("sb_%s:%s/%s", iface, ip, prefix)}, {"defaultrouter", net.Gateway}}
-	if ip == "" && net.DHCP {
+	if dhcp {
+		// dhclient runs inside the jail and needs bpf, which appjail hides by
+		// default -- without the rule the lease never arrives and rc waits out
+		// defaultroute_delay with no address.
 		addr = [][2]string{{"dhcp", "sb_" + iface}, {"device", "path bpf unhide"}}
 	}
 	opts := &yaml.Node{Kind: yaml.SequenceNode}

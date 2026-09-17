@@ -711,18 +711,18 @@
               >
                 <option value="">Host ports (default)</option>
                 {#each networks as n}
-                  <option value={n.name}>Own IP on {n.name} ({n.subnet})</option>
+                  <option value={n.name}>Own IP on {n.name} ({n.subnet || 'address from DHCP'})</option>
                 {/each}
               </select>
-              {#if netChoice}
+              {#if netChoice && !chosenNet?.subnet}
+                <p class="text-xs text-fjord-fg-dim mt-2">
+                  The address comes from the DHCP server on that segment, using this app's MAC.
+                </p>
+              {:else if netChoice}
                 <input
                   type="text"
                   bind:value={netIP}
-                  placeholder={ipRequired
-                    ? 'IP (required on this engine)'
-                    : chosenNet?.subnet
-                      ? 'IP (optional — auto-assign if blank)'
-                      : 'IP (optional — DHCP assigns one)'}
+                  placeholder={ipRequired ? 'IP (required on this engine)' : 'IP (optional — auto-assign if blank)'}
                   class="w-full mt-2 bg-fjord-inset border border-fjord-border rounded-md px-3 py-2 text-fjord-fg-body font-mono text-sm focus:outline-none focus:border-fjord-accent"
                 />
                 {#if ipRequired && !netIP.trim()}

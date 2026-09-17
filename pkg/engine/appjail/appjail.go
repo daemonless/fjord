@@ -353,7 +353,13 @@ func (b *Backend) Networks(ctx context.Context) ([]engine.Network, error) {
 	for _, n := range hostnet.List() {
 		// Only this plugin's networks: a CNI bridge conflist is a project's
 		// private NAT segment, not a LAN bridge a jail can join.
-		if n.Type != "epair" || n.Bridge == "" || (n.Subnet == "" && !n.DHCP) {
+		if n.Type != "epair" || n.Bridge == "" {
+			continue
+		}
+		// A DHCP network is usable: fjord takes the lease on the host at
+		// install time and gives the jail a fixed address, because appjail
+		// runs dhclient inside the jail and these images ship none.
+		if n.Subnet == "" && !n.DHCP {
 			continue
 		}
 		nets = append(nets, engine.Network{
