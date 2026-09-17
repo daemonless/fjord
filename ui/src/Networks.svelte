@@ -15,13 +15,24 @@
     label: string;
     help?: string;
     parentLabel?: string;
-    parentSetup?: string;
+    parentSetups?: Setup[];
+    parentInterfaces?: { name: string; detail?: string; uplink?: boolean }[];
     needsGateway?: boolean;
     engine?: string;   // which backend makes this kind
+    engines?: string[]; // every backend that can
     supportsDhcp?: boolean;
     supportsMtu?: boolean;
     supportsRange?: boolean;
     supportsDescription?: boolean;
+  };
+  type Setup = {
+    id: string;
+    label: string;
+    snippet: string;
+    note?: string;
+    inputs?: string[];   // "interface", "vlan" -- what the user may change
+    interface?: string;
+    vlan?: string;
   };
   type Parent = {
     name: string;
@@ -51,16 +62,24 @@
       networks = await res.json();
       // Kinds and parents are advisory: a failure here disables creating but
       // must not hide the networks that already exist.
-      const k = await fetch('/api/networks/kinds').then((r) => (r.ok ? r.json() : null)).catch(() => null);
-      kinds = k?.kinds ?? [];
-      kindsNote = k?.note ?? '';
-      canRemove = k?.canRemove ?? true;
-      parents = await fetch('/api/networks/parents?engine=podman').then((r) => (r.ok ? r.json() : [])).catch(() => []);
+      await refreshHost();
     } catch (e: any) {
       error = e.message || 'Failed to load networks';
     } finally {
       loading = false;
     }
+  }
+
+  // What the host looks like right now: which bridges exist, and what the
+  // setup snippets should suggest next. Re-read whenever the create dialog
+  // opens -- it tells the user to go make a bridge and come back, so the
+  // answer is expected to have changed since the page loaded.
+  async function refreshHost() {
+    const k = await fetch('/api/networks/kinds').then((r) => (r.ok ? r.json() : null)).catch(() => null);
+    kinds = k?.kinds ?? [];
+    kindsNote = k?.note ?? '';
+    canRemove = k?.canRemove ?? true;
+    parents = await fetch('/api/networks/parents?engine=podman').then((r) => (r.ok ? r.json() : [])).catch(() => []);
   }
 
   onMount(load);
@@ -81,6 +100,49 @@
   // "dhcp" = the segment's own server allocates; "pool" = this host does.
   let addressSource: 'dhcp' | 'pool' = 'dhcp';
   let advanced = false;
+  // The bridge-setup help, available whether or not a bridge already exists.
+  let showSetup = false;
+  // A working copy of the kind's setups: the host guesses the NIC and the VLAN
+  // id, the user corrects them, and the backend re-renders that one snippet.
+  let setups: Setup[] = [];
+  let setupBusy = '';
+  let rechecking = false;
+
+  // The user runs the commands in another window; nothing tells fjord when
+  // they are done, so give them a way to say so without losing the dialog.
+  async function recheck() {
+    rechecking = true;
+    try {
+      await refreshHost();
+      if (parents.length) {
+        showSetup = !parents.some((p) => !p.inUse);
+        toast.success(`Found ${parents.length} ${parents.length === 1 ? 'bridge' : 'bridges'}`);
+      } else {
+        toast.error('Still no bridge on this host');
+      }
+    } finally {
+      rechecking = false;
+    }
+  }
+  $: if (kind) setups = (kind.parentSetups || []).map((x) => ({ ...x }));
+
+  async function rerenderSetup(i: number, patch: Partial<Setup>) {
+    const cur = { ...setups[i], ...patch };
+    setups[i] = cur;
+    setupBusy = cur.id;
+    try {
+      const q = new URLSearchParams({ kind: kind.id, nic: cur.interface || '', vlan: cur.vlan || '' });
+      if (kind.engine) q.set('engine', kind.engine);
+      const r = await fetch(`/api/networks/setup?${q}`);
+      if (!r.ok) throw new Error((await r.text()).trim());
+      setups[i] = await r.json();
+      setups = setups;
+    } catch (e) {
+      toast.error(`${e}`);
+    } finally {
+      setupBusy = '';
+    }
+  }
 
   $: kind = kinds.find((k) => k.id === kindID) || kinds[0];
   $: needsParent = !!kind?.parentLabel;
@@ -89,15 +151,17 @@
   // letting someone fill in a form that cannot succeed.
   $: blocked = needsParent && parents.length === 0;
 
-  function openCreate() {
+  async function openCreate() {
     form = { name: '', parent: '', subnet: '', gateway: '', mtu: '', rangeStart: '', rangeEnd: '', description: '' };
+    advanced = false;
+    createError = '';
+    creating = true;
+    await refreshHost();
     kindID = kinds[0]?.id || '';
     // One allocator beats two on the same wire, so DHCP leads where the
     // plugin can do it. A pool is the fallback, not the default.
     addressSource = kinds[0]?.supportsDhcp ? 'dhcp' : 'pool';
-    advanced = false;
-    createError = '';
-    creating = true;
+    showSetup = parents.length > 0 && parents.every((p) => p.inUse);
   }
 
   // Offer the usual .1 for a /24 so the common case is one less field to fill.
@@ -111,6 +175,20 @@
   // Picking a parent fills in what the host already knows: the segment's
   // subnet and gateway, a name following the bridge, and a default range.
   // Only empty fields are touched, so nothing typed is overwritten.
+  // A sentinel option in the dropdown: choosing it opens the setup help
+  // rather than selecting a parent. The dropdown is where someone looks when
+  // it does not list what they need, so the way out belongs there.
+  const NEW_PARENT = '__new__';
+
+  function onParentChange() {
+    if (form.parent === NEW_PARENT) {
+      form.parent = '';
+      showSetup = true;
+      return;
+    }
+    applyParent();
+  }
+
   function applyParent() {
     const p = chosenParent;
     if (!p) return;
@@ -322,19 +400,68 @@
           <p class="text-xs text-fjord-fg-dim -mt-2">{kind.help}</p>
         {/if}
 
+        {#snippet setupCard(ps, i)}
+          <div class="flex flex-col gap-2">
+            <div class="flex flex-wrap items-center gap-x-4 gap-y-2">
+              {#if ps.inputs?.includes('interface') && kind.parentInterfaces?.length}
+                <label class="flex items-center gap-1.5 text-xs text-fjord-fg-dim">
+                  Interface
+                  <select
+                    value={ps.interface}
+                    on:change={(e) => rerenderSetup(i, { interface: e.currentTarget.value })}
+                    class="text-xs bg-fjord-bg border border-fjord-border rounded px-1.5 py-0.5 text-fjord-fg">
+                    {#each kind.parentInterfaces as n}
+                      <option value={n.name}>{n.name}{n.detail ? ` — ${n.detail}` : ''}</option>
+                    {/each}
+                  </select>
+                </label>
+              {/if}
+              {#if ps.inputs?.includes('vlan')}
+                <!-- Tagged or not is the only difference between the two ways
+                     to do this, so it is a toggle rather than a second card. -->
+                <label class="flex items-center gap-1.5 text-xs text-fjord-fg-dim">
+                  <input
+                    type="checkbox" checked={!!ps.vlan}
+                    on:change={(e) => rerenderSetup(i, { vlan: e.currentTarget.checked ? 'auto' : '' })}
+                    class="accent-fjord-accent" />
+                  Tagged VLAN
+                </label>
+                {#if ps.vlan}
+                  <label class="flex items-center gap-1.5 text-xs text-fjord-fg-dim">
+                    id
+                    <input
+                      type="number" min="1" max="4094" value={ps.vlan}
+                      on:change={(e) => rerenderSetup(i, { vlan: e.currentTarget.value })}
+                      class="w-16 text-xs bg-fjord-bg border border-fjord-border rounded px-1.5 py-0.5 text-fjord-fg" />
+                  </label>
+                {/if}
+              {/if}
+              {#if setupBusy === ps.id}<Spinner size={12} />{/if}
+            </div>
+            <FixSnippet fix={ps.snippet} />
+            {#if ps.note}<span class="text-xs text-fjord-fg-dim">{ps.note}</span>{/if}
+          </div>
+        {/snippet}
+
         {#if blocked}
           <div class="flex flex-col gap-2">
-            {#if kind.parentSetup}
+            {#if kind.parentSetups?.length}
               <p class="text-sm text-fjord-fg-secondary">
                 No {kind.parentLabel?.toLowerCase()} on this host yet. A {kind.parentLabel?.toLowerCase()} is
                 persistent host configuration, so fjord does not create one — here is what to add:
               </p>
-              <FixSnippet fix={kind.parentSetup} />
-              <p class="text-xs text-fjord-fg-dim">
-                Then reopen this dialog. For an <b class="text-fjord-fg-muted">untagged</b> LAN you would
-                add the interface itself to a bridge instead — that can cut off a remote host, so do it
-                from the console.
-              </p>
+              {#each setups as ps, i}{@render setupCard(ps, i)}{/each}
+              <div class="flex items-center gap-2">
+                <button
+                  type="button"
+                  on:click={recheck}
+                  disabled={rechecking}
+                  class="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg bg-fjord-accent hover:bg-fjord-accent-hover text-white disabled:opacity-50">
+                  {#if rechecking}<Spinner size={12} />{/if}
+                  Check again
+                </button>
+                <span class="text-xs text-fjord-fg-dim">once you have run it on the host</span>
+              </div>
             {:else}
               <p class="text-sm text-fjord-fg-secondary">
                 No {kind.parentLabel?.toLowerCase()} on this host yet. A {kind.parentLabel?.toLowerCase()} is
@@ -362,13 +489,55 @@
 
           {#if needsParent}
             <div class="flex flex-col gap-1">
-              <label class="text-sm font-semibold text-fjord-fg-secondary" for="n-parent">{kind.parentLabel}</label>
-              <select id="n-parent" bind:value={form.parent} on:change={applyParent} class={inputCls}>
+              <div class="flex items-baseline justify-between gap-3">
+                <label class="text-sm font-semibold text-fjord-fg-secondary" for="n-parent">{kind.parentLabel}</label>
+                {#if kind.parentSetups?.length && !showSetup}
+                  <!-- The dropdown's sentinel is only found by someone who opens
+                       the dropdown, which nobody does when it already lists
+                       something. This stays visible. -->
+                  <button
+                    type="button"
+                    on:click={() => (showSetup = true)}
+                    class="shrink-0 text-xs text-fjord-accent hover:underline"
+                    >Set up another {kind.parentLabel?.toLowerCase()}</button
+                  >
+                {/if}
+              </div>
+              <select id="n-parent" bind:value={form.parent} on:change={onParentChange} class={inputCls}>
                 <option value="">Select a {kind.parentLabel?.toLowerCase()}…</option>
                 {#each parents as p}
                   <option value={p.name}>{p.name}{p.inUse ? ' (already has a network)' : ''}</option>
                 {/each}
+                {#if kind.parentSetups?.length}
+                  <option value={NEW_PARENT}>+ Set up a new {kind.parentLabel?.toLowerCase()}…</option>
+                {/if}
               </select>
+              {#if showSetup && kind.parentSetups?.length}
+                <div class="mt-2 flex flex-col gap-3 border-l-2 border-fjord-border pl-3">
+                  <div class="flex items-start justify-between gap-3">
+                    <p class="text-xs text-fjord-fg-dim">
+                      A {kind.parentLabel?.toLowerCase()} is host configuration, so fjord does not create
+                      one. Run this on the host, then check again.
+                    </p>
+                    <div class="shrink-0 flex items-center gap-3">
+                      <button
+                        type="button"
+                        on:click={recheck}
+                        disabled={rechecking}
+                        class="flex items-center gap-1 text-xs text-fjord-accent hover:underline disabled:opacity-50">
+                        {#if rechecking}<Spinner size={11} />{/if}
+                        Check again
+                      </button>
+                      <button
+                        type="button"
+                        on:click={() => (showSetup = false)}
+                        class="text-xs text-fjord-fg-muted hover:text-fjord-fg">Hide</button
+                      >
+                    </div>
+                  </div>
+                  {#each setups as ps, i}{@render setupCard(ps, i)}{/each}
+                </div>
+              {/if}
             </div>
           {/if}
 

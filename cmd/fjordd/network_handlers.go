@@ -60,6 +60,29 @@ func (s *server) handleNetworks(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// handleNetworkSetup re-renders one parent-setup snippet with the choices the
+// host cannot make for itself: which NIC is cabled to the segment the
+// containers belong on, and which VLAN the switch tags on that port.
+func (s *server) handleNetworkSetup(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", 405)
+		return
+	}
+	b, ok := s.backendForRequest(r).(engine.NetworkSetupper)
+	if !ok {
+		http.Error(w, "this engine has no parent setup to vary", 404)
+		return
+	}
+	q := r.URL.Query()
+	ps, err := b.ParentSetup(r.Context(), q.Get("kind"), q.Get("nic"), q.Get("vlan"))
+	if err != nil {
+		http.Error(w, err.Error(), 400)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(ps)
+}
+
 // handleNetworkKinds reports the kinds of network the selected engine can
 // create, and which spec fields each uses, so the UI builds its form from the
 // engine's own declaration instead of branching on an engine name. An empty
@@ -81,7 +104,12 @@ func (s *server) handleNetworkKinds(w http.ResponseWriter, r *http.Request) {
 	// it, so the form offers a kind rather than making the user pick an
 	// engine and then discover what that engine happens to support.
 	kinds := []engine.NetworkKind{}
+	at := map[string]int{} // kind id -> its slot in kinds
 	notes := []string{}
+	// engineNames puts the default engine first, so the first declaration of
+	// a kind wins: the one that will make it unless the user says otherwise.
+	// The rest only add themselves to Engines -- two engines offering the
+	// same kind is one row on the form, not two.
 	for _, name := range s.engineNames() {
 		be, ok := s.backend(name)
 		if !ok {
@@ -89,7 +117,13 @@ func (s *server) handleNetworkKinds(w http.ResponseWriter, r *http.Request) {
 		}
 		caps := be.Capabilities()
 		for _, k := range caps.NetworkKinds {
+			if i, seen := at[k.ID]; seen {
+				kinds[i].Engines = append(kinds[i].Engines, name)
+				continue
+			}
 			k.Engine = name
+			k.Engines = []string{name}
+			at[k.ID] = len(kinds)
 			kinds = append(kinds, k)
 		}
 		if caps.NetworkNote != "" && len(caps.NetworkKinds) == 0 {

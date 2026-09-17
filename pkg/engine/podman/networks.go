@@ -91,8 +91,12 @@ func (b *Backend) Networks(ctx context.Context) ([]engine.Network, error) {
 // hostScopedDrivers are the drivers whose networks do NOT get a container its
 // own LAN address, so they are never offered as an attachment.
 var hostScopedDrivers = map[string]bool{
-	"bridge": true, "host": true, "none": true, "null": true,
+	"host": true, "none": true, "null": true,
 }
+
+// defaultBridge is the network the runtime makes for itself. Every stack that
+// asks for nothing is already on it, so offering it as a choice is noise.
+const defaultBridge = "podman"
 
 // parseNetworks filters the libpod network list to attachable networks.
 // Split out from the HTTP call so it can be unit-tested without a socket.
@@ -108,7 +112,7 @@ func parseNetworks(data []byte) ([]engine.Network, error) {
 	}
 	out := make([]engine.Network, 0, len(raw))
 	for _, n := range raw {
-		if hostScopedDrivers[n.Driver] {
+		if hostScopedDrivers[n.Driver] || n.Name == defaultBridge {
 			continue
 		}
 		net := engine.Network{Name: n.Name, Driver: n.Driver}

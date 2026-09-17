@@ -151,6 +151,7 @@ func (s *server) routes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/networks", s.handleNetworks)
 	mux.HandleFunc("/api/networks/kinds", s.handleNetworkKinds)
 	mux.HandleFunc("/api/networks/parents", s.handleNetworkParents)
+	mux.HandleFunc("/api/networks/setup", s.handleNetworkSetup)
 	mux.HandleFunc("/api/networks/", s.handleNetworkDelete)
 	mux.HandleFunc("/api/volumes", s.handleVolumes)
 	mux.HandleFunc("/api/volumes/ensure", s.handleVolumeEnsure)

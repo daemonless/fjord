@@ -3,7 +3,9 @@ package podman
 import "testing"
 
 // Real libpod /networks/json fixture (trimmed): a user bridge, two Linux
-// macvlans, and the default podman bridge -- only the attachable ones survive.
+// macvlans, and the default podman bridge. Everything a stack can be attached
+// to survives; only the runtime's own default network is dropped, because
+// every stack that asks for nothing is already on it.
 const networksFixture = `[
   {"name":"booklore-internal","driver":"bridge","subnets":[{"subnet":"10.89.1.0/24","gateway":"10.89.1.1"}]},
   {"name":"vlan4","driver":"macvlan","subnets":[{"subnet":"192.168.4.0/24","gateway":"192.168.4.1"}]},
@@ -16,14 +18,21 @@ func TestParseNetworksKeepsAttachable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parseNetworks: %v", err)
 	}
-	if len(nets) != 2 {
-		t.Fatalf("expected 2 attachable networks, got %d: %+v", len(nets), nets)
+	if len(nets) != 3 {
+		t.Fatalf("expected 3 attachable networks, got %d: %+v", len(nets), nets)
 	}
-	if nets[0].Name != "vlan4" || nets[1].Name != "vlan5" {
+	// A user-made bridge is a private network -- the same thing appjail's
+	// "nat" kind makes -- so it belongs in the list.
+	if nets[0].Name != "booklore-internal" || nets[1].Name != "vlan4" || nets[2].Name != "vlan5" {
 		t.Fatalf("unexpected names: %+v", nets)
 	}
-	if nets[1].Subnet != "192.168.5.0/24" || nets[1].Gateway != "192.168.5.1" {
-		t.Fatalf("subnet/gateway not extracted: %+v", nets[1])
+	for _, n := range nets {
+		if n.Name == "podman" {
+			t.Fatalf("the default network should not be offered: %+v", nets)
+		}
+	}
+	if nets[2].Subnet != "192.168.5.0/24" || nets[2].Gateway != "192.168.5.1" {
+		t.Fatalf("subnet/gateway not extracted: %+v", nets[2])
 	}
 }
 

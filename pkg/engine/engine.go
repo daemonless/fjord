@@ -97,11 +97,16 @@ type NetworkKind struct {
 	// ParentLabel names what Parent must be for this runtime ("Bridge" on
 	// FreeBSD, "Interface" on Linux); empty when the kind takes no parent.
 	ParentLabel string `json:"parentLabel,omitempty"`
-	// ParentSetup is a shell snippet showing how to provision a parent when
-	// the host has none. It comes from the backend because the commands are
-	// platform-specific, and the UI only renders what it is given.
-	ParentSetup  string `json:"parentSetup,omitempty"`
-	NeedsGateway bool   `json:"needsGateway,omitempty"`
+	// ParentSetups are the ways to provision a parent on this platform, each
+	// a shell snippet the UI renders verbatim. They come from the backend
+	// because the commands are platform-specific.
+	ParentSetups []ParentSetup `json:"parentSetups,omitempty"`
+	// ParentInterfaces are the host interfaces those setups can be built on.
+	ParentInterfaces []ParentInterface `json:"parentInterfaces,omitempty"`
+	// Engines are every backend that can make this kind. Engine is the one
+	// that will, when the user does not say otherwise.
+	Engines      []string `json:"engines,omitempty"`
+	NeedsGateway bool     `json:"needsGateway,omitempty"`
 	// SupportsDHCP: addresses can come from the segment's own DHCP server
 	// instead of a pool this host manages. When available it is the better
 	// default: one allocator instead of two on the same wire.
@@ -109,6 +114,40 @@ type NetworkKind struct {
 	SupportsMTU         bool `json:"supportsMtu,omitempty"`
 	SupportsRange       bool `json:"supportsRange,omitempty"`
 	SupportsDescription bool `json:"supportsDescription,omitempty"`
+}
+
+// ParentSetup is one way to make a parent interface: a label, the commands,
+// and anything the user should know before running them.
+//
+// A backend picks defaults from what the host looks like, but the host cannot
+// say which NIC is cabled to which segment or which VLAN the switch tags.
+// Inputs lets the UI offer those choices back and ask for a re-render.
+type ParentSetup struct {
+	ID      string `json:"id"`
+	Label   string `json:"label"`
+	Snippet string `json:"snippet"`
+	Note    string `json:"note,omitempty"`
+	// Inputs the user may vary: "interface", "vlan". Empty = fixed snippet.
+	Inputs []string `json:"inputs,omitempty"`
+	// What this rendering used, so the UI seeds its controls with it. An
+	// empty VLAN means untagged; "auto" on the way in asks for a free id.
+	Interface string `json:"interface,omitempty"`
+	VLAN      string `json:"vlan,omitempty"`
+}
+
+// ParentInterface is a host interface a parent can be built on, with what the
+// host knows about it -- the user supplies what it knows nothing about.
+type ParentInterface struct {
+	Name   string `json:"name"`
+	Detail string `json:"detail,omitempty"` // "192.168.4.103, default route" / "no address"
+	Uplink bool   `json:"uplink,omitempty"`
+}
+
+// NetworkSetupper re-renders a ParentSetup with the user's choices. Optional:
+// fjordd type-asserts it, and a backend without it just serves the defaults
+// from Capabilities().
+type NetworkSetupper interface {
+	ParentSetup(ctx context.Context, kind, nic, vlan string) (ParentSetup, error)
 }
 
 // NetworkSpec describes a network to create in runtime-neutral terms; the
