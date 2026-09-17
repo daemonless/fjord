@@ -22,6 +22,18 @@ import (
 // plus an optional macvlan attachment applied to the compose before writing.
 // Network/IP are only sent when a stack is first created/attached, not on
 // every edit.
+// attachments mirrors installRequest.attachments: the list when given, else
+// the single Network/IP/MAC triple.
+func (r saveRequest) attachments() []composepkg.Attachment {
+	if len(r.Networks) > 0 {
+		return r.Networks
+	}
+	if r.Network == "" {
+		return nil
+	}
+	return []composepkg.Attachment{{Network: r.Network, IP: r.IP, MAC: r.MAC}}
+}
+
 type saveRequest struct {
 	Compose string `json:"compose"`
 	Env     string `json:"env"`
@@ -38,6 +50,9 @@ type saveRequest struct {
 	Network     string `json:"network,omitempty"` // attach the stack to this macvlan network
 	IP          string `json:"ip,omitempty"`      // optional predictable IP within it
 	MAC         string `json:"mac,omitempty"`     // optional pinned MAC, for a DHCP reservation
+	// Networks is the full list when a stack takes more than one interface;
+	// Network/IP/MAC above remain the single-network form.
+	Networks []composepkg.Attachment `json:"networks,omitempty"`
 	// One-shot volume attachment: mount the named volume at VolumePath.
 	Volume     string `json:"volume,omitempty"`
 	VolumePath string `json:"volumePath,omitempty"`
@@ -137,9 +152,12 @@ func (s *server) stackDetail(w http.ResponseWriter, r *http.Request, name string
 		status = engine.StackStatus{State: "unknown"}
 	}
 	w.Header().Set("Content-Type", "application/json")
-	net, ip := composepkg.AttachedNetwork(st.Compose)
-	mac := composepkg.AttachedMAC(st.Compose)
-	json.NewEncoder(w).Encode(stackWithStatus{Stack: st, Status: status, Network: net, NetworkIP: ip, NetworkMAC: mac})
+	atts := composepkg.AttachedNetworks(st.Compose)
+	net, ip, mac := "", "", ""
+	if len(atts) > 0 {
+		net, ip, mac = atts[0].Network, atts[0].IP, atts[0].MAC
+	}
+	json.NewEncoder(w).Encode(stackWithStatus{Stack: st, Status: status, Network: net, NetworkIP: ip, NetworkMAC: mac, Networks: atts})
 }
 
 // stackDelete stops the stack's containers, then removes its stack dir.
@@ -265,18 +283,20 @@ func (s *server) stackSave(w http.ResponseWriter, r *http.Request, name string) 
 	// instead of the stack id, hiding them from status/logs/delete -- the
 	// same strip the catalog install path applies.
 	composeYAML := composepkg.DropTopLevelKey(payload.Compose, "name")
-	if payload.Network != "" {
+	if atts := payload.attachments(); len(atts) > 0 {
 		eng := payload.Engine
 		if eng == "" {
 			if existing, err := s.manager.Get(name); err == nil {
 				eng = existing.EngineName()
 			}
 		}
-		if msg := s.networkUnusable(r.Context(), eng, payload.Network); msg != "" {
-			http.Error(w, msg, 400)
-			return
+		for _, a := range atts {
+			if msg := s.networkUnusable(r.Context(), eng, a.Network); msg != "" {
+				http.Error(w, msg, 400)
+				return
+			}
 		}
-		injected, err := composepkg.InjectNetwork(composeYAML, payload.Network, payload.IP, payload.MAC)
+		injected, err := composepkg.InjectNetworks(composeYAML, atts)
 		if err != nil {
 			http.Error(w, "network attach: "+err.Error(), 400)
 			return

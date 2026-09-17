@@ -118,9 +118,10 @@ func TestInjectNetworkReattaches(t *testing.T) {
 	}
 }
 
-// Several networks means a compose its author wrote; replacing the key would
-// drop one fjord never added.
-func TestInjectNetworkRejectsMultipleNetworks(t *testing.T) {
+// Several networks is a stack fjord can now describe, so the list it is given
+// replaces whatever was there -- the caller seeds its table from
+// AttachedNetworks, so what gets written is what the user was shown.
+func TestInjectNetworksReplacesTheWholeSet(t *testing.T) {
 	withNets := `services:
   a:
     image: x
@@ -128,8 +129,31 @@ func TestInjectNetworkRejectsMultipleNetworks(t *testing.T) {
       - other
       - second
 `
-	if _, err := InjectNetwork(withNets, "vlan5", "", ""); err == nil {
-		t.Fatal("expected error when a service declares several networks")
+	out, err := InjectNetworks(withNets, []Attachment{
+		{Network: "lan", MAC: "02:1a:2b:3c:4d:5e"},
+		{Network: "private", IP: "10.100.0.5"},
+	})
+	if err != nil {
+		t.Fatalf("replace refused: %v", err)
+	}
+	got := AttachedNetworks(out)
+	if len(got) != 2 || got[0].Network != "lan" || got[1].Network != "private" {
+		t.Fatalf("network set not replaced, got %+v:\n%s", got, out)
+	}
+	// Order is the interface order, and each keeps its own pin.
+	if got[0].MAC != "02:1a:2b:3c:4d:5e" || got[1].IP != "10.100.0.5" {
+		t.Errorf("pins not written per network: %+v\n%s", got, out)
+	}
+	if got[0].IP != "" || got[1].MAC != "" {
+		t.Errorf("pins leaked between networks: %+v", got)
+	}
+}
+
+// A network listed twice would be two interfaces fjord cannot tell apart.
+func TestInjectNetworksRejectsDuplicates(t *testing.T) {
+	in := "services:\n  a:\n    image: x\n"
+	if _, err := InjectNetworks(in, []Attachment{{Network: "lan"}, {Network: "lan"}}); err == nil {
+		t.Fatal("expected error when a network is listed twice")
 	}
 }
 
@@ -165,5 +189,30 @@ func TestDropTopLevelKey(t *testing.T) {
 	}
 	if DropTopLevelKey(in, "absent") != in {
 		t.Fatal("absent key must leave input unchanged")
+	}
+}
+
+// Stacks attached before per-network pins carry one service-level
+// mac_address; podman-compose applies it to the first network, so reading it
+// any other way would lose the pin on the next save.
+func TestAttachedNetworksReadsLegacyServiceMAC(t *testing.T) {
+	in := `services:
+  app:
+    image: x
+    mac_address: 02:aa:bb:cc:dd:ee
+    networks:
+      - lan
+`
+	got := AttachedNetworks(in)
+	if len(got) != 1 || got[0].MAC != "02:aa:bb:cc:dd:ee" {
+		t.Fatalf("legacy service-level MAC not read: %+v", got)
+	}
+	// Writing it back moves it onto the network it belongs to.
+	out, err := InjectNetworks(in, got)
+	if err != nil {
+		t.Fatalf("re-inject: %v", err)
+	}
+	if !strings.Contains(out, "mac_address: 02:aa:bb:cc:dd:ee") || strings.Contains(out, "\n    mac_address:") {
+		t.Errorf("MAC not moved under the network:\n%s", out)
 	}
 }

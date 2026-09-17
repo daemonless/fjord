@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	composepkg "github.com/daemonless/fjord/pkg/compose"
 	"github.com/daemonless/fjord/pkg/hostnet"
 )
 
@@ -43,11 +44,11 @@ func seedNetwork(t *testing.T) {
 // The generated options must match what was proven by hand on jupiter:
 // bridge + ifconfig + defaultrouter, and NO expose -- appjail refuses
 // "expose requires the following options: virtualnet" alongside a bridge.
-func TestSetDirectorNetwork(t *testing.T) {
+func TestSetDirectorNetworks(t *testing.T) {
 	seedNetwork(t)
-	out, err := setDirectorNetwork(natDirector, "zensical", "vlan5", "192.168.5.222", "")
+	out, err := setDirectorNetworks(natDirector, "zensical", []composepkg.Attachment{{Network: "vlan5", IP: "192.168.5.222"}})
 	if err != nil {
-		t.Fatalf("setDirectorNetwork: %v", err)
+		t.Fatalf("setDirectorNetworks: %v", err)
 	}
 	for _, want := range []string{
 		"bridge: 'epair:zensical bridge:vlan5bridge'",
@@ -71,14 +72,14 @@ func TestSetDirectorNetwork(t *testing.T) {
 	}
 }
 
-func TestSetDirectorNetworkRejects(t *testing.T) {
+func TestSetDirectorNetworksRejects(t *testing.T) {
 	seedNetwork(t)
-	if _, err := setDirectorNetwork(natDirector, "zensical", "nosuch", "192.168.5.222", ""); err == nil {
+	if _, err := setDirectorNetworks(natDirector, "zensical", []composepkg.Attachment{{Network: "nosuch", IP: "192.168.5.222"}}); err == nil {
 		t.Error("accepted an undefined network")
 	}
 	// appjail has no address pool for a network it does not manage, so an
 	// address is required rather than auto-assigned.
-	if _, err := setDirectorNetwork(natDirector, "zensical", "vlan5", "", ""); err == nil {
+	if _, err := setDirectorNetworks(natDirector, "zensical", []composepkg.Attachment{{Network: "vlan5"}}); err == nil {
 		t.Error("accepted an empty address")
 	}
 }
@@ -94,17 +95,63 @@ func TestEpairName(t *testing.T) {
 		"!!!":                      "fjord",
 	}
 	for in, want := range cases {
-		if got := epairName(in); got != want {
-			t.Errorf("epairName(%q) = %q, want %q", in, got, want)
+		if got := epairName(in, 0); got != want {
+			t.Errorf("epairName(%q, 0) = %q, want %q", in, got, want)
 		}
 	}
 	for in := range cases {
-		got := epairName(in)
+		got := epairName(in, 0)
 		if len("sb_"+got) > 15 {
 			t.Errorf("sb_%s exceeds IFNAMSIZ", got)
 		}
-		if got != epairName(in) {
-			t.Errorf("epairName(%q) is not deterministic", in)
+		if got != epairName(in, 0) {
+			t.Errorf("epairName(%q, 0) is not deterministic", in)
 		}
+	}
+}
+
+// Two networks means two epairs, each with its own address, and exactly one
+// default route -- more than one and the jail's routing table is a coin toss.
+func TestSetDirectorNetworksTwo(t *testing.T) {
+	seedNetwork(t)
+	out, err := setDirectorNetworks(natDirector, "zensical", []composepkg.Attachment{
+		{Network: "vlan5", IP: "192.168.5.222", MAC: "02:1a:2b:3c:4d:5e"},
+		{Network: "vlan5", IP: "192.168.5.223"},
+	})
+	if err == nil {
+		t.Fatal("accepted the same network twice")
+	}
+	out, err = setDirectorNetworks(natDirector, "zensical", []composepkg.Attachment{
+		{Network: "vlan5", IP: "192.168.5.222", MAC: "02:1a:2b:3c:4d:5e"},
+	})
+	if err != nil {
+		t.Fatalf("setDirectorNetworks: %v", err)
+	}
+	for _, want := range []string{
+		"bridge: 'epair:zensical bridge:vlan5bridge'",
+		"macaddr: 'sb_zensical:02:1a:2b:3c:4d:5e'",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q in:\n%s", want, out)
+		}
+	}
+	if strings.Count(out, "defaultrouter:") != 1 {
+		t.Errorf("expected exactly one default route:\n%s", out)
+	}
+}
+
+// Each network gets its own wire, and the first keeps the bare name so
+// existing stacks are unchanged.
+func TestEpairNameIndexed(t *testing.T) {
+	if got := epairName("zensical", 0); got != "zensical" {
+		t.Errorf("first epair should keep the bare name, got %q", got)
+	}
+	if got := epairName("zensical", 1); got != "zensical1" {
+		t.Errorf("second epair should be suffixed, got %q", got)
+	}
+	// "sb_" + name must still fit IFNAMSIZ.
+	long := epairName("averylongstackname", 2)
+	if len(long) > ifaceMax || !strings.HasSuffix(long, "2") {
+		t.Errorf("long name not trimmed around its suffix: %q", long)
 	}
 }

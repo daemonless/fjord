@@ -32,7 +32,7 @@ func directorJailName(stackID, service string) string {
 // appjail-director.yml (the file's presence is the per-stack "use director"
 // switch; stacks without it stay on the legacy `appjail oci run` path). Returns
 // the .env text written, so the caller records it on the stack.
-func writeAppjailBundle(dir, stackID string, b *manifest.AppjailBundle, resolvedEnv map[string]string, composeYAML, network, ip, mac string) (string, error) {
+func writeAppjailBundle(dir, stackID string, b *manifest.AppjailBundle, resolvedEnv map[string]string, composeYAML string, atts []composepkg.Attachment) (string, error) {
 	if b.Director == "" {
 		return "", fmt.Errorf("appjail bundle has no director file")
 	}
@@ -56,8 +56,8 @@ func writeAppjailBundle(dir, stackID string, b *manifest.AppjailBundle, resolved
 	}
 	// Place the project's jails on a host bridge instead of appjail's NAT
 	// virtualnet. Done after materialize so it rewrites the finished document.
-	if network != "" {
-		directorYML, err = setDirectorNetwork(directorYML, stackID, network, ip, mac)
+	if len(atts) > 0 {
+		directorYML, err = setDirectorNetworks(directorYML, stackID, atts)
 		if err != nil {
 			return "", fmt.Errorf("network attach: %w", err)
 		}

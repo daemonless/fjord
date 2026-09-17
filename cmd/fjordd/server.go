@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/daemonless/fjord/pkg/catalog"
+	"github.com/daemonless/fjord/pkg/compose"
 	"github.com/daemonless/fjord/pkg/engine"
 	"github.com/daemonless/fjord/pkg/stack"
 )
@@ -186,6 +187,9 @@ type stackWithStatus struct {
 	Network    string `json:"network,omitempty"`
 	NetworkIP  string `json:"networkIp,omitempty"`
 	NetworkMAC string `json:"networkMac,omitempty"`
+	// Networks is every network the stack is on, in interface order. The
+	// three fields above are the first of them, kept for older clients.
+	Networks []compose.Attachment `json:"networks,omitempty"`
 }
 
 // buildEnv renders resolved variables into .env lines, sorted for determinism.

@@ -2,8 +2,10 @@ package main
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
+	composepkg "github.com/daemonless/fjord/pkg/compose"
 	"github.com/daemonless/fjord/pkg/hostnet"
 
 	"gopkg.in/yaml.v3"
@@ -21,7 +23,7 @@ const ifaceMax = 12
 // run time, and the ifconfig option has to name "sb_<iface>" -- fjord cannot
 // reference a name it will not know. Anything outside [a-z0-9] is dropped
 // rather than substituted, since an interface name has a narrow charset.
-func epairName(stackID string) string {
+func epairName(stackID string, n int) string {
 	var b strings.Builder
 	for _, r := range strings.ToLower(stackID) {
 		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
@@ -32,9 +34,16 @@ func epairName(stackID string) string {
 	if name == "" {
 		name = "fjord"
 	}
-	if len(name) > ifaceMax {
-		name = name[:ifaceMax]
+	// Each network needs its own epair, so the second and later ones carry a
+	// suffix. The first keeps the bare name: it is what existing stacks have.
+	suffix := ""
+	if n > 0 {
+		suffix = strconv.Itoa(n)
 	}
+	if len(name)+len(suffix) > ifaceMax {
+		name = name[:ifaceMax-len(suffix)]
+	}
+	name += suffix
 	// An interface name may not start with a digit on FreeBSD.
 	if name[0] >= '0' && name[0] <= '9' {
 		name = "j" + name
@@ -52,32 +61,12 @@ func epairName(stackID string) string {
 // It also drops every service's `expose:`. appjail refuses that outright
 // alongside a bridge ("expose requires the following options: virtualnet"),
 // and rightly so: a jail on its own address has no host port to forward.
-func setDirectorNetwork(directorYML, stackID, network, ip, mac string) (string, error) {
-	net, ok := hostnet.Get(network)
-	if !ok {
-		return "", fmt.Errorf("no network named %q is defined on this host", network)
+// setDirectorNetworks puts a jail on every network in atts: one epair, and
+// one address (or DHCP lease) per network. The first is the jail's primary.
+func setDirectorNetworks(directorYML, stackID string, atts []composepkg.Attachment) (string, error) {
+	if len(atts) == 0 {
+		return "", fmt.Errorf("at least one network is required")
 	}
-	if net.Bridge == "" {
-		return "", fmt.Errorf("network %q has no bridge to attach a jail to", network)
-	}
-	prefix := "24"
-	if _, p, found := strings.Cut(net.Subnet, "/"); found {
-		prefix = p
-	}
-	// A DHCP network: hand the jail appjail's own dhcp option. It writes
-	// SYNCDHCP into the jail's rc.conf and rc runs dhclient there, which needs
-	// bpf -- appjail hides it, so the devfs rule has to come along.
-	dhcp := net.DHCP
-	if !dhcp && net.Subnet == "" {
-		return "", fmt.Errorf("network %q has no subnet to place a jail on", network)
-	}
-	// A pool network is allocated by the podman side's IPAM, which appjail
-	// cannot ask -- so an address has to be given. A DHCP network has no pool
-	// at all: the jail asks the segment's server, exactly as a container does.
-	if ip == "" && !net.DHCP {
-		return "", fmt.Errorf("an address is required to place a jail on %q: that network hands out addresses from a pool this host manages, and appjail cannot draw from it", network)
-	}
-
 	var doc yaml.Node
 	if err := yaml.Unmarshal([]byte(directorYML), &doc); err != nil {
 		return "", fmt.Errorf("parse director: %w", err)
@@ -87,24 +76,65 @@ func setDirectorNetwork(directorYML, stackID, network, ip, mac string) (string, 
 	}
 	root := doc.Content[0]
 
-	iface := epairName(stackID)
-	addr := [][2]string{{"ifconfig", fmt.Sprintf("sb_%s:%s/%s", iface, ip, prefix)}, {"defaultrouter", net.Gateway}}
-	if dhcp {
-		// dhclient runs inside the jail and needs bpf, which appjail hides by
-		// default -- without the rule the lease never arrives and rc waits out
-		// defaultroute_delay with no address.
-		addr = [][2]string{{"dhcp", "sb_" + iface}, {"device", "path bpf unhide"}}
+	var kvs [][2]string
+	bpf := false
+	seen := map[string]bool{}
+	for i, a := range atts {
+		// Two epairs onto the same bridge is two interfaces on one segment:
+		// legal, and never what anyone means.
+		if seen[a.Network] {
+			return "", fmt.Errorf("network %q is listed twice", a.Network)
+		}
+		seen[a.Network] = true
+		net, ok := hostnet.Get(a.Network)
+		if !ok {
+			return "", fmt.Errorf("no network named %q is defined on this host", a.Network)
+		}
+		if net.Bridge == "" {
+			return "", fmt.Errorf("network %q has no bridge to attach a jail to", a.Network)
+		}
+		prefix := "24"
+		if _, p, found := strings.Cut(net.Subnet, "/"); found {
+			prefix = p
+		}
+		if !net.DHCP && net.Subnet == "" {
+			return "", fmt.Errorf("network %q has no subnet to place a jail on", a.Network)
+		}
+		// A pool network is allocated by the podman side's IPAM, which appjail
+		// cannot ask -- so an address has to be given. A DHCP network has no
+		// pool at all: the jail asks the segment's server, as a container does.
+		if a.IP == "" && !net.DHCP {
+			return "", fmt.Errorf("an address is required to place a jail on %q: that network hands out addresses from a pool this host manages, and appjail cannot draw from it", a.Network)
+		}
+
+		iface := epairName(stackID, i)
+		kvs = append(kvs, [2]string{"bridge", fmt.Sprintf("epair:%s bridge:%s", iface, net.Bridge)})
+		if net.DHCP {
+			// dhclient runs inside the jail and needs bpf, which appjail hides
+			// by default -- without the rule the lease never arrives and rc
+			// waits out defaultroute_delay with no address.
+			kvs = append(kvs, [2]string{"dhcp", "sb_" + iface})
+			bpf = true
+		} else {
+			kvs = append(kvs, [2]string{"ifconfig", fmt.Sprintf("sb_%s:%s/%s", iface, a.IP, prefix)})
+			if i == 0 {
+				// Only one default route, and it belongs to the first network.
+				kvs = append(kvs, [2]string{"defaultrouter", net.Gateway})
+			}
+		}
+		// appjail sets the MAC on the jail side of the epair, which is the end
+		// a DHCP server sees -- so a reservation keyed on it resolves exactly
+		// as it would for a physical host.
+		if a.MAC != "" {
+			kvs = append(kvs, [2]string{"macaddr", "sb_" + iface + ":" + a.MAC})
+		}
 	}
-	// appjail sets the MAC on the jail side of the epair, which is the end a
-	// DHCP server sees -- so a reservation keyed on it resolves exactly as it
-	// would for a physical host.
-	if mac != "" {
-		addr = append(addr, [2]string{"macaddr", "sb_" + iface + ":" + mac})
+	if bpf {
+		kvs = append(kvs, [2]string{"device", "path bpf unhide"})
 	}
+
 	opts := &yaml.Node{Kind: yaml.SequenceNode}
-	for _, kv := range append([][2]string{
-		{"bridge", fmt.Sprintf("epair:%s bridge:%s", iface, net.Bridge)},
-	}, addr...) {
+	for _, kv := range kvs {
 		if kv[1] == "" {
 			continue
 		}

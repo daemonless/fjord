@@ -489,14 +489,28 @@
   // Attachable macvlan networks (empty on hosts without them, e.g. saturn).
   type Network = { name: string; driver: string; subnet: string; gateway: string };
   let networks: Network[] = [];
-  let netChoice = ''; // '' = host ports (default), else a network name
   // What the SAVED compose says, so revert() and post-save reset go back to it
   // rather than blanking the picker.
-  let savedNetwork = '';
-  let savedNetworkIP = '';
-  let netMAC = '';
-  let savedNetworkMAC = '';
-  let netIP = ''; // optional predictable IP within the chosen network
+  // The stack's networks, in interface order: row 0 is eth0. The table is the
+  // whole truth -- what is listed here replaces what the compose declares.
+  type Attachment = { network: string; ip?: string; mac?: string };
+  let netRows: Attachment[] = [];
+  let savedRows = '';
+  $: netRowsDirty = JSON.stringify(netRows) !== savedRows;
+
+  function addNetRow() {
+    const free = networks.find((n) => !netRows.some((r) => r.network === n.name));
+    netRows = [...netRows, { network: free?.name ?? '', ip: '', mac: '' }];
+  }
+  function removeNetRow(i: number) {
+    netRows = netRows.filter((_, j) => j !== i);
+  }
+  function moveNetRow(i: number, to: number) {
+    if (to < 0 || to >= netRows.length) return;
+    const copy = [...netRows];
+    [copy[i], copy[to]] = [copy[to], copy[i]];
+    netRows = copy;
+  }
 
   $: isDirty = selectedStack
     ? selectedStack.compose !== originalCompose || selectedStack.env !== originalEnv || (selectedStack.director ?? '') !== originalDirector || (selectedStack.makejail ?? '') !== originalMakejail
@@ -584,12 +598,8 @@
     originalMakejail = stack!.makejail ?? '';
     // Show the network the stack is ACTUALLY on. The picker is otherwise
     // write-only and reads "Host ports (default)" for every attached stack.
-    savedNetwork = (stack as any)!.network ?? '';
-    savedNetworkIP = (stack as any)!.networkIp ?? '';
-    savedNetworkMAC = (stack as any)!.networkMac ?? '';
-    netChoice = savedNetwork;
-    netIP = savedNetworkIP;
-    netMAC = savedNetworkMAC;
+    netRows = ((stack as any)!.networks ?? []).map((a: Attachment) => ({ ...a }));
+    savedRows = JSON.stringify(netRows);
     // Resources tab is engine-scoped to this stack (see loadNetworks/loadVolumes).
     loadNetworks(stack!.name);
     loadVolumes(stack!.name);
@@ -892,9 +902,7 @@
   function revert() {
     if (!selectedStack) return;
     selectedStack = { ...selectedStack, compose: originalCompose, env: originalEnv, ...(isDirector ? { director: originalDirector, makejail: originalMakejail } : {}) };
-    netChoice = savedNetwork;
-    netIP = savedNetworkIP;
-    netMAC = savedNetworkMAC;
+    netRows = JSON.parse(savedRows || '[]');
     addSource = '';
     addDest = '';
     addRO = false;
@@ -921,10 +929,10 @@
       // The network is only injected when it CHANGED: the picker now shows the
       // stack's current network, and re-injecting one the compose already
       // declares fails ("service already declares networks").
-      if (netChoice && (netChoice !== savedNetwork || netMAC.trim() !== savedNetworkMAC)) {
-        body.network = netChoice;
-        body.mac = netMAC.trim();
-        if (netIP.trim()) body.ip = netIP.trim();
+      if (netRows.length && netRowsDirty) {
+        body.networks = netRows
+          .filter((r) => r.network)
+          .map((r) => ({ network: r.network, ip: (r.ip || '').trim(), mac: (r.mac || '').trim() }));
       }
       if (volChoice && volPath.trim().startsWith('/')) {
         body.volume = volChoice;
@@ -944,13 +952,9 @@
           if (detail.ok) selectedStack = await detail.json();
           // Re-read the picker from what was just written, so it keeps showing
           // the stack's network instead of snapping back to "Host ports".
-          savedNetwork = (selectedStack as any)!.network ?? '';
-          savedNetworkIP = (selectedStack as any)!.networkIp ?? '';
-          savedNetworkMAC = (selectedStack as any)!.networkMac ?? '';
-          netChoice = savedNetwork;
-          netIP = savedNetworkIP;
-          netMAC = savedNetworkMAC;
-          volChoice = '';
+          netRows = ((selectedStack as any)!.networks ?? []).map((a: Attachment) => ({ ...a }));
+          savedRows = JSON.stringify(netRows);
+                            volChoice = '';
           volPath = '';
           volRO = false;
         }
@@ -1940,38 +1944,99 @@
                 <h3 class="text-lg font-bold text-fjord-fg mb-1">Networking</h3>
                 {#if networks.length}
                   <p class="text-xs text-fjord-fg-muted mb-4 max-w-lg">
-                    Give this stack its own IP on an attachable network and binds its ports without colliding on
-                    the host. Applied to the compose on <b>Save</b> (only when the service has no network yet).
+                    Each row is one interface, in order — the first is <span class="font-mono">eth0</span> and the
+                    one links are built from. Leave an address blank to let the network assign one. Applied to the
+                    compose on <b>Save</b>.
                   </p>
-                  <select
-                    bind:value={netChoice}
-                    class="w-full max-w-md bg-fjord-inset border border-fjord-border rounded-lg px-3 py-2 text-sm text-fjord-fg-body focus:border-fjord-accent outline-none"
-                  >
-                    <option value="">Host ports (default)</option>
-                    {#each networks as n}
-                      <option value={n.name}>Own IP on {n.name} ({n.subnet || 'address from DHCP'})</option>
-                    {/each}
-                  </select>
-                  {#if netChoice}
-                    <input
-                      bind:value={netIP}
-                      placeholder="IP (optional — auto-assign if blank)"
-                      class="w-full max-w-md mt-3 bg-fjord-inset border border-fjord-border rounded-lg px-3 py-2 text-sm text-fjord-fg-body font-mono focus:border-fjord-accent outline-none"
-                    />
-                    <div class="flex gap-2 max-w-md mt-3">
-                      <input
-                        bind:value={netMAC}
-                        placeholder="MAC (optional — pin one for a DHCP reservation)"
-                        class="flex-1 bg-fjord-inset border border-fjord-border rounded-lg px-3 py-2 text-sm text-fjord-fg-body font-mono focus:border-fjord-accent outline-none"
-                      />
-                      <button
-                        type="button"
-                        on:click={() => (netMAC = randomMAC())}
-                        title="Generate a locally-administered address"
-                        class="shrink-0 px-3 rounded-lg border border-fjord-border text-sm text-fjord-fg-secondary hover:bg-fjord-border"
-                        >Generate</button
-                      >
-                    </div>
+                  {#if netRows.length}
+                    <table class="w-full max-w-3xl text-sm">
+                      <thead>
+                        <tr class="text-left text-xs text-fjord-fg-dim">
+                          <th class="font-medium pb-1 w-8"></th>
+                          <th class="font-medium pb-1">Network</th>
+                          <th class="font-medium pb-1">IP</th>
+                          <th class="font-medium pb-1">MAC</th>
+                          <th class="pb-1 w-20"></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {#each netRows as row, i}
+                          <tr class="border-t border-fjord-border">
+                            <td class="py-2 pr-2 font-mono text-xs text-fjord-fg-dim">eth{i}</td>
+                            <td class="py-2 pr-2">
+                              <select
+                                bind:value={row.network}
+                                on:change={() => (netRows = netRows)}
+                                class="w-full bg-fjord-inset border border-fjord-border rounded px-2 py-1 text-sm text-fjord-fg-body focus:border-fjord-accent outline-none"
+                              >
+                                {#each networks as n}
+                                  <option value={n.name} disabled={netRows.some((r, j) => j !== i && r.network === n.name)}
+                                    >{n.name} ({n.subnet || 'DHCP'})</option
+                                  >
+                                {/each}
+                              </select>
+                            </td>
+                            <td class="py-2 pr-2">
+                              <input
+                                bind:value={row.ip}
+                                on:input={() => (netRows = netRows)}
+                                placeholder="auto"
+                                class="w-full bg-fjord-inset border border-fjord-border rounded px-2 py-1 text-sm font-mono text-fjord-fg-body focus:border-fjord-accent outline-none"
+                              />
+                            </td>
+                            <td class="py-2 pr-2">
+                              <div class="flex gap-1">
+                                <input
+                                  bind:value={row.mac}
+                                  on:input={() => (netRows = netRows)}
+                                  placeholder="auto"
+                                  class="w-full bg-fjord-inset border border-fjord-border rounded px-2 py-1 text-sm font-mono text-fjord-fg-body focus:border-fjord-accent outline-none"
+                                />
+                                <!-- Fills a blank field only. Changing a MAC breaks
+                                     the DHCP reservation keyed on it, so overwriting
+                                     one has to be deliberate: clear it first. -->
+                                <button
+                                  type="button"
+                                  on:click={() => { row.mac = randomMAC(); netRows = netRows; }}
+                                  disabled={!!(row.mac || '').trim()}
+                                  title={(row.mac || '').trim()
+                                    ? 'Clear the field first — changing a MAC breaks a DHCP reservation keyed on it'
+                                    : 'Generate a locally-administered address'}
+                                  class="shrink-0 px-2 rounded border border-fjord-border text-xs text-fjord-fg-secondary hover:bg-fjord-border disabled:opacity-30 disabled:hover:bg-transparent">Gen</button
+                                >
+                              </div>
+                            </td>
+                            <td class="py-2 text-right whitespace-nowrap">
+                              <button
+                                type="button"
+                                on:click={() => moveNetRow(i, i - 1)}
+                                disabled={i === 0}
+                                title="Move up (earlier interface)"
+                                class="px-1.5 text-fjord-fg-muted hover:text-fjord-fg disabled:opacity-30">↑</button
+                              >
+                              <button
+                                type="button"
+                                on:click={() => removeNetRow(i)}
+                                title="Detach from this network"
+                                class="px-1.5 text-fjord-fg-muted hover:text-fjord-danger">✕</button
+                              >
+                            </td>
+                          </tr>
+                        {/each}
+                      </tbody>
+                    </table>
+                  {:else}
+                    <p class="text-xs text-fjord-fg-dim">
+                      Host ports — this stack publishes on the host address.
+                    </p>
+                  {/if}
+                  {#if netRows.length < networks.length}
+                    <button
+                      type="button"
+                      on:click={addNetRow}
+                      class="mt-3 text-sm px-3 py-1.5 rounded-lg border border-fjord-border text-fjord-fg-secondary hover:bg-fjord-border"
+                      >+ Add network</button
+                    >
                   {/if}
                 {:else}
                   <p class="text-xs text-fjord-fg-dim mb-4 max-w-lg">

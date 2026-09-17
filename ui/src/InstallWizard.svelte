@@ -719,11 +719,16 @@
                   placeholder="MAC (optional — pin one for a DHCP reservation)"
                   class="flex-1 bg-fjord-inset border border-fjord-border rounded-md px-3 py-2 text-fjord-fg-body font-mono text-sm focus:outline-none focus:border-fjord-accent"
                 />
+                <!-- Fills a blank field only, so a MAC is never replaced by
+                     accident: a reservation is keyed on it. -->
                 <button
                   type="button"
                   on:click={() => (netMAC = randomMAC())}
-                  title="Generate a locally-administered address"
-                  class="shrink-0 px-3 rounded-md border border-fjord-border text-sm text-fjord-fg-secondary hover:bg-fjord-border"
+                  disabled={!!netMAC.trim()}
+                  title={netMAC.trim()
+                    ? 'Clear the field first — changing a MAC breaks a DHCP reservation keyed on it'
+                    : 'Generate a locally-administered address'}
+                  class="shrink-0 px-3 rounded-md border border-fjord-border text-sm text-fjord-fg-secondary hover:bg-fjord-border disabled:opacity-30 disabled:hover:bg-transparent"
                   >Generate</button
                 >
               </div>

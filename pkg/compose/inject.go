@@ -29,12 +29,51 @@ import (
 // The yaml.Node round-trip preserves comments and key order. A service that
 // already declares `networks` is left for the user rather than guessing a
 // merge -- InjectNetwork returns an error naming it.
+// Attachment is one network a stack joins, with the address and MAC pinned on
+// it (both optional -- empty means "let the network decide").
+type Attachment struct {
+	Network string `json:"network"`
+	IP      string `json:"ip,omitempty"`
+	MAC     string `json:"mac,omitempty"`
+}
+
+// InjectNetwork attaches a stack to a single network. Thin wrapper over
+// InjectNetworks for the common case.
 func InjectNetwork(composeYAML, network, ip, mac string) (string, error) {
-	if network == "" {
-		return "", fmt.Errorf("network name is required")
+	return InjectNetworks(composeYAML, []Attachment{{Network: network, IP: ip, MAC: mac}})
+}
+
+// InjectNetworks puts a stack's services on the given networks, in order: the
+// first becomes eth0 and is the one an address is read from.
+//
+// The address and MAC are written per network rather than per service, which
+// is what the compose spec says and what podman-compose turns into
+// `--network <name>:ip=...,mac=...` -- a service-level mac_address can only
+// describe one interface.
+//
+// The attachment list is the whole truth: whatever the services declared
+// before is replaced by it. The caller reads the current set with
+// AttachedNetworks, so what is written is what the user was shown.
+func InjectNetworks(composeYAML string, atts []Attachment) (string, error) {
+	if len(atts) == 0 {
+		return "", fmt.Errorf("at least one network is required")
 	}
-	if mac != "" && !macRe.MatchString(mac) {
-		return "", fmt.Errorf("invalid MAC address %q: want six hex pairs like 02:1a:2b:3c:4d:5e", mac)
+	seen := map[string]bool{}
+	pinned := false
+	for _, a := range atts {
+		if a.Network == "" {
+			return "", fmt.Errorf("network name is required")
+		}
+		if seen[a.Network] {
+			return "", fmt.Errorf("network %q is listed twice", a.Network)
+		}
+		seen[a.Network] = true
+		if a.MAC != "" && !macRe.MatchString(a.MAC) {
+			return "", fmt.Errorf("invalid MAC address %q: want six hex pairs like 02:1a:2b:3c:4d:5e", a.MAC)
+		}
+		if a.IP != "" || a.MAC != "" {
+			pinned = true
+		}
 	}
 
 	var doc yaml.Node
@@ -72,10 +111,10 @@ func InjectNetwork(composeYAML, network, ip, mac string) (string, error) {
 			return "", fmt.Errorf("service %q uses network_mode: %s, so this stack cannot take its own address -- its services reach each other over localhost", sv.name, mode)
 		}
 	}
-	// A fixed address belongs to the service that serves: with several
-	// services the address can only be pinned to the published one.
+	// A pinned address or MAC belongs to the service that serves: with several
+	// services it can only go on the published one.
 	target := svcs[0].name
-	if (ip != "" || mac != "") && len(svcs) > 1 {
+	if pinned && len(svcs) > 1 {
 		var published []string
 		for _, sv := range svcs {
 			if sv.node.Kind == yaml.MappingNode && mapGet(sv.node, "ports") != nil {
@@ -83,48 +122,35 @@ func InjectNetwork(composeYAML, network, ip, mac string) (string, error) {
 			}
 		}
 		if len(published) != 1 {
-			what, kind, key := ip, "a fixed IP", "ipv4_address"
-			if what == "" {
-				what, kind, key = mac, "a fixed MAC", "mac_address"
-			}
-			return "", fmt.Errorf("this stack has %d services and %d of them publish ports, so there is no single service to give %s to -- attach without %s, or set %s yourself", len(svcs), len(published), what, kind, key)
+			return "", fmt.Errorf("this stack has %d services and %d of them publish ports, so there is no single service to pin an address or MAC to -- attach without pinning either, or set ipv4_address/mac_address yourself", len(svcs), len(published))
 		}
 		target = published[0]
 	}
 
 	// Top-level networks: {<network>: {external: true}} (idempotent).
 	networks := mapEnsure(root, "networks")
-	if mapGet(networks, network) == nil {
-		mapSet(networks, network, externalNetworkNode())
+	for _, a := range atts {
+		if mapGet(networks, a.Network) == nil {
+			mapSet(networks, a.Network, externalNetworkNode())
+		}
 	}
 
 	for _, s := range svcs {
 		if s.node.Kind != yaml.MappingNode {
 			return "", fmt.Errorf("service %q is not a mapping", s.name)
 		}
-		// Attaching has to be repeatable: changing the address or the MAC, or
-		// moving the stack to another network, all come back through here with
-		// the service already attached. Only a service on SEVERAL networks is
-		// refused -- that is a compose its author wrote, and replacing the key
-		// would drop a network fjord never added.
-		if n := mapGet(s.node, "networks"); n != nil && declaredNetworks(n) > 1 {
-			return "", fmt.Errorf("service %q declares several networks; fjord will not replace them -- edit the compose directly", s.name)
-		}
-		svcIP := ""
-		if s.name == target {
-			svcIP = ip // only the published service gets the fixed address
-			// The MAC belongs with it: a DHCP reservation is keyed on the
-			// MAC, so it has to land on the service that holds the address.
-			// Clearing the field means no pinned MAC, so drop a stale one.
-			if mac != "" {
-				mapSet(s.node, "mac_address", scalar(mac))
-			} else {
-				mapDelete(s.node, "mac_address")
+		use := atts
+		if s.name != target {
+			// Only the target carries pins; the others just join.
+			use = make([]Attachment, len(atts))
+			for i, a := range atts {
+				use[i] = Attachment{Network: a.Network}
 			}
-		} else {
-			mapDelete(s.node, "mac_address")
 		}
-		mapSet(s.node, "networks", serviceNetworkNode(network, svcIP))
+		mapSet(s.node, "networks", serviceNetworksNode(use))
+		// A service-level mac_address can only describe one interface, and
+		// podman-compose warns when it conflicts with a per-network one.
+		mapDelete(s.node, "mac_address")
 		nameSelf(s.node, s.name)
 		stashPorts(s.node)
 	}
@@ -240,6 +266,40 @@ func nameSelf(svc *yaml.Node, name string) {
 	}
 }
 
+// serviceNetworksNode renders the service-level `networks:` key. A plain list
+// when nothing is pinned -- the form most compose files already use -- and a
+// mapping as soon as any entry carries an address or a MAC.
+func serviceNetworksNode(atts []Attachment) *yaml.Node {
+	plain := true
+	for _, a := range atts {
+		if a.IP != "" || a.MAC != "" {
+			plain = false
+		}
+	}
+	if plain {
+		seq := &yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq"}
+		for _, a := range atts {
+			seq.Content = append(seq.Content, scalar(a.Network))
+		}
+		return seq
+	}
+	outer := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+	for _, a := range atts {
+		inner := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+		if a.IP != "" {
+			inner.Content = append(inner.Content, scalar("ipv4_address"), scalar(a.IP))
+		}
+		if a.MAC != "" {
+			inner.Content = append(inner.Content, scalar("mac_address"), scalar(a.MAC))
+		}
+		if len(inner.Content) == 0 {
+			inner.Style = yaml.FlowStyle // "net: {}" -- an empty mapping, not null
+		}
+		outer.Content = append(outer.Content, scalar(a.Network), inner)
+	}
+	return outer
+}
+
 func serviceNetworkNode(network, ip string) *yaml.Node {
 	if ip == "" {
 		seq := &yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq"}
@@ -270,19 +330,139 @@ func declaredNetworks(n *yaml.Node) int {
 var macRe = regexp.MustCompile(`^([0-9a-fA-F]{2}[:-]){5}[0-9a-fA-F]{2}$`)
 
 // AttachedMAC reports the MAC a stack pins, empty when it pins none.
-func AttachedMAC(composeYAML string) string {
+// AttachedNetworks reports every network the stack's services are on, in
+// order, with the address and MAC pinned on each -- the inverse of
+// InjectNetworks, so the UI can show what is there and hand it straight back.
+//
+// Read from the service carrying the pins (the published one), because that is
+// the service InjectNetworks writes them to.
+func AttachedNetworks(composeYAML string) []Attachment {
 	var doc yaml.Node
-	if err := yaml.Unmarshal([]byte(composeYAML), &doc); err != nil || len(doc.Content) == 0 {
-		return ""
+	if yaml.Unmarshal([]byte(composeYAML), &doc) != nil || len(doc.Content) == 0 {
+		return nil
 	}
-	services := mapGet(doc.Content[0], "services")
-	if services == nil {
-		return ""
+	root := doc.Content[0]
+	if root.Kind != yaml.MappingNode {
+		return nil
 	}
-	for i := 1; i < len(services.Content); i += 2 {
-		if m := mapGet(services.Content[i], "mac_address"); m != nil {
-			return m.Value
+	services := mapGet(root, "services")
+	if services == nil || services.Kind != yaml.MappingNode {
+		return nil
+	}
+	// Every service must be on the same networks. When they disagree the
+	// table cannot represent it, and writing one service's set back would
+	// silently move the others -- so report nothing and leave the compose to
+	// be edited by hand.
+	var names []string
+	var pinned []Attachment
+	first := true
+	for i := 0; i+1 < len(services.Content); i += 2 {
+		svc := services.Content[i+1]
+		if svc.Kind != yaml.MappingNode || mapGet(svc, "network_mode") != nil {
+			return nil // host/none/container: -- not a named network
 		}
+		atts := serviceAttachments(mapGet(svc, "networks"))
+		// A stack attached before per-network pins carries one service-level
+		// mac_address, which podman-compose applies to the first network. Read
+		// it the same way, or it vanishes from the UI and is dropped on save.
+		if len(atts) > 0 && atts[0].MAC == "" {
+			if m := mapGet(svc, "mac_address"); m != nil {
+				atts[0].MAC = m.Value
+			}
+		}
+		got := make([]string, len(atts))
+		for j, a := range atts {
+			got[j] = a.Network
+		}
+		if first {
+			names, first = got, false
+		} else if !sameOrder(names, got) {
+			return nil
+		}
+		if pinCount(atts) > 0 {
+			if pinned != nil {
+				// Two services pin addresses: no single set to show.
+				pinned = make([]Attachment, len(atts))
+				for j, a := range atts {
+					pinned[j] = Attachment{Network: a.Network}
+				}
+				break
+			}
+			pinned = atts
+		}
+	}
+	if pinned != nil {
+		return pinned
+	}
+	out := make([]Attachment, len(names))
+	for i, n := range names {
+		out[i] = Attachment{Network: n}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// sameOrder reports whether two network lists are identical, order included:
+// order decides which interface is eth0.
+func sameOrder(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// pinCount reports how many attachments carry an address or a MAC.
+func pinCount(atts []Attachment) int {
+	n := 0
+	for _, a := range atts {
+		if a.IP != "" || a.MAC != "" {
+			n++
+		}
+	}
+	return n
+}
+
+// serviceAttachments reads one service's `networks:` key in either form.
+func serviceAttachments(n *yaml.Node) []Attachment {
+	if n == nil {
+		return nil
+	}
+	var out []Attachment
+	switch n.Kind {
+	case yaml.SequenceNode:
+		for _, item := range n.Content {
+			if item.Kind == yaml.ScalarNode && item.Value != "" {
+				out = append(out, Attachment{Network: item.Value})
+			}
+		}
+	case yaml.MappingNode:
+		for i := 0; i+1 < len(n.Content); i += 2 {
+			a := Attachment{Network: n.Content[i].Value}
+			if opts := n.Content[i+1]; opts != nil && opts.Kind == yaml.MappingNode {
+				if v := mapGet(opts, "ipv4_address"); v != nil {
+					a.IP = v.Value
+				}
+				if v := mapGet(opts, "mac_address"); v != nil {
+					a.MAC = v.Value
+				}
+			}
+			out = append(out, a)
+		}
+	}
+	return out
+}
+
+// AttachedMAC reports the MAC pinned on the first network, empty when none.
+func AttachedMAC(composeYAML string) string {
+	if atts := AttachedNetworks(composeYAML); len(atts) > 0 {
+		return atts[0].MAC
 	}
 	return ""
 }
@@ -295,41 +475,13 @@ func AttachedMAC(composeYAML string) string {
 // or use network_mode (host/none/container:) rather than a named network:
 // those are not something the network picker can represent, and claiming
 // otherwise would let a save silently rewrite them.
+// AttachedNetwork reports the first network a stack is on and the address
+// pinned there. Kept for callers that only care about the primary.
 func AttachedNetwork(composeYAML string) (network, ip string) {
-	var doc yaml.Node
-	if yaml.Unmarshal([]byte(composeYAML), &doc) != nil || len(doc.Content) == 0 {
-		return "", ""
+	if atts := AttachedNetworks(composeYAML); len(atts) > 0 {
+		return atts[0].Network, atts[0].IP
 	}
-	root := doc.Content[0]
-	if root.Kind != yaml.MappingNode {
-		return "", ""
-	}
-	services := mapGet(root, "services")
-	if services == nil || services.Kind != yaml.MappingNode {
-		return "", ""
-	}
-	first := true
-	for i := 0; i+1 < len(services.Content); i += 2 {
-		svc := services.Content[i+1]
-		if svc.Kind != yaml.MappingNode {
-			return "", ""
-		}
-		if mapGet(svc, "network_mode") != nil {
-			return "", "" // host/none/container: -- not a named network
-		}
-		name, addr := serviceNetwork(mapGet(svc, "networks"))
-		if first {
-			network, ip, first = name, addr, false
-			continue
-		}
-		if name != network {
-			return "", "" // services disagree; the picker cannot represent it
-		}
-		if addr != ip {
-			ip = "" // same network, different addresses: no single IP to show
-		}
-	}
-	return network, ip
+	return "", ""
 }
 
 // serviceNetwork reads one service's `networks:` value, which compose allows

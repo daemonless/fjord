@@ -166,7 +166,7 @@ func TestInjectNetworkAmbiguousIP(t *testing.T) {
 	if err == nil {
 		t.Fatal("accepted an ambiguous fixed IP")
 	}
-	if !contains(err.Error(), "attach without a fixed IP") {
+	if !contains(err.Error(), "attach without pinning") {
 		t.Errorf("error should suggest a way forward, got: %v", err)
 	}
 	// Without an IP the same stack attaches fine.
