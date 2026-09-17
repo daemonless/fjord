@@ -73,6 +73,11 @@ type Network struct {
 	// on the host but rejected. Such a network has to stay visible: fjord
 	// wrote it, so fjord has to let you see and remove it.
 	Problem string `json:"problem,omitempty"`
+	// Engines names every engine that can attach a stack to this network.
+	// A LAN network is a property of the host -- a bridge both runtimes can
+	// hang an interface off -- not of one engine, so listing it per engine
+	// made one network look like two.
+	Engines []string `json:"engines,omitempty"`
 }
 
 // NetworkKind is one shape of network a backend can create, and which spec
@@ -82,8 +87,11 @@ type Network struct {
 // own gateway and has no parent), so a field that is required for one is
 // meaningless for the other.
 type NetworkKind struct {
-	ID    string `json:"id"`    // "lan" | "nat"
-	Label string `json:"label"` // e.g. "Own IP on an existing bridge"
+	ID string `json:"id"`
+	// Engine is which backend creates this kind. Set by the daemon when it
+	// merges every engine's kinds into one list; a backend leaves it empty.
+	Engine string `json:"engine,omitempty"` // "lan" | "nat"
+	Label  string `json:"label"`            // e.g. "Own IP on an existing bridge"
 	// Help is one line explaining what a container on this network gets.
 	Help string `json:"help,omitempty"`
 	// ParentLabel names what Parent must be for this runtime ("Bridge" on

@@ -1923,7 +1923,7 @@
                   >
                     <option value="">Host ports (default)</option>
                     {#each networks as n}
-                      <option value={n.name}>Own IP on {n.name} ({n.subnet})</option>
+                      <option value={n.name}>Own IP on {n.name} ({n.subnet || 'address from DHCP'})</option>
                     {/each}
                   </select>
                   {#if netChoice}

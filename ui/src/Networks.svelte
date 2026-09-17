@@ -6,7 +6,7 @@
   import { toast } from './toast';
   import FixSnippet from './FixSnippet.svelte';
 
-  type Network = { name: string; driver: string; subnet?: string; gateway?: string; usedBy?: string[]; problem?: string };
+  type Network = { name: string; driver: string; subnet?: string; gateway?: string; usedBy?: string[]; problem?: string; engines?: string[] };
   // A kind is the engine's own declaration of what it can create and which
   // fields that shape uses -- the form is built from this rather than from
   // anything the UI knows about a specific runtime.
@@ -17,6 +17,7 @@
     parentLabel?: string;
     parentSetup?: string;
     needsGateway?: boolean;
+    engine?: string;   // which backend makes this kind
     supportsDhcp?: boolean;
     supportsMtu?: boolean;
     supportsRange?: boolean;
@@ -30,14 +31,6 @@
     hostIp?: string;
   };
 
-  // Which engine's networks to show. Each engine has its own view: podman
-  // reads the conflists, appjail reads those plus its own virtualnets, and a
-  // network can be creatable on one and not the other. Defaulting to the
-  // server's choice left the other engine's networks unreachable from here.
-  let engine = '';
-  let engines: { name: string; available: boolean; default: boolean }[] = [];
-  $: availableEngines = engines.filter((e) => e.available);
-
   let networks: Network[] = [];
   let kinds: Kind[] = [];
   // Why creating is unavailable, when it is -- an absent button with no
@@ -49,22 +42,20 @@
   let loading = true;
   let error = '';
 
-  $: q = engine ? '?engine=' + encodeURIComponent(engine) : '';
-
   async function load() {
     loading = true;
     error = '';
     try {
-      const res = await fetch('/api/networks' + q);
+      const res = await fetch('/api/networks');
       if (!res.ok) throw new Error(await res.text());
       networks = await res.json();
       // Kinds and parents are advisory: a failure here disables creating but
       // must not hide the networks that already exist.
-      const k = await fetch('/api/networks/kinds' + q).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+      const k = await fetch('/api/networks/kinds').then((r) => (r.ok ? r.json() : null)).catch(() => null);
       kinds = k?.kinds ?? [];
       kindsNote = k?.note ?? '';
       canRemove = k?.canRemove ?? true;
-      parents = await fetch('/api/networks/parents' + q).then((r) => (r.ok ? r.json() : [])).catch(() => []);
+      parents = await fetch('/api/networks/parents?engine=podman').then((r) => (r.ok ? r.json() : [])).catch(() => []);
     } catch (e: any) {
       error = e.message || 'Failed to load networks';
     } finally {
@@ -72,19 +63,14 @@
     }
   }
 
-  onMount(async () => {
-    try {
-      const res = await fetch('/api/engine');
-      if (res.ok) {
-        const d = await res.json();
-        engines = d.engines || [];
-        engine = d.default || '';
-      }
-    } catch {
-      // no engine info -> the server falls back to its default
-    }
-    await load();
-  });
+  onMount(load);
+
+  // Deleting goes to the engine that owns the network: a LAN network belongs
+  // to podman (it is a conflist), a private one to appjail.
+  function engineOf(name: string): string {
+    const n = networks.find((x) => x.name === name);
+    return n?.engines?.[0] ?? '';
+  }
 
   // ---- create ----
   let creating = false;
@@ -98,6 +84,7 @@
 
   $: kind = kinds.find((k) => k.id === kindID) || kinds[0];
   $: needsParent = !!kind?.parentLabel;
+  $: isPrivate = kind?.id === 'nat';
   // A LAN network has nowhere to attach without a bridge; say so rather than
   // letting someone fill in a form that cannot succeed.
   $: blocked = needsParent && parents.length === 0;
@@ -161,13 +148,14 @@
 
   $: nameTaken = !!form.name.trim() && networks.some((n) => n.name === form.name.trim());
   $: canSubmit = form.name.trim() && !nameTaken && (!needsParent || form.parent) &&
-    (addressSource === 'dhcp' || form.subnet.trim());
+    (isPrivate ? !!form.subnet.trim() : addressSource === 'dhcp' || form.subnet.trim());
 
   async function submitCreate() {
     if (!canSubmit) return;
     submitting = true;
     createError = '';
     const body: any = { name: form.name.trim(), kind: kind?.id, addressSource };
+    const eng = kind?.engine ? '?engine=' + encodeURIComponent(kind.engine) : '';
     if (needsParent) body.parent = form.parent;
     if (addressSource === 'pool') {
       body.subnet = form.subnet.trim();
@@ -178,7 +166,7 @@
     if (addressSource === 'pool' && form.rangeEnd.trim()) body.rangeEnd = form.rangeEnd.trim();
     if (kind?.supportsDescription && form.description.trim()) body.description = form.description.trim();
     try {
-      const res = await fetch('/api/networks' + q, {
+      const res = await fetch('/api/networks' + eng, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
@@ -203,7 +191,7 @@
   let confirmDelete = '';
   async function del(name: string) {
     try {
-      const res = await fetch(`/api/networks/${encodeURIComponent(name)}${q}`, { method: 'DELETE' });
+      const res = await fetch(`/api/networks/${encodeURIComponent(name)}?engine=${encodeURIComponent(engineOf(name))}`, { method: 'DELETE' });
       if (!res.ok) throw new Error(await res.text());
       confirmDelete = '';
       await load();
@@ -226,21 +214,6 @@
       </p>
     </div>
     <div class="flex items-center gap-2 shrink-0">
-      {#if availableEngines.length > 1}
-        <select
-          bind:value={engine}
-          on:change={load}
-          title="Which engine's networks to show"
-          class="bg-fjord-inset border border-fjord-border rounded-md px-2 py-2 text-sm text-fjord-fg-body focus:outline-none focus:border-fjord-accent"
-        >
-          {#each availableEngines as e}
-            <option value={e.name}>{e.name}</option>
-          {/each}
-        </select>
-      {/if}
-      {#if kinds.length === 0 && kindsNote}
-        <span class="text-xs text-fjord-fg-dim max-w-72 leading-tight">{kindsNote}</span>
-      {/if}
     {#if kinds.length > 0}
       <button
         on:click={openCreate}
@@ -283,8 +256,13 @@
                 <div class="text-xs text-fjord-warning mt-0.5">{n.problem}</div>
               {/if}
             </div>
+            {#if n.engines?.length}
+              <div class="shrink-0 text-xs text-fjord-fg-dim font-mono" title="Engines that can attach a stack to this network">
+                {n.engines.join(' · ')}
+              </div>
+            {/if}
             {#if n.usedBy?.length}
-              <div class="flex items-center gap-1 shrink-0 max-w-[45%] overflow-hidden" title="Attached: {n.usedBy.join(', ')}">
+              <div class="flex items-center gap-1 shrink-0 max-w-[35%] overflow-hidden" title="Attached: {n.usedBy.join(', ')}">
                 {#each n.usedBy.slice(0, 3) as c}
                   <span class="text-[10px] px-1.5 py-0.5 rounded bg-fjord-bg border border-fjord-border text-fjord-fg-muted">{c}</span>
                 {/each}
@@ -371,6 +349,17 @@
             <input id="n-name" bind:value={form.name} placeholder="vlan4, lan, …" class={inputCls} />
           </div>
 
+          {#if isPrivate}
+            <div class="flex flex-col gap-1">
+              <label class="text-sm font-semibold text-fjord-fg-secondary" for="n-priv">Subnet</label>
+              <input id="n-priv" bind:value={form.subnet} placeholder="10.100.0.0/24" class={inputCls} />
+              <span class="text-xs text-fjord-fg-dim">
+                A range nothing else uses — appjail creates the bridge and takes the first address as
+                the gateway.
+              </span>
+            </div>
+          {/if}
+
           {#if needsParent}
             <div class="flex flex-col gap-1">
               <label class="text-sm font-semibold text-fjord-fg-secondary" for="n-parent">{kind.parentLabel}</label>
@@ -399,7 +388,7 @@
           {/if}
 
           {#if advanced}
-            {#if kind?.supportsDhcp}
+            {#if kind?.supportsDhcp && !isPrivate}
               <div class="flex flex-col gap-1">
                 <span class="text-xs font-semibold text-fjord-fg-muted">Addresses</span>
                 <div class="flex gap-2">
@@ -425,7 +414,7 @@
               </div>
             {/if}
 
-            {#if addressSource === 'pool'}
+            {#if addressSource === 'pool' && !isPrivate}
               <div class="grid grid-cols-2 gap-2">
                 <div class="flex flex-col gap-1">
                   <label class="text-xs font-semibold text-fjord-fg-muted" for="n-subnet">Subnet</label>

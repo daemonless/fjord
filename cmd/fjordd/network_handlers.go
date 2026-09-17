@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -19,7 +20,15 @@ import (
 func (s *server) handleNetworks(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
-		nets, err := s.backendForRequest(r).Networks(r.Context())
+		var nets []engine.Network
+		var err error
+		if r.URL.Query().Get("engine") != "" || r.URL.Query().Get("stack") != "" {
+			// Scoped: what THIS engine can attach to, for an install or a
+			// stack's own view.
+			nets, err = s.backendForRequest(r).Networks(r.Context())
+		} else {
+			nets, err = s.allNetworks(r.Context())
+		}
 		if err != nil {
 			http.Error(w, err.Error(), 500)
 			return
@@ -56,14 +65,40 @@ func (s *server) handleNetworks(w http.ResponseWriter, r *http.Request) {
 // engine's own declaration instead of branching on an engine name. An empty
 // list means this engine creates no networks (e.g. podman on Linux).
 func (s *server) handleNetworkKinds(w http.ResponseWriter, r *http.Request) {
-	caps := s.backendForRequest(r).Capabilities()
-	kinds := caps.NetworkKinds
-	if kinds == nil {
-		kinds = []engine.NetworkKind{}
+	if e := r.URL.Query().Get("engine"); e != "" {
+		caps := s.backendForRequest(r).Capabilities()
+		kinds := caps.NetworkKinds
+		if kinds == nil {
+			kinds = []engine.NetworkKind{}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"kinds": kinds, "note": caps.NetworkNote, "canRemove": caps.NetworkRemove,
+		})
+		return
+	}
+	// Unscoped: every kind any engine can make, tagged with which one makes
+	// it, so the form offers a kind rather than making the user pick an
+	// engine and then discover what that engine happens to support.
+	kinds := []engine.NetworkKind{}
+	notes := []string{}
+	for _, name := range s.engineNames() {
+		be, ok := s.backend(name)
+		if !ok {
+			continue
+		}
+		caps := be.Capabilities()
+		for _, k := range caps.NetworkKinds {
+			k.Engine = name
+			kinds = append(kinds, k)
+		}
+		if caps.NetworkNote != "" && len(caps.NetworkKinds) == 0 {
+			notes = append(notes, caps.NetworkNote)
+		}
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{
-		"kinds": kinds, "note": caps.NetworkNote, "canRemove": caps.NetworkRemove,
+		"kinds": kinds, "note": strings.Join(notes, " "), "canRemove": true,
 	})
 }
 
@@ -134,4 +169,66 @@ func (s *server) networkUnusable(ctx context.Context, engineName, network string
 		return fmt.Sprintf("no network named %q is available to this engine, and it has none to offer", network)
 	}
 	return fmt.Sprintf("no network named %q is available to this engine; it offers %s", network, strings.Join(names, ", "))
+}
+
+// allNetworks merges every engine's view into one list, recording which
+// engines can attach to each. The same LAN bridge is reported by both
+// runtimes; that is one network, not two.
+func (s *server) allNetworks(ctx context.Context) ([]engine.Network, error) {
+	byName := map[string]*engine.Network{}
+	var order []string
+	for _, name := range s.engineNames() {
+		be, ok := s.backend(name)
+		if !ok {
+			continue
+		}
+		nets, err := be.Networks(ctx)
+		if err != nil {
+			continue // one engine being unreachable must not empty the page
+		}
+		for _, n := range nets {
+			cur, seen := byName[n.Name]
+			if !seen {
+				cp := n
+				cp.Engines = []string{name}
+				byName[n.Name] = &cp
+				order = append(order, n.Name)
+				continue
+			}
+			cur.Engines = append(cur.Engines, name)
+			// Engines describe the same network differently: podman knows the
+			// conflist's subnet, appjail knows which jails are on the bridge.
+			// Keep whatever is populated.
+			if cur.Subnet == "" {
+				cur.Subnet, cur.Gateway = n.Subnet, n.Gateway
+			}
+			if cur.Problem == "" {
+				cur.Problem = n.Problem
+			}
+			cur.UsedBy = append(cur.UsedBy, n.UsedBy...)
+		}
+	}
+	out := make([]engine.Network, 0, len(order))
+	for _, name := range order {
+		out = append(out, *byName[name])
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out, nil
+}
+
+// engineNames lists the registered engines, default first so its description
+// of a shared network wins.
+func (s *server) engineNames() []string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	names := []string{}
+	if _, ok := s.backends[s.defEngine]; ok {
+		names = append(names, s.defEngine)
+	}
+	for n := range s.backends {
+		if n != s.defEngine {
+			names = append(names, n)
+		}
+	}
+	return names
 }
