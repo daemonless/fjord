@@ -216,3 +216,31 @@ func TestAttachedNetworksReadsLegacyServiceMAC(t *testing.T) {
 		t.Errorf("MAC not moved under the network:\n%s", out)
 	}
 }
+
+// Detaching has to undo what attaching did, or a stack that came off its
+// network has no published ports and cannot be reached at all.
+func TestDetachNetworksRestoresPorts(t *testing.T) {
+	in := "services:\n  app:\n    image: x\n    ports:\n      - \"8080:80\"\n"
+	attached, err := InjectNetworks(in, []Attachment{{Network: "lan", MAC: "02:1a:2b:3c:4d:5e"}})
+	if err != nil {
+		t.Fatalf("attach: %v", err)
+	}
+	if strings.Contains(attached, "\n    ports:") {
+		t.Fatalf("attach should have stashed the ports:\n%s", attached)
+	}
+	out, err := DetachNetworks(attached)
+	if err != nil {
+		t.Fatalf("detach: %v", err)
+	}
+	if !strings.Contains(out, `"8080:80"`) || strings.Contains(out, "x-fjord-published") {
+		t.Errorf("ports not restored:\n%s", out)
+	}
+	for _, gone := range []string{"networks:", "mac_address", "extra_hosts", "external"} {
+		if strings.Contains(out, gone) {
+			t.Errorf("%q survived the detach:\n%s", gone, out)
+		}
+	}
+	if len(AttachedNetworks(out)) != 0 {
+		t.Errorf("still reported as attached:\n%s", out)
+	}
+}

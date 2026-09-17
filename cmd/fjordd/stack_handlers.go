@@ -283,7 +283,17 @@ func (s *server) stackSave(w http.ResponseWriter, r *http.Request, name string) 
 	// instead of the stack id, hiding them from status/logs/delete -- the
 	// same strip the catalog install path applies.
 	composeYAML := composepkg.DropTopLevelKey(payload.Compose, "name")
-	if atts := payload.attachments(); len(atts) > 0 {
+	// An explicit empty list is a detach; an absent one means "leave the
+	// networks alone", which is what every request that is not about
+	// networking sends.
+	if payload.Networks != nil && len(payload.Networks) == 0 {
+		detached, err := composepkg.DetachNetworks(composeYAML)
+		if err != nil {
+			http.Error(w, "network detach: "+err.Error(), 400)
+			return
+		}
+		composeYAML = detached
+	} else if atts := payload.attachments(); len(atts) > 0 {
 		eng := payload.Engine
 		if eng == "" {
 			if existing, err := s.manager.Get(name); err == nil {

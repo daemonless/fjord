@@ -512,8 +512,11 @@
     netRows = copy;
   }
 
+  // netRowsDirty belongs here: the network table edits staged state rather than
+  // the compose, so without it removing a row showed no Unsaved badge at all --
+  // the change looked like it had already happened, or like nothing had.
   $: isDirty = selectedStack
-    ? selectedStack.compose !== originalCompose || selectedStack.env !== originalEnv || (selectedStack.director ?? '') !== originalDirector || (selectedStack.makejail ?? '') !== originalMakejail
+    ? selectedStack.compose !== originalCompose || selectedStack.env !== originalEnv || (selectedStack.director ?? '') !== originalDirector || (selectedStack.makejail ?? '') !== originalMakejail || netRowsDirty
     : false;
   // A draft is a stack the server doesn't know about yet (New Stack). Detect it
   // by BOTH signals so neither one's timing can misfire: a real stack always has
@@ -818,8 +821,13 @@
       toast(e.message || 'Add failed', { kind: 'error' });
     }
   }
+  // Removing a mount rewrites the compose straight away -- no Save, no revert --
+  // so it asks first, the same two-click confirm the Networks page uses. The
+  // data is untouched, but putting the source path back is the user's problem.
+  let confirmUnmount = '';
   async function removeMount(dest: string) {
     if (!selectedStack) return;
+    confirmUnmount = '';
     try {
       const { compose } = await mountsAPI({ op: 'remove', dest });
       selectedStack = { ...selectedStack, compose };
@@ -929,7 +937,9 @@
       // The network is only injected when it CHANGED: the picker now shows the
       // stack's current network, and re-injecting one the compose already
       // declares fails ("service already declares networks").
-      if (netRows.length && netRowsDirty) {
+      if (netRowsDirty) {
+        // An empty list detaches: the table is the whole truth, so clearing
+        // it has to mean something rather than quietly doing nothing.
         body.networks = netRows
           .filter((r) => r.network)
           .map((r) => ({ network: r.network, ip: (r.ip || '').trim(), mac: (r.mac || '').trim() }));
@@ -2030,6 +2040,20 @@
                       Host ports — this stack publishes on the host address.
                     </p>
                   {/if}
+                  {#if netRows.length}
+                    <!-- The eth numbers are what the NEXT container will get:
+                         interfaces are assigned at create time, so a running
+                         one keeps its layout until it is recreated. Saying so
+                         beats letting the table look like live state. -->
+                    <p class="text-xs mt-2 {netRowsDirty ? 'text-fjord-warning' : 'text-fjord-fg-dim'}">
+                      {#if netRowsDirty}
+                        Not saved yet — <b>Save</b>, then restart the stack for these to take effect.
+                      {:else}
+                        Interface names are assigned when a container is created, so a running stack keeps
+                        its current layout until it is restarted.
+                      {/if}
+                    </p>
+                  {/if}
                   {#if netRows.length < networks.length}
                     <button
                       type="button"
@@ -2063,11 +2087,23 @@
                           <span class="shrink-0 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-fjord-bg border border-fjord-border text-fjord-fg-muted">RO</span>
                         {/if}
                         <span class="shrink-0 ml-auto text-[10px] px-1.5 py-0.5 rounded bg-fjord-bg border border-fjord-border text-fjord-fg-dim">{m.kind}</span>
-                        <button
-                          on:click={() => removeMount(m.dest)}
-                          title="Remove this mount"
-                          class="shrink-0 text-fjord-fg-dim hover:text-fjord-danger transition-colors"><Icon name="trash" size={14} /></button
-                        >
+                        {#if confirmUnmount === m.dest}
+                          <button
+                            on:click={() => removeMount(m.dest)}
+                            class="shrink-0 text-[10px] px-1.5 py-0.5 rounded bg-fjord-danger hover:bg-fjord-danger-hover text-white"
+                            >Confirm</button
+                          >
+                          <button
+                            on:click={() => (confirmUnmount = '')}
+                            class="shrink-0 text-[10px] px-1.5 py-0.5 rounded text-fjord-fg-muted hover:text-fjord-fg">Cancel</button
+                          >
+                        {:else}
+                          <button
+                            on:click={() => (confirmUnmount = m.dest)}
+                            title="Unmount this — the files stay, the stack stops seeing them"
+                            class="shrink-0 text-fjord-fg-dim hover:text-fjord-danger transition-colors"><Icon name="trash" size={14} /></button
+                          >
+                        {/if}
                       </div>
                     {/each}
                   </div>

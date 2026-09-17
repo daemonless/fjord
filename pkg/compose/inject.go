@@ -330,6 +330,75 @@ func declaredNetworks(n *yaml.Node) int {
 var macRe = regexp.MustCompile(`^([0-9a-fA-F]{2}[:-]){5}[0-9a-fA-F]{2}$`)
 
 // AttachedMAC reports the MAC a stack pins, empty when it pins none.
+// DetachNetworks takes a stack back off its networks and gives back what
+// attaching took away: the published ports it stashed, and the self-hostname
+// it added. Without this, removing the last network left a stack that showed
+// as detached and still had every networks: key it started with.
+func DetachNetworks(composeYAML string) (string, error) {
+	var doc yaml.Node
+	if err := yaml.Unmarshal([]byte(composeYAML), &doc); err != nil {
+		return "", fmt.Errorf("parse compose: %w", err)
+	}
+	if len(doc.Content) == 0 || doc.Content[0].Kind != yaml.MappingNode {
+		return "", fmt.Errorf("compose is not a YAML mapping")
+	}
+	root := doc.Content[0]
+	services := mapGet(root, "services")
+	if services == nil || services.Kind != yaml.MappingNode {
+		return "", fmt.Errorf("compose has no services")
+	}
+
+	for i := 0; i+1 < len(services.Content); i += 2 {
+		name, svc := services.Content[i].Value, services.Content[i+1]
+		if svc.Kind != yaml.MappingNode {
+			continue
+		}
+		mapDelete(svc, "networks")
+		mapDelete(svc, "mac_address")
+		if p := mapGet(svc, "x-fjord-published"); p != nil {
+			mapSet(svc, "ports", p)
+			mapDelete(svc, "x-fjord-published")
+		}
+		// Only the entry attaching added: anything else there is the user's.
+		if h := mapGet(svc, "extra_hosts"); h != nil && h.Kind == yaml.SequenceNode {
+			kept := h.Content[:0]
+			for _, e := range h.Content {
+				if e.Value != name+":0.0.0.0" {
+					kept = append(kept, e)
+				}
+			}
+			h.Content = kept
+			if len(h.Content) == 0 {
+				mapDelete(svc, "extra_hosts")
+			}
+		}
+	}
+
+	// Top-level declarations of networks nothing joins any more. Only the
+	// external ones -- an internal network is part of the stack's own design.
+	if nets := mapGet(root, "networks"); nets != nil && nets.Kind == yaml.MappingNode {
+		kept := nets.Content[:0]
+		for i := 0; i+1 < len(nets.Content); i += 2 {
+			if v := nets.Content[i+1]; v == nil || v.Kind != yaml.MappingNode || mapGet(v, "external") == nil {
+				kept = append(kept, nets.Content[i], nets.Content[i+1])
+			}
+		}
+		nets.Content = kept
+		if len(nets.Content) == 0 {
+			mapDelete(root, "networks")
+		}
+	}
+
+	var buf bytes.Buffer
+	enc := yaml.NewEncoder(&buf)
+	enc.SetIndent(2)
+	if err := enc.Encode(root); err != nil {
+		return "", err
+	}
+	enc.Close()
+	return buf.String(), nil
+}
+
 // AttachedNetworks reports every network the stack's services are on, in
 // order, with the address and MAC pinned on each -- the inverse of
 // InjectNetworks, so the UI can show what is there and hand it straight back.
