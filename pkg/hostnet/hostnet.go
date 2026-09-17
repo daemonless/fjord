@@ -179,3 +179,19 @@ func JailAddress(ctx context.Context, jail string) string {
 	}
 	return ""
 }
+
+// NoAddressReason explains, in the terms the user chose the network in, why a
+// container attached to it holds no address. The network's own definition
+// says which cause is possible, so the message names it instead of leaving
+// the reader to guess what "no address" means.
+func NoAddressReason(network string) string {
+	def, ok := Get(network)
+	switch {
+	case !ok:
+		return "no address: " + network + " is attached but not defined on this host"
+	case def.DHCP:
+		return "no address: " + network + " takes addresses from a DHCP server and none answered on " + def.Bridge
+	default:
+		return "no address: " + network + " should have assigned one, so attaching it failed"
+	}
+}

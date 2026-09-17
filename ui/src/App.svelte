@@ -399,6 +399,10 @@
     // location.hostname gives a link that times out.
     const running = (stack.status?.containers || []).find((x: any) => x.address)?.address;
     const ip = running || (c.match(/ipv4_address:\s*([0-9.]+)/) || [])[1];
+    // A stack on its own IP publishes nothing on the host, so with no address
+    // there is no link to give -- the host would just time out. Say why
+    // instead of offering one (see noAddress below).
+    if (!ip && (stack as any).network) return '';
     const host = ip || location.hostname;
 
     const env: Record<string, string> = {};
@@ -441,6 +445,13 @@
     return ports.length ? `http://${host}:${ports[0]}` : '';
   }
   $: openUrl = appUrl(selectedStack);
+  // Attached to a network but holding no address: the reason the Open button
+  // is missing, taken from whichever container reported it.
+  $: noAddress =
+    selectedStack && (selectedStack as any).network && !openUrl
+      ? (selectedStack.status?.containers || []).find((c: any) => c.detail?.includes('no address'))?.detail ||
+        `no address on ${(selectedStack as any).network} yet`
+      : '';
 
   async function setStackGroup(name: string, group: string) {
     const g = group.trim();
@@ -1595,6 +1606,13 @@
             {#if selectedStack.state?.engine}
               <span class="shrink-0 flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-fjord-bg border border-fjord-border text-fjord-fg-muted" title="Runtime engine"
                 ><EngineMark engine={selectedStack.state.engine} size={12} strokeWidth={2.25} />{selectedStack.state.engine}</span
+              >
+            {/if}
+            {#if noAddress}
+              <span
+                class="shrink-0 flex items-center gap-1 text-sm text-fjord-fg-muted"
+                title="A stack on its own IP publishes nothing on the host, so there is no link to open until the network gives it an address."
+                ><Icon name="external" size={13} /> {noAddress}</span
               >
             {/if}
             {#if openUrl}

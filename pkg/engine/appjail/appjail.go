@@ -173,6 +173,7 @@ func (b *Backend) Update(ctx context.Context, s *stack.Stack) (io.ReadCloser, er
 // doesn't report publishings), attached only to running jails.
 func (b *Backend) Status(ctx context.Context, s *stack.Stack) (engine.StackStatus, error) {
 	svcs := b.serviceJails(s)
+	attached, _ := composepkg.AttachedNetwork(s.Compose)
 	var containers []engine.ContainerStatus
 	up := 0
 	jailsUp := 0
@@ -187,6 +188,13 @@ func (b *Backend) Status(ctx context.Context, s *stack.Stack) (engine.StackStatu
 			// "up" jail. Ask the app itself.
 			cs.State, cs.Detail = serviceHealth(ctx, name, svc)
 			cs.Address = hostnet.JailAddress(ctx, name)
+			// The jail is up and the app answers, but it holds no address:
+			// its interface is on the bridge with nothing configured on it.
+			// A link to it cannot work, and saying nothing makes that look
+			// like fjord losing the address rather than the network failing.
+			if cs.State == "running" && cs.Address == "" && cs.Detail == "" && attached != "" {
+				cs.Detail = hostnet.NoAddressReason(attached)
+			}
 			if cs.State == "running" {
 				up++
 			}
