@@ -75,6 +75,7 @@ type installRequest struct {
 	Engine  string              `json:"engine,omitempty"`  // runtime to install on; "" = default
 	Network string              `json:"network,omitempty"`
 	IP      string              `json:"ip,omitempty"`
+	MAC     string              `json:"mac,omitempty"` // pin a MAC so a DHCP reservation resolves
 }
 
 // handleInstall installs a catalog app end-to-end: resolve wizard input,
@@ -197,7 +198,7 @@ func (s *server) handleInstall(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, msg, 400)
 			return
 		}
-		composeYAML, err = composepkg.InjectNetwork(composeYAML, req.Network, req.IP)
+		composeYAML, err = composepkg.InjectNetwork(composeYAML, req.Network, req.IP, req.MAC)
 		if err != nil {
 			http.Error(w, "network attach: "+err.Error(), 400)
 			return
@@ -314,7 +315,7 @@ func (s *server) handleInstall(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "this app's catalog entry has no AppJail bundle (the catalog was built without dbuild, or the app opts out with appjail: false); install it on podman, or refresh the catalog", 400)
 			return
 		}
-		env, err := writeAppjailBundle(st.Dir, id, b, res.Env, composeYAML, req.Network, req.IP)
+		env, err := writeAppjailBundle(st.Dir, id, b, res.Env, composeYAML, req.Network, req.IP, req.MAC)
 		if err != nil {
 			http.Error(w, "appjail bundle: "+err.Error(), 500)
 			return

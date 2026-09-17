@@ -52,7 +52,7 @@ func epairName(stackID string) string {
 // It also drops every service's `expose:`. appjail refuses that outright
 // alongside a bridge ("expose requires the following options: virtualnet"),
 // and rightly so: a jail on its own address has no host port to forward.
-func setDirectorNetwork(directorYML, stackID, network, ip string) (string, error) {
+func setDirectorNetwork(directorYML, stackID, network, ip, mac string) (string, error) {
 	net, ok := hostnet.Get(network)
 	if !ok {
 		return "", fmt.Errorf("no network named %q is defined on this host", network)
@@ -94,6 +94,12 @@ func setDirectorNetwork(directorYML, stackID, network, ip string) (string, error
 		// default -- without the rule the lease never arrives and rc waits out
 		// defaultroute_delay with no address.
 		addr = [][2]string{{"dhcp", "sb_" + iface}, {"device", "path bpf unhide"}}
+	}
+	// appjail sets the MAC on the jail side of the epair, which is the end a
+	// DHCP server sees -- so a reservation keyed on it resolves exactly as it
+	// would for a physical host.
+	if mac != "" {
+		addr = append(addr, [2]string{"macaddr", "sb_" + iface + ":" + mac})
 	}
 	opts := &yaml.Node{Kind: yaml.SequenceNode}
 	for _, kv := range append([][2]string{

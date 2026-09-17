@@ -37,6 +37,7 @@ type saveRequest struct {
 	DisplayName string `json:"displayName,omitempty"`
 	Network     string `json:"network,omitempty"` // attach the stack to this macvlan network
 	IP          string `json:"ip,omitempty"`      // optional predictable IP within it
+	MAC         string `json:"mac,omitempty"`     // optional pinned MAC, for a DHCP reservation
 	// One-shot volume attachment: mount the named volume at VolumePath.
 	Volume     string `json:"volume,omitempty"`
 	VolumePath string `json:"volumePath,omitempty"`
@@ -137,7 +138,8 @@ func (s *server) stackDetail(w http.ResponseWriter, r *http.Request, name string
 	}
 	w.Header().Set("Content-Type", "application/json")
 	net, ip := composepkg.AttachedNetwork(st.Compose)
-	json.NewEncoder(w).Encode(stackWithStatus{Stack: st, Status: status, Network: net, NetworkIP: ip})
+	mac := composepkg.AttachedMAC(st.Compose)
+	json.NewEncoder(w).Encode(stackWithStatus{Stack: st, Status: status, Network: net, NetworkIP: ip, NetworkMAC: mac})
 }
 
 // stackDelete stops the stack's containers, then removes its stack dir.
@@ -274,7 +276,7 @@ func (s *server) stackSave(w http.ResponseWriter, r *http.Request, name string) 
 			http.Error(w, msg, 400)
 			return
 		}
-		injected, err := composepkg.InjectNetwork(composeYAML, payload.Network, payload.IP)
+		injected, err := composepkg.InjectNetwork(composeYAML, payload.Network, payload.IP, payload.MAC)
 		if err != nil {
 			http.Error(w, "network attach: "+err.Error(), 400)
 			return

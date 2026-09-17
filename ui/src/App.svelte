@@ -24,7 +24,7 @@
   import { toast, dismissToast } from './toast';
   import { expandVars } from './expand';
   import { currentTheme, setTheme, watchSystem, type Theme } from './theme';
-  import { networkLabel, HOST_NETWORK, DEFAULT_NETWORK } from './network';
+  import { networkLabel, HOST_NETWORK, DEFAULT_NETWORK, randomMAC } from './network';
 
   type ContainerStatus = {
     name: string;
@@ -494,6 +494,8 @@
   // rather than blanking the picker.
   let savedNetwork = '';
   let savedNetworkIP = '';
+  let netMAC = '';
+  let savedNetworkMAC = '';
   let netIP = ''; // optional predictable IP within the chosen network
 
   $: isDirty = selectedStack
@@ -584,8 +586,10 @@
     // write-only and reads "Host ports (default)" for every attached stack.
     savedNetwork = (stack as any)!.network ?? '';
     savedNetworkIP = (stack as any)!.networkIp ?? '';
+    savedNetworkMAC = (stack as any)!.networkMac ?? '';
     netChoice = savedNetwork;
     netIP = savedNetworkIP;
+    netMAC = savedNetworkMAC;
     // Resources tab is engine-scoped to this stack (see loadNetworks/loadVolumes).
     loadNetworks(stack!.name);
     loadVolumes(stack!.name);
@@ -890,6 +894,7 @@
     selectedStack = { ...selectedStack, compose: originalCompose, env: originalEnv, ...(isDirector ? { director: originalDirector, makejail: originalMakejail } : {}) };
     netChoice = savedNetwork;
     netIP = savedNetworkIP;
+    netMAC = savedNetworkMAC;
     addSource = '';
     addDest = '';
     addRO = false;
@@ -916,8 +921,9 @@
       // The network is only injected when it CHANGED: the picker now shows the
       // stack's current network, and re-injecting one the compose already
       // declares fails ("service already declares networks").
-      if (netChoice && netChoice !== savedNetwork) {
+      if (netChoice && (netChoice !== savedNetwork || netMAC.trim() !== savedNetworkMAC)) {
         body.network = netChoice;
+        body.mac = netMAC.trim();
         if (netIP.trim()) body.ip = netIP.trim();
       }
       if (volChoice && volPath.trim().startsWith('/')) {
@@ -940,8 +946,10 @@
           // the stack's network instead of snapping back to "Host ports".
           savedNetwork = (selectedStack as any)!.network ?? '';
           savedNetworkIP = (selectedStack as any)!.networkIp ?? '';
+          savedNetworkMAC = (selectedStack as any)!.networkMac ?? '';
           netChoice = savedNetwork;
           netIP = savedNetworkIP;
+          netMAC = savedNetworkMAC;
           volChoice = '';
           volPath = '';
           volRO = false;
@@ -1950,6 +1958,20 @@
                       placeholder="IP (optional — auto-assign if blank)"
                       class="w-full max-w-md mt-3 bg-fjord-inset border border-fjord-border rounded-lg px-3 py-2 text-sm text-fjord-fg-body font-mono focus:border-fjord-accent outline-none"
                     />
+                    <div class="flex gap-2 max-w-md mt-3">
+                      <input
+                        bind:value={netMAC}
+                        placeholder="MAC (optional — pin one for a DHCP reservation)"
+                        class="flex-1 bg-fjord-inset border border-fjord-border rounded-lg px-3 py-2 text-sm text-fjord-fg-body font-mono focus:border-fjord-accent outline-none"
+                      />
+                      <button
+                        type="button"
+                        on:click={() => (netMAC = randomMAC())}
+                        title="Generate a locally-administered address"
+                        class="shrink-0 px-3 rounded-lg border border-fjord-border text-sm text-fjord-fg-secondary hover:bg-fjord-border"
+                        >Generate</button
+                      >
+                    </div>
                   {/if}
                 {:else}
                   <p class="text-xs text-fjord-fg-dim mb-4 max-w-lg">

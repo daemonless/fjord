@@ -33,7 +33,7 @@ func mustParse(t *testing.T, s string) map[string]any {
 }
 
 func TestInjectNetworkStaticIP(t *testing.T) {
-	out, err := InjectNetwork(caddyCompose, "vlan5", "192.168.5.50")
+	out, err := InjectNetwork(caddyCompose, "vlan5", "192.168.5.50", "")
 	if err != nil {
 		t.Fatalf("InjectNetwork: %v", err)
 	}
@@ -60,7 +60,7 @@ func TestInjectNetworkStaticIP(t *testing.T) {
 }
 
 func TestInjectNetworkAutoAssign(t *testing.T) {
-	out, err := InjectNetwork(caddyCompose, "vlan5", "")
+	out, err := InjectNetwork(caddyCompose, "vlan5", "", "")
 	if err != nil {
 		t.Fatalf("InjectNetwork: %v", err)
 	}
@@ -79,24 +79,57 @@ func TestInjectNetworkIPRequiresSingleService(t *testing.T) {
   b:
     image: y
 `
-	if _, err := InjectNetwork(multi, "vlan5", "192.168.5.50"); err == nil {
+	if _, err := InjectNetwork(multi, "vlan5", "192.168.5.50", ""); err == nil {
 		t.Fatal("expected error assigning a shared IP across two services")
 	}
 	// Auto-assign across multiple services is fine.
-	if _, err := InjectNetwork(multi, "vlan5", ""); err != nil {
+	if _, err := InjectNetwork(multi, "vlan5", "", ""); err != nil {
 		t.Fatalf("auto-assign multi-service should succeed: %v", err)
 	}
 }
 
-func TestInjectNetworkRejectsExistingNetworks(t *testing.T) {
+// Attaching has to be repeatable: the Resources tab sends the whole thing
+// again to change an address or a MAC, and that arrives with the service
+// already on a network.
+func TestInjectNetworkReattaches(t *testing.T) {
 	withNet := `services:
   a:
     image: x
     networks:
       - other
 `
-	if _, err := InjectNetwork(withNet, "vlan5", ""); err == nil {
-		t.Fatal("expected error when a service already declares networks")
+	out, err := InjectNetwork(withNet, "vlan5", "", "02:1a:2b:3c:4d:5e")
+	if err != nil {
+		t.Fatalf("re-attach refused: %v", err)
+	}
+	if net, _ := AttachedNetwork(out); net != "vlan5" {
+		t.Errorf("network not replaced, got %q:\n%s", net, out)
+	}
+	if AttachedMAC(out) != "02:1a:2b:3c:4d:5e" {
+		t.Errorf("MAC not set:\n%s", out)
+	}
+	// Clearing the field drops the pin rather than leaving a stale one.
+	back, err := InjectNetwork(out, "vlan5", "", "")
+	if err != nil {
+		t.Fatalf("re-attach without a MAC refused: %v", err)
+	}
+	if AttachedMAC(back) != "" {
+		t.Errorf("stale MAC kept:\n%s", back)
+	}
+}
+
+// Several networks means a compose its author wrote; replacing the key would
+// drop one fjord never added.
+func TestInjectNetworkRejectsMultipleNetworks(t *testing.T) {
+	withNets := `services:
+  a:
+    image: x
+    networks:
+      - other
+      - second
+`
+	if _, err := InjectNetwork(withNets, "vlan5", "", ""); err == nil {
+		t.Fatal("expected error when a service declares several networks")
 	}
 }
 

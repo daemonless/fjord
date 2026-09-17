@@ -45,7 +45,7 @@ func seedNetwork(t *testing.T) {
 // "expose requires the following options: virtualnet" alongside a bridge.
 func TestSetDirectorNetwork(t *testing.T) {
 	seedNetwork(t)
-	out, err := setDirectorNetwork(natDirector, "zensical", "vlan5", "192.168.5.222")
+	out, err := setDirectorNetwork(natDirector, "zensical", "vlan5", "192.168.5.222", "")
 	if err != nil {
 		t.Fatalf("setDirectorNetwork: %v", err)
 	}
@@ -73,12 +73,12 @@ func TestSetDirectorNetwork(t *testing.T) {
 
 func TestSetDirectorNetworkRejects(t *testing.T) {
 	seedNetwork(t)
-	if _, err := setDirectorNetwork(natDirector, "zensical", "nosuch", "192.168.5.222"); err == nil {
+	if _, err := setDirectorNetwork(natDirector, "zensical", "nosuch", "192.168.5.222", ""); err == nil {
 		t.Error("accepted an undefined network")
 	}
 	// appjail has no address pool for a network it does not manage, so an
 	// address is required rather than auto-assigned.
-	if _, err := setDirectorNetwork(natDirector, "zensical", "vlan5", ""); err == nil {
+	if _, err := setDirectorNetwork(natDirector, "zensical", "vlan5", "", ""); err == nil {
 		t.Error("accepted an empty address")
 	}
 }

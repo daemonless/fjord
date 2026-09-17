@@ -4,6 +4,7 @@
   import Icon from './Icon.svelte';
   import Spinner from './Spinner.svelte';
   import DirPicker from './DirPicker.svelte';
+  import { randomMAC } from './network';
 
   // sources: every catalog offering this app; the user picks one (Repository)
   // when there's more than one. Each carries its own manifest_url + variants.
@@ -339,6 +340,7 @@
   let networks: Network[] = [];
   let netChoice = '';
   let netIP = '';
+  let netMAC = '';
   $: chosenNet = networks.find((n) => n.name === netChoice);
   // appjail cannot draw from the pool the podman side's IPAM manages, so on a
   // pool network it needs an address given to it. On DHCP nothing does.
@@ -444,6 +446,7 @@
       // rewrite would stomp every service (db/redis included).
       tag: appClass === 'stack' ? '' : tag.trim(),
       network: netChoice,
+      mac: netMAC.trim(),
       ip: netIP.trim(),
     });
   }
@@ -708,6 +711,23 @@
               </p>
             </div>
           {:else if networks.length}
+            {#snippet macField()}
+              <div class="flex gap-2 mt-2">
+                <input
+                  type="text"
+                  bind:value={netMAC}
+                  placeholder="MAC (optional — pin one for a DHCP reservation)"
+                  class="flex-1 bg-fjord-inset border border-fjord-border rounded-md px-3 py-2 text-fjord-fg-body font-mono text-sm focus:outline-none focus:border-fjord-accent"
+                />
+                <button
+                  type="button"
+                  on:click={() => (netMAC = randomMAC())}
+                  title="Generate a locally-administered address"
+                  class="shrink-0 px-3 rounded-md border border-fjord-border text-sm text-fjord-fg-secondary hover:bg-fjord-border"
+                  >Generate</button
+                >
+              </div>
+            {/snippet}
             <div class="pt-4 border-t border-fjord-border">
               <label class="text-sm font-semibold text-fjord-fg-secondary" for="net">Networking</label>
               <p class="text-xs text-fjord-fg-dim mb-2">Give this app its own IP so it binds its ports without colliding on the host.</p>
@@ -725,6 +745,7 @@
                 <p class="text-xs text-fjord-fg-dim mt-2">
                   The address comes from the DHCP server on that segment, using this app's MAC.
                 </p>
+                {@render macField()}
               {:else if netChoice}
                 <input
                   type="text"
@@ -738,6 +759,7 @@
                     draw from — give this jail an address, or pick a DHCP network.
                   </p>
                 {/if}
+                {@render macField()}
               {/if}
             </div>
           {/if}

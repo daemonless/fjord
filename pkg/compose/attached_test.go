@@ -72,7 +72,7 @@ func TestAttachedNetwork(t *testing.T) {
 
 // What InjectNetwork writes must read back identically.
 func TestAttachedNetworkRoundTrip(t *testing.T) {
-	out, err := InjectNetwork("services:\n  app:\n    image: x\n", "vlan4", "192.168.4.7")
+	out, err := InjectNetwork("services:\n  app:\n    image: x\n", "vlan4", "192.168.4.7", "")
 	if err != nil {
 		t.Fatalf("InjectNetwork: %v", err)
 	}
@@ -104,7 +104,7 @@ const immichCompose = `services:
 `
 
 func TestInjectNetworkRefusesNetworkMode(t *testing.T) {
-	_, err := InjectNetwork(immichCompose, "lan86", "192.168.86.244")
+	_, err := InjectNetwork(immichCompose, "lan86", "192.168.86.244", "")
 	if err == nil {
 		t.Fatal("accepted a host-networked stack")
 	}
@@ -114,7 +114,7 @@ func TestInjectNetworkRefusesNetworkMode(t *testing.T) {
 		}
 	}
 	// Also refused without an IP: the injected compose would be invalid.
-	if _, err := InjectNetwork(immichCompose, "lan86", ""); err == nil {
+	if _, err := InjectNetwork(immichCompose, "lan86", "", ""); err == nil {
 		t.Error("accepted a host-networked stack when no IP was given")
 	}
 }
@@ -132,7 +132,7 @@ func TestInjectNetworkMultiServiceIP(t *testing.T) {
   cache:
     image: cache
 `
-	out, err := InjectNetwork(in, "vlan5", "192.168.5.50")
+	out, err := InjectNetwork(in, "vlan5", "192.168.5.50", "")
 	if err != nil {
 		t.Fatalf("InjectNetwork: %v", err)
 	}
@@ -162,7 +162,7 @@ func TestInjectNetworkAmbiguousIP(t *testing.T) {
   b:
     image: b
 `
-	_, err := InjectNetwork(in, "vlan5", "192.168.5.50")
+	_, err := InjectNetwork(in, "vlan5", "192.168.5.50", "")
 	if err == nil {
 		t.Fatal("accepted an ambiguous fixed IP")
 	}
@@ -170,7 +170,7 @@ func TestInjectNetworkAmbiguousIP(t *testing.T) {
 		t.Errorf("error should suggest a way forward, got: %v", err)
 	}
 	// Without an IP the same stack attaches fine.
-	if _, err := InjectNetwork(in, "vlan5", ""); err != nil {
+	if _, err := InjectNetwork(in, "vlan5", "", ""); err != nil {
 		t.Errorf("multi-service attach without an IP should work: %v", err)
 	}
 }

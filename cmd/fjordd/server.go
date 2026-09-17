@@ -183,8 +183,9 @@ type stackWithStatus struct {
 	// Network/NetworkIP are read back out of the compose so the Resources tab
 	// can show what the stack is actually attached to. Without them its picker
 	// defaults to "Host ports", which is wrong for every stack on a network.
-	Network   string `json:"network,omitempty"`
-	NetworkIP string `json:"networkIp,omitempty"`
+	Network    string `json:"network,omitempty"`
+	NetworkIP  string `json:"networkIp,omitempty"`
+	NetworkMAC string `json:"networkMac,omitempty"`
 }
 
 // buildEnv renders resolved variables into .env lines, sorted for determinism.

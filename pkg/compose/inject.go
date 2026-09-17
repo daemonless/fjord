@@ -6,6 +6,7 @@ package compose
 import (
 	"bytes"
 	"fmt"
+	"regexp"
 
 	"gopkg.in/yaml.v3"
 )
@@ -28,9 +29,12 @@ import (
 // The yaml.Node round-trip preserves comments and key order. A service that
 // already declares `networks` is left for the user rather than guessing a
 // merge -- InjectNetwork returns an error naming it.
-func InjectNetwork(composeYAML, network, ip string) (string, error) {
+func InjectNetwork(composeYAML, network, ip, mac string) (string, error) {
 	if network == "" {
 		return "", fmt.Errorf("network name is required")
+	}
+	if mac != "" && !macRe.MatchString(mac) {
+		return "", fmt.Errorf("invalid MAC address %q: want six hex pairs like 02:1a:2b:3c:4d:5e", mac)
 	}
 
 	var doc yaml.Node
@@ -71,7 +75,7 @@ func InjectNetwork(composeYAML, network, ip string) (string, error) {
 	// A fixed address belongs to the service that serves: with several
 	// services the address can only be pinned to the published one.
 	target := svcs[0].name
-	if ip != "" && len(svcs) > 1 {
+	if (ip != "" || mac != "") && len(svcs) > 1 {
 		var published []string
 		for _, sv := range svcs {
 			if sv.node.Kind == yaml.MappingNode && mapGet(sv.node, "ports") != nil {
@@ -79,7 +83,11 @@ func InjectNetwork(composeYAML, network, ip string) (string, error) {
 			}
 		}
 		if len(published) != 1 {
-			return "", fmt.Errorf("this stack has %d services and %d of them publish ports, so there is no single service to give %s to -- attach without a fixed IP, or set ipv4_address yourself", len(svcs), len(published), ip)
+			what, kind, key := ip, "a fixed IP", "ipv4_address"
+			if what == "" {
+				what, kind, key = mac, "a fixed MAC", "mac_address"
+			}
+			return "", fmt.Errorf("this stack has %d services and %d of them publish ports, so there is no single service to give %s to -- attach without %s, or set %s yourself", len(svcs), len(published), what, kind, key)
 		}
 		target = published[0]
 	}
@@ -94,12 +102,27 @@ func InjectNetwork(composeYAML, network, ip string) (string, error) {
 		if s.node.Kind != yaml.MappingNode {
 			return "", fmt.Errorf("service %q is not a mapping", s.name)
 		}
-		if mapGet(s.node, "networks") != nil {
-			return "", fmt.Errorf("service %q already declares networks; remove it to auto-attach", s.name)
+		// Attaching has to be repeatable: changing the address or the MAC, or
+		// moving the stack to another network, all come back through here with
+		// the service already attached. Only a service on SEVERAL networks is
+		// refused -- that is a compose its author wrote, and replacing the key
+		// would drop a network fjord never added.
+		if n := mapGet(s.node, "networks"); n != nil && declaredNetworks(n) > 1 {
+			return "", fmt.Errorf("service %q declares several networks; fjord will not replace them -- edit the compose directly", s.name)
 		}
 		svcIP := ""
 		if s.name == target {
 			svcIP = ip // only the published service gets the fixed address
+			// The MAC belongs with it: a DHCP reservation is keyed on the
+			// MAC, so it has to land on the service that holds the address.
+			// Clearing the field means no pinned MAC, so drop a stale one.
+			if mac != "" {
+				mapSet(s.node, "mac_address", scalar(mac))
+			} else {
+				mapDelete(s.node, "mac_address")
+			}
+		} else {
+			mapDelete(s.node, "mac_address")
 		}
 		mapSet(s.node, "networks", serviceNetworkNode(network, svcIP))
 		nameSelf(s.node, s.name)
@@ -228,6 +251,40 @@ func serviceNetworkNode(network, ip string) *yaml.Node {
 	outer := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
 	outer.Content = append(outer.Content, scalar(network), inner)
 	return outer
+}
+
+// declaredNetworks counts the networks a service's `networks:` key names, in
+// either compose form: a list of names, or a mapping of name to options.
+func declaredNetworks(n *yaml.Node) int {
+	switch n.Kind {
+	case yaml.SequenceNode:
+		return len(n.Content)
+	case yaml.MappingNode:
+		return len(n.Content) / 2
+	}
+	return 0
+}
+
+// macRe bounds a MAC address: six colon- or dash-separated hex pairs. It ends
+// up in a compose file and on an ifconfig command line.
+var macRe = regexp.MustCompile(`^([0-9a-fA-F]{2}[:-]){5}[0-9a-fA-F]{2}$`)
+
+// AttachedMAC reports the MAC a stack pins, empty when it pins none.
+func AttachedMAC(composeYAML string) string {
+	var doc yaml.Node
+	if err := yaml.Unmarshal([]byte(composeYAML), &doc); err != nil || len(doc.Content) == 0 {
+		return ""
+	}
+	services := mapGet(doc.Content[0], "services")
+	if services == nil {
+		return ""
+	}
+	for i := 1; i < len(services.Content); i += 2 {
+		if m := mapGet(services.Content[i], "mac_address"); m != nil {
+			return m.Value
+		}
+	}
+	return ""
 }
 
 // AttachedNetwork reports the network a stack's services are on, and the fixed

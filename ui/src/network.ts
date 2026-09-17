@@ -76,3 +76,18 @@ export function stackNetworks(composeYAML: string | undefined): string[] {
 export function networkLabel(composeYAML: string | undefined): string {
   return stackNetworks(composeYAML).join(', ');
 }
+
+/**
+ * A random MAC fjord can hand out safely.
+ *
+ * The first octet is fixed to 0x02: bit 0 clear makes it unicast, bit 1 set
+ * makes it locally administered -- the range set aside for addresses nobody
+ * bought from the IEEE, so it cannot collide with a real NIC's burned-in one.
+ * The rest is random, which is enough: the point is a stable identity for a
+ * DHCP reservation, not global uniqueness.
+ */
+export function randomMAC(): string {
+  const b = new Uint8Array(5);
+  crypto.getRandomValues(b);
+  return ['02', ...b].map((x) => Number(x).toString(16).padStart(2, '0')).join(':');
+}
