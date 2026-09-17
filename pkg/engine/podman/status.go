@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/daemonless/fjord/pkg/engine"
 	"github.com/daemonless/fjord/pkg/hostnet"
@@ -187,5 +188,12 @@ func containerAddress(c libpodContainer) string {
 			return addr
 		}
 	}
-	return ""
+	if c.State != "running" || len(c.Networks) == 0 {
+		return ""
+	}
+	// A DHCP network keeps no IPAM state on the host -- the lease lives in the
+	// jail. podman names the jail after the container ID.
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	return hostnet.JailAddress(ctx, c.ID)
 }

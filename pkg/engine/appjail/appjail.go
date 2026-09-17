@@ -186,6 +186,7 @@ func (b *Backend) Status(ctx context.Context, s *stack.Stack) (engine.StackStatu
 			// service missing allow.mlock crash-loops forever behind an
 			// "up" jail. Ask the app itself.
 			cs.State, cs.Detail = serviceHealth(ctx, name, svc)
+			cs.Address = hostnet.JailAddress(ctx, name)
 			if cs.State == "running" {
 				up++
 			}

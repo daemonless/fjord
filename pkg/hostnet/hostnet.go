@@ -10,9 +10,11 @@
 package hostnet
 
 import (
+	"context"
 	"encoding/json"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -145,3 +147,35 @@ func AddressOf(network, containerID string) string {
 
 // ipamStateDir is where host-local records its allocations.
 var ipamStateDir = "/var/run/cni/networks"
+
+// JailAddress reports the address a jail holds, read from inside it.
+//
+// Nothing outside the jail reliably knows it. `appjail jail list` fills
+// NETWORK_IP4 only for its own virtualnets, and podman on FreeBSD does not
+// parse a third-party plugin's conflist at all -- so for a jail on a host
+// bridge, whichever engine started it, this is the only source. A container
+// whose address came from DHCP has none recorded on the host either, which is
+// why AddressOf alone is not enough.
+//
+// Both podman and appjail name the jail after the thing they started: a
+// container ID, or the jail name.
+func JailAddress(ctx context.Context, jail string) string {
+	jidOut, err := exec.CommandContext(ctx, "jls", "-j", jail, "jid").Output()
+	if err != nil {
+		return ""
+	}
+	out, err := exec.CommandContext(ctx, "jexec", strings.TrimSpace(string(jidOut)), "ifconfig").Output()
+	if err != nil {
+		return ""
+	}
+	for _, ln := range strings.Split(string(out), "\n") {
+		f := strings.Fields(ln)
+		if len(f) < 2 || f[0] != "inet" {
+			continue
+		}
+		if ip := net.ParseIP(f[1]); ip != nil && !ip.IsLoopback() {
+			return ip.String()
+		}
+	}
+	return ""
+}
