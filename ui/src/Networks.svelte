@@ -124,11 +124,11 @@
       body: JSON.stringify({ network: want }),
     });
     if (!r.ok) {
-      toast.error((await r.text()).trim());
+      toast((await r.text()).trim(), { kind: 'error' });
       return;
     }
     defaultNetwork = want;
-    toast.success(want ? `New installs will use ${want}` : 'New installs will use host ports');
+    toast(want ? `New installs will use ${want}` : 'New installs will use host ports', { kind: 'success' });
   }
 
   // The user runs the commands in another window; nothing tells fjord when
@@ -139,9 +139,9 @@
       await refreshHost();
       if (parents.length) {
         showSetup = !parents.some((p) => !p.inUse);
-        toast.success(`Found ${parents.length} ${parents.length === 1 ? 'bridge' : 'bridges'}`);
+        toast(`Found ${parents.length} ${parents.length === 1 ? 'bridge' : 'bridges'}`, { kind: 'success' });
       } else {
-        toast.error('Still no bridge on this host');
+        toast('Still no bridge on this host', { kind: 'error' });
       }
     } finally {
       rechecking = false;
@@ -161,7 +161,7 @@
       setups[i] = await r.json();
       setups = setups;
     } catch (e) {
-      toast.error(`${e}`);
+      toast(`${e}`, { kind: 'error' });
     } finally {
       setupBusy = '';
     }
@@ -434,7 +434,7 @@
           <p class="text-xs text-fjord-fg-dim -mt-2">{kind.help}</p>
         {/if}
 
-        {#snippet setupCard(ps, i)}
+        {#snippet setupCard(ps: Setup, i: number)}
           <div class="flex flex-col gap-2">
             <div class="flex flex-wrap items-center gap-x-4 gap-y-2">
               {#if ps.inputs?.includes('interface') && kind.parentInterfaces?.length}
