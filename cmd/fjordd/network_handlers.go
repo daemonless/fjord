@@ -60,6 +60,56 @@ func (s *server) handleNetworks(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// handleDefaultNetwork reads and sets the network new installs start on.
+//
+// Host ports is the right default for one machine with one app on it, and the
+// wrong one the moment an operator has decided every stack gets its own
+// address: they then pick the same network in every install, and forgetting
+// once is a stack that silently binds host ports instead.
+func (s *server) handleDefaultNetwork(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"network": loadSettings(s.fjordRoot).DefaultNetwork})
+	case http.MethodPost:
+		var req struct {
+			Network string `json:"network"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "invalid JSON payload", 400)
+			return
+		}
+		// "" clears it. Anything else has to exist now, or every install
+		// afterwards fails on a network that was renamed or removed.
+		if req.Network != "" {
+			nets, err := s.allNetworks(r.Context())
+			if err != nil {
+				http.Error(w, err.Error(), 500)
+				return
+			}
+			found := false
+			for _, n := range nets {
+				if n.Name == req.Network {
+					found = true
+					break
+				}
+			}
+			if !found {
+				http.Error(w, "no network named "+req.Network+" on this host", 400)
+				return
+			}
+		}
+		if err := updateSettings(s.fjordRoot, func(st *savedSettings) { st.DefaultNetwork = req.Network }); err != nil {
+			http.Error(w, "persist: "+err.Error(), 500)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"network": req.Network})
+	default:
+		http.Error(w, "method not allowed", 405)
+	}
+}
+
 // handleNetworkSetup re-renders one parent-setup snippet with the choices the
 // host cannot make for itself: which NIC is cabled to the segment the
 // containers belong on, and which VLAN the switch tags on that port.

@@ -63,6 +63,10 @@
       // Kinds and parents are advisory: a failure here disables creating but
       // must not hide the networks that already exist.
       await refreshHost();
+      defaultNetwork = await fetch('/api/settings/network')
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d) => d?.network ?? '')
+        .catch(() => '');
     } catch (e: any) {
       error = e.message || 'Failed to load networks';
     } finally {
@@ -107,6 +111,25 @@
   let setups: Setup[] = [];
   let setupBusy = '';
   let rechecking = false;
+  // The network new installs start on. "" = host ports, which is the right
+  // answer for one machine with one app and the wrong one as soon as the
+  // operator has decided every stack gets its own address.
+  let defaultNetwork = '';
+
+  async function setDefault(name: string) {
+    const want = defaultNetwork === name ? '' : name; // clicking the current one clears it
+    const r = await fetch('/api/settings/network', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ network: want }),
+    });
+    if (!r.ok) {
+      toast.error((await r.text()).trim());
+      return;
+    }
+    defaultNetwork = want;
+    toast.success(want ? `New installs will use ${want}` : 'New installs will use host ports');
+  }
 
   // The user runs the commands in another window; nothing tells fjord when
   // they are done, so give them a way to say so without losing the dialog.
@@ -334,6 +357,17 @@
                 <div class="text-xs text-fjord-warning mt-0.5">{n.problem}</div>
               {/if}
             </div>
+            <button
+              type="button"
+              on:click={() => setDefault(n.name)}
+              title={defaultNetwork === n.name
+                ? 'New installs start on this network. Click to go back to host ports.'
+                : 'Make this the network new installs start on'}
+              class="shrink-0 text-[11px] px-1.5 py-0.5 rounded border {defaultNetwork === n.name
+                ? 'border-fjord-accent/50 bg-fjord-accent/20 text-fjord-accent'
+                : 'border-fjord-border text-fjord-fg-dim hover:text-fjord-fg'}"
+              >{defaultNetwork === n.name ? 'Default' : 'Set default'}</button
+            >
             {#if n.engines?.length}
               <div class="shrink-0 text-xs text-fjord-fg-dim font-mono" title="Engines that can attach a stack to this network">
                 {n.engines.join(' · ')}

@@ -348,6 +348,13 @@
     try {
       const nres = await fetch('/api/networks');
       if (nres.ok) networks = await nres.json();
+      // Start on the operator's default. Only when it still exists -- a
+      // renamed or removed network would fail every install.
+      const dres = await fetch('/api/settings/network');
+      if (dres.ok) {
+        const d = (await dres.json()).network || '';
+        if (d && networks.some((n) => n.name === d)) netChoice = d;
+      }
     } catch {
       // no networks -> host ports only
     }

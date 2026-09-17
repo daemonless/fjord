@@ -29,6 +29,7 @@ type savedSettings struct {
 	FolderSets      []FolderSet      `json:"folderSets,omitempty"`      // named host-folder sets offered at install
 	Libraries       []FolderSet      `json:"libraries,omitempty"`       // legacy name for FolderSets, migrated on load
 	WizardDetail    int              `json:"wizardDetail,omitempty"`    // install wizard disclosure: 1 essentials (default), 2 +Options, 3 +Advanced
+	DefaultNetwork  string           `json:"defaultNetwork,omitempty"`  // network new installs start on ("" = host ports)
 	CatalogRefresh  string           `json:"catalogRefresh,omitempty"`  // automatic catalog refresh: off | 1h | 6h (default) | 24h
 	SetupDone       bool             `json:"setupDone,omitempty"`       // first-run setup wizard finished (or skipped)
 	// The default catalog was added once on first run. Never re-added after
