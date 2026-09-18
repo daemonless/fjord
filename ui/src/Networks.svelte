@@ -461,6 +461,14 @@
             {/each}
           </div>
         {/if}
+        {#if kindsNote}
+          <!-- Why a kind you might expect is not on this host. Shown whenever
+               there is one: the kinds that ARE available do not make it any
+               less true that another is missing. -->
+          <p class="text-xs text-fjord-warning bg-fjord-warning/10 border border-fjord-warning/20 rounded-md px-3 py-2">
+            {kindsNote}
+          </p>
+        {/if}
         {#if kind?.help}
           <p class="text-xs text-fjord-fg-dim -mt-2">{kind.help}</p>
         {/if}
