@@ -107,6 +107,10 @@ type NetworkKind struct {
 	// that will, when the user does not say otherwise.
 	Engines      []string `json:"engines,omitempty"`
 	NeedsGateway bool     `json:"needsGateway,omitempty"`
+	// AddressNote says where addresses come from when DHCP is not on offer.
+	// Without it the radio is simply absent, which reads as something fjord
+	// forgot rather than something the kind cannot have.
+	AddressNote string `json:"addressNote,omitempty"`
 	// SupportsDHCP: addresses can come from the segment's own DHCP server
 	// instead of a pool this host manages. When available it is the better
 	// default: one allocator instead of two on the same wire.

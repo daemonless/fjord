@@ -40,6 +40,7 @@ func (b *Backend) networkKinds() []engine.NetworkKind {
 		ID:                  "nat",
 		Label:               "Private network",
 		Help:                "The engine creates the bridge and hands out addresses. Containers reach the outside through the host; nothing on your LAN can reach them directly.",
+		AddressNote:         "Addresses come from this host: a segment it invents has no DHCP server to ask.",
 		SupportsMTU:         true,
 		SupportsDescription: false,
 	}}

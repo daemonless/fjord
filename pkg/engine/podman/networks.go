@@ -68,6 +68,17 @@ func (b *Backend) Networks(ctx context.Context) ([]engine.Network, error) {
 			}
 		}
 	}
+	// A network whose plugin is gone still lists: the runtime reads the
+	// conflist and does not check that the binary behind "type" exists. It
+	// looks healthy right up to the moment a container fails to start on it,
+	// so say it here instead.
+	if !pluginInstalled() {
+		for i, n := range nets {
+			if n.Driver == epairPlugin && n.Problem == "" {
+				nets[i].Problem = networkProblem()
+			}
+		}
+	}
 	// A conflist the runtime rejected -- typically a plugin that is not
 	// installed -- never appears in its list. Add it anyway: an invisible
 	// network is one the user cannot delete either.

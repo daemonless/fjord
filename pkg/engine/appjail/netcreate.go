@@ -27,6 +27,7 @@ func networkKinds() []engine.NetworkKind {
 		ID:                  "nat",
 		Label:               "Private network",
 		Help:                "appjail creates the bridge and hands out addresses. Jails reach the outside through the host; nothing on your LAN can reach them directly.",
+		AddressNote:         "Addresses come from this host: a segment appjail invents has no DHCP server to ask.",
 		SupportsMTU:         true,
 		SupportsDescription: true,
 	}}
@@ -122,7 +123,11 @@ func (b *Backend) RemoveNetwork(ctx context.Context, name string, force bool) er
 		return fmt.Errorf("invalid network name %q", name)
 	}
 	if _, ok := hostnet.Get(name); ok {
-		return fmt.Errorf("%q is a LAN network defined on this host; remove it on the podman engine", name)
+		// Not appjail's to delete -- it is a conflist, and appjail only
+		// attaches to the bridge behind it. Naming podman as the remedy was a
+		// dead end once podman was uninstalled, so say what it is and let the
+		// caller decide; fjordd removes the file when no engine can.
+		return fmt.Errorf("%q is a LAN network defined on this host, not one appjail owns", name)
 	}
 	// -d is what actually deletes the definition: a plain remove, and even
 	// remove -f, exit 0 and leave the network in place.
