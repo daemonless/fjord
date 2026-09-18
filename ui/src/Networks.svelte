@@ -330,18 +330,49 @@
       <div class="flex items-center gap-3 text-fjord-fg-dim text-sm"><Spinner size={18} /> Loading…</div>
     {:else if error}
       <EmptyState icon="alert" title="Networks Unavailable" description={error} />
-    {:else if networks.length === 0}
-      <EmptyState
-        icon="globe"
-        title="No Networks"
-        description={kinds.length === 0
-          ? kindsNote || 'This engine cannot create networks on this host.'
-          : 'Create one to give stacks their own address on your network.'}
-        actionLabel={kinds.length > 0 ? 'New Network…' : undefined}
-        on:action={openCreate}
-      />
     {:else}
       <div class="border border-fjord-border rounded-xl overflow-hidden divide-y divide-fjord-border">
+        <!-- Host ports is not a network: it cannot be created, removed or
+             shared, and it is what a stack gets by asking for nothing. It is
+             here because one action DOES apply to it -- it is a value the
+             default can take -- and without a row to point at, clearing the
+             default means toggling off whichever network happens to hold it. -->
+        <div class="flex items-center gap-3 px-4 py-3">
+          <div class="shrink-0 text-fjord-fg-faint"><Icon name="globe" size={18} /></div>
+          <div class="min-w-0 flex-1">
+            <div class="flex items-center gap-2">
+              <span class="text-sm text-fjord-fg-secondary truncate">Host ports</span>
+              <span class="text-[11px] font-medium bg-fjord-border text-fjord-fg-muted px-1.5 py-0.5 rounded">built in</span>
+            </div>
+            <div class="text-xs text-fjord-fg-dim truncate">
+              No address of its own — a stack publishes its ports on this host's address.
+            </div>
+          </div>
+          <button
+            type="button"
+            on:click={() => setDefault('')}
+            disabled={defaultNetwork === ''}
+            title={defaultNetwork === ''
+              ? 'New installs publish on the host unless you pick a network'
+              : 'Go back to publishing on the host for new installs'}
+            class="shrink-0 text-[11px] px-1.5 py-0.5 rounded border {defaultNetwork === ''
+              ? 'border-fjord-accent/50 bg-fjord-accent/20 text-fjord-accent'
+              : 'border-fjord-border text-fjord-fg-dim hover:text-fjord-fg'}"
+            >{defaultNetwork === '' ? 'Default' : 'Set default'}</button
+          >
+          <span class="shrink-0 text-xs px-2 py-1 text-fjord-fg-faint">—</span>
+        </div>
+        {#if networks.length === 0}
+          <!-- Host ports stays above: it is always a real state a stack can be
+               in, and always a value the default can take. Replacing the whole
+               list with an empty state took it away exactly when someone had
+               deleted everything and most needed to see where things stand. -->
+          <div class="px-4 py-3 text-sm text-fjord-fg-dim">
+            {kinds.length === 0
+              ? kindsNote || 'This engine cannot create networks on this host.'
+              : 'No networks yet — create one to give stacks an address of their own.'}
+          </div>
+        {/if}
         {#each networks as n}
           <div class="flex items-center gap-3 px-4 py-3">
             <div class="shrink-0 text-fjord-fg-muted"><Icon name="globe" size={18} /></div>
