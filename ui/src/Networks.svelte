@@ -21,6 +21,7 @@
     engine?: string;   // which backend makes this kind
     engines?: string[]; // every backend that can
     supportsDhcp?: boolean;
+    addressNote?: string;   // where addresses come from when DHCP is not offered
     supportsMtu?: boolean;
     supportsRange?: boolean;
     supportsDescription?: boolean;
@@ -627,6 +628,11 @@
               Addresses come from the DHCP server on that segment, using each container's MAC — so
               your existing reservations apply and nothing here has to know the subnet.
             </p>
+          {:else if !kind?.supportsDhcp && kind?.addressNote}
+            <!-- The DHCP choice is simply absent for a kind that cannot have
+                 it, which reads as something fjord forgot. Say whose addresses
+                 these are instead. -->
+            <p class="text-xs text-fjord-fg-dim -mt-1">{kind.addressNote}</p>
           {/if}
 
           {#if advanced}
