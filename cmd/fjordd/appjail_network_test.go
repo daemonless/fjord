@@ -155,3 +155,24 @@ func TestEpairNameIndexed(t *testing.T) {
 		t.Errorf("long name not trimmed around its suffix: %q", long)
 	}
 }
+
+// A long stack id starting with a digit used to collapse to one name for
+// every network: "j" was prepended after trimming, which pushed it back over
+// the limit, and the re-trim ate the suffix that made them distinct.
+func TestEpairNameNoCollisionOnLongNumericID(t *testing.T) {
+	seen := map[string]int{}
+	for i := 0; i < 3; i++ {
+		seen[epairName("101sonarrxyz", i)]++
+	}
+	if len(seen) != 3 {
+		t.Fatalf("names collided: %v", seen)
+	}
+	for name := range seen {
+		if len(name) > ifaceMax {
+			t.Errorf("%q is longer than IFNAMSIZ allows (%d)", name, ifaceMax)
+		}
+		if name[0] >= '0' && name[0] <= '9' {
+			t.Errorf("%q starts with a digit", name)
+		}
+	}
+}

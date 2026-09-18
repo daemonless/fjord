@@ -34,6 +34,13 @@ func epairName(stackID string, n int) string {
 	if name == "" {
 		name = "fjord"
 	}
+	// An interface name may not start with a digit on FreeBSD. Do this BEFORE
+	// trimming: prefixing afterwards pushed the name over the limit again, and
+	// the re-trim ate the suffix -- so every network of a stack whose id was
+	// long enough and began with a digit got the same interface name.
+	if name[0] >= '0' && name[0] <= '9' {
+		name = "j" + name
+	}
 	// Each network needs its own epair, so the second and later ones carry a
 	// suffix. The first keeps the bare name: it is what existing stacks have.
 	suffix := ""
@@ -43,15 +50,7 @@ func epairName(stackID string, n int) string {
 	if len(name)+len(suffix) > ifaceMax {
 		name = name[:ifaceMax-len(suffix)]
 	}
-	name += suffix
-	// An interface name may not start with a digit on FreeBSD.
-	if name[0] >= '0' && name[0] <= '9' {
-		name = "j" + name
-		if len(name) > ifaceMax {
-			name = name[:ifaceMax]
-		}
-	}
-	return name
+	return name + suffix
 }
 
 // setDirectorNetwork rewrites a director document's top-level options so the
