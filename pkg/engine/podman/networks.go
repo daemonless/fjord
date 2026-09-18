@@ -147,7 +147,7 @@ func parseNetworks(data []byte) ([]engine.Network, error) {
 // networkProblem explains why the runtime ignored a network fjord can see.
 func networkProblem() string {
 	if !pluginInstalled() {
-		return "podman cannot load this network: the " + epairPlugin + " plugin is not installed (pkg install cni-epair)"
+		return "podman cannot load this network: the " + epairPlugin + " plugin is not installed at /usr/local/libexec/cni/" + epairPlugin
 	}
 	return "podman did not load this network; check its config"
 }

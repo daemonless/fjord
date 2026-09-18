@@ -827,7 +827,10 @@ func (b *Backend) networkNote() string {
 		return "Creating networks is only supported on FreeBSD hosts; on Linux use podman network create."
 	}
 	if !pluginInstalled() {
-		return "The " + epairPlugin + " CNI plugin is not installed, so a network created here could not run. Install it with: pkg install cni-epair"
+		// Deliberately not just "pkg install cni-epair": the port is not in
+		// the tree yet, so that command fails and the reader concludes fjord
+		// is wrong rather than early.
+		return "Giving containers their own address needs the " + epairPlugin + " CNI plugin, which is not installed. It is not in the ports tree yet -- fetch it to /usr/local/libexec/cni/" + epairPlugin + " from github.com/daemonless/cni-epair and chmod 755 it, or once the port lands, pkg install cni-epair."
 	}
 	return ""
 }
