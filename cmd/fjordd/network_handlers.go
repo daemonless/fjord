@@ -7,11 +7,13 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/daemonless/fjord/pkg/engine"
+	"github.com/daemonless/fjord/pkg/hostnet"
 )
 
 // handleNetworks lists (GET) or creates (POST) the networks that give a stack
@@ -59,6 +61,22 @@ func (s *server) handleNetworks(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.Error(w, "method not allowed", 405)
 	}
+}
+
+// networkUsers reports what is attached to a network, across every engine that
+// can say. Best effort: an engine that cannot answer contributes nothing
+// rather than blocking a delete.
+func (s *server) networkUsers(ctx context.Context, name string) []string {
+	nets, err := s.allNetworks(ctx)
+	if err != nil {
+		return nil
+	}
+	for _, n := range nets {
+		if n.Name == name {
+			return n.UsedBy
+		}
+	}
+	return nil
 }
 
 // handleDefaultNetwork reads and sets the network new installs start on.
@@ -186,6 +204,20 @@ func (s *server) handleNetworkKinds(w http.ResponseWriter, r *http.Request) {
 			notes = append(notes, caps.NetworkNote)
 		}
 	}
+	// An engine that is not installed offers no kinds and no note, so the
+	// options it would have provided simply vanish -- which is what made
+	// "why is there no DHCP" look like a bug rather than a consequence.
+	// Say what is missing and what it would add.
+	for _, d := range engineDescriptors {
+		if _, registered := s.backend(d.Name); registered {
+			continue
+		}
+		if ok, reason, _ := d.Available(); !ok && reason != "" {
+			// The name, not the Description: that is a full sentence and reads
+			// as nonsense spliced mid-clause.
+			notes = append(notes, "The "+d.Name+" engine is not installed, so the kinds of network it makes are not offered here ("+reason+").")
+		}
+	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{
 		"kinds": kinds, "note": strings.Join(notes, " "), "canRemove": true,
@@ -224,6 +256,23 @@ func (s *server) handleNetworkDelete(w http.ResponseWriter, r *http.Request) {
 		if errors.Is(err, engine.ErrInUse) {
 			http.Error(w, err.Error(), http.StatusConflict)
 			return
+		}
+		// A LAN network is a conflist: a file fjord wrote on the host, not an
+		// object belonging to whichever engine happens to read it. When the
+		// engine that normally manages it is uninstalled, the engine that is
+		// left refuses and names one that is not there -- leaving a network
+		// nothing on the page can remove. Removing the file is the same
+		// operation that engine would have performed.
+		if def, ok := hostnet.Get(name); ok && def.Type == "epair" && !force {
+			if users := s.networkUsers(r.Context(), name); len(users) > 0 {
+				http.Error(w, fmt.Sprintf("%s is attached to %s", name, strings.Join(users, ", ")), http.StatusConflict)
+				return
+			}
+			if rmErr := os.Remove(hostnet.Path(name)); rmErr == nil {
+				w.Header().Set("Content-Type", "application/json")
+				w.Write([]byte(`{"status":"deleted"}`))
+				return
+			}
 		}
 		http.Error(w, err.Error(), 502)
 		return
