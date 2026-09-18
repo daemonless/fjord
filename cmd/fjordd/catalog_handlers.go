@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/daemonless/fjord/pkg/engine"
 	"github.com/daemonless/fjord/pkg/registry"
 )
 
@@ -105,26 +104,11 @@ func (s *server) handleRegistryVersions(w http.ResponseWriter, r *http.Request) 
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
 	defer cancel()
-	trains, err := registry.CachedTrains(ctx, image)
+	trains, err := registry.CachedTrains(ctx, image, s.schemeFor(registry.Repo(image)))
 	if err != nil {
 		http.Error(w, err.Error(), 502)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(trains)
-}
-
-// handleNetworks lists attachable macvlan networks, so the UI can offer a
-// stack its own IP.
-func (s *server) handleNetworks(w http.ResponseWriter, r *http.Request) {
-	nets, err := s.backendForRequest(r).Networks(r.Context())
-	if err != nil {
-		http.Error(w, err.Error(), 500)
-		return
-	}
-	if nets == nil {
-		nets = []engine.Network{} // encode [] not null so the UI can .length it
-	}
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(nets)
 }

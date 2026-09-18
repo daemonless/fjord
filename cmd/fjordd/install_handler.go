@@ -61,6 +61,19 @@ func storageSlug(name, id string) string { return stack.Slug(name, id) }
 
 // installRequest is the /api/apps/install payload: a catalog manifest plus the
 // wizard's variable values and an optional macvlan attachment.
+// attachments is the request's networks in list form: the multi-network field
+// when it is set, else the single Network/IP/MAC triple. One shape reaches the
+// injector, so an older client that only knows the triple still works.
+func (r installRequest) attachments() []composepkg.Attachment {
+	if len(r.Networks) > 0 {
+		return r.Networks
+	}
+	if r.Network == "" {
+		return nil
+	}
+	return []composepkg.Attachment{{Network: r.Network, IP: r.IP, MAC: r.MAC}}
+}
+
 type installRequest struct {
 	Name     string            `json:"name"`
 	AppID    string            `json:"app_id,omitempty"` // catalog app id, for icon/link resolution
@@ -75,6 +88,10 @@ type installRequest struct {
 	Engine  string              `json:"engine,omitempty"`  // runtime to install on; "" = default
 	Network string              `json:"network,omitempty"`
 	IP      string              `json:"ip,omitempty"`
+	MAC     string              `json:"mac,omitempty"` // pin a MAC so a DHCP reservation resolves
+	// Networks is the full list when a stack takes more than one interface.
+	// Network/IP/MAC above remain the single-network form.
+	Networks []composepkg.Attachment `json:"networks,omitempty"`
 }
 
 // handleInstall installs a catalog app end-to-end: resolve wizard input,
@@ -192,8 +209,12 @@ func (s *server) handleInstall(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if req.Network != "" {
-		composeYAML, err = composepkg.InjectNetwork(composeYAML, req.Network, req.IP)
+	if len(req.attachments()) > 0 {
+		if msg := s.networkUnusable(r.Context(), req.Engine, req.Network); msg != "" {
+			http.Error(w, msg, 400)
+			return
+		}
+		composeYAML, err = composepkg.InjectNetworks(composeYAML, req.attachments())
 		if err != nil {
 			http.Error(w, "network attach: "+err.Error(), 400)
 			return
@@ -310,7 +331,7 @@ func (s *server) handleInstall(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "this app's catalog entry has no AppJail bundle (the catalog was built without dbuild, or the app opts out with appjail: false); install it on podman, or refresh the catalog", 400)
 			return
 		}
-		env, err := writeAppjailBundle(st.Dir, id, b, res.Env, composeYAML)
+		env, err := writeAppjailBundle(st.Dir, id, b, res.Env, composeYAML, req.attachments())
 		if err != nil {
 			http.Error(w, "appjail bundle: "+err.Error(), 500)
 			return

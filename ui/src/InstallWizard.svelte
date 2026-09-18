@@ -4,6 +4,7 @@
   import Icon from './Icon.svelte';
   import Spinner from './Spinner.svelte';
   import DirPicker from './DirPicker.svelte';
+  import { randomMAC } from './network';
 
   // sources: every catalog offering this app; the user picks one (Repository)
   // when there's more than one. Each carries its own manifest_url + variants.
@@ -321,16 +322,66 @@
     }
   }
 
-  // Attachable macvlan networks (empty on hosts without them).
-  type Network = { name: string; subnet: string };
+  // A stack whose services declare network_mode shares the host's (or another
+  // container's) network stack and addresses its own parts over localhost, so
+  // it cannot be moved onto a network -- and `networks:` alongside
+  // `network_mode:` is not valid compose. Don't offer what would only fail on
+  // submit (immich: 4 host-networked services talking over localhost).
+  $: hostNetworked = /^\s*network_mode\s*:/m.test(manifestText);
+  $: if (hostNetworked && netChoice) {
+    netChoice = '';
+    netIP = '';
+  }
+
+  // Attachable networks (empty on hosts without them).
+  // A network with no subnet gets its addresses from DHCP -- nothing here
+  // needs to know the segment, and no address has to be supplied.
+  type Network = { name: string; subnet?: string };
   let networks: Network[] = [];
   let netChoice = '';
   let netIP = '';
+  let netMAC = '';
+  $: chosenNet = networks.find((n) => n.name === netChoice);
+  // appjail cannot draw from the pool the podman side's IPAM manages, so on a
+  // pool network it needs an address given to it. On DHCP nothing does.
+  $: ipRequired = !!netChoice && engineChoice === 'appjail' && !!chosenNet?.subnet;
+
+  // Scoped to the engine being installed on. The unscoped list spans both, so
+  // it offers networks the chosen engine cannot attach to -- appjail's own
+  // virtualnets to a podman install -- and the install fails at the last step
+  // on something the form suggested. Re-runs when the engine changes.
+  async function loadNetworks() {
+    const engine = engineChoice ? `?engine=${encodeURIComponent(engineChoice)}` : '';
+    try {
+      const res = await fetch(`/api/networks${engine}`);
+      networks = res.ok ? await res.json() : [];
+    } catch {
+      networks = [];
+    }
+    // Whatever was picked may not exist for this engine.
+    if (netChoice && !networks.some((n) => n.name === netChoice)) netChoice = '';
+    applyDefaultNetwork();
+  }
+  $: engineChoice, loadNetworks();
+
+  // The operator's default, applied once the list it has to exist in is
+  // loaded. Both arrive asynchronously and in no fixed order, so each calls
+  // this and it acts when both are in hand.
+  let defaultNetwork = '';
+  let defaultNetworkKnown = false;
+  function applyDefaultNetwork() {
+    if (!defaultNetworkKnown || netChoice || !defaultNetwork) return;
+    // Only when it exists for THIS engine -- one renamed, removed, or simply
+    // not attachable here would otherwise fail every install.
+    if (networks.some((n) => n.name === defaultNetwork)) netChoice = defaultNetwork;
+  }
 
   onMount(async () => {
     try {
-      const nres = await fetch('/api/networks');
-      if (nres.ok) networks = await nres.json();
+      const dres = await fetch('/api/settings/network');
+      if (dres.ok) defaultNetwork = (await dres.json()).network || '';
+      defaultNetworkKnown = true;
+      applyDefaultNetwork();
     } catch {
       // no networks -> host ports only
     }
@@ -420,6 +471,7 @@
       // rewrite would stomp every service (db/redis included).
       tag: appClass === 'stack' ? '' : tag.trim(),
       network: netChoice,
+      mac: netMAC.trim(),
       ip: netIP.trim(),
     });
   }
@@ -674,7 +726,38 @@
             </div>
                     {/if}
                     {#each advancedVars as v}{@render varField(v)}{/each}
-          {#if networks.length}
+          {#if networks.length && hostNetworked}
+            <div class="pt-4 border-t border-fjord-border">
+              <span class="text-sm font-semibold text-fjord-fg-secondary">Networking</span>
+              <p class="text-xs text-fjord-fg-dim mt-1">
+                This app runs on host networking — its services reach each other over
+                <span class="font-mono">localhost</span>, so it cannot take an address of its own. It
+                answers on the host's IP.
+              </p>
+            </div>
+          {:else if networks.length}
+            {#snippet macField()}
+              <div class="flex gap-2 mt-2">
+                <input
+                  type="text"
+                  bind:value={netMAC}
+                  placeholder="MAC (optional — pin one for a DHCP reservation)"
+                  class="flex-1 bg-fjord-inset border border-fjord-border rounded-md px-3 py-2 text-fjord-fg-body font-mono text-sm focus:outline-none focus:border-fjord-accent"
+                />
+                <!-- Fills a blank field only, so a MAC is never replaced by
+                     accident: a reservation is keyed on it. -->
+                <button
+                  type="button"
+                  on:click={() => (netMAC = randomMAC())}
+                  disabled={!!netMAC.trim()}
+                  title={netMAC.trim()
+                    ? 'Clear the field first — changing a MAC breaks a DHCP reservation keyed on it'
+                    : 'Generate a locally-administered address'}
+                  class="shrink-0 px-3 rounded-md border border-fjord-border text-sm text-fjord-fg-secondary hover:bg-fjord-border disabled:opacity-30 disabled:hover:bg-transparent"
+                  >Generate</button
+                >
+              </div>
+            {/snippet}
             <div class="pt-4 border-t border-fjord-border">
               <label class="text-sm font-semibold text-fjord-fg-secondary" for="net">Networking</label>
               <p class="text-xs text-fjord-fg-dim mb-2">Give this app its own IP so it binds its ports without colliding on the host.</p>
@@ -685,16 +768,28 @@
               >
                 <option value="">Host ports (default)</option>
                 {#each networks as n}
-                  <option value={n.name}>Own IP on {n.name} ({n.subnet})</option>
+                  <option value={n.name}>Own IP on {n.name} ({n.subnet || 'address from DHCP'})</option>
                 {/each}
               </select>
-              {#if netChoice}
+              {#if netChoice && !chosenNet?.subnet}
+                <p class="text-xs text-fjord-fg-dim mt-2">
+                  The address comes from the DHCP server on that segment, using this app's MAC.
+                </p>
+                {@render macField()}
+              {:else if netChoice}
                 <input
                   type="text"
                   bind:value={netIP}
-                  placeholder="IP (optional — auto-assign if blank)"
+                  placeholder={ipRequired ? 'IP (required on this engine)' : 'IP (optional — auto-assign if blank)'}
                   class="w-full mt-2 bg-fjord-inset border border-fjord-border rounded-md px-3 py-2 text-fjord-fg-body font-mono text-sm focus:outline-none focus:border-fjord-accent"
                 />
+                {#if ipRequired && !netIP.trim()}
+                  <p class="text-xs text-fjord-warning mt-1">
+                    {netChoice} hands out addresses from a pool this host manages, which appjail cannot
+                    draw from — give this jail an address, or pick a DHCP network.
+                  </p>
+                {/if}
+                {@render macField()}
               {/if}
             </div>
           {/if}
@@ -711,7 +806,7 @@
       <button on:click={close} class="px-4 py-2 rounded-md font-medium text-fjord-fg-secondary hover:text-fjord-fg hover:bg-fjord-border transition-all">Cancel</button>
       <button
         on:click={deploy}
-        disabled={loading || !!error || !validName || missingRequired.length > 0}
+        disabled={loading || !!error || !validName || missingRequired.length > 0 || (ipRequired && !netIP.trim())}
         title={!validName ? 'Enter a valid stack name' : missingRequired.length ? `Fill required: ${missingRequired.map((v) => v.name).join(', ')}` : ''}
         class="bg-fjord-accent hover:bg-fjord-accent-hover text-white px-6 py-2 rounded-md font-medium shadow-lg transition-all disabled:opacity-50"
         >Install</button

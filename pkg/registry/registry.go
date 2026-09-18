@@ -141,16 +141,41 @@ type Version struct {
 	Tag     string `json:"tag"`
 }
 
+// Scheme is an image's tag scheme as its catalog entry declares it: every
+// rolling channel tag the image publishes, and which of those are aliases
+// following another channel. Passing one replaces guessing which tags are
+// channels; nil infers the scheme from the tag list alone, which is all an
+// adopted stack running some third-party image can do.
+type Scheme struct {
+	Channels []string          // every rolling tag, canonical and alias alike
+	Aliases  map[string]string // alias tag -> the canonical channel it follows
+}
+
+// Key fingerprints a scheme for cache keying. Nil and empty are the same key.
+func (s *Scheme) Key() string {
+	if s == nil {
+		return ""
+	}
+	ch := append([]string(nil), s.Channels...)
+	sort.Strings(ch)
+	al := make([]string, 0, len(s.Aliases))
+	for a, c := range s.Aliases {
+		al = append(al, a+"="+c)
+	}
+	sort.Strings(al)
+	return strings.Join(ch, ",") + "|" + strings.Join(al, ",")
+}
+
 // Trains groups an image's published tags into release trains, keyed by the
 // train's rolling tag (e.g. "latest", "pkg"), each with its pinned versions
-// newest-first. The scheme is discovered from the tags themselves -- channel
-// tags vs "<version>-<channel>" pins -- so nothing about a project is assumed.
-func Trains(ctx context.Context, image string) (map[string][]Version, error) {
+// newest-first. sch is the image's declared scheme, or nil to discover one
+// from the tags themselves -- channel tags vs "<version>-<channel>" pins.
+func Trains(ctx context.Context, image string, sch *Scheme) (map[string][]Version, error) {
 	tags, err := Tags(ctx, image)
 	if err != nil {
 		return nil, err
 	}
-	return discoverTrains(filterArchTags(tags)), nil
+	return discoverTrains(filterArchTags(tags), sch), nil
 }
 
 // Only amd64 and aarch64 are supported. archWords are the recognized arch tag
@@ -193,7 +218,7 @@ func filterArchTags(tags []string) []string {
 	return out
 }
 
-func discoverTrains(tags []string) map[string][]Version {
+func discoverTrains(tags []string, sch *Scheme) map[string][]Version {
 	var clean []string
 	for _, t := range tags {
 		if t == "" || strings.HasPrefix(t, "sha256-") || strings.HasSuffix(t, ".att") || strings.HasSuffix(t, ".sig") {
@@ -209,7 +234,25 @@ func discoverTrains(tags []string) map[string][]Version {
 	// "pkg-latest" with every other major's (which made 8.6 offer an
 	// "upgrade" to 8.10).
 	isChannel := map[string]bool{}
+	// A declared channel is a channel, full stop -- including one that starts
+	// with a digit ("18") or that nothing ever pins against ("18-pkg", an
+	// alias). Only tags the image actually publishes are seeded, so a channel
+	// retired from the registry does not conjure an empty train.
+	if sch != nil {
+		published := map[string]bool{}
+		for _, t := range clean {
+			published[t] = true
+		}
+		for _, c := range sch.Channels {
+			if published[c] {
+				isChannel[c] = true
+			}
+		}
+	}
 	for _, t := range clean {
+		if isChannel[t] {
+			continue
+		}
 		if t[0] < '0' || t[0] > '9' {
 			isChannel[t] = true
 			continue
@@ -221,6 +264,44 @@ func discoverTrains(tags []string) map[string][]Version {
 			}
 		}
 	}
+	// Second rule: a tag that extends a channel is itself a channel, not a
+	// version of it. postgres publishes a rolling "18" plus "18-pkg" and
+	// "18-pkg-latest" -- the same channel built from FreeBSD packages. Nothing
+	// is tagged "18.4-18-pkg" (the pins are "18.4-18-pkg-latest"), so the rule
+	// above never sees "18-pkg" pinned against and files it as a VERSION of
+	// the "pkg" train. That pooled every major's channel into one train and
+	// offered a stack on 17-pkg an "upgrade" to 18-pkg: a major PostgreSQL
+	// jump that will not start on an existing data directory.
+	// Iterated so "18" promotes "18-pkg", which promotes nothing further; the
+	// bound just stops a pathological tag set from spinning.
+	//
+	// This runs even with a declared scheme, and deliberately. A scheme
+	// predating the aliases (a catalog fetched before they were published)
+	// names "18" but not "18-pkg", and skipping the rule there would file
+	// "18-pkg" as a *version* of the "pkg" train -- offering a stack on
+	// 14-pkg an "upgrade" to 18-pkg, the exact major jump this all exists to
+	// prevent. With a complete scheme the rule is a no-op: the aliases are
+	// already seeded. Its cost is over-promoting a pre-release ("2.1-rc1"),
+	// which only ever yields an empty train, and so no upgrade at all.
+	for i := 0; i < 4; i++ {
+		grew := false
+		for _, t := range clean {
+			if isChannel[t] {
+				continue
+			}
+			for c := range isChannel {
+				if strings.HasPrefix(t, c+"-") {
+					isChannel[t] = true
+					grew = true
+					break
+				}
+			}
+		}
+		if !grew {
+			break
+		}
+	}
+
 	var channels, pins []string
 	for _, t := range clean {
 		if isChannel[t] {
@@ -263,10 +344,25 @@ func discoverTrains(tags []string) map[string][]Version {
 	// Bare "<version>" pins belong to the default train: a channel that never
 	// appears as a version suffix (typically "latest").
 	if len(bare) > 0 {
+		// "latest" when it exists: a bare "<version>" pin is a version of the
+		// default channel, and picking whichever unused channel happens to
+		// sort last put them in "18-pkg" once the per-major channels were
+		// classified correctly.
 		def := ""
 		for _, ch := range channels {
-			if !suffixUsed[ch] {
+			if ch == "latest" {
 				def = ch
+				break
+			}
+		}
+		if def == "" {
+			// Else the shortest channel nothing pins against: "pkg" before
+			// "18-pkg-latest", since a bare pin is least specific.
+			for i := len(channels) - 1; i >= 0; i-- {
+				if !suffixUsed[channels[i]] {
+					def = channels[i]
+					break
+				}
 			}
 		}
 		if def == "" && len(channels) > 0 {
@@ -279,6 +375,20 @@ func discoverTrains(tags []string) map[string][]Version {
 	for k, vs := range out {
 		sort.Slice(vs, func(i, j int) bool { return naturalLess(vs[j].Version, vs[i].Version) })
 		out[k] = vs
+	}
+	// An alias is a second name for a channel, so nothing pins against it:
+	// "18-pkg" is the same rolling tag as "18", and every pin is "<ver>-18".
+	// Left alone it is an empty train, and a stack installed from :18-pkg is
+	// offered no versions and so never an update. Give it the versions of the
+	// channel it follows -- but only if it has none of its own, since an alias
+	// carrying pins from a retired scheme ("17.7-pkg" under today's "pkg",
+	// which now follows 18) would otherwise be offered a major-version jump.
+	if sch != nil {
+		for alias, canon := range sch.Aliases {
+			if vs, ok := out[alias]; ok && len(vs) == 0 && len(out[canon]) > 0 {
+				out[alias] = append([]Version(nil), out[canon]...) // own slice: trains are sorted in place
+			}
+		}
 	}
 	return out
 }
@@ -418,4 +528,17 @@ func splitImage(image string) (host, repo string) {
 		host = "registry-1.docker.io"
 	}
 	return host, s[i+1:]
+}
+
+// Repo returns an image ref's registry/repo, dropping any tag and @digest.
+func Repo(image string) string {
+	ref := image
+	if at := strings.LastIndex(ref, "@"); at >= 0 {
+		ref = ref[:at]
+	}
+	slash := strings.LastIndex(ref, "/")
+	if colon := strings.LastIndex(ref, ":"); colon > slash {
+		ref = ref[:colon]
+	}
+	return ref
 }

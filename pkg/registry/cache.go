@@ -27,9 +27,12 @@ type trainsEntry struct {
 // CachedTrains is Trains memoized per image for TrainsTTL, single-flight:
 // concurrent callers for the same image share one registry round trip.
 // Errors are not cached, so a registry hiccup is retried on the next call.
-func CachedTrains(ctx context.Context, image string) (map[string][]Version, error) {
+// The declared scheme is part of the key: a catalog refresh that changes it
+// must not be masked by an entry grouped under the old one.
+func CachedTrains(ctx context.Context, image string, sch *Scheme) (map[string][]Version, error) {
+	key := image + "\x00" + sch.Key()
 	trainsMu.Lock()
-	e, ok := trainsMap[image]
+	e, ok := trainsMap[key]
 	if ok {
 		select {
 		case <-e.done: // finished: fresh hit, or stale/failed and needs a refetch
@@ -43,9 +46,9 @@ func CachedTrains(ctx context.Context, image string) (map[string][]Version, erro
 	}
 	if !ok {
 		e = &trainsEntry{done: make(chan struct{})}
-		trainsMap[image] = e
+		trainsMap[key] = e
 		trainsMu.Unlock()
-		e.trains, e.err = trainsFn(ctx, image)
+		e.trains, e.err = trainsFn(ctx, image, sch)
 		e.at = nowFn()
 		close(e.done)
 		return e.trains, e.err

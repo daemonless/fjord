@@ -44,6 +44,10 @@ type ContainerStatus struct {
 	// Detail explains a non-running state in one line (e.g. "crash-looping:
 	// see Logs") -- shown as a hint, never parsed.
 	Detail string `json:"detail,omitempty"`
+	// Address is the container's own IP on an attachable network, when it has
+	// one. Reported by the backend because the compose records an address only
+	// when the user pinned it: an auto-assigned one exists solely at runtime.
+	Address string `json:"address,omitempty"`
 }
 
 // StackStatus is the aggregate lifecycle state of a stack's containers.
@@ -61,6 +65,130 @@ type Network struct {
 	Driver  string `json:"driver"`
 	Subnet  string `json:"subnet,omitempty"`
 	Gateway string `json:"gateway,omitempty"`
+	// UsedBy names what is currently attached. A network with attachments
+	// must not be deletable from the UI: removing it strands every attached
+	// container on an address nothing can route or clean up.
+	UsedBy []string `json:"usedBy,omitempty"`
+	// Problem is why the runtime will not use this network, when it is defined
+	// on the host but rejected. Such a network has to stay visible: fjord
+	// wrote it, so fjord has to let you see and remove it.
+	Problem string `json:"problem,omitempty"`
+	// Engines names every engine that can attach a stack to this network.
+	// A LAN network is a property of the host -- a bridge both runtimes can
+	// hang an interface off -- not of one engine, so listing it per engine
+	// made one network look like two.
+	Engines []string `json:"engines,omitempty"`
+}
+
+// NetworkKind is one shape of network a backend can create, and which spec
+// fields that shape uses. The UI builds its form from this rather than
+// branching on an engine name: the two runtimes genuinely differ (a LAN
+// network needs a parent interface and a gateway; a NAT network derives its
+// own gateway and has no parent), so a field that is required for one is
+// meaningless for the other.
+type NetworkKind struct {
+	ID string `json:"id"`
+	// Engine is which backend creates this kind. Set by the daemon when it
+	// merges every engine's kinds into one list; a backend leaves it empty.
+	Engine string `json:"engine,omitempty"` // "lan" | "nat"
+	Label  string `json:"label"`            // e.g. "Own IP on an existing bridge"
+	// Help is one line explaining what a container on this network gets.
+	Help string `json:"help,omitempty"`
+	// ParentLabel names what Parent must be for this runtime ("Bridge" on
+	// FreeBSD, "Interface" on Linux); empty when the kind takes no parent.
+	ParentLabel string `json:"parentLabel,omitempty"`
+	// ParentSetups are the ways to provision a parent on this platform, each
+	// a shell snippet the UI renders verbatim. They come from the backend
+	// because the commands are platform-specific.
+	ParentSetups []ParentSetup `json:"parentSetups,omitempty"`
+	// ParentInterfaces are the host interfaces those setups can be built on.
+	ParentInterfaces []ParentInterface `json:"parentInterfaces,omitempty"`
+	// Engines are every backend that can make this kind. Engine is the one
+	// that will, when the user does not say otherwise.
+	Engines      []string `json:"engines,omitempty"`
+	NeedsGateway bool     `json:"needsGateway,omitempty"`
+	// AddressNote says where addresses come from when DHCP is not on offer.
+	// Without it the radio is simply absent, which reads as something fjord
+	// forgot rather than something the kind cannot have.
+	AddressNote string `json:"addressNote,omitempty"`
+	// SupportsDHCP: addresses can come from the segment's own DHCP server
+	// instead of a pool this host manages. When available it is the better
+	// default: one allocator instead of two on the same wire.
+	SupportsDHCP        bool `json:"supportsDhcp,omitempty"`
+	SupportsMTU         bool `json:"supportsMtu,omitempty"`
+	SupportsRange       bool `json:"supportsRange,omitempty"`
+	SupportsDescription bool `json:"supportsDescription,omitempty"`
+}
+
+// ParentSetup is one way to make a parent interface: a label, the commands,
+// and anything the user should know before running them.
+//
+// A backend picks defaults from what the host looks like, but the host cannot
+// say which NIC is cabled to which segment or which VLAN the switch tags.
+// Inputs lets the UI offer those choices back and ask for a re-render.
+type ParentSetup struct {
+	ID      string `json:"id"`
+	Label   string `json:"label"`
+	Snippet string `json:"snippet"`
+	Note    string `json:"note,omitempty"`
+	// Inputs the user may vary: "interface", "vlan". Empty = fixed snippet.
+	Inputs []string `json:"inputs,omitempty"`
+	// What this rendering used, so the UI seeds its controls with it. An
+	// empty VLAN means untagged; "auto" on the way in asks for a free id.
+	Interface string `json:"interface,omitempty"`
+	VLAN      string `json:"vlan,omitempty"`
+}
+
+// ParentInterface is a host interface a parent can be built on, with what the
+// host knows about it -- the user supplies what it knows nothing about.
+type ParentInterface struct {
+	Name   string `json:"name"`
+	Detail string `json:"detail,omitempty"` // "192.168.4.103, default route" / "no address"
+	Uplink bool   `json:"uplink,omitempty"`
+}
+
+// NetworkSetupper re-renders a ParentSetup with the user's choices. Optional:
+// fjordd type-asserts it, and a backend without it just serves the defaults
+// from Capabilities().
+type NetworkSetupper interface {
+	ParentSetup(ctx context.Context, kind, nic, vlan string) (ParentSetup, error)
+}
+
+// NetworkSpec describes a network to create in runtime-neutral terms; the
+// backend translates it (a CNI conflist on FreeBSD podman, `appjail network
+// add` on appjail). Mirrors VolumeSpec.
+type NetworkSpec struct {
+	Name string `json:"name"`
+	Kind string `json:"kind"` // a NetworkKind.ID from Capabilities
+	// Parent is the host interface the network hangs off -- a bridge on
+	// FreeBSD, a NIC or VLAN subinterface on Linux. Empty for kinds whose
+	// ParentLabel is empty.
+	Parent string `json:"parent,omitempty"`
+	// AddressSource is "dhcp" (the segment's DHCP server allocates) or "pool"
+	// / "" (this host allocates from Subnet). A dhcp network needs no subnet,
+	// gateway or range: the lease carries them.
+	AddressSource string `json:"addressSource,omitempty"`
+	Subnet        string `json:"subnet"`
+	Gateway       string `json:"gateway,omitempty"`
+	MTU           int    `json:"mtu,omitempty"`
+	RangeStart    string `json:"rangeStart,omitempty"`
+	RangeEnd      string `json:"rangeEnd,omitempty"`
+	Description   string `json:"description,omitempty"`
+}
+
+// NetworkParent is a host interface a "lan" network can attach to.
+// InUse marks one that already backs a network, so the UI can say so without
+// forbidding it (several networks on one bridge is legal).
+type NetworkParent struct {
+	Name  string `json:"name"`
+	InUse bool   `json:"inUse,omitempty"`
+	// Subnet, Gateway and HostIP are what the host already knows about the
+	// segment this parent is on, so the form can prefill instead of asking for
+	// facts the machine can read. Empty when nothing on the parent carries an
+	// address -- then the user supplies them.
+	Subnet  string `json:"subnet,omitempty"`
+	Gateway string `json:"gateway,omitempty"`
+	HostIP  string `json:"hostIp,omitempty"`
 }
 
 // Volume is a runtime-managed named volume. Kind is the backend's
@@ -202,6 +330,15 @@ type Capabilities struct {
 	// RemoteVolumes: the engine can mount nfs:// / smb:// folders as named
 	// volumes (and store SMB credentials for them).
 	RemoteVolumes bool `json:"remoteVolumes"`
+	// NetworkKinds are the networks this engine can create. Empty means
+	// CreateNetwork/RemoveNetwork are unsupported and the UI offers neither.
+	NetworkKinds []NetworkKind `json:"networkKinds,omitempty"`
+	// NetworkRemove: this engine can delete a network. False where networks
+	// are defined elsewhere -- offering Delete would only ever error.
+	NetworkRemove bool `json:"networkRemove"`
+	// NetworkNote says why NetworkKinds is empty, so the UI can explain the
+	// absence instead of silently hiding a button. Empty when creating works.
+	NetworkNote string `json:"networkNote,omitempty"`
 }
 
 // PruneReport summarizes a prune run: a human total and the raw command output.
@@ -232,6 +369,16 @@ type Backend interface {
 	Status(ctx context.Context, s *stack.Stack) (StackStatus, error)
 	// Networks lists container networks a stack can attach to for its own IP.
 	Networks(ctx context.Context) ([]Network, error)
+	// CreateNetwork creates a network per spec. Supported only for the kinds
+	// in Capabilities().NetworkKinds.
+	CreateNetwork(ctx context.Context, spec NetworkSpec) (Network, error)
+	// RemoveNetwork deletes a network. It returns ErrInUse when containers are
+	// still attached, unless force is set -- deleting a network out from under
+	// a running container leaves it with an address nothing can route.
+	RemoveNetwork(ctx context.Context, name string, force bool) error
+	// NetworkParents lists host interfaces a "lan" network can hang off.
+	// Empty when the engine creates no kind that takes a parent.
+	NetworkParents(ctx context.Context) ([]NetworkParent, error)
 	// Volumes lists podman-managed named volumes.
 	Volumes(ctx context.Context) ([]Volume, error)
 	// CreateVolume creates a named volume (local driver, optional NFS opts).

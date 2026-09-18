@@ -6,6 +6,7 @@
   import Terminal from './Terminal.svelte';
   import AppStore from './AppStore.svelte';
   import Volumes from './Volumes.svelte';
+  import Networks from './Networks.svelte';
   import Adopt from './Adopt.svelte';
   import System from './System.svelte';
   import Settings from './Settings.svelte';
@@ -22,14 +23,16 @@
   import Toasts from './Toasts.svelte';
   import { toast, dismissToast } from './toast';
   import { expandVars } from './expand';
+  import { appUrl } from './appUrl';
   import { currentTheme, setTheme, watchSystem, type Theme } from './theme';
-  import { networkLabel, HOST_NETWORK, DEFAULT_NETWORK } from './network';
+  import { networkLabel, HOST_NETWORK, DEFAULT_NETWORK, randomMAC } from './network';
 
   type ContainerStatus = {
     name: string;
     state: string;
     ports?: { hostPort: number; containerPort: number; protocol?: string }[];
     detail?: string; // one-line reason for a non-running state (appjail: crash-looping app)
+    address?: string; // the container's own IP on an attachable network
   };
   type StackStatus = { state: string; containers: ContainerStatus[] };
   type StackState = { group?: string; desired_state?: string; engine?: string; order?: number; origin?: { app_id?: string } };
@@ -72,7 +75,7 @@
   let originalEnv = '';
   let originalDirector = '';
   let originalMakejail = '';
-  let currentView: 'stacks' | 'store' | 'volumes' | 'system' | 'settings' | 'adopt' = 'stacks';
+  let currentView: 'stacks' | 'store' | 'volumes' | 'networks' | 'system' | 'settings' | 'adopt' = 'stacks';
   // Settings sub-tab, mirrored into the URL (#/settings/<tab>) like the views.
   let settingsTab: 'storage' | 'extensions' | 'catalogs' | 'advanced' = 'storage';
 
@@ -385,55 +388,18 @@
     await loadStacks(); // reconcile with server truth
   }
 
-  // Derive a clickable URL for a webapp stack: its macvlan IP (if it has one)
+  // Derive a clickable URL for a webapp stack: its own IP when it has one,
   // else the host you're browsing fjord on, plus its primary published web
   // port. Empty when the stack publishes nothing web-ish.
-  function appUrl(stack: Stack | null): string {
-    if (!stack) return '';
-    const c = stack.compose || '';
-    const ip = (c.match(/ipv4_address:\s*([0-9.]+)/) || [])[1];
-    const host = ip || location.hostname;
 
-    const env: Record<string, string> = {};
-    for (const line of (stack.env || '').split('\n')) {
-      const eq = line.indexOf('=');
-      if (eq > 0) env[line.slice(0, eq).trim()] = line.slice(eq + 1).trim();
-    }
-    const resolve = (v: string) => expandVars(v, env);
-
-    // x-fjord web hint -- derived from the image's cit config (the same
-    // port + https flag dbuild tests against), so nothing is guessed. May be
-    // a "${VAR}" reference resolved via .env. The only source for host-net
-    // stacks, which publish nothing.
-    const hinted = resolve((c.match(/web_port:\s*["']?([^\s"']+)/) || [])[1] || '');
-    if (/^\d{2,5}$/.test(hinted)) {
-      const scheme = /web_https:\s*true/.test(c) ? 'https' : 'http';
-      return `${scheme}://${host}:${hinted}`;
-    }
-
-    // No hint: prefer the RUNNING container's actual published ports (from the
-    // status API) -- the saved compose can be ahead of reality, since edits
-    // only apply on a recreate. Scheme http: https is only ever hint-declared.
-    // On a macvlan IP nothing is published (hostPort 0): the app answers on
-    // its container port at that IP. Otherwise only real published ports count.
-    let ports: string[] = (stack.status?.containers ?? [])
-      .flatMap((ct) => ct.ports ?? [])
-      .filter((p) => !p.protocol || p.protocol === 'tcp')
-      .map((p) => String(ip ? p.containerPort || p.hostPort : p.hostPort))
-      .filter((p) => p !== '0');
-
-    // Fallback (stack stopped): the compose's ports list items, resolving
-    // ${VAR} from .env. Anchored to "- host:container" lines so a MAC
-    // address (00:00) or an IP never reads as a port.
-    if (!ports.length) {
-      ports = [...c.matchAll(/^\s*-\s*["']?([\w${}.]+):(\d{2,5})(?:\/(tcp|udp))?["']?\s*$/gm)]
-        .filter((m) => !m[3] || m[3] === 'tcp')
-        .map((m) => resolve(m[1]))
-        .filter((h) => /^\d{2,5}$/.test(h));
-    }
-    return ports.length ? `http://${host}:${ports[0]}` : '';
-  }
   $: openUrl = appUrl(selectedStack);
+  // Attached to a network but holding no address: the reason the Open button
+  // is missing, taken from whichever container reported it.
+  $: noAddress =
+    selectedStack && (selectedStack as any).ownAddress && !openUrl
+      ? (selectedStack.status?.containers || []).find((c: any) => c.detail?.includes('no address'))?.detail ||
+        `no address on ${(selectedStack as any).network} yet`
+      : '';
 
   async function setStackGroup(name: string, group: string) {
     const g = group.trim();
@@ -471,11 +437,34 @@
   // Attachable macvlan networks (empty on hosts without them, e.g. saturn).
   type Network = { name: string; driver: string; subnet: string; gateway: string };
   let networks: Network[] = [];
-  let netChoice = ''; // '' = host ports (default), else a network name
-  let netIP = ''; // optional predictable IP within the chosen network
+  // What the SAVED compose says, so revert() and post-save reset go back to it
+  // rather than blanking the picker.
+  // The stack's networks, in interface order: row 0 is eth0. The table is the
+  // whole truth -- what is listed here replaces what the compose declares.
+  type Attachment = { network: string; ip?: string; mac?: string };
+  let netRows: Attachment[] = [];
+  let savedRows = '';
+  $: netRowsDirty = JSON.stringify(netRows) !== savedRows;
 
+  function addNetRow() {
+    const free = networks.find((n) => !netRows.some((r) => r.network === n.name));
+    netRows = [...netRows, { network: free?.name ?? '', ip: '', mac: '' }];
+  }
+  function removeNetRow(i: number) {
+    netRows = netRows.filter((_, j) => j !== i);
+  }
+  function moveNetRow(i: number, to: number) {
+    if (to < 0 || to >= netRows.length) return;
+    const copy = [...netRows];
+    [copy[i], copy[to]] = [copy[to], copy[i]];
+    netRows = copy;
+  }
+
+  // netRowsDirty belongs here: the network table edits staged state rather than
+  // the compose, so without it removing a row showed no Unsaved badge at all --
+  // the change looked like it had already happened, or like nothing had.
   $: isDirty = selectedStack
-    ? selectedStack.compose !== originalCompose || selectedStack.env !== originalEnv || (selectedStack.director ?? '') !== originalDirector || (selectedStack.makejail ?? '') !== originalMakejail
+    ? selectedStack.compose !== originalCompose || selectedStack.env !== originalEnv || (selectedStack.director ?? '') !== originalDirector || (selectedStack.makejail ?? '') !== originalMakejail || netRowsDirty
     : false;
   // A draft is a stack the server doesn't know about yet (New Stack). Detect it
   // by BOTH signals so neither one's timing can misfire: a real stack always has
@@ -500,6 +489,8 @@
         ? '#/store'
         : currentView === 'volumes'
           ? '#/volumes'
+          : currentView === 'networks'
+            ? '#/networks'
           : currentView === 'adopt'
             ? '#/adopt'
           : currentView === 'system'
@@ -556,6 +547,10 @@
     originalEnv = stack!.env;
     originalDirector = stack!.director ?? '';
     originalMakejail = stack!.makejail ?? '';
+    // Show the network the stack is ACTUALLY on. The picker is otherwise
+    // write-only and reads "Host ports (default)" for every attached stack.
+    netRows = ((stack as any)!.networks ?? []).map((a: Attachment) => ({ ...a }));
+    savedRows = JSON.stringify(netRows);
     // Resources tab is engine-scoped to this stack (see loadNetworks/loadVolumes).
     loadNetworks(stack!.name);
     loadVolumes(stack!.name);
@@ -774,8 +769,13 @@
       toast(e.message || 'Add failed', { kind: 'error' });
     }
   }
+  // Removing a mount rewrites the compose straight away -- no Save, no revert --
+  // so it asks first, the same two-click confirm the Networks page uses. The
+  // data is untouched, but putting the source path back is the user's problem.
+  let confirmUnmount = '';
   async function removeMount(dest: string) {
     if (!selectedStack) return;
+    confirmUnmount = '';
     try {
       const { compose } = await mountsAPI({ op: 'remove', dest });
       selectedStack = { ...selectedStack, compose };
@@ -797,6 +797,9 @@
       await selectStack(null);
     } else if (section === 'volumes') {
       currentView = 'volumes';
+      await selectStack(null);
+    } else if (section === 'networks') {
+      currentView = 'networks';
       await selectStack(null);
     } else if (section === 'adopt') {
       currentView = 'adopt';
@@ -855,8 +858,7 @@
   function revert() {
     if (!selectedStack) return;
     selectedStack = { ...selectedStack, compose: originalCompose, env: originalEnv, ...(isDirector ? { director: originalDirector, makejail: originalMakejail } : {}) };
-    netChoice = '';
-    netIP = '';
+    netRows = JSON.parse(savedRows || '[]');
     addSource = '';
     addDest = '';
     addRO = false;
@@ -878,11 +880,17 @@
       }
       if (isDraft && selectedStack.engine) body.engine = selectedStack.engine;
       if (isDraft && selectedStack.displayName && selectedStack.displayName !== selectedStack.name) body.displayName = selectedStack.displayName;
-      // Attaching a network/volume injects blocks into the compose -- one-shot
-      // actions, so the pickers are cleared after a successful save.
-      if (netChoice) {
-        body.network = netChoice;
-        if (netIP.trim()) body.ip = netIP.trim();
+      // Attaching a volume injects a block into the compose -- a one-shot
+      // action, so that picker is cleared after a successful save.
+      // The network is only injected when it CHANGED: the picker now shows the
+      // stack's current network, and re-injecting one the compose already
+      // declares fails ("service already declares networks").
+      if (netRowsDirty) {
+        // An empty list detaches: the table is the whole truth, so clearing
+        // it has to mean something rather than quietly doing nothing.
+        body.networks = netRows
+          .filter((r) => r.network)
+          .map((r) => ({ network: r.network, ip: (r.ip || '').trim(), mac: (r.mac || '').trim() }));
       }
       if (volChoice && volPath.trim().startsWith('/')) {
         body.volume = volChoice;
@@ -895,13 +903,18 @@
         body: JSON.stringify(body),
       });
       if (res.ok) {
-        // If we injected a network/volume the on-disk compose changed;
+        // If we injected networks/a volume the on-disk compose changed;
         // re-fetch it so the editor shows the real (injected) compose.
-        if (netChoice || body.volume) {
+        // NB "networks", plural: the singular field is gone, and testing it
+        // here meant savedRows was never refreshed after a network save --
+        // leaving the Unsaved badge on forever.
+        if (body.networks || body.volume) {
           const detail = await fetch(`/api/stacks/${selectedStack.name}`);
           if (detail.ok) selectedStack = await detail.json();
-          netChoice = '';
-          netIP = '';
+          // Re-read the picker from what was just written, so it keeps showing
+          // the stack's network instead of snapping back to "Host ports".
+          netRows = ((selectedStack as any)!.networks ?? []).map((a: Attachment) => ({ ...a }));
+          savedRows = JSON.stringify(netRows);
           volChoice = '';
           volPath = '';
           volRO = false;
@@ -1479,6 +1492,16 @@
       <button
         on:click={() => {
           selectStack(null);
+          currentView = 'networks';
+        }}
+        class="flex items-center gap-2.5 text-left px-3 py-2 rounded-md text-sm font-medium transition-colors {currentView ===
+        'networks'
+          ? 'bg-fjord-border text-fjord-fg'
+          : 'text-fjord-fg-muted hover:text-fjord-fg'}"><Icon name="globe" size={15} /> Networks</button
+      >
+      <button
+        on:click={() => {
+          selectStack(null);
           currentView = 'system';
         }}
         class="flex items-center gap-2.5 text-left px-3 py-2 rounded-md text-sm font-medium transition-colors {currentView ===
@@ -1556,6 +1579,13 @@
             {#if selectedStack.state?.engine}
               <span class="shrink-0 flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-fjord-bg border border-fjord-border text-fjord-fg-muted" title="Runtime engine"
                 ><EngineMark engine={selectedStack.state.engine} size={12} strokeWidth={2.25} />{selectedStack.state.engine}</span
+              >
+            {/if}
+            {#if noAddress}
+              <span
+                class="shrink-0 flex items-center gap-1 text-sm text-fjord-fg-muted"
+                title="A stack on its own IP publishes nothing on the host, so there is no link to open until the network gives it an address."
+                ><Icon name="external" size={13} /> {noAddress}</span
               >
             {/if}
             {#if openUrl}
@@ -1875,24 +1905,113 @@
                 <h3 class="text-lg font-bold text-fjord-fg mb-1">Networking</h3>
                 {#if networks.length}
                   <p class="text-xs text-fjord-fg-muted mb-4 max-w-lg">
-                    Give this stack its own IP on an attachable network and binds its ports without colliding on
-                    the host. Applied to the compose on <b>Save</b> (only when the service has no network yet).
+                    Each row is one interface, in order — the first is <span class="font-mono">eth0</span> and the
+                    one links are built from. Leave an address blank to let the network assign one. Applied to the
+                    compose on <b>Save</b>.
                   </p>
-                  <select
-                    bind:value={netChoice}
-                    class="w-full max-w-md bg-fjord-inset border border-fjord-border rounded-lg px-3 py-2 text-sm text-fjord-fg-body focus:border-fjord-accent outline-none"
-                  >
-                    <option value="">Host ports (default)</option>
-                    {#each networks as n}
-                      <option value={n.name}>Own IP on {n.name} ({n.subnet})</option>
-                    {/each}
-                  </select>
-                  {#if netChoice}
-                    <input
-                      bind:value={netIP}
-                      placeholder="IP (optional — auto-assign if blank)"
-                      class="w-full max-w-md mt-3 bg-fjord-inset border border-fjord-border rounded-lg px-3 py-2 text-sm text-fjord-fg-body font-mono focus:border-fjord-accent outline-none"
-                    />
+                  {#if netRows.length}
+                    <table class="w-full max-w-3xl text-sm">
+                      <thead>
+                        <tr class="text-left text-xs text-fjord-fg-dim">
+                          <th class="font-medium pb-1 w-8"></th>
+                          <th class="font-medium pb-1">Network</th>
+                          <th class="font-medium pb-1">IP</th>
+                          <th class="font-medium pb-1">MAC</th>
+                          <th class="pb-1 w-20"></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {#each netRows as row, i}
+                          <tr class="border-t border-fjord-border">
+                            <td class="py-2 pr-2 font-mono text-xs text-fjord-fg-dim">eth{i}</td>
+                            <td class="py-2 pr-2">
+                              <select
+                                bind:value={row.network}
+                                on:change={() => (netRows = netRows)}
+                                class="w-full bg-fjord-inset border border-fjord-border rounded px-2 py-1 text-sm text-fjord-fg-body focus:border-fjord-accent outline-none"
+                              >
+                                {#each networks as n}
+                                  <option value={n.name} disabled={netRows.some((r, j) => j !== i && r.network === n.name)}
+                                    >{n.name} ({n.subnet || 'DHCP'})</option
+                                  >
+                                {/each}
+                              </select>
+                            </td>
+                            <td class="py-2 pr-2">
+                              <input
+                                bind:value={row.ip}
+                                on:input={() => (netRows = netRows)}
+                                placeholder="auto"
+                                class="w-full bg-fjord-inset border border-fjord-border rounded px-2 py-1 text-sm font-mono text-fjord-fg-body focus:border-fjord-accent outline-none"
+                              />
+                            </td>
+                            <td class="py-2 pr-2">
+                              <div class="flex gap-1">
+                                <input
+                                  bind:value={row.mac}
+                                  on:input={() => (netRows = netRows)}
+                                  placeholder="auto"
+                                  class="w-full bg-fjord-inset border border-fjord-border rounded px-2 py-1 text-sm font-mono text-fjord-fg-body focus:border-fjord-accent outline-none"
+                                />
+                                <!-- Fills a blank field only. Changing a MAC breaks
+                                     the DHCP reservation keyed on it, so overwriting
+                                     one has to be deliberate: clear it first. -->
+                                <button
+                                  type="button"
+                                  on:click={() => { row.mac = randomMAC(); netRows = netRows; }}
+                                  disabled={!!(row.mac || '').trim()}
+                                  title={(row.mac || '').trim()
+                                    ? 'Clear the field first — changing a MAC breaks a DHCP reservation keyed on it'
+                                    : 'Generate a locally-administered address'}
+                                  class="shrink-0 px-2 rounded border border-fjord-border text-xs text-fjord-fg-secondary hover:bg-fjord-border disabled:opacity-30 disabled:hover:bg-transparent">Gen</button
+                                >
+                              </div>
+                            </td>
+                            <td class="py-2 text-right whitespace-nowrap">
+                              <button
+                                type="button"
+                                on:click={() => moveNetRow(i, i - 1)}
+                                disabled={i === 0}
+                                title="Move up (earlier interface)"
+                                class="px-1.5 text-fjord-fg-muted hover:text-fjord-fg disabled:opacity-30">↑</button
+                              >
+                              <button
+                                type="button"
+                                on:click={() => removeNetRow(i)}
+                                title="Detach from this network"
+                                class="px-1.5 text-fjord-fg-muted hover:text-fjord-danger">✕</button
+                              >
+                            </td>
+                          </tr>
+                        {/each}
+                      </tbody>
+                    </table>
+                  {:else}
+                    <p class="text-xs text-fjord-fg-dim">
+                      Host ports — this stack publishes on the host address.
+                    </p>
+                  {/if}
+                  {#if netRows.length}
+                    <!-- The eth numbers are what the NEXT container will get:
+                         interfaces are assigned at create time, so a running
+                         one keeps its layout until it is recreated. Saying so
+                         beats letting the table look like live state. -->
+                    <p class="text-xs mt-2 {netRowsDirty ? 'text-fjord-warning' : 'text-fjord-fg-dim'}">
+                      {#if netRowsDirty}
+                        Not saved yet — <b>Save</b>, then restart the stack for these to take effect.
+                      {:else}
+                        Interface names are assigned when a container is created, so a running stack keeps
+                        its current layout until it is restarted.
+                      {/if}
+                    </p>
+                  {/if}
+                  {#if netRows.length < networks.length}
+                    <button
+                      type="button"
+                      on:click={addNetRow}
+                      class="mt-3 text-sm px-3 py-1.5 rounded-lg border border-fjord-border text-fjord-fg-secondary hover:bg-fjord-border"
+                      >+ Add network</button
+                    >
                   {/if}
                 {:else}
                   <p class="text-xs text-fjord-fg-dim mb-4 max-w-lg">
@@ -1919,11 +2038,23 @@
                           <span class="shrink-0 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-fjord-bg border border-fjord-border text-fjord-fg-muted">RO</span>
                         {/if}
                         <span class="shrink-0 ml-auto text-[10px] px-1.5 py-0.5 rounded bg-fjord-bg border border-fjord-border text-fjord-fg-dim">{m.kind}</span>
-                        <button
-                          on:click={() => removeMount(m.dest)}
-                          title="Remove this mount"
-                          class="shrink-0 text-fjord-fg-dim hover:text-fjord-danger transition-colors"><Icon name="trash" size={14} /></button
-                        >
+                        {#if confirmUnmount === m.dest}
+                          <button
+                            on:click={() => removeMount(m.dest)}
+                            class="shrink-0 text-[10px] px-1.5 py-0.5 rounded bg-fjord-danger hover:bg-fjord-danger-hover text-white"
+                            >Confirm</button
+                          >
+                          <button
+                            on:click={() => (confirmUnmount = '')}
+                            class="shrink-0 text-[10px] px-1.5 py-0.5 rounded text-fjord-fg-muted hover:text-fjord-fg">Cancel</button
+                          >
+                        {:else}
+                          <button
+                            on:click={() => (confirmUnmount = m.dest)}
+                            title="Unmount this — the files stay, the stack stops seeing them"
+                            class="shrink-0 text-fjord-fg-dim hover:text-fjord-danger transition-colors"><Icon name="trash" size={14} /></button
+                          >
+                        {/if}
                       </div>
                     {/each}
                   </div>
@@ -2164,6 +2295,10 @@
     {:else if currentView === 'volumes'}
       <div class="p-6 h-full overflow-hidden">
         <Volumes />
+      </div>
+    {:else if currentView === 'networks'}
+      <div class="p-6 h-full overflow-hidden">
+        <Networks />
       </div>
     {:else if currentView === 'adopt'}
       <div class="p-6 h-full overflow-hidden">

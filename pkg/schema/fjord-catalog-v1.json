@@ -39,7 +39,11 @@
                 "label": { "type": "string" },
                 "default": { "type": "boolean" },
                 "image": { "type": "string" },
-                "version": { "type": "string" }
+                "version": { "type": "string" },
+                "aliases": {
+                  "type": "array",
+                  "items": { "type": "string" }
+                }
               }
             },
             "minItems": 1

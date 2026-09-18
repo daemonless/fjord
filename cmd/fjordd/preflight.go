@@ -34,6 +34,13 @@ func (s *server) preflight(ctx context.Context, st *stack.Stack) []string {
 	problems := s.provisionBindDirs(st, env)
 
 	ports := composepkg.PublishedPorts(st.Compose, env)
+	// A stack with an address of its own binds nothing on the host: its ports
+	// live on that address. Checking them against the host's would refuse two
+	// stacks that each have their own IP and happen to share a port -- which
+	// is the whole point of giving them one.
+	if net, _ := composepkg.AttachedNetwork(st.Compose); net != "" {
+		ports = nil
+	}
 	hostPorts := s.hostNetworkPorts(ctx, st, env)
 	if len(ports) == 0 && len(hostPorts) == 0 {
 		return problems

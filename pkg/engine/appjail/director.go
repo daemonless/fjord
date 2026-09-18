@@ -209,9 +209,34 @@ func directorServices(path string, s *stack.Stack) []svcJail {
 				}
 			}
 		}
+		// A jail on its own LAN address has no `expose:` -- appjail refuses it
+		// outright ("expose requires the following options: virtualnet"),
+		// because there is no host port to forward. The compose still records
+		// which port the app serves on, and Status needs it: without a port to
+		// probe, health falls back to grepping the log for a crash, which
+		// reports a perfectly healthy stack as crashed.
+		if len(svc.Ports) == 0 {
+			svc.Ports = composePortsFor(s, key, env)
+		}
 		out = append(out, svcJail{svc: svc, jail: jail})
 	}
 	return out
+}
+
+// composePortsFor returns the ports the stack's compose declares for one
+// service. Only the container side is meaningful for a LAN-addressed jail --
+// the app answers on its own address -- but the host side is kept so the UI
+// shows the same number it would for a NAT'd jail.
+func composePortsFor(s *stack.Stack, service string, env map[string]string) []composepkg.PortMap {
+	if s == nil || s.Compose == "" {
+		return nil
+	}
+	for _, svc := range composepkg.ParseServices(s.Compose, env) {
+		if svc.Name == service {
+			return svc.Ports
+		}
+	}
+	return nil
 }
 
 // parseExpose reads an appjail expose spec: "HOST:CONTAINER [proto:tcp|udp]"

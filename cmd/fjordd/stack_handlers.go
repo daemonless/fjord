@@ -13,6 +13,7 @@ import (
 
 	composepkg "github.com/daemonless/fjord/pkg/compose"
 	"github.com/daemonless/fjord/pkg/engine"
+	"github.com/daemonless/fjord/pkg/hostnet"
 	"github.com/daemonless/fjord/pkg/registry"
 	"github.com/daemonless/fjord/pkg/stack"
 	"github.com/daemonless/fjord/pkg/updates"
@@ -22,6 +23,18 @@ import (
 // plus an optional macvlan attachment applied to the compose before writing.
 // Network/IP are only sent when a stack is first created/attached, not on
 // every edit.
+// attachments mirrors installRequest.attachments: the list when given, else
+// the single Network/IP/MAC triple.
+func (r saveRequest) attachments() []composepkg.Attachment {
+	if len(r.Networks) > 0 {
+		return r.Networks
+	}
+	if r.Network == "" {
+		return nil
+	}
+	return []composepkg.Attachment{{Network: r.Network, IP: r.IP, MAC: r.MAC}}
+}
+
 type saveRequest struct {
 	Compose string `json:"compose"`
 	Env     string `json:"env"`
@@ -37,6 +50,10 @@ type saveRequest struct {
 	DisplayName string `json:"displayName,omitempty"`
 	Network     string `json:"network,omitempty"` // attach the stack to this macvlan network
 	IP          string `json:"ip,omitempty"`      // optional predictable IP within it
+	MAC         string `json:"mac,omitempty"`     // optional pinned MAC, for a DHCP reservation
+	// Networks is the full list when a stack takes more than one interface;
+	// Network/IP/MAC above remain the single-network form.
+	Networks []composepkg.Attachment `json:"networks,omitempty"`
 	// One-shot volume attachment: mount the named volume at VolumePath.
 	Volume     string `json:"volume,omitempty"`
 	VolumePath string `json:"volumePath,omitempty"`
@@ -61,10 +78,32 @@ func (s *server) handleStacksList(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			status = engine.StackStatus{State: "unknown"}
 		}
-		enriched = append(enriched, stackWithStatus{Stack: st, Status: status})
+		// The list needs the networks too: without them its Open link cannot
+		// tell "publishes on the host" from "has its own address", and builds
+		// a host URL that times out.
+		atts := composepkg.AttachedNetworks(st.Compose)
+		row := stackWithStatus{Stack: st, Status: status, Networks: atts}
+		if len(atts) > 0 {
+			row.Network, row.NetworkIP, row.NetworkMAC = atts[0].Network, atts[0].IP, atts[0].MAC
+			row.OwnAddress = ownAddress(atts[0].Network)
+		}
+		enriched = append(enriched, row)
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(enriched)
+}
+
+// ownAddress reports whether a network gives a container an address of its
+// own on a real segment, rather than one behind the host's NAT.
+//
+// The network's own definition says which: an epair puts the container on the
+// bridge's segment, any other driver is a bridge the runtime NATs. Guessing
+// from "is it attached" gets a private network wrong -- it is attached, and
+// its 10.x address is no more reachable from a browser than the default
+// bridge's is.
+func ownAddress(network string) bool {
+	def, ok := hostnet.Get(network)
+	return ok && def.Type == "epair"
 }
 
 // handleStackRoutes dispatches /api/stacks/<name>[/<action>].
@@ -136,7 +175,14 @@ func (s *server) stackDetail(w http.ResponseWriter, r *http.Request, name string
 		status = engine.StackStatus{State: "unknown"}
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(stackWithStatus{Stack: st, Status: status})
+	atts := composepkg.AttachedNetworks(st.Compose)
+	net, ip, mac := "", "", ""
+	own := false
+	if len(atts) > 0 {
+		net, ip, mac = atts[0].Network, atts[0].IP, atts[0].MAC
+		own = ownAddress(net)
+	}
+	json.NewEncoder(w).Encode(stackWithStatus{Stack: st, Status: status, Network: net, NetworkIP: ip, NetworkMAC: mac, Networks: atts, OwnAddress: own})
 }
 
 // stackDelete stops the stack's containers, then removes its stack dir.
@@ -218,7 +264,7 @@ func (s *server) stackUpdateCheck(w http.ResponseWriter, name string) {
 	images := resolvedImages(st)
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	status, err := updates.Check(ctx, s.backendFor(st), images)
+	status, err := updates.Check(ctx, s.backendFor(st), images, s.schemeFor)
 	if err != nil {
 		http.Error(w, err.Error(), 502)
 		return
@@ -262,8 +308,30 @@ func (s *server) stackSave(w http.ResponseWriter, r *http.Request, name string) 
 	// instead of the stack id, hiding them from status/logs/delete -- the
 	// same strip the catalog install path applies.
 	composeYAML := composepkg.DropTopLevelKey(payload.Compose, "name")
-	if payload.Network != "" {
-		injected, err := composepkg.InjectNetwork(composeYAML, payload.Network, payload.IP)
+	// An explicit empty list is a detach; an absent one means "leave the
+	// networks alone", which is what every request that is not about
+	// networking sends.
+	if payload.Networks != nil && len(payload.Networks) == 0 {
+		detached, err := composepkg.DetachNetworks(composeYAML)
+		if err != nil {
+			http.Error(w, "network detach: "+err.Error(), 400)
+			return
+		}
+		composeYAML = detached
+	} else if atts := payload.attachments(); len(atts) > 0 {
+		eng := payload.Engine
+		if eng == "" {
+			if existing, err := s.manager.Get(name); err == nil {
+				eng = existing.EngineName()
+			}
+		}
+		for _, a := range atts {
+			if msg := s.networkUnusable(r.Context(), eng, a.Network); msg != "" {
+				http.Error(w, msg, 400)
+				return
+			}
+		}
+		injected, err := composepkg.InjectNetworks(composeYAML, atts)
 		if err != nil {
 			http.Error(w, "network attach: "+err.Error(), 400)
 			return

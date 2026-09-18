@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/daemonless/fjord/pkg/catalog"
+	"github.com/daemonless/fjord/pkg/compose"
 	"github.com/daemonless/fjord/pkg/engine"
 	"github.com/daemonless/fjord/pkg/stack"
 )
@@ -142,6 +143,7 @@ func (s *server) routes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/compose/mounts", s.handleComposeMounts)
 	mux.HandleFunc("/api/settings/storage", s.handleStorageSettings)
 	mux.HandleFunc("/api/settings/wizard", s.handleWizardSettings)
+	mux.HandleFunc("/api/settings/network", s.handleDefaultNetwork)
 	mux.HandleFunc("/api/settings/catalog-refresh", s.handleCatalogRefreshSettings)
 	mux.HandleFunc("/api/setup/state", s.handleSetupState)
 	mux.HandleFunc("/api/folder-sets", s.handleFolderSets)
@@ -149,6 +151,10 @@ func (s *server) routes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/maintenance/df", s.handleDiskUsage)
 	mux.HandleFunc("/api/maintenance/prune", s.handlePrune)
 	mux.HandleFunc("/api/networks", s.handleNetworks)
+	mux.HandleFunc("/api/networks/kinds", s.handleNetworkKinds)
+	mux.HandleFunc("/api/networks/parents", s.handleNetworkParents)
+	mux.HandleFunc("/api/networks/setup", s.handleNetworkSetup)
+	mux.HandleFunc("/api/networks/", s.handleNetworkDelete)
 	mux.HandleFunc("/api/volumes", s.handleVolumes)
 	mux.HandleFunc("/api/volumes/ensure", s.handleVolumeEnsure)
 	mux.HandleFunc("/api/volumes/smb-credentials", s.handleSMBCredentials)
@@ -175,6 +181,20 @@ func (s *server) routes(mux *http.ServeMux) {
 type stackWithStatus struct {
 	*stack.Stack
 	Status engine.StackStatus `json:"status"`
+	// Network/NetworkIP are read back out of the compose so the Resources tab
+	// can show what the stack is actually attached to. Without them its picker
+	// defaults to "Host ports", which is wrong for every stack on a network.
+	Network    string `json:"network,omitempty"`
+	NetworkIP  string `json:"networkIp,omitempty"`
+	NetworkMAC string `json:"networkMac,omitempty"`
+	// Networks is every network the stack is on, in interface order. The
+	// three fields above are the first of them, kept for older clients.
+	Networks []compose.Attachment `json:"networks,omitempty"`
+	// OwnAddress is true when the first network puts the container on a real
+	// segment, so the address it holds is somewhere a browser can go. False
+	// for a NAT bridge, where the address is private to the host and the
+	// stack's published ports are the way in.
+	OwnAddress bool `json:"ownAddress,omitempty"`
 }
 
 // buildEnv renders resolved variables into .env lines, sorted for determinism.
