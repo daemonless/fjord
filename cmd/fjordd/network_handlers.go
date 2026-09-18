@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"sort"
 	"strings"
@@ -222,6 +223,15 @@ func (s *server) handleNetworkDelete(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 502)
 		return
 	}
+	// A default pointing at a network that no longer exists is a value nothing
+	// can act on: the wizard skips it, the Networks page shows no Default mark,
+	// and the setting sits there being wrong. Deleting the network is the
+	// moment to clear it.
+	if loadSettings(s.fjordRoot).DefaultNetwork == name {
+		if err := updateSettings(s.fjordRoot, func(st *savedSettings) { st.DefaultNetwork = "" }); err != nil {
+			log.Printf("clearing default network after deleting %s: %v", name, err)
+		}
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.Write([]byte(`{"status":"deleted"}`))
 }
@@ -245,14 +255,27 @@ func (s *server) networkUnusable(ctx context.Context, engineName, network string
 			return ""
 		}
 	}
+	offers := engineName + " has no networks it can use"
 	var names []string
 	for _, n := range nets {
 		names = append(names, n.Name)
 	}
-	if len(names) == 0 {
-		return fmt.Sprintf("no network named %q is available to this engine, and it has none to offer", network)
+	if len(names) > 0 {
+		offers = engineName + " can use: " + strings.Join(names, ", ")
 	}
-	return fmt.Sprintf("no network named %q is available to this engine; it offers %s", network, strings.Join(names, ", "))
+	// A name the OTHER engine owns is the common way to land here, and "not
+	// available" reads like a bug when the network is listed on the Networks
+	// page. Say whose it is and why that stops this engine using it.
+	if all, err := s.allNetworks(ctx); err == nil {
+		for _, n := range all {
+			if n.Name != network || len(n.Engines) == 0 {
+				continue
+			}
+			return fmt.Sprintf("%q belongs to %s, which hands out its addresses itself: %s attaching as well would put two allocators on one segment. A network both engines can share is defined on the host instead -- %s",
+				network, strings.Join(n.Engines, " and "), engineName, offers)
+		}
+	}
+	return fmt.Sprintf("no network named %q on this host -- %s", network, offers)
 }
 
 // allNetworks merges every engine's view into one list, recording which

@@ -346,17 +346,42 @@
   // pool network it needs an address given to it. On DHCP nothing does.
   $: ipRequired = !!netChoice && engineChoice === 'appjail' && !!chosenNet?.subnet;
 
+  // Scoped to the engine being installed on. The unscoped list spans both, so
+  // it offers networks the chosen engine cannot attach to -- appjail's own
+  // virtualnets to a podman install -- and the install fails at the last step
+  // on something the form suggested. Re-runs when the engine changes.
+  async function loadNetworks() {
+    const engine = engineChoice ? `?engine=${encodeURIComponent(engineChoice)}` : '';
+    try {
+      const res = await fetch(`/api/networks${engine}`);
+      networks = res.ok ? await res.json() : [];
+    } catch {
+      networks = [];
+    }
+    // Whatever was picked may not exist for this engine.
+    if (netChoice && !networks.some((n) => n.name === netChoice)) netChoice = '';
+    applyDefaultNetwork();
+  }
+  $: engineChoice, loadNetworks();
+
+  // The operator's default, applied once the list it has to exist in is
+  // loaded. Both arrive asynchronously and in no fixed order, so each calls
+  // this and it acts when both are in hand.
+  let defaultNetwork = '';
+  let defaultNetworkKnown = false;
+  function applyDefaultNetwork() {
+    if (!defaultNetworkKnown || netChoice || !defaultNetwork) return;
+    // Only when it exists for THIS engine -- one renamed, removed, or simply
+    // not attachable here would otherwise fail every install.
+    if (networks.some((n) => n.name === defaultNetwork)) netChoice = defaultNetwork;
+  }
+
   onMount(async () => {
     try {
-      const nres = await fetch('/api/networks');
-      if (nres.ok) networks = await nres.json();
-      // Start on the operator's default. Only when it still exists -- a
-      // renamed or removed network would fail every install.
       const dres = await fetch('/api/settings/network');
-      if (dres.ok) {
-        const d = (await dres.json()).network || '';
-        if (d && networks.some((n) => n.name === d)) netChoice = d;
-      }
+      if (dres.ok) defaultNetwork = (await dres.json()).network || '';
+      defaultNetworkKnown = true;
+      applyDefaultNetwork();
     } catch {
       // no networks -> host ports only
     }
