@@ -177,7 +177,12 @@ func (s *server) handleNetworkKinds(w http.ResponseWriter, r *http.Request) {
 			at[k.ID] = len(kinds)
 			kinds = append(kinds, k)
 		}
-		if caps.NetworkNote != "" && len(caps.NetworkKinds) == 0 {
+		// Whenever there is one, not only when the engine offers nothing at
+		// all. Since a private network works everywhere, "offers nothing"
+		// stopped happening -- and the note explaining why the LAN option is
+		// missing went with it, leaving the feature looking absent rather
+		// than unavailable.
+		if caps.NetworkNote != "" {
 			notes = append(notes, caps.NetworkNote)
 		}
 	}
