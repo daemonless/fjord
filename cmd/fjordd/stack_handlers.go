@@ -13,6 +13,7 @@ import (
 
 	composepkg "github.com/daemonless/fjord/pkg/compose"
 	"github.com/daemonless/fjord/pkg/engine"
+	"github.com/daemonless/fjord/pkg/hostnet"
 	"github.com/daemonless/fjord/pkg/registry"
 	"github.com/daemonless/fjord/pkg/stack"
 	"github.com/daemonless/fjord/pkg/updates"
@@ -84,11 +85,25 @@ func (s *server) handleStacksList(w http.ResponseWriter, r *http.Request) {
 		row := stackWithStatus{Stack: st, Status: status, Networks: atts}
 		if len(atts) > 0 {
 			row.Network, row.NetworkIP, row.NetworkMAC = atts[0].Network, atts[0].IP, atts[0].MAC
+			row.OwnAddress = ownAddress(atts[0].Network)
 		}
 		enriched = append(enriched, row)
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(enriched)
+}
+
+// ownAddress reports whether a network gives a container an address of its
+// own on a real segment, rather than one behind the host's NAT.
+//
+// The network's own definition says which: an epair puts the container on the
+// bridge's segment, any other driver is a bridge the runtime NATs. Guessing
+// from "is it attached" gets a private network wrong -- it is attached, and
+// its 10.x address is no more reachable from a browser than the default
+// bridge's is.
+func ownAddress(network string) bool {
+	def, ok := hostnet.Get(network)
+	return ok && def.Type == "epair"
 }
 
 // handleStackRoutes dispatches /api/stacks/<name>[/<action>].
@@ -162,10 +177,12 @@ func (s *server) stackDetail(w http.ResponseWriter, r *http.Request, name string
 	w.Header().Set("Content-Type", "application/json")
 	atts := composepkg.AttachedNetworks(st.Compose)
 	net, ip, mac := "", "", ""
+	own := false
 	if len(atts) > 0 {
 		net, ip, mac = atts[0].Network, atts[0].IP, atts[0].MAC
+		own = ownAddress(net)
 	}
-	json.NewEncoder(w).Encode(stackWithStatus{Stack: st, Status: status, Network: net, NetworkIP: ip, NetworkMAC: mac, Networks: atts})
+	json.NewEncoder(w).Encode(stackWithStatus{Stack: st, Status: status, Network: net, NetworkIP: ip, NetworkMAC: mac, Networks: atts, OwnAddress: own})
 }
 
 // stackDelete stops the stack's containers, then removes its stack dir.

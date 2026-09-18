@@ -190,6 +190,11 @@ type stackWithStatus struct {
 	// Networks is every network the stack is on, in interface order. The
 	// three fields above are the first of them, kept for older clients.
 	Networks []compose.Attachment `json:"networks,omitempty"`
+	// OwnAddress is true when the first network puts the container on a real
+	// segment, so the address it holds is somewhere a browser can go. False
+	// for a NAT bridge, where the address is private to the host and the
+	// stack's published ports are the way in.
+	OwnAddress bool `json:"ownAddress,omitempty"`
 }
 
 // buildEnv renders resolved variables into .env lines, sorted for determinism.

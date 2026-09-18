@@ -396,7 +396,7 @@
   // Attached to a network but holding no address: the reason the Open button
   // is missing, taken from whichever container reported it.
   $: noAddress =
-    selectedStack && (selectedStack as any).network && !openUrl
+    selectedStack && (selectedStack as any).ownAddress && !openUrl
       ? (selectedStack.status?.containers || []).find((c: any) => c.detail?.includes('no address'))?.detail ||
         `no address on ${(selectedStack as any).network} yet`
       : '';
@@ -903,16 +903,19 @@
         body: JSON.stringify(body),
       });
       if (res.ok) {
-        // If we injected a network/volume the on-disk compose changed;
+        // If we injected networks/a volume the on-disk compose changed;
         // re-fetch it so the editor shows the real (injected) compose.
-        if (body.network || body.volume) {
+        // NB "networks", plural: the singular field is gone, and testing it
+        // here meant savedRows was never refreshed after a network save --
+        // leaving the Unsaved badge on forever.
+        if (body.networks || body.volume) {
           const detail = await fetch(`/api/stacks/${selectedStack.name}`);
           if (detail.ok) selectedStack = await detail.json();
           // Re-read the picker from what was just written, so it keeps showing
           // the stack's network instead of snapping back to "Host ports".
           netRows = ((selectedStack as any)!.networks ?? []).map((a: Attachment) => ({ ...a }));
           savedRows = JSON.stringify(netRows);
-                            volChoice = '';
+          volChoice = '';
           volPath = '';
           volRO = false;
         }

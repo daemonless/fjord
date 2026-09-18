@@ -9,6 +9,8 @@ export type AppUrlStack = {
   compose?: string;
   env?: string;
   network?: string;
+  /** The first network puts the container on a real segment (daemon says so). */
+  ownAddress?: boolean;
   status?: {
     containers?: { address?: string; ports?: { hostPort: number; containerPort: number; protocol?: string }[] }[];
   };
@@ -17,12 +19,15 @@ export type AppUrlStack = {
 export function appUrl(stack: AppUrlStack | null): string {
   if (!stack) return '';
   const c = stack.compose || '';
-  // An address is only somewhere the BROWSER can go when the stack is on an
-  // attachable network. Unattached, a container still has one -- podman's own
-  // bridge, 10.88/10.89 -- and it is NAT behind the host: reachable from the
-  // host, not from here. Those stacks publish ports instead, so the host is
-  // the right answer and the container's address is the wrong one.
-  const attached = !!stack.network;
+  // An address is only somewhere the BROWSER can go when the network puts the
+  // container on a real segment. Every container has an address -- podman's
+  // own bridge hands out 10.88/10.89, and so does a private network someone
+  // made on purpose -- but those are NAT behind the host: reachable from the
+  // host, not from here. Such stacks publish ports, so the host is the right
+  // answer and the container's address is the wrong one. The daemon decides,
+  // from the network's own definition; "is it attached" gets private
+  // networks wrong.
+  const attached = !!stack.ownAddress;
   // The RUNTIME address first: an auto-assigned one exists nowhere else. The
   // compose only carries ipv4_address when the user pinned it, which leaves
   // every DHCP stack with nothing to build a link from.
