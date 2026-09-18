@@ -37,6 +37,25 @@ func (s *server) stackExec(w http.ResponseWriter, r *http.Request, name string) 
 		http.Error(w, "Stack not found", 404)
 		return
 	}
+	// The stack in the path did not bound the container in the query: any
+	// jail on the host could be named here and got a root shell. The UI only
+	// ever offers names from Status, so that is the list to hold it to.
+	status, err := s.backendFor(st).Status(r.Context(), st)
+	if err != nil {
+		http.Error(w, "cannot list this stack's containers", 500)
+		return
+	}
+	ok := false
+	for _, c := range status.Containers {
+		if c.Name == container {
+			ok = true
+			break
+		}
+	}
+	if !ok {
+		http.Error(w, "no container "+container+" in stack "+name, 403)
+		return
+	}
 	conn, err := wsUpgrader.Upgrade(w, r, nil)
 	if err != nil {
 		return // Upgrade already wrote the error

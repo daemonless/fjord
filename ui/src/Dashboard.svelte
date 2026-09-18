@@ -4,6 +4,7 @@
   import EngineMark from './EngineMark.svelte';
   import EmptyState from './EmptyState.svelte';
   import { expandVars } from './expand';
+  import { appUrl } from './appUrl';
 
   type ContainerStatus = {
     name: string;
@@ -49,39 +50,7 @@
     const s = b.lastIndexOf('/'), c = b.lastIndexOf(':');
     return c > s ? b.slice(c + 1) : 'latest';
   }
-  // Open link from the RUNNING container's actual published ports (the saved
-  // compose can be ahead of reality); macvlan IP from the compose when set.
-  function deriveLink(compose: string, env: string, status?: StackStatus): string {
-    const ip = (compose.match(/ipv4_address:\s*([0-9.]+)/) || [])[1];
-    const host = ip || location.hostname;
 
-    const vars: Record<string, string> = {};
-    for (const line of (env || '').split('\n')) {
-      const eq = line.indexOf('=');
-      if (eq > 0) vars[line.slice(0, eq).trim()] = line.slice(eq + 1).trim();
-    }
-    const resolve = (v: string) => expandVars(v, vars);
-
-    // x-fjord web hint (from the image's cit config; see App.appUrl) -- the
-    // only source for host-net stacks, never guessed from port numbers.
-    const hinted = resolve((compose.match(/web_port:\s*["']?([^\s"']+)/) || [])[1] || '');
-    if (/^\d{2,5}$/.test(hinted)) {
-      const scheme = /web_https:\s*true/.test(compose) ? 'https' : 'http';
-      return `${scheme}://${host}:${hinted}`;
-    }
-    // No hint: first observed published TCP port; http unless hint-declared.
-    const real = (status?.containers ?? [])
-      .flatMap((c) => c.ports ?? [])
-      .filter((p) => !p.protocol || p.protocol === 'tcp');
-    const port0 = real.map((p) => (ip ? p.containerPort || p.hostPort : p.hostPort)).find((p) => p && p !== 0);
-    if (port0) return `http://${host}:${port0}`;
-    // Compose fallback: ports list items only, so a MAC address never
-    // reads as a port (00:00 -> ":0").
-    const port =
-      (compose.match(/^\s*-\s*["']?(\d{2,5}):\d{2,5}(?:\/tcp)?["']?\s*$/m) || [])[1] ||
-      (compose.match(/published:\s*["']?(\d+)/) || [])[1];
-    return port ? `http://${host}:${port}` : '';
-  }
 
   // Parse .env text into a var map (KEY=value per line).
   function envMap(env: string): Record<string, string> {
@@ -101,7 +70,7 @@
       // Resolve ${VAR:-default} tags (e.g. immich's ${IMMICH_TAG:-latest})
       // before splitting, or the tag reads back as "-latest}".
       const img = expandVars(firstImage(s.compose || ''), envMap(s.env || ''));
-      next[s.name] = { tag: img ? imgTag(img) : '', link: deriveLink(s.compose || '', s.env || '', s.status) };
+      next[s.name] = { tag: img ? imgTag(img) : '', link: appUrl(s) };
     }
     info = next;
   }

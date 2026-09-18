@@ -23,6 +23,7 @@
   import Toasts from './Toasts.svelte';
   import { toast, dismissToast } from './toast';
   import { expandVars } from './expand';
+  import { appUrl } from './appUrl';
   import { currentTheme, setTheme, watchSystem, type Theme } from './theme';
   import { networkLabel, HOST_NETWORK, DEFAULT_NETWORK, randomMAC } from './network';
 
@@ -390,60 +391,7 @@
   // Derive a clickable URL for a webapp stack: its own IP when it has one,
   // else the host you're browsing fjord on, plus its primary published web
   // port. Empty when the stack publishes nothing web-ish.
-  function appUrl(stack: Stack | null): string {
-    if (!stack) return '';
-    const c = stack.compose || '';
-    // The RUNTIME address first: an auto-assigned one exists nowhere else.
-    // The compose only carries ipv4_address when the user pinned it, and a
-    // stack on its own IP publishes nothing on the host -- so falling back to
-    // location.hostname gives a link that times out.
-    const running = (stack.status?.containers || []).find((x: any) => x.address)?.address;
-    const ip = running || (c.match(/ipv4_address:\s*([0-9.]+)/) || [])[1];
-    // A stack on its own IP publishes nothing on the host, so with no address
-    // there is no link to give -- the host would just time out. Say why
-    // instead of offering one (see noAddress below).
-    if (!ip && (stack as any).network) return '';
-    const host = ip || location.hostname;
 
-    const env: Record<string, string> = {};
-    for (const line of (stack.env || '').split('\n')) {
-      const eq = line.indexOf('=');
-      if (eq > 0) env[line.slice(0, eq).trim()] = line.slice(eq + 1).trim();
-    }
-    const resolve = (v: string) => expandVars(v, env);
-
-    // x-fjord web hint -- derived from the image's cit config (the same
-    // port + https flag dbuild tests against), so nothing is guessed. May be
-    // a "${VAR}" reference resolved via .env. The only source for host-net
-    // stacks, which publish nothing.
-    const hinted = resolve((c.match(/web_port:\s*["']?([^\s"']+)/) || [])[1] || '');
-    if (/^\d{2,5}$/.test(hinted)) {
-      const scheme = /web_https:\s*true/.test(c) ? 'https' : 'http';
-      return `${scheme}://${host}:${hinted}`;
-    }
-
-    // No hint: prefer the RUNNING container's actual published ports (from the
-    // status API) -- the saved compose can be ahead of reality, since edits
-    // only apply on a recreate. Scheme http: https is only ever hint-declared.
-    // On a macvlan IP nothing is published (hostPort 0): the app answers on
-    // its container port at that IP. Otherwise only real published ports count.
-    let ports: string[] = (stack.status?.containers ?? [])
-      .flatMap((ct) => ct.ports ?? [])
-      .filter((p) => !p.protocol || p.protocol === 'tcp')
-      .map((p) => String(ip ? p.containerPort || p.hostPort : p.hostPort))
-      .filter((p) => p !== '0');
-
-    // Fallback (stack stopped): the compose's ports list items, resolving
-    // ${VAR} from .env. Anchored to "- host:container" lines so a MAC
-    // address (00:00) or an IP never reads as a port.
-    if (!ports.length) {
-      ports = [...c.matchAll(/^\s*-\s*["']?([\w${}.]+):(\d{2,5})(?:\/(tcp|udp))?["']?\s*$/gm)]
-        .filter((m) => !m[3] || m[3] === 'tcp')
-        .map((m) => resolve(m[1]))
-        .filter((h) => /^\d{2,5}$/.test(h));
-    }
-    return ports.length ? `http://${host}:${ports[0]}` : '';
-  }
   $: openUrl = appUrl(selectedStack);
   // Attached to a network but holding no address: the reason the Open button
   // is missing, taken from whichever container reported it.

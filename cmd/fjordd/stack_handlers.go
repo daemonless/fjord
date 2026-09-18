@@ -77,7 +77,15 @@ func (s *server) handleStacksList(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			status = engine.StackStatus{State: "unknown"}
 		}
-		enriched = append(enriched, stackWithStatus{Stack: st, Status: status})
+		// The list needs the networks too: without them its Open link cannot
+		// tell "publishes on the host" from "has its own address", and builds
+		// a host URL that times out.
+		atts := composepkg.AttachedNetworks(st.Compose)
+		row := stackWithStatus{Stack: st, Status: status, Networks: atts}
+		if len(atts) > 0 {
+			row.Network, row.NetworkIP, row.NetworkMAC = atts[0].Network, atts[0].IP, atts[0].MAC
+		}
+		enriched = append(enriched, row)
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(enriched)

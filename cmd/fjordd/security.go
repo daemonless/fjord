@@ -26,7 +26,14 @@ func sameOrigin(r *http.Request) bool {
 		}
 		return strings.EqualFold(u.Host, r.Host)
 	}
-	if o := r.Header.Get("Origin"); o != "" && o != "null" {
+	// "null" is an opaque origin -- a sandboxed iframe, a file:// page, a
+	// data: URL -- not an absent one. Falling through to the Referer check
+	// (which such a page also omits) reached the "no headers, must be curl"
+	// default and let it through.
+	if o := r.Header.Get("Origin"); o != "" {
+		if o == "null" {
+			return false
+		}
 		return check(o)
 	}
 	if ref := r.Header.Get("Referer"); ref != "" {
