@@ -19,6 +19,20 @@ type libpodNetwork struct {
 		Subnet  string `json:"subnet"`
 		Gateway string `json:"gateway"`
 	} `json:"subnets"`
+	Labels map[string]string `json:"labels"`
+}
+
+// composeProject marks a network compose made for one project, rather than one
+// someone created to attach stacks to. compose creates "<project>_default" per
+// stack and labels it; the label is the reliable tell, since the name is only
+// a convention and a user may legitimately have a network called that.
+func (n libpodNetwork) composeProject() bool {
+	for _, k := range []string{"com.docker.compose.project", "io.podman.compose.project"} {
+		if n.Labels[k] != "" {
+			return true
+		}
+	}
+	return false
 }
 
 // Networks lists the attachable networks over the libpod socket: the ones that
@@ -95,7 +109,8 @@ var hostScopedDrivers = map[string]bool{
 }
 
 // defaultBridge is the network the runtime makes for itself. Every stack that
-// asks for nothing is already on it, so offering it as a choice is noise.
+// asks for nothing is already on it, so offering it as a choice is noise --
+// as is the one compose makes per project (see composeProject).
 const defaultBridge = "podman"
 
 // parseNetworks filters the libpod network list to attachable networks.
@@ -112,7 +127,7 @@ func parseNetworks(data []byte) ([]engine.Network, error) {
 	}
 	out := make([]engine.Network, 0, len(raw))
 	for _, n := range raw {
-		if hostScopedDrivers[n.Driver] || n.Name == defaultBridge {
+		if hostScopedDrivers[n.Driver] || n.Name == defaultBridge || n.composeProject() {
 			continue
 		}
 		net := engine.Network{Name: n.Name, Driver: n.Driver}

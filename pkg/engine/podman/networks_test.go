@@ -82,3 +82,29 @@ func TestParseNetworksEmpty(t *testing.T) {
 		t.Fatalf("expected no networks, got %+v", nets)
 	}
 }
+
+// Verbatim shape from a FreeBSD host: podman-compose creates one bridge
+// network per project and labels it. Those are not somewhere to attach a
+// stack -- they ARE a stack's own plumbing -- so they must not reach the
+// picker, while a bridge network someone made on purpose still does.
+const composeProjectFixture = `[
+  {"name":"podman","driver":"bridge","subnets":[{"subnet":"10.88.0.0/16","gateway":"10.88.0.1"}]},
+  {"name":"zensical_default","driver":"bridge","subnets":[{"subnet":"10.89.0.0/24","gateway":"10.89.0.1"}],
+   "labels":{"com.docker.compose.project":"zensical","io.podman.compose.project":"zensical"}},
+  {"name":"privnet","driver":"bridge","subnets":[{"subnet":"10.100.0.0/24","gateway":"10.100.0.1"}]},
+  {"name":"lan","driver":"epair"}
+]`
+
+func TestParseNetworksDropsComposeProjectNetworks(t *testing.T) {
+	nets, err := parseNetworks([]byte(composeProjectFixture))
+	if err != nil {
+		t.Fatalf("parseNetworks: %v", err)
+	}
+	var names []string
+	for _, n := range nets {
+		names = append(names, n.Name)
+	}
+	if len(names) != 2 || names[0] != "privnet" || names[1] != "lan" {
+		t.Fatalf("want [privnet lan], got %v", names)
+	}
+}
