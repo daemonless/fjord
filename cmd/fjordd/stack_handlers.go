@@ -10,6 +10,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	composepkg "github.com/daemonless/fjord/pkg/compose"
@@ -241,6 +242,12 @@ func (s *server) stackDetail(w http.ResponseWriter, r *http.Request, name string
 // is refused: removing the dir would orphan running containers that fjord
 // could no longer see or stop.
 func (s *server) stackDelete(w http.ResponseWriter, name string) {
+	unlock, ok := lockStack(name)
+	if !ok {
+		http.Error(w, "another operation is already running on this stack; wait for it to finish", http.StatusConflict)
+		return
+	}
+	defer unlock()
 	if st, err := s.manager.Get(name); err == nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		be := s.backendFor(st)
@@ -606,6 +613,28 @@ func (s *server) handleReorder(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte(`{"status":"ok"}`))
 }
 
+// lifecycleLocks serializes the operations that change a stack's running
+// state, one lock per stack. Two compose runs in the same directory race on
+// container state and podman's storage lock, and the loser fails with a
+// cryptic error after the winner has already half-changed things -- which is
+// exactly what a double-click on Start, or Delete while an update is still
+// pulling, produces. AppJail stacks queue behind directorLock inside the
+// engine, but the overlap arrives here, at the HTTP layer, for both engines.
+//
+// Held with TryLock, not Lock: the caller is a browser waiting on a streamed
+// response, so the second click is refused immediately rather than parked
+// behind a ten-minute pull.
+var lifecycleLocks sync.Map
+
+func lockStack(name string) (unlock func(), ok bool) {
+	mu, _ := lifecycleLocks.LoadOrStore(name, &sync.Mutex{})
+	m := mu.(*sync.Mutex)
+	if !m.TryLock() {
+		return nil, false
+	}
+	return m.Unlock, true
+}
+
 // stackLifecycle runs up/down/update/restart, streaming the backend's output.
 func (s *server) stackLifecycle(w http.ResponseWriter, r *http.Request, name, action string) {
 	st, err := s.manager.Get(name)
@@ -613,6 +642,13 @@ func (s *server) stackLifecycle(w http.ResponseWriter, r *http.Request, name, ac
 		http.Error(w, "Stack not found", 404)
 		return
 	}
+
+	unlock, ok := lockStack(name)
+	if !ok {
+		http.Error(w, "another operation is already running on this stack; wait for it to finish", http.StatusConflict)
+		return
+	}
+	defer unlock()
 
 	// Generous timeout: update pulls images, which can be slow.
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
