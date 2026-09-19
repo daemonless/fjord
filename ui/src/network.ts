@@ -91,3 +91,68 @@ export function randomMAC(): string {
   crypto.getRandomValues(b);
   return ['02', ...b].map((x) => Number(x).toString(16).padStart(2, '0')).join(':');
 }
+
+/**
+ * Why an address can't be used on a network, or "" if it can.
+ *
+ * The daemon checks this too and is the authority -- it knows about
+ * reservations the browser can't see. But it only gets to speak once Install
+ * is pressed, and by then the wizard is gone and everything typed into it with
+ * it. The rules below need nothing the UI doesn't already have, so they run
+ * while the field is being filled in: same wording as the daemon's refusal, so
+ * the two never look like different complaints.
+ */
+export function addressProblem(
+  addr: string,
+  net: { subnet?: string; gateway?: string; addressSource?: string } | undefined,
+): string {
+  const a = (addr || '').trim();
+  if (!a) return '';
+  const ip = parseIPv4(a);
+  if (ip === null) return `${a} is not an IPv4 address`;
+  // Only for networks the daemon checks the same way -- the ones defined by a
+  // conflist. On an engine-allocated network it reports the engine's own view,
+  // which does not follow these rules: appjail hands out the address it calls
+  // the gateway as the first one in the range. Refusing it here would disable
+  // Install over something the daemon would have taken.
+  if (net?.addressSource === 'engine') return '';
+  const cidr = parseCIDR(net?.subnet || '');
+  if (!cidr) return ''; // segment unknown; nothing to check it against
+  const { base, mask, bits } = cidr;
+  if ((ip & mask) >>> 0 !== base) return `${a} is not in ${net!.subnet}`;
+  if (bits < 32) {
+    if (ip === base) return `${a} is the network address of ${net!.subnet}, not a host in it`;
+    if (ip === ((base | ~mask) >>> 0)) {
+      return `${a} is the broadcast address of ${net!.subnet}, not a host in it`;
+    }
+  }
+  if (net?.gateway && parseIPv4(net.gateway) === ip) return `${a} is the gateway for ${net!.subnet}`;
+  return '';
+}
+
+/** Dotted quad -> unsigned 32-bit, or null if it isn't one. */
+function parseIPv4(s: string): number | null {
+  const parts = (s || '').trim().split('.');
+  if (parts.length !== 4) return null;
+  let n = 0;
+  for (const p of parts) {
+    // Reject "1e2", "0x0a", " 7" -- each parses as a number but is not what
+    // the operator wrote. Leading zeros go too: the daemon's net.ParseIP
+    // refuses "010.1.1.1", so accepting it here would pass the field and fail
+    // the install.
+    if (!/^(0|[1-9]\d{0,2})$/.test(p)) return null;
+    const v = Number(p);
+    if (v > 255) return null;
+    n = ((n << 8) | v) >>> 0;
+  }
+  return n;
+}
+
+function parseCIDR(s: string): { base: number; mask: number; bits: number } | null {
+  const [addr, len] = (s || '').split('/');
+  const ip = parseIPv4(addr || '');
+  const bits = Number(len);
+  if (ip === null || !/^\d{1,2}$/.test(len || '') || bits > 32) return null;
+  const mask = bits === 0 ? 0 : (0xffffffff << (32 - bits)) >>> 0;
+  return { base: (ip & mask) >>> 0, mask, bits };
+}

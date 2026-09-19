@@ -25,7 +25,7 @@
   import { expandVars } from './expand';
   import { appUrl } from './appUrl';
   import { currentTheme, setTheme, watchSystem, type Theme } from './theme';
-  import { networkLabel, HOST_NETWORK, DEFAULT_NETWORK, randomMAC } from './network';
+  import { addressProblem, networkLabel, HOST_NETWORK, DEFAULT_NETWORK, randomMAC } from './network';
 
   type ContainerStatus = {
     name: string;
@@ -486,10 +486,11 @@
         ? n.subnet ? `static · ${n.subnet}` : 'static'
         : n.subnet || '';
 
-  // Shape only: whether it fits the segment is the daemon's call. Catches the
-  // typo that reached a jail as 0.0.0.1 before anything is submitted.
-  const badIPv4 = (v: string) =>
-    !!v.trim() && !/^(\d{1,3}\.){3}\d{1,3}$/.test(v.trim());
+  // Why this row's address won't work on the network it names, or "". Checked
+  // as it is typed: the daemon refuses the same thing at Save, and finding out
+  // then means the compose edit above it went with the refusal.
+  const rowIPProblem = (row: Attachment) =>
+    isMode(row.network) ? '' : addressProblem(row.ip ?? '', networks.find((n) => n.name === row.network));
   function segmentTaken(n: Network, row: number): string {
     if (!n.bridge) return '';
     const clash = netRows.find(
@@ -1343,68 +1344,65 @@
     tag: string;
     network: string;
     ip: string;
+    mac?: string;
+    accepted?: () => void;
+    refused?: (msg: string) => void;
   }>) {
-    const { name, appId, engine, manifest, values, paths, appData, tag, network, ip } = e.detail;
+    const { name, appId, engine, manifest, values, paths, appData, tag, network, ip, mac } = e.detail;
 
-    // The stack id is allocated server-side; until the response header arrives
-    // key the optimistic terminal by a temporary handle, then re-key to the id.
-    let key = 'installing:' + name;
-    currentView = 'stacks';
-    selectedStack = { name: key, displayName: name, dir: '', compose: '', env: '' };
-    originalCompose = '';
-    originalEnv = '';
-    originalDirector = '';
-    originalMakejail = '';
-    logs[key] = `Installing ${name}...\n`;
-    execStatus[key] = 'running';
-    execMessage[key] = 'Installing...';
-
+    // Nothing is torn down or navigated to until the daemon has taken the
+    // install. It refuses some of these outright -- an address that is a
+    // network address, a name already used -- and those refusals are about
+    // what was typed into the wizard, so the wizard has to still be there to
+    // show them against. Closing it first threw away every other answer in
+    // the form along with the one that was wrong.
+    let key = '';
+    let handed = false;
     try {
       const res = await fetch('/api/apps/install', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, manifest, values, ...(paths ? { paths } : {}), ...(appData ? { appData } : {}), ...(appId ? { app_id: appId } : {}), ...(engine ? { engine } : {}), ...(tag ? { tag } : {}), ...(network ? { network, ip } : {}) }),
+        body: JSON.stringify({ name, manifest, values, ...(paths ? { paths } : {}), ...(appData ? { appData } : {}), ...(appId ? { app_id: appId } : {}), ...(engine ? { engine } : {}), ...(tag ? { tag } : {}), ...(network ? { network, ip, ...(mac ? { mac } : {}) } : {}) }),
       });
-      // Re-key optimistic state from the temp handle to the real allocated id.
-      // The server sends the id as soon as the stack exists on disk -- also on
-      // a refused bring-up -- so the saved stack is what the user lands on.
-      const rekey = () => {
-        const id = res.headers.get('X-Fjord-Stack-Id') || key;
-        if (id === key) return;
-        logs[id] = logs[key];
-        execStatus[id] = execStatus[key];
-        execMessage[id] = execMessage[key];
-        delete logs[key];
-        delete execStatus[key];
-        delete execMessage[key];
-        if (selectedStack?.name === key) selectedStack = { ...selectedStack, name: id };
-        key = id;
-      };
+      // The server sends the id as soon as the stack exists on disk -- also
+      // when it then refuses to start it. So the header, not the status, says
+      // whether there is a stack to go to: without one nothing was saved and
+      // there is nothing to show but the wizard the request came from.
+      const id = res.headers.get('X-Fjord-Stack-Id') || '';
+      if (!res.ok && !id) {
+        e.detail.refused?.((await res.text()).trim() || `HTTP ${res.status}`);
+        return;
+      }
+      e.detail.accepted?.();
+      handed = true;
+      // A 200 always carries the id. Keyed by a handle if one ever doesn't,
+      // so the terminal still has somewhere to write.
+      key = id || 'installing:' + name;
+      currentView = 'stacks';
+      selectedStack = { name: key, displayName: name, dir: '', compose: '', env: '' };
+      originalCompose = '';
+      originalEnv = '';
+      originalDirector = '';
+      originalMakejail = '';
+      logs[key] = `Installing ${name}...\n`;
+      execStatus[key] = 'running';
+      execMessage[key] = 'Installing...';
+
       if (!res.ok) {
+        // Saved but not started (taken ports, a refused bring-up). The stack
+        // is real, so land on it with the reason in its output.
         const msg = (await res.text()).trim();
-        rekey();
-        if (key.startsWith('installing:')) {
-          // Nothing was saved (bad input, unknown app): no stack to show, so
-          // don't leave an empty "Create" draft behind -- report and go back.
-          delete logs[key];
-          delete execStatus[key];
-          delete execMessage[key];
-          selectedStack = null;
-          currentView = 'store';
-          toast(`Install failed: ${msg || `HTTP ${res.status}`}`, { kind: 'error', timeout: 10000 });
-          return;
-        }
         execStatus[key] = 'error';
         execMessage[key] = `HTTP ${res.status}`;
         logs[key] += `[ERROR]: ${msg}\n`;
         await loadStacks();
         const saved = stacks.find((s) => s.name === key) || null;
-        // Same on a failure: the toast already says it failed, so there is no
-        // reason to haul someone off the page they chose.
+        // The toast already says it failed, so there is no reason to haul
+        // someone off the page they chose.
         if (saved && stillWatching(key)) selectStack(saved);
+        toast(`Install failed: ${msg || `HTTP ${res.status}`}`, { kind: 'error', timeout: 10000 });
         return;
       }
-      rekey();
       // The server saves the stack BEFORE pulling, so it's readable now --
       // populate editor + sidebar instead of leaving them empty during the pull.
       (async () => {
@@ -1441,6 +1439,12 @@
       // stack is saved and its status is live in the list either way.
       if (found && stillWatching(key)) selectStack(found);
     } catch (err: any) {
+      // Before the hand-off there is no stack and no terminal to write to;
+      // the wizard is still up, so the failure belongs in it.
+      if (!handed) {
+        e.detail.refused?.(err?.message || String(err));
+        return;
+      }
       execStatus[key] = 'error';
       execMessage[key] = 'Failed';
       logs[key] += `[ERROR]: ${err?.message || err}\n`;
@@ -2111,8 +2115,16 @@
                             on:input={() => (netRows = netRows)}
                             disabled={isMode(row.network)}
                             placeholder={isMode(row.network) ? '—' : 'auto'}
-                            class="w-full bg-fjord-inset border border-fjord-border rounded px-2 py-1 text-sm font-mono text-fjord-fg-body focus:border-fjord-accent outline-none disabled:opacity-40"
+                            title={rowIPProblem(row)}
+                            class="w-full bg-fjord-inset border rounded px-2 py-1 text-sm font-mono text-fjord-fg-body focus:border-fjord-accent outline-none disabled:opacity-40 {rowIPProblem(
+                              row,
+                            )
+                              ? 'border-fjord-danger/60'
+                              : 'border-fjord-border'}"
                           />
+                          {#if rowIPProblem(row)}
+                            <p class="text-xs text-fjord-danger mt-1">{rowIPProblem(row)}.</p>
+                          {/if}
                         </td>
                         <td class="py-2 pr-2">
                           <div class="flex gap-1">
@@ -2121,12 +2133,7 @@
                               on:input={() => (netRows = netRows)}
                               disabled={isMode(row.network)}
                               placeholder={isMode(row.network) ? '—' : 'auto'}
-                              title={badIPv4(row.ip ?? '') ? `${row.ip} is not an IPv4 address` : ''}
-                              class="w-full bg-fjord-inset border rounded px-2 py-1 text-sm font-mono text-fjord-fg-body focus:border-fjord-accent outline-none disabled:opacity-40 {badIPv4(
-                                row.ip ?? '',
-                              )
-                                ? 'border-fjord-danger/60'
-                                : 'border-fjord-border'}"
+                              class="w-full bg-fjord-inset border border-fjord-border rounded px-2 py-1 text-sm font-mono text-fjord-fg-body focus:border-fjord-accent outline-none disabled:opacity-40"
                             />
                             <!-- Fills a blank field only. Changing a MAC breaks
                                  the DHCP reservation keyed on it, so overwriting

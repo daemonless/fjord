@@ -4,7 +4,7 @@
   import Icon from './Icon.svelte';
   import Spinner from './Spinner.svelte';
   import DirPicker from './DirPicker.svelte';
-  import { randomMAC } from './network';
+  import { addressProblem, randomMAC } from './network';
 
   // sources: every catalog offering this app; the user picks one (Repository)
   // when there's more than one. Each carries its own manifest_url + variants.
@@ -19,6 +19,11 @@
   export let appName: string;
   export let appId = ''; // for host-path placeholder suggestions (/containers/<id>/...)
   export let appClass = ''; // "stack" = multi-image compose (no global tag rewrite)
+  // Set while the daemon is deciding, and to its reason when it says no. The
+  // wizard stays up for both: a refusal that arrives after the form is gone
+  // costs every answer in it, not just the one that was wrong.
+  export let busy = false;
+  export let submitError = '';
 
   // App data locations (Settings): the first is the default; with more than one
   // the wizard shows a picker. The choice drives path hints + {{appdata}}.
@@ -399,11 +404,11 @@
         ? n.subnet ? `static · ${n.subnet}` : 'static'
         : n.subnet || '';
 
-  // Shape only: whether it fits the segment is the daemon's call. Catches the
-  // typo that reached a jail as 0.0.0.1 before anything is submitted.
-  const badIPv4 = (v: string) =>
-    !!v.trim() && !/^(\d{1,3}\.){3}\d{1,3}$/.test(v.trim());
   $: chosenNet = networks.find((n) => n.name === netChoice);
+  // Checked here, not just at the daemon. The daemon's refusal arrives after
+  // Install, and the wizard is gone by then -- a network address typed into
+  // this field cost the operator every other answer in the form.
+  $: ipProblem = netChoice && !builtIn(netChoice) ? addressProblem(netIP, chosenNet) : '';
   // appjail cannot draw from the pool the podman side's IPAM manages, so on a
   // pool network it needs an address given to it. On DHCP nothing does.
   // Keyed on WHO allocates, which the network reports. Inferring it from "has
@@ -420,6 +425,9 @@
   // left Deploy disabled with the field that would satisfy it out of sight and
   // no reason on screen.
   $: if (ipRequired && !netIP.trim()) showOptions = true;
+  // Same for an address that won't work: Install is disabled over it, so the
+  // reason cannot be folded away inside Options where nobody sees it.
+  $: if (ipProblem) showOptions = true;
 
   // Scoped to the engine being installed on. The unscoped list spans both, so
   // it offers networks the chosen engine cannot attach to -- appjail's own
@@ -843,14 +851,12 @@
                   type="text"
                   bind:value={netIP}
                   placeholder={ipRequired ? 'IP (required on this engine)' : 'IP (optional — auto-assign if blank)'}
-                  class="w-full mt-2 bg-fjord-inset border rounded-md px-3 py-2 text-fjord-fg-body font-mono text-sm focus:outline-none focus:border-fjord-accent {badIPv4(
-                    netIP,
-                  )
+                  class="w-full mt-2 bg-fjord-inset border rounded-md px-3 py-2 text-fjord-fg-body font-mono text-sm focus:outline-none focus:border-fjord-accent {ipProblem
                     ? 'border-fjord-danger/60'
                     : 'border-fjord-border'}"
                 />
-                {#if badIPv4(netIP)}
-                  <p class="text-xs text-fjord-danger mt-1">{netIP.trim()} is not an IPv4 address.</p>
+                {#if ipProblem}
+                  <p class="text-xs text-fjord-danger mt-1">{ipProblem}.</p>
                 {/if}
                 {#if ipRequired && !netIP.trim()}
                   <p class="text-xs text-fjord-warning mt-1">
@@ -915,15 +921,32 @@
       {/if}
     </div>
 
-    <div class="p-4 border-t border-fjord-border bg-fjord-card flex justify-end gap-3">
-      <button on:click={close} class="px-4 py-2 rounded-md font-medium text-fjord-fg-secondary hover:text-fjord-fg hover:bg-fjord-border transition-all">Cancel</button>
+    <div class="p-4 border-t border-fjord-border bg-fjord-card flex items-center justify-end gap-3">
+      {#if submitError}
+        <p class="mr-auto text-xs text-fjord-danger">{submitError}</p>
+      {/if}
+      <button
+        on:click={close}
+        disabled={busy}
+        class="px-4 py-2 rounded-md font-medium text-fjord-fg-secondary hover:text-fjord-fg hover:bg-fjord-border transition-all disabled:opacity-50">Cancel</button
+      >
       <button
         on:click={deploy}
-        disabled={loading || !!error || !validName || missingRequired.length > 0 || (ipRequired && !netIP.trim()) || badIPv4(netIP)}
-        title={!validName ? 'Enter a valid stack name' : missingRequired.length ? `Fill required: ${missingRequired.map((v) => v.name).join(', ')}` : ''}
-        class="bg-fjord-accent hover:bg-fjord-accent-hover text-white px-6 py-2 rounded-md font-medium shadow-lg transition-all disabled:opacity-50"
-        >Install</button
+        disabled={busy || loading || !!error || !validName || missingRequired.length > 0 || (ipRequired && !netIP.trim()) || !!ipProblem}
+        title={!validName
+          ? 'Enter a valid stack name'
+          : missingRequired.length
+            ? `Fill required: ${missingRequired.map((v) => v.name).join(', ')}`
+            : ipProblem
+              ? ipProblem
+              : ipRequired && !netIP.trim()
+                ? `${netChoice} allocates nothing — give this app an address`
+                : ''}
+        class="bg-fjord-accent hover:bg-fjord-accent-hover text-white px-6 py-2 rounded-md font-medium shadow-lg transition-all disabled:opacity-50 flex items-center gap-2"
       >
+        {#if busy}<Spinner size={14} />{/if}
+        {busy ? 'Installing…' : 'Install'}
+      </button>
     </div>
   </div>
 </div>
