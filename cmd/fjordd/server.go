@@ -261,6 +261,11 @@ func buildEnv(env map[string]string) string {
 // escapes + \r intact) -- the UI renders it in xterm.js, a real terminal
 // emulator, so colors and in-place progress lines display correctly.
 func streamOutput(w http.ResponseWriter, stream io.ReadCloser) {
+	// The backends hand back the read end of an io.Pipe fed by a goroutine.
+	// Closing it unblocks that writer if the client vanished mid-stream --
+	// without it a follow (logs -f) leaves the goroutine and its podman
+	// children parked on a write nobody will ever drain.
+	defer stream.Close()
 	w.Header().Set("Content-Type", "text/plain")
 	w.WriteHeader(http.StatusOK)
 	if f, ok := w.(http.Flusher); ok {
