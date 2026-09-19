@@ -64,8 +64,26 @@ type Report struct {
 
 // Config carries the runtime context checks depend on.
 type Config struct {
-	Engine    string // active engine name (filters engine-specific checks)
+	// Engines are the engines to report on: a check tied to one runs when that
+	// engine is listed. Plural because a host can have several installed, and
+	// the setup page has to say whether EACH is healthy -- filtering to the
+	// default meant a working podman went unreported the moment appjail was
+	// the default, on a host where stacks could be installed on either.
+	Engines   []string
 	FjordRoot string
+}
+
+// forEngine reports whether a check tied to an engine should run.
+func (c Config) forEngine(name string) bool {
+	if name == "" {
+		return true // not engine-specific
+	}
+	for _, e := range c.Engines {
+		if e == name {
+			return true
+		}
+	}
+	return false
 }
 
 // platformInfo is what each platform_<os>.go leaf provides.
@@ -83,12 +101,12 @@ func Mode() string {
 	return platform(Config{}).mode
 }
 
-// Run executes every check applicable to this platform and the active engine.
+// Run executes every check applicable to this platform and the engines named.
 func Run(ctx context.Context, cfg Config) Report {
 	p := platform(cfg)
 	results := make([]Result, 0, len(p.checks))
 	for _, c := range p.checks {
-		if c.Engine != "" && c.Engine != cfg.Engine {
+		if !cfg.forEngine(c.Engine) {
 			continue
 		}
 		var st Status
