@@ -235,7 +235,7 @@ func TestDetachNetworksRestoresPorts(t *testing.T) {
 	if !strings.Contains(out, `"8080:80"`) || strings.Contains(out, "x-fjord-published") {
 		t.Errorf("ports not restored:\n%s", out)
 	}
-	for _, gone := range []string{"networks:", "mac_address", "extra_hosts", "external"} {
+	for _, gone := range []string{"\n    networks:", "\n    mac_address", "extra_hosts", "external"} {
 		if strings.Contains(out, gone) {
 			t.Errorf("%q survived the detach:\n%s", gone, out)
 		}
@@ -243,4 +243,145 @@ func TestDetachNetworksRestoresPorts(t *testing.T) {
 	if len(AttachedNetworks(out)) != 0 {
 		t.Errorf("still reported as attached:\n%s", out)
 	}
+	// Detached, but not forgotten: the addresses are kept so going back does
+	// not mean typing them again. Matched on the service-level mac_address
+	// above (a two-space indent), since the stash holds one too.
+	stash := StashedNetworks(out)
+	if len(stash) != 1 || stash[0].Network != "lan" || stash[0].MAC != "02:1a:2b:3c:4d:5e" {
+		t.Errorf("attachment not stashed for a trip back: %+v\n%s", stash, out)
+	}
+}
+
+// The chain the user hit: three networks, off to a mode, through another
+// mode, and back. The stash has to survive the middle transition -- an
+// unguarded stash would overwrite the real one with the empty set it finds
+// there -- and has to be gone once the attachments are written again.
+func TestStashSurvivesModeChain(t *testing.T) {
+	in := "services:\n  app:\n    image: x\n    ports:\n      - \"8080:80\"\n"
+	attached, err := InjectNetworks(in, []Attachment{
+		{Network: "lan", IP: "192.168.4.10", MAC: "02:1a:2b:3c:4d:5e"},
+		{Network: "lan2"},
+		{Network: "tttt"},
+	})
+	if err != nil {
+		t.Fatalf("attach: %v", err)
+	}
+	cur := attached
+	for _, step := range []func(string) (string, error){DisableNetwork, HostNetwork, DetachNetworks, DisableNetwork} {
+		if cur, err = step(cur); err != nil {
+			t.Fatalf("transition: %v", err)
+		}
+		got := StashedNetworks(cur)
+		if len(got) != 3 || got[0].Network != "lan" || got[1].Network != "lan2" || got[2].Network != "tttt" {
+			t.Fatalf("stash lost through a transition: %+v\n%s", got, cur)
+		}
+		if got[0].IP != "192.168.4.10" || got[0].MAC != "02:1a:2b:3c:4d:5e" {
+			t.Fatalf("pins lost through a transition: %+v\n%s", got[0], cur)
+		}
+		// Stashed on a mode, handed back on bridge -- present either way.
+		if !strings.Contains(cur, `"8080:80"`) {
+			t.Fatalf("published ports lost through a transition:\n%s", cur)
+		}
+	}
+	// Restoring is the UI handing the stash straight back.
+	back, err := InjectNetworks(cur, StashedNetworks(cur))
+	if err != nil {
+		t.Fatalf("restore: %v", err)
+	}
+	if strings.Contains(back, "x-fjord-networks") {
+		t.Errorf("stash outlived the attachment that consumed it:\n%s", back)
+	}
+	got := AttachedNetworks(back)
+	if len(got) != 3 || got[0].IP != "192.168.4.10" || got[0].MAC != "02:1a:2b:3c:4d:5e" {
+		t.Errorf("restore did not put the addresses back: %+v\n%s", got, back)
+	}
+}
+
+// "none" on FreeBSD needs the vnet annotation as well: network_mode alone
+// leaves the jail sharing the host's stack, which is the opposite of off.
+func TestDisableNetwork(t *testing.T) {
+	in := "services:\n  app:\n    image: x\n    ports:\n      - \"8080:80\"\n"
+	out, err := DisableNetwork(in)
+	if err != nil {
+		t.Fatalf("disable: %v", err)
+	}
+	for _, want := range []string{"network_mode: none", "org.freebsd.jail.vnet: new"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q in:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "\n    ports:") {
+		t.Errorf("published ports should be stashed, not left to bind nothing:\n%s", out)
+	}
+	if NetworkMode(out) != None {
+		t.Errorf("not reported as none, got %q:\n%s", NetworkMode(out), out)
+	}
+	// Attaching a network afterwards is the way back, and must undo it.
+	back, err := InjectNetworks(out, []Attachment{{Network: "lan"}})
+	if err != nil {
+		t.Fatalf("re-attach after disable: %v", err)
+	}
+	if NetworkMode(back) != "" || strings.Contains(back, "network_mode") {
+		t.Errorf("network_mode survived an attach:\n%s", back)
+	}
+}
+
+// The four ways through the stack's network picker, round-tripped. Each mode
+// stashes the published ports, so a user who clicks through them has to get
+// the same compose back -- the first cut of DetachNetworks left network_mode
+// in place, which made "back to bridge" a silent no-op.
+func TestNetworkModeRoundTrip(t *testing.T) {
+	in := "services:\n  app:\n    image: x\n    ports:\n      - \"8080:80\"\n"
+	for _, tc := range []struct {
+		mode string
+		set  func(string) (string, error)
+	}{
+		{None, DisableNetwork},
+		{Host, HostNetwork},
+	} {
+		out, err := tc.set(in)
+		if err != nil {
+			t.Fatalf("%s: %v", tc.mode, err)
+		}
+		if got := NetworkMode(out); got != tc.mode {
+			t.Errorf("%s: read back as %q:\n%s", tc.mode, got, out)
+		}
+		// host shares the host's stack, so an empty vnet of its own is the
+		// one thing it must NOT have.
+		if hasVnet := strings.Contains(out, "org.freebsd.jail.vnet"); hasVnet != (tc.mode == None) {
+			t.Errorf("%s: vnet annotation = %v:\n%s", tc.mode, hasVnet, out)
+		}
+		back, err := DetachNetworks(out)
+		if err != nil {
+			t.Fatalf("%s -> bridge: %v", tc.mode, err)
+		}
+		// Asserted as properties rather than against `in`: DetachNetworks
+		// re-encodes at its own indent, so byte equality would be testing the
+		// fixture's formatting rather than the code.
+		if !strings.Contains(back, "ports:") || strings.Contains(back, "x-fjord-published") {
+			t.Errorf("%s -> bridge did not give the published ports back:\n%s", tc.mode, back)
+		}
+		for _, leftover := range []string{"network_mode", "org.freebsd.jail.vnet", "annotations"} {
+			if strings.Contains(back, leftover) {
+				t.Errorf("%s -> bridge left %q behind:\n%s", tc.mode, leftover, back)
+			}
+		}
+	}
+	// And straight from one mode to the other, without passing through bridge.
+	h, err := HostNetwork(mustDisable(t, in))
+	if err != nil {
+		t.Fatalf("none -> host: %v", err)
+	}
+	if strings.Contains(h, "org.freebsd.jail.vnet") {
+		t.Errorf("none -> host kept the vnet annotation:\n%s", h)
+	}
+}
+
+func mustDisable(t *testing.T, in string) string {
+	t.Helper()
+	out, err := DisableNetwork(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return out
 }

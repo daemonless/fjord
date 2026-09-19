@@ -35,6 +35,13 @@ type Attachment struct {
 	Network string `json:"network"`
 	IP      string `json:"ip,omitempty"`
 	MAC     string `json:"mac,omitempty"`
+	// Iface is what the interface is called INSIDE the container, reported by
+	// the daemon and never written to the compose. podman names them eth0,
+	// eth1, ...; appjail names the jail side of the epair after the option
+	// that made it, so the same row is sb_<name> on a host bridge and
+	// eb_<name> on a virtual network. Showing "eth0" for a jail was simply
+	// wrong -- `ifconfig eth0` there answers "interface eth0 does not exist".
+	Iface string `json:"iface,omitempty"`
 }
 
 // InjectNetwork attaches a stack to a single network. Thin wrapper over
@@ -106,11 +113,40 @@ func InjectNetworks(composeYAML string, atts []Attachment) (string, error) {
 	// way reaches its own parts over localhost -- moving it onto a network
 	// gives every service a separate address and breaks all of it.
 	for _, sv := range svcs {
-		if sv.node.Kind == yaml.MappingNode && mapGet(sv.node, "network_mode") != nil {
-			mode := mapGet(sv.node, "network_mode").Value
-			return "", fmt.Errorf("service %q uses network_mode: %s, so this stack cannot take its own address -- its services reach each other over localhost", sv.name, mode)
+		m := mapGet(sv.node, "network_mode")
+		if sv.node.Kind != yaml.MappingNode || m == nil {
+			continue
+		}
+		// "none" and "host" are fjord's own doing -- both are choices on the
+		// stack's network picker -- so attaching is how either is undone.
+		//
+		// Except for host with more than one service, which stays refused.
+		// The two modes are not symmetrical: under "none" every service
+		// already has its own empty vnet, so localhost between them is
+		// broken before we touch it and attaching can only improve matters.
+		// Under "host" they share the host's stack and DB_HOST=localhost
+		// works TODAY -- giving each its own address breaks a running stack
+		// at runtime, with nothing to say so at save time.
+		if m.Value == None || (m.Value == Host && len(svcs) == 1) {
+			clearMode(sv.node)
+			continue
+		}
+		return "", fmt.Errorf("service %q uses network_mode: %s, so this stack cannot take its own address -- its services reach each other over localhost", sv.name, m.Value)
+	}
+	// The stash exists to survive a trip through a mode, and attaching is the
+	// end of that trip. It is dropped whether or not the caller used it: the
+	// attachments written here are the literal truth, and a stash left behind
+	// would shadow the next one.
+	//
+	// Deliberately NOT merged into the request. Filling a blank address from
+	// it would resurrect a pin the user may have just cleared, and would leave
+	// no way to say "attach lan with no address at all".
+	for _, sv := range svcs {
+		if sv.node.Kind == yaml.MappingNode {
+			mapDelete(sv.node, "x-fjord-networks")
 		}
 	}
+
 	// A pinned address or MAC belongs to the service that serves: with several
 	// services it can only go on the published one.
 	target := svcs[0].name
@@ -230,6 +266,62 @@ func stashPorts(svc *yaml.Node) {
 		mapSet(svc, "x-fjord-published", ports)
 	}
 	mapDelete(svc, "ports")
+}
+
+// stashNetworks keeps a service's attachments where putting it on a mode would
+// otherwise throw them away. Same contract as stashPorts, and the same guard
+// for the same reason: lan,lan2 -> none -> host must not let the second
+// transition overwrite the real stash with the empty one it finds.
+//
+// The stash is normalised to a mapping of network -> pins rather than a copy
+// of whatever `networks:` held, so the service-level mac_address (the old
+// single-network form, and the one a DHCP reservation is keyed on) has
+// somewhere to go. Without that it is the most expensive thing on the page to
+// lose, and it would vanish silently.
+func stashNetworks(svc *yaml.Node) {
+	atts := serviceAttachments(mapGet(svc, "networks"))
+	if len(atts) == 0 || mapGet(svc, "x-fjord-networks") != nil {
+		return
+	}
+	if atts[0].MAC == "" {
+		if m := mapGet(svc, "mac_address"); m != nil {
+			atts[0].MAC = m.Value
+		}
+	}
+	out := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+	for _, a := range atts {
+		pins := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+		if a.IP != "" {
+			pins.Content = append(pins.Content, scalar("ipv4_address"), scalar(a.IP))
+		}
+		if a.MAC != "" {
+			pins.Content = append(pins.Content, scalar("mac_address"), scalar(a.MAC))
+		}
+		out.Content = append(out.Content, scalar(a.Network), pins)
+	}
+	mapSet(svc, "x-fjord-networks", out)
+}
+
+// StashedNetworks reports the attachments a stack had before it was put on a
+// mode, so the UI can offer them back rather than making the user retype an
+// address set it still has on disk.
+func StashedNetworks(composeYAML string) []Attachment {
+	var doc yaml.Node
+	if yaml.Unmarshal([]byte(composeYAML), &doc) != nil || len(doc.Content) == 0 {
+		return nil
+	}
+	services := mapGet(doc.Content[0], "services")
+	if services == nil || services.Kind != yaml.MappingNode {
+		return nil
+	}
+	// The first service that has one: they are written together and read back
+	// as one set, the same as AttachedNetworks reports one set for the stack.
+	for i := 1; i < len(services.Content); i += 2 {
+		if atts := serviceAttachments(mapGet(services.Content[i], "x-fjord-networks")); len(atts) > 0 {
+			return atts
+		}
+	}
+	return nil
 }
 
 // mapDelete removes a key and its value from a mapping node.
@@ -353,8 +445,13 @@ func DetachNetworks(composeYAML string) (string, error) {
 		if svc.Kind != yaml.MappingNode {
 			continue
 		}
+		stashNetworks(svc)
 		mapDelete(svc, "networks")
 		mapDelete(svc, "mac_address")
+		// Bridge is reached by asking for nothing, so a mode fjord set has to
+		// come off here -- without this, none -> bridge wrote the compose back
+		// unchanged and the stack stayed isolated.
+		clearMode(svc)
 		if p := mapGet(svc, "x-fjord-published"); p != nil {
 			mapSet(svc, "ports", p)
 			mapDelete(svc, "x-fjord-published")
@@ -576,4 +673,160 @@ func serviceNetwork(n *yaml.Node) (name, ip string) {
 		}
 	}
 	return name, ip
+}
+
+// Built-in network choices: not networks anyone creates, but the two states a
+// stack can be in without one. Named as podman names them, so what fjord shows
+// and what `podman inspect` reports are the same word.
+const (
+	// Bridge is podman's own NAT bridge -- the container gets a private
+	// address and is reached on published ports. What a stack gets by asking
+	// for nothing.
+	Bridge = "bridge"
+	// None is no network at all: on FreeBSD a jail with its own empty vnet,
+	// so it has lo0 and no route anywhere.
+	None = "none"
+	// Host shares this host's stack: no address of its own, no port mapping,
+	// a service binds the host's port directly.
+	Host = "host"
+)
+
+// BuiltIn reports whether a name is one of the three states a stack can be in
+// without a network of its own, rather than a network defined on the host.
+//
+// All three are listed on the Networks page and all three may be the default
+// new installs land on: they are the same vocabulary everywhere, and a state
+// that can be chosen per stack but never as the default is a distinction with
+// no reason behind it that the reader can see.
+func BuiltIn(name string) bool { return name == Bridge || name == None || name == Host }
+
+// DisableNetwork puts a stack on no network at all.
+//
+// `network_mode: none` alone is not enough on FreeBSD: it leaves the jail
+// without a vnet, which means it SHARES the host's stack -- it can reach the
+// internet and bind host ports, the opposite of what the name suggests. The
+// annotation gives it an empty vnet of its own, which is what actually
+// isolates it (verified: lo0 only, no route out).
+func DisableNetwork(composeYAML string) (string, error) { return setMode(composeYAML, None) }
+
+// HostNetwork puts a stack on this host's own stack: it binds host ports
+// directly, with no address and no mapping of its own. On FreeBSD that is a
+// jail with no vnet -- which is why it needs no annotation, and why any vnet
+// annotation DisableNetwork left behind has to come off (an empty vnet of its
+// own is the exact opposite of sharing the host's).
+func HostNetwork(composeYAML string) (string, error) { return setMode(composeYAML, Host) }
+
+// setMode writes one network_mode across every service. Both modes take the
+// same path: networks and network_mode are mutually exclusive, and published
+// ports mean nothing in either -- "none" has nowhere to answer from and "host"
+// is already on the host's ports -- so they are stashed, ready to come back
+// when the stack is attached again.
+func setMode(composeYAML, mode string) (string, error) {
+	var doc yaml.Node
+	if err := yaml.Unmarshal([]byte(composeYAML), &doc); err != nil {
+		return "", fmt.Errorf("parse compose: %w", err)
+	}
+	if len(doc.Content) == 0 || doc.Content[0].Kind != yaml.MappingNode {
+		return "", fmt.Errorf("compose is not a YAML mapping")
+	}
+	root := doc.Content[0]
+	services := mapGet(root, "services")
+	if services == nil || services.Kind != yaml.MappingNode {
+		return "", fmt.Errorf("compose has no services")
+	}
+	for i := 0; i+1 < len(services.Content); i += 2 {
+		svc := services.Content[i+1]
+		if svc.Kind != yaml.MappingNode {
+			continue
+		}
+		stashNetworks(svc)
+		mapDelete(svc, "networks")
+		mapDelete(svc, "mac_address")
+		stashPorts(svc)
+		clearMode(svc)
+		mapSet(svc, "network_mode", scalar(mode))
+		if mode != None {
+			continue
+		}
+		ann := mapGet(svc, "annotations")
+		if ann == nil || ann.Kind != yaml.MappingNode {
+			ann = &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+			mapSet(svc, "annotations", ann)
+		}
+		if mapGet(ann, "org.freebsd.jail.vnet") == nil {
+			ann.Content = append(ann.Content, scalar("org.freebsd.jail.vnet"), scalar("new"))
+		}
+	}
+	var buf bytes.Buffer
+	enc := yaml.NewEncoder(&buf)
+	enc.SetIndent(2)
+	if err := enc.Encode(root); err != nil {
+		return "", err
+	}
+	enc.Close()
+	return buf.String(), nil
+}
+
+// clearMode takes a service back off whatever mode fjord put it on, including
+// the vnet annotation that made "none" mean isolated. The annotations map goes
+// too when nothing else is in it, so a round trip leaves no residue.
+func clearMode(svc *yaml.Node) {
+	mapDelete(svc, "network_mode")
+	ann := mapGet(svc, "annotations")
+	if ann == nil || ann.Kind != yaml.MappingNode {
+		return
+	}
+	mapDelete(ann, "org.freebsd.jail.vnet")
+	if len(ann.Content) == 0 {
+		mapDelete(svc, "annotations")
+	}
+}
+
+// NoNamedNetworks reports a stack that cannot be moved onto a named network: one
+// on host mode with several services, whose parts reach each other over the
+// shared stack. Bridge and none remain reachable -- only an address of its
+// own breaks it. The UI asks so it can gray those options out rather than
+// letting Save come back 400.
+func NoNamedNetworks(composeYAML string) bool {
+	if NetworkMode(composeYAML) != Host {
+		return false
+	}
+	var doc yaml.Node
+	if yaml.Unmarshal([]byte(composeYAML), &doc) != nil || len(doc.Content) == 0 {
+		return false
+	}
+	services := mapGet(doc.Content[0], "services")
+	return services != nil && services.Kind == yaml.MappingNode && len(services.Content) > 2
+}
+
+// NetworkMode reports the built-in mode a stack sits on -- "none", "host", or
+// "" for neither. Only a mode every service agrees on counts: a stack where
+// they disagree cannot be shown as one choice, and writing one back would move
+// the others.
+//
+// This is the read side of the stack's network picker. AttachedNetworks
+// returns nothing for a stack with a network_mode, which without this reads as
+// "on the bridge, publishing ports" -- the exact opposite of "none".
+func NetworkMode(composeYAML string) string {
+	var doc yaml.Node
+	if yaml.Unmarshal([]byte(composeYAML), &doc) != nil || len(doc.Content) == 0 {
+		return ""
+	}
+	services := mapGet(doc.Content[0], "services")
+	if services == nil || services.Kind != yaml.MappingNode || len(services.Content) == 0 {
+		return ""
+	}
+	mode := ""
+	for i := 1; i < len(services.Content); i += 2 {
+		m := mapGet(services.Content[i], "network_mode")
+		if m == nil || (m.Value != None && m.Value != Host) {
+			return ""
+		}
+		if mode == "" {
+			mode = m.Value
+		} else if mode != m.Value {
+			return ""
+		}
+	}
+	return mode
 }

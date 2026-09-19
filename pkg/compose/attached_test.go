@@ -103,6 +103,8 @@ const immichCompose = `services:
     network_mode: host
 `
 
+// Refused because there are FOUR of them: one service on host mode is just a
+// picker choice, and attaching is how it is undone (TestNetworkModeRoundTrip).
 func TestInjectNetworkRefusesNetworkMode(t *testing.T) {
 	_, err := InjectNetwork(immichCompose, "lan86", "192.168.86.244", "")
 	if err == nil {
@@ -116,6 +118,20 @@ func TestInjectNetworkRefusesNetworkMode(t *testing.T) {
 	// Also refused without an IP: the injected compose would be invalid.
 	if _, err := InjectNetwork(immichCompose, "lan86", "", ""); err == nil {
 		t.Error("accepted a host-networked stack when no IP was given")
+	}
+	if !NoNamedNetworks(immichCompose) {
+		t.Error("not reported as locked, so the UI would offer what Save refuses")
+	}
+	// One service on host mode is not locked: nothing is reaching anything
+	// else over localhost, so attaching is safe and is how the user gets out.
+	solo := "services:\n  app:\n    image: x\n    network_mode: host\n"
+	if NoNamedNetworks(solo) {
+		t.Error("a one-service host stack should not be locked")
+	}
+	if out, err := InjectNetwork(solo, "lan86", "", ""); err != nil {
+		t.Errorf("refused a one-service host stack: %v", err)
+	} else if contains(out, "network_mode") {
+		t.Errorf("network_mode survived the attach:\n%s", out)
 	}
 }
 

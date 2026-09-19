@@ -135,11 +135,31 @@ func (s *server) backendForRequest(r *http.Request) engine.Backend {
 	return s.primaryBackend()
 }
 
+// namedEngineMissing reports a request that asked for an engine this daemon
+// does not have -- disabled in the Plugins tab, or never installed.
+//
+// backendForRequest falls back to the primary backend, which is right for a
+// request that named no engine and wrong for one that did: asking for podman
+// and being handed appjail's answer under podman's name is not a fallback, it
+// is a wrong answer delivered confidently. Callers that accept ?engine= check
+// this first and say so instead.
+func (s *server) namedEngineMissing(r *http.Request) string {
+	name := r.URL.Query().Get("engine")
+	if name == "" || r.URL.Query().Get("stack") != "" {
+		return ""
+	}
+	if _, ok := s.backend(name); ok {
+		return ""
+	}
+	return "the " + name + " engine is not available on this host -- it is not installed, or it is turned off in Settings > Plugins"
+}
+
 // routes registers every HTTP handler on mux.
 func (s *server) routes(mux *http.ServeMux) {
 	mux.HandleFunc("/catalog/", s.handleCatalogFiles)
 	mux.HandleFunc("/api/catalog/refresh", s.handleCatalogRefresh)
 	mux.HandleFunc("/api/registry/versions", s.handleRegistryVersions)
+	mux.HandleFunc("/api/registry/rolling", s.handleRegistryRolling)
 	mux.HandleFunc("/api/compose/mounts", s.handleComposeMounts)
 	mux.HandleFunc("/api/settings/storage", s.handleStorageSettings)
 	mux.HandleFunc("/api/settings/wizard", s.handleWizardSettings)
@@ -151,6 +171,7 @@ func (s *server) routes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/maintenance/df", s.handleDiskUsage)
 	mux.HandleFunc("/api/maintenance/prune", s.handlePrune)
 	mux.HandleFunc("/api/networks", s.handleNetworks)
+	mux.HandleFunc("/api/networks/suggest", s.handleNetworkSuggest)
 	mux.HandleFunc("/api/networks/kinds", s.handleNetworkKinds)
 	mux.HandleFunc("/api/networks/parents", s.handleNetworkParents)
 	mux.HandleFunc("/api/networks/setup", s.handleNetworkSetup)
@@ -183,7 +204,7 @@ type stackWithStatus struct {
 	Status engine.StackStatus `json:"status"`
 	// Network/NetworkIP are read back out of the compose so the Resources tab
 	// can show what the stack is actually attached to. Without them its picker
-	// defaults to "Host ports", which is wrong for every stack on a network.
+	// defaults to "bridge", which is wrong for every stack on a network.
 	Network    string `json:"network,omitempty"`
 	NetworkIP  string `json:"networkIp,omitempty"`
 	NetworkMAC string `json:"networkMac,omitempty"`
@@ -195,6 +216,24 @@ type stackWithStatus struct {
 	// for a NAT bridge, where the address is private to the host and the
 	// stack's published ports are the way in.
 	OwnAddress bool `json:"ownAddress,omitempty"`
+	// NetworkMode is the built-in choice the stack sits on -- "none" or
+	// "host" -- and empty when it is on a named network or the bridge.
+	NetworkMode string `json:"networkMode,omitempty"`
+	// NoNamedNetworks is set when this stack cannot move onto a named network
+	// at all, and NoModes when it cannot take bridge/host/none. Opposite ends
+	// of the same picker, and a stack can be at either -- so the UI grays the
+	// half that is out of reach instead of letting Save come back 400.
+	NoNamedNetworks bool `json:"noNamedNetworks,omitempty"`
+	// UnsupportedModes names the built-in choices this stack cannot take, so
+	// the picker can leave them out rather than letting Save come back 400.
+	// Not all-or-nothing: an appjail director stack cannot take host or none
+	// (both are jail parameters, not director options) but bridge is simply
+	// appjail's own NAT virtualnet, which is exactly what bridge means.
+	UnsupportedModes []string `json:"unsupportedModes,omitempty"`
+	// StashedNetworks is what the stack was attached to before it was put on
+	// a mode. Putting it on one does not throw the addresses away, the same
+	// way it does not throw the published ports away.
+	StashedNetworks []compose.Attachment `json:"stashedNetworks,omitempty"`
 }
 
 // buildEnv renders resolved variables into .env lines, sorted for determinism.

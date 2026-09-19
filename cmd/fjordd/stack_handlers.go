@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -29,7 +30,7 @@ func (r saveRequest) attachments() []composepkg.Attachment {
 	if len(r.Networks) > 0 {
 		return r.Networks
 	}
-	if r.Network == "" {
+	if r.Network == "" || composepkg.BuiltIn(r.Network) {
 		return nil
 	}
 	return []composepkg.Attachment{{Network: r.Network, IP: r.IP, MAC: r.MAC}}
@@ -82,7 +83,12 @@ func (s *server) handleStacksList(w http.ResponseWriter, r *http.Request) {
 		// tell "publishes on the host" from "has its own address", and builds
 		// a host URL that times out.
 		atts := composepkg.AttachedNetworks(st.Compose)
-		row := stackWithStatus{Stack: st, Status: status, Networks: atts}
+		if st.Director != "" {
+			atts = directorAttachments(st.Director)
+		} else {
+			nameIfaces(atts)
+		}
+		row := stackWithStatus{Stack: st, Status: status, Networks: atts, NetworkMode: composepkg.NetworkMode(st.Compose)}
 		if len(atts) > 0 {
 			row.Network, row.NetworkIP, row.NetworkMAC = atts[0].Network, atts[0].IP, atts[0].MAC
 			row.OwnAddress = ownAddress(atts[0].Network)
@@ -104,6 +110,31 @@ func (s *server) handleStacksList(w http.ResponseWriter, r *http.Request) {
 func ownAddress(network string) bool {
 	def, ok := hostnet.Get(network)
 	return ok && def.Type == "epair"
+}
+
+// nameIfaces fills in what a container will call each interface. podman numbers
+// them from eth0 in attachment order; appjail names them after the option that
+// made them, which directorAttachments reports instead.
+func nameIfaces(atts []composepkg.Attachment) {
+	for i := range atts {
+		atts[i].Iface = fmt.Sprintf("eth%d", i)
+	}
+}
+
+// unsupportedModes lists the built-in network choices a stack cannot take.
+//
+// A director stack's networking is the director's -- appjail never reads its
+// compose for it -- and host has no director option at all: it is a jail
+// parameter, set through appjail-config, which fjord does not do yet.
+// bridge is not in the list: for appjail that is its own NAT virtualnet, which
+// is what bridge means on every engine.
+func unsupportedModes(st *stack.Stack) []string {
+	if st.Director == "" {
+		return nil
+	}
+	// none is NOT in the list: a director project takes it by having no
+	// network option at all, which is exactly what it means.
+	return []string{composepkg.Host}
 }
 
 // handleStackRoutes dispatches /api/stacks/<name>[/<action>].
@@ -175,14 +206,33 @@ func (s *server) stackDetail(w http.ResponseWriter, r *http.Request, name string
 		status = engine.StackStatus{State: "unknown"}
 	}
 	w.Header().Set("Content-Type", "application/json")
+	// appjail never reads compose.yaml for networking, so for a director stack
+	// the compose's networks: block is a wish and the director is the fact.
+	// Reporting the wish showed four interfaces for a jail that had one.
 	atts := composepkg.AttachedNetworks(st.Compose)
+	if st.Director != "" {
+		atts = directorAttachments(st.Director)
+	} else {
+		nameIfaces(atts)
+	}
 	net, ip, mac := "", "", ""
 	own := false
 	if len(atts) > 0 {
 		net, ip, mac = atts[0].Network, atts[0].IP, atts[0].MAC
 		own = ownAddress(net)
 	}
-	json.NewEncoder(w).Encode(stackWithStatus{Stack: st, Status: status, Network: net, NetworkIP: ip, NetworkMAC: mac, Networks: atts, OwnAddress: own})
+	json.NewEncoder(w).Encode(stackWithStatus{
+		Stack: st, Status: status, Network: net, NetworkIP: ip, NetworkMAC: mac,
+		Networks: atts, OwnAddress: own,
+		// A stack on a mode has no attachments, which on its own is
+		// indistinguishable from one on the bridge publishing ports.
+		NetworkMode:      composepkg.NetworkMode(st.Compose),
+		NoNamedNetworks:  composepkg.NoNamedNetworks(st.Compose),
+		UnsupportedModes: unsupportedModes(st),
+		// What it was on before the mode, so the picker can offer it back
+		// rather than making the user retype addresses that are still here.
+		StashedNetworks: composepkg.StashedNetworks(st.Compose),
+	})
 }
 
 // stackDelete stops the stack's containers, then removes its stack dir.
@@ -308,10 +358,25 @@ func (s *server) stackSave(w http.ResponseWriter, r *http.Request, name string) 
 	// instead of the stack id, hiding them from status/logs/delete -- the
 	// same strip the catalog install path applies.
 	composeYAML := composepkg.DropTopLevelKey(payload.Compose, "name")
-	// An explicit empty list is a detach; an absent one means "leave the
-	// networks alone", which is what every request that is not about
-	// networking sends.
-	if payload.Networks != nil && len(payload.Networks) == 0 {
+	// The built-ins are states, not networks to attach to: "bridge" is what a
+	// stack gets by asking for nothing, "none" is no network at all.
+	if payload.Network == composepkg.None {
+		disabled, err := composepkg.DisableNetwork(composeYAML)
+		if err != nil {
+			http.Error(w, "disable network: "+err.Error(), 400)
+			return
+		}
+		composeYAML = disabled
+	} else if payload.Network == composepkg.Host {
+		hosted, err := composepkg.HostNetwork(composeYAML)
+		if err != nil {
+			http.Error(w, "host network: "+err.Error(), 400)
+			return
+		}
+		composeYAML = hosted
+	} else if payload.Network == composepkg.Bridge ||
+		(payload.Networks != nil && len(payload.Networks) == 0) {
+		// An explicit empty list, or "bridge": back to publishing on the host.
 		detached, err := composepkg.DetachNetworks(composeYAML)
 		if err != nil {
 			http.Error(w, "network detach: "+err.Error(), 400)
@@ -331,6 +396,10 @@ func (s *server) stackSave(w http.ResponseWriter, r *http.Request, name string) 
 				return
 			}
 		}
+		if msg := attachmentsUnusable(atts); msg != "" {
+			http.Error(w, msg, 400)
+			return
+		}
 		injected, err := composepkg.InjectNetworks(composeYAML, atts)
 		if err != nil {
 			http.Error(w, "network attach: "+err.Error(), 400)
@@ -338,6 +407,35 @@ func (s *server) stackSave(w http.ResponseWriter, r *http.Request, name string) 
 		}
 		composeYAML = injected
 	}
+	// A director stack's networking is the director's, and nothing was
+	// regenerating it on save: the Resources tab edited a compose appjail does
+	// not read, so four networks on screen stayed one epair in the jail. Only
+	// the install path ever called the generator.
+	directorYML := ""
+	if existing, err := s.manager.Get(name); err == nil && existing.Director != "" {
+		directorYML = existing.Director
+		if payload.Director != "" {
+			directorYML = payload.Director
+		}
+		switch {
+		case payload.Network == composepkg.None:
+			// Not a director option -- the absence of one.
+			directorYML, err = disableDirectorNetworks(directorYML)
+		case payload.Network == composepkg.Host:
+			http.Error(w, "an appjail stack cannot be put on host: that is a jail parameter "+
+				"rather than a director option, and fjord does not set it yet -- use none, or a network", 400)
+			return
+		case payload.Network == composepkg.Bridge || (payload.Networks != nil && len(payload.Networks) == 0):
+			directorYML, err = clearDirectorNetworks(directorYML)
+		case len(payload.attachments()) > 0:
+			directorYML, err = setDirectorNetworks(r.Context(), directorYML, name, payload.attachments())
+		}
+		if err != nil {
+			http.Error(w, "network attach: "+err.Error(), 400)
+			return
+		}
+	}
+
 	if payload.Volume != "" {
 		attached, err := composepkg.AttachVolume(composeYAML, payload.Volume, payload.VolumePath, payload.VolumeRO)
 		if err != nil {
@@ -353,7 +451,9 @@ func (s *server) stackSave(w http.ResponseWriter, r *http.Request, name string) 
 		existing.Compose = composeYAML
 		existing.Env = payload.Env
 		if existing.Director != "" {
-			if payload.Director != "" {
+			if directorYML != "" {
+				existing.Director = directorYML
+			} else if payload.Director != "" {
 				existing.Director = payload.Director
 			}
 			if payload.Makejail != "" {

@@ -68,7 +68,7 @@ func (r installRequest) attachments() []composepkg.Attachment {
 	if len(r.Networks) > 0 {
 		return r.Networks
 	}
-	if r.Network == "" {
+	if r.Network == "" || composepkg.BuiltIn(r.Network) {
 		return nil
 	}
 	return []composepkg.Attachment{{Network: r.Network, IP: r.IP, MAC: r.MAC}}
@@ -209,16 +209,28 @@ func (s *server) handleInstall(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if len(req.attachments()) > 0 {
+	// The built-ins are states rather than networks to attach to, so
+	// attachments() is empty for them and nothing here used to act on one: an
+	// install asking for "none" quietly landed on the bridge instead.
+	switch {
+	case req.Network == composepkg.None:
+		composeYAML, err = composepkg.DisableNetwork(composeYAML)
+	case req.Network == composepkg.Host:
+		composeYAML, err = composepkg.HostNetwork(composeYAML)
+	case len(req.attachments()) > 0:
 		if msg := s.networkUnusable(r.Context(), req.Engine, req.Network); msg != "" {
 			http.Error(w, msg, 400)
 			return
 		}
-		composeYAML, err = composepkg.InjectNetworks(composeYAML, req.attachments())
-		if err != nil {
-			http.Error(w, "network attach: "+err.Error(), 400)
+		if msg := attachmentsUnusable(req.attachments()); msg != "" {
+			http.Error(w, msg, 400)
 			return
 		}
+		composeYAML, err = composepkg.InjectNetworks(composeYAML, req.attachments())
+	}
+	if err != nil {
+		http.Error(w, "network: "+err.Error(), 400)
+		return
 	}
 	// Folder lists: a variable with several folders (host and/or remote)
 	// becomes sub-folders of its mount point, named uniquely in ONE pass so a
@@ -331,7 +343,14 @@ func (s *server) handleInstall(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "this app's catalog entry has no AppJail bundle (the catalog was built without dbuild, or the app opts out with appjail: false); install it on podman, or refresh the catalog", 400)
 			return
 		}
-		env, err := writeAppjailBundle(st.Dir, id, b, res.Env, composeYAML, req.attachments())
+		if req.Network == composepkg.Host {
+			_ = s.manager.Delete(id)
+			http.Error(w, "an appjail stack cannot be installed on host: that is a jail parameter "+
+				"rather than a director option, and fjord does not set it yet -- install it on none, "+
+				"on a network, or on podman", 400)
+			return
+		}
+		env, err := writeAppjailBundle(st.Dir, id, b, res.Env, composeYAML, req.attachments(), req.Network == composepkg.None)
 		if err != nil {
 			http.Error(w, "appjail bundle: "+err.Error(), 500)
 			return
