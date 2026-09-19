@@ -111,6 +111,12 @@ func (b *Backend) createNAT(ctx context.Context, spec engine.NetworkSpec) (engin
 		args = append(args, "--subnet", spec.Subnet)
 	}
 	if spec.Gateway != "" {
+		// Checked here, not just at the UI: podman's own error for a malformed
+		// gateway is a bare parse dump, and the subnet right above it is
+		// validated -- an unvalidated gateway next to it reads as an oversight.
+		if net.ParseIP(spec.Gateway) == nil {
+			return engine.Network{}, fmt.Errorf("invalid gateway %q: want an IP address like 10.100.0.1", spec.Gateway)
+		}
 		args = append(args, "--gateway", spec.Gateway)
 	}
 	if spec.MTU > 0 {
