@@ -41,6 +41,25 @@ type Network struct {
 	// DHCP: addresses come from the segment's own server, so there is no
 	// subnet here to read. Without this a DHCP network looks like a broken one.
 	DHCP bool
+	// Subnet6/Gateway6: the IPv6 half of the segment, when the network has
+	// one. Read from the second ipam range for a pool network, or from the
+	// fjord key for a static one, exactly as the v4 half is.
+	Subnet6  string
+	Gateway6 string
+	// Static: nothing allocates on this network -- every stack brings its own
+	// address. Distinct from DHCP (the segment's server allocates) and from a
+	// range (the runtime's IPAM does).
+	Static bool
+	// For names the engine this network was made for, or "" for any of them.
+	//
+	// The network itself is shared -- one bridge, one conflist, one segment,
+	// which is the whole point of defining it on the host rather than per
+	// engine. What is not shared is what each engine can DO with it: podman
+	// reads the whole conflist, while appjail reads only the bridge name and
+	// cannot ask host-local for an address. Recording the intended engine lets
+	// the form offer only what that engine can honour, without splitting one
+	// segment into two networks.
+	For string
 }
 
 // Path returns the conflist path for a network name.
@@ -79,8 +98,20 @@ func List() []Network {
 	return out
 }
 
+// Parse reads one network definition from conflist bytes. Exported so the
+// write side (lannet.Conflist) can be round-tripped in tests without touching
+// the host's config directory.
+func Parse(name string, data []byte) (Network, bool) { return parse(name, data) }
+
 func parse(name string, data []byte) (Network, bool) {
 	var doc struct {
+		Fjord struct {
+			For      string `json:"for"`
+			Subnet   string `json:"subnet"`
+			Gateway  string `json:"gateway"`
+			Subnet6  string `json:"subnet6"`
+			Gateway6 string `json:"gateway6"`
+		} `json:"x-fjord"`
 		Plugins []struct {
 			Type   string `json:"type"`
 			Master string `json:"master"`
@@ -99,12 +130,34 @@ func parse(name string, data []byte) (Network, bool) {
 		return Network{}, false
 	}
 	p := doc.Plugins[0]
-	n := Network{Name: name, Type: p.Type, Bridge: p.Master, MTU: p.MTU, DHCP: p.IPAM.Type == "dhcp"}
+	n := Network{Name: name, Type: p.Type, Bridge: p.Master, MTU: p.MTU, DHCP: p.IPAM.Type == "dhcp", Static: p.IPAM.Type == "static", For: doc.Fjord.For}
 	if n.Bridge == "" {
 		n.Bridge = p.Bridge
 	}
-	if r := p.IPAM.Ranges; len(r) > 0 && len(r[0]) > 0 {
-		n.Subnet, n.Gateway = r[0][0].Subnet, r[0][0].Gateway
+	// host-local takes one range list per family, in the order fjord wrote
+	// them. Classify by what the address looks like rather than by position,
+	// so a conflist written by hand with only a v6 range still reads right.
+	for _, r := range p.IPAM.Ranges {
+		if len(r) == 0 || r[0].Subnet == "" {
+			continue
+		}
+		if strings.Contains(r[0].Subnet, ":") {
+			if n.Subnet6 == "" {
+				n.Subnet6, n.Gateway6 = r[0].Subnet, r[0].Gateway
+			}
+			continue
+		}
+		if n.Subnet == "" {
+			n.Subnet, n.Gateway = r[0].Subnet, r[0].Gateway
+		}
+	}
+	// A DHCP network has no ipam ranges; the segment is recorded beside them.
+	// DHCP stays true -- this says what the wire is, not who allocates on it.
+	if n.Subnet == "" {
+		n.Subnet, n.Gateway = doc.Fjord.Subnet, doc.Fjord.Gateway
+	}
+	if n.Subnet6 == "" {
+		n.Subnet6, n.Gateway6 = doc.Fjord.Subnet6, doc.Fjord.Gateway6
 	}
 	return n, true
 }
