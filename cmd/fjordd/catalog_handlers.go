@@ -112,3 +112,46 @@ func (s *server) handleRegistryVersions(w http.ResponseWriter, r *http.Request) 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(trains)
 }
+
+// handleRegistryRolling answers what a rolling channel tag actually resolves
+// to right now: GET /api/registry/rolling?image=…&train=….
+//
+// A rolling install deploys the channel TAG, but the wizard was reporting the
+// newest pin in that channel's list, and the two can disagree. tailscale's
+// "latest" train held one pin, 1.92.3 -- a bare tag left over from the scheme
+// the image used before it moved to pkg variants -- while the latest tag
+// itself is an alias of pkg and resolves to 1.102.4. The summary named a
+// version the install would not have produced.
+//
+// Answered by digest rather than by label: the pin that shares the channel
+// tag's digest IS what the channel currently is, with no parsing and no
+// trusting a version string. Empty when nothing matches, which the UI shows as
+// the channel name rather than inventing a number.
+func (s *server) handleRegistryRolling(w http.ResponseWriter, r *http.Request) {
+	image, train := r.URL.Query().Get("image"), r.URL.Query().Get("train")
+	if image == "" || train == "" {
+		http.Error(w, "image and train query params required", 400)
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
+	defer cancel()
+	out := map[string]string{"version": ""}
+	trains, err := registry.CachedTrains(ctx, image, s.schemeFor(registry.Repo(image)))
+	if err != nil {
+		http.Error(w, err.Error(), 502)
+		return
+	}
+	pins := trains[train]
+	if len(pins) > 0 {
+		if want, err := registry.Digest(ctx, image+":"+train); err == nil && want != "" {
+			// Only the newest. A channel that has moved on from its whole pin
+			// list is the case worth catching, and walking every pin would
+			// cost a round trip each to learn the same thing.
+			if got, err := registry.Digest(ctx, image+":"+pins[0].Tag); err == nil && got == want {
+				out["version"] = pins[0].Version
+			}
+		}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(out)
+}
