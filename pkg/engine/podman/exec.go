@@ -11,6 +11,8 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -28,6 +30,7 @@ type apiExecSession struct {
 	rd        *bufio.Reader // may hold stream bytes buffered while reading headers
 	execID    string
 	container string
+	argv0     string // what was exec'd; reap checks the pid still runs it
 	http      *http.Client
 }
 
@@ -68,8 +71,16 @@ func (s *apiExecSession) reap() {
 	// when that fails (fjordd itself is in a container without the host's
 	// pid namespace) fall back to a detached kill exec inside the container,
 	// which is correct on FreeBSD and best-effort elsewhere.
-	if p, err := os.FindProcess(st.Pid); err == nil && p.Signal(syscall.SIGKILL) == nil {
-		return
+	//
+	// Confirm the pid still runs what we exec'd first. Running was true a
+	// moment ago, but between that inspect and the signal the process can
+	// exit and the host recycle its pid onto an unrelated daemon -- and
+	// fjordd is root, so the stray SIGKILL would land. os.FindProcess never
+	// errors on Unix, so it is no guard at all; the command check is.
+	if runsArgv0(st.Pid, s.argv0) {
+		if p, err := os.FindProcess(st.Pid); err == nil && p.Signal(syscall.SIGKILL) == nil {
+			return
+		}
 	}
 	body, _ := json.Marshal(map[string]any{
 		"Cmd": []string{"kill", "-9", strconv.Itoa(st.Pid)},
@@ -92,6 +103,26 @@ func (s *apiExecSession) reap() {
 	if err == nil {
 		resp.Body.Close()
 	}
+}
+
+// runsArgv0 reports whether pid is currently running a command whose name is
+// argv0 -- the identity check that makes killing a host pid safe. ps(1) is on
+// both FreeBSD and Linux; if it can't answer, the caller must NOT signal.
+func runsArgv0(pid int, argv0 string) bool {
+	if argv0 == "" {
+		return false
+	}
+	out, err := exec.Command("ps", "-o", "command=", "-p", strconv.Itoa(pid)).Output()
+	if err != nil {
+		return false
+	}
+	fields := strings.Fields(string(out))
+	if len(fields) == 0 {
+		return false
+	}
+	// ps reports the full command line; compare the program name only, since
+	// the exec was created with a bare name ("/bin/sh" -> "sh").
+	return filepath.Base(strings.TrimPrefix(fields[0], "-")) == argv0
 }
 
 func (s *apiExecSession) Resize(cols, rows int) error {
@@ -184,7 +215,10 @@ func (b *Backend) Exec(ctx context.Context, opts engine.ExecOptions) (engine.Exe
 		}
 	}
 
-	return &apiExecSession{conn: conn, rd: rd, execID: created.Id, container: opts.Container, http: b.http}, nil
+	return &apiExecSession{
+		conn: conn, rd: rd, execID: created.Id, container: opts.Container,
+		argv0: filepath.Base(cmd[0]), http: b.http,
+	}, nil
 }
 
 // statusCode parses the numeric code out of an HTTP status line
