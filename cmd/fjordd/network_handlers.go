@@ -6,14 +6,17 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"sort"
 	"strings"
 	"time"
 
+	composepkg "github.com/daemonless/fjord/pkg/compose"
 	"github.com/daemonless/fjord/pkg/engine"
 	"github.com/daemonless/fjord/pkg/hostnet"
+	"github.com/daemonless/fjord/pkg/lannet"
 )
 
 // handleNetworks lists (GET) or creates (POST) the networks that give a stack
@@ -21,6 +24,10 @@ import (
 // backend translates it (a CNI conflist on FreeBSD podman, a virtualnet on
 // appjail).
 func (s *server) handleNetworks(w http.ResponseWriter, r *http.Request) {
+	if msg := s.namedEngineMissing(r); msg != "" {
+		http.Error(w, msg, 400)
+		return
+	}
 	switch r.Method {
 	case http.MethodGet:
 		var nets []engine.Network
@@ -38,6 +45,29 @@ func (s *server) handleNetworks(w http.ResponseWriter, r *http.Request) {
 		}
 		if nets == nil {
 			nets = []engine.Network{} // encode [] not null so the UI can .length it
+		}
+		// One place for both engines: the bridge is the host's, not either
+		// runtime's, and neither backend has a reason to report it itself.
+		for i, n := range nets {
+			d, ok := hostnet.Get(n.Name)
+			if !ok {
+				// Not a conflist: the engine owns it and allocates on it.
+				nets[i].AddressSource = "engine"
+				continue
+			}
+			if n.Bridge == "" {
+				nets[i].Bridge = d.Bridge
+			}
+			nets[i].Static = d.Static
+			nets[i].Subnet6, nets[i].Gateway6 = d.Subnet6, d.Gateway6
+			switch {
+			case d.DHCP:
+				nets[i].AddressSource = "dhcp"
+			case d.Static:
+				nets[i].AddressSource = "static"
+			default:
+				nets[i].AddressSource = "pool"
+			}
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(nets)
@@ -81,7 +111,7 @@ func (s *server) networkUsers(ctx context.Context, name string) []string {
 
 // handleDefaultNetwork reads and sets the network new installs start on.
 //
-// Host ports is the right default for one machine with one app on it, and the
+// The bridge is the right default for one machine with one app on it, and the
 // wrong one the moment an operator has decided every stack gets its own
 // address: they then pick the same network in every install, and forgetting
 // once is a stack that silently binds host ports instead.
@@ -89,18 +119,26 @@ func (s *server) handleDefaultNetwork(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{"network": loadSettings(s.fjordRoot).DefaultNetwork})
+		st := loadSettings(s.fjordRoot)
+		json.NewEncoder(w).Encode(map[string]any{
+			"network": st.DefaultNetwork, "forEngine": st.DefaultNetworkFor,
+		})
 	case http.MethodPost:
 		var req struct {
 			Network string `json:"network"`
+			// Which engine this default is for. Empty sets the one used by any
+			// engine without its own.
+			Engine string `json:"engine"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "invalid JSON payload", 400)
 			return
 		}
-		// "" clears it. Anything else has to exist now, or every install
-		// afterwards fails on a network that was renamed or removed.
-		if req.Network != "" {
+		// "" clears it, and the two built-ins are always valid -- they are
+		// states rather than networks, so there is nothing to look up.
+		// Anything else has to exist now, or every install afterwards fails
+		// on a network that was renamed or removed.
+		if req.Network != "" && !composepkg.BuiltIn(req.Network) {
 			nets, err := s.allNetworks(r.Context())
 			if err != nil {
 				http.Error(w, err.Error(), 500)
@@ -118,7 +156,20 @@ func (s *server) handleDefaultNetwork(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-		if err := updateSettings(s.fjordRoot, func(st *savedSettings) { st.DefaultNetwork = req.Network }); err != nil {
+		if err := updateSettings(s.fjordRoot, func(st *savedSettings) {
+			if req.Engine == "" {
+				st.DefaultNetwork = req.Network
+				return
+			}
+			if st.DefaultNetworkFor == nil {
+				st.DefaultNetworkFor = map[string]string{}
+			}
+			if req.Network == "" {
+				delete(st.DefaultNetworkFor, req.Engine)
+				return
+			}
+			st.DefaultNetworkFor[req.Engine] = req.Network
+		}); err != nil {
 			http.Error(w, "persist: "+err.Error(), 500)
 			return
 		}
@@ -157,6 +208,10 @@ func (s *server) handleNetworkSetup(w http.ResponseWriter, r *http.Request) {
 // engine's own declaration instead of branching on an engine name. An empty
 // list means this engine creates no networks (e.g. podman on Linux).
 func (s *server) handleNetworkKinds(w http.ResponseWriter, r *http.Request) {
+	if msg := s.namedEngineMissing(r); msg != "" {
+		http.Error(w, msg, 400)
+		return
+	}
 	if e := r.URL.Query().Get("engine"); e != "" {
 		caps := s.backendForRequest(r).Capabilities()
 		kinds := caps.NetworkKinds
@@ -186,6 +241,11 @@ func (s *server) handleNetworkKinds(w http.ResponseWriter, r *http.Request) {
 		}
 		caps := be.Capabilities()
 		for _, k := range caps.NetworkKinds {
+			// One row per kind, listing every engine that offers it. Whether
+			// the engine MATTERS is Shared's job: a LAN network is the host's
+			// and any engine can attach to the same one, while a private
+			// network belongs to whichever engine made it -- so the form asks
+			// which, rather than the answer falling out of engine order.
 			if i, seen := at[k.ID]; seen {
 				kinds[i].Engines = append(kinds[i].Engines, name)
 				continue
@@ -204,20 +264,6 @@ func (s *server) handleNetworkKinds(w http.ResponseWriter, r *http.Request) {
 			notes = append(notes, caps.NetworkNote)
 		}
 	}
-	// An engine that is not installed offers no kinds and no note, so the
-	// options it would have provided simply vanish -- which is what made
-	// "why is there no DHCP" look like a bug rather than a consequence.
-	// Say what is missing and what it would add.
-	for _, d := range engineDescriptors {
-		if _, registered := s.backend(d.Name); registered {
-			continue
-		}
-		if ok, reason, _ := d.Available(); !ok && reason != "" {
-			// The name, not the Description: that is a full sentence and reads
-			// as nonsense spliced mid-clause.
-			notes = append(notes, "The "+d.Name+" engine is not installed, so the kinds of network it makes are not offered here ("+reason+").")
-		}
-	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{
 		"kinds": kinds, "note": strings.Join(notes, " "), "canRemove": true,
@@ -227,6 +273,10 @@ func (s *server) handleNetworkKinds(w http.ResponseWriter, r *http.Request) {
 // handleNetworkParents lists host interfaces a "lan" network can attach to.
 // Empty for engines whose networks take no parent.
 func (s *server) handleNetworkParents(w http.ResponseWriter, r *http.Request) {
+	if msg := s.namedEngineMissing(r); msg != "" {
+		http.Error(w, msg, 400)
+		return
+	}
 	parents, err := s.backendForRequest(r).NetworkParents(r.Context())
 	if err != nil {
 		http.Error(w, err.Error(), 500)
@@ -281,8 +331,22 @@ func (s *server) handleNetworkDelete(w http.ResponseWriter, r *http.Request) {
 	// can act on: the wizard skips it, the Networks page shows no Default mark,
 	// and the setting sits there being wrong. Deleting the network is the
 	// moment to clear it.
-	if loadSettings(s.fjordRoot).DefaultNetwork == name {
-		if err := updateSettings(s.fjordRoot, func(st *savedSettings) { st.DefaultNetwork = "" }); err != nil {
+	cur := loadSettings(s.fjordRoot)
+	isDefault := cur.DefaultNetwork == name
+	for _, v := range cur.DefaultNetworkFor {
+		isDefault = isDefault || v == name
+	}
+	if isDefault {
+		if err := updateSettings(s.fjordRoot, func(st *savedSettings) {
+			if st.DefaultNetwork == name {
+				st.DefaultNetwork = ""
+			}
+			for e, v := range st.DefaultNetworkFor {
+				if v == name {
+					delete(st.DefaultNetworkFor, e)
+				}
+			}
+		}); err != nil {
 			log.Printf("clearing default network after deleting %s: %v", name, err)
 		}
 	}
@@ -295,6 +359,79 @@ func (s *server) handleNetworkDelete(w http.ResponseWriter, r *http.Request) {
 // network into a stack the engine then ignores produces a running stack on a
 // silently different address, which looks like a working install until
 // something tries to reach the address that was asked for.
+// attachmentsUnusable reports why a set of attachments cannot be honoured,
+// before anything is created.
+//
+// A static network allocates nothing, so a stack joining one without an
+// address cannot start. appjail said so when it generated the director; podman
+// did not, and the install ran to the point of `podman-compose up` failing
+// with "IP address not provided by IPAM" -- leaving a stack on disk whose
+// container would never start. The rule belongs to the NETWORK, so it is
+// checked once here for whichever engine is asked.
+func attachmentsUnusable(atts []composepkg.Attachment) string {
+	for _, a := range atts {
+		n, ok := hostnet.Get(a.Network)
+		if !ok {
+			continue
+		}
+		if a.IP == "" {
+			if n.Static {
+				return "an address is required to attach to " + a.Network +
+					": nothing allocates on that network -- every stack brings its own address"
+			}
+			continue
+		}
+		if msg := addressUnusable(a.IP, n); msg != "" {
+			return msg + " (" + a.Network + ")"
+		}
+	}
+	return ""
+}
+
+// addressUnusable checks an address a stack asked for against the network it is
+// joining.
+//
+// Nothing checked this: "1" was accepted and written straight into `ifconfig
+// sb_x:1/24`, which FreeBSD read as 0.0.0.1 -- a jail that comes up looking
+// configured and can reach nothing. appjail validates for its own virtual
+// networks and says so well; on a host bridge nobody was checking at all.
+func addressUnusable(addr string, n hostnet.Network) string {
+	ip := net.ParseIP(addr)
+	if ip == nil || ip.To4() == nil {
+		return addr + " is not an IPv4 address"
+	}
+	if n.Subnet == "" {
+		return "" // segment unknown; nothing to check it against
+	}
+	_, cidr, err := net.ParseCIDR(n.Subnet)
+	if err != nil {
+		return ""
+	}
+	if !cidr.Contains(ip) {
+		return addr + " is not in " + n.Subnet
+	}
+	// The network and broadcast addresses are not hosts. Writing one produces
+	// an interface that looks configured and answers nothing.
+	ones, bits := cidr.Mask.Size()
+	if ones < bits {
+		if ip.Mask(cidr.Mask).Equal(ip.To4()) {
+			return addr + " is the network address of " + n.Subnet + ", not a host in it"
+		}
+		bcast := make(net.IP, len(cidr.IP.To4()))
+		copy(bcast, cidr.IP.To4())
+		for i := range bcast {
+			bcast[i] |= ^cidr.Mask[i]
+		}
+		if bcast.Equal(ip.To4()) {
+			return addr + " is the broadcast address of " + n.Subnet + ", not a host in it"
+		}
+	}
+	if n.Gateway != "" && n.Gateway == ip.String() {
+		return addr + " is the gateway for " + n.Subnet
+	}
+	return ""
+}
+
 func (s *server) networkUnusable(ctx context.Context, engineName, network string) string {
 	be, ok := s.backend(engineName)
 	if !ok {
@@ -392,4 +529,42 @@ func (s *server) engineNames() []string {
 		}
 	}
 	return names
+}
+
+// handleNetworkSuggest answers "give me a range nothing else uses" for a
+// private network: GET /api/networks/suggest.
+//
+// The host is in a far better position to answer than the operator, who would
+// otherwise be recalling every network already defined and every address on
+// every interface in order to invent one that does not collide.
+func (s *server) handleNetworkSuggest(w http.ResponseWriter, r *http.Request) {
+	if msg := s.namedEngineMissing(r); msg != "" {
+		http.Error(w, msg, 400)
+		return
+	}
+	used := []*net.IPNet{}
+	// Every network any engine knows about.
+	if nets, err := s.allNetworks(r.Context()); err == nil {
+		for _, n := range nets {
+			if _, c, err := net.ParseCIDR(n.Subnet); err == nil {
+				used = append(used, c)
+			}
+		}
+	}
+	// ...and every segment this host is already on, which a new private
+	// network must not shadow -- routing to it would break the moment it did.
+	if addrs, err := net.InterfaceAddrs(); err == nil {
+		for _, a := range addrs {
+			if c, ok := a.(*net.IPNet); ok && c.IP.To4() != nil {
+				used = append(used, c)
+			}
+		}
+	}
+	subnet := lannet.FreeSubnet(used)
+	if subnet == "" {
+		http.Error(w, "every private range this host could use is already taken -- enter a subnet yourself", 409)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"subnet": subnet})
 }

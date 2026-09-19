@@ -33,6 +33,19 @@ func (s *server) preflight(ctx context.Context, st *stack.Stack) []string {
 
 	problems := s.provisionBindDirs(st, env)
 
+	// A stack attached to a static network with no address cannot start: that
+	// network allocates nothing. Caught here so bringing one up says why,
+	// instead of podman-compose reporting "IP address not provided by IPAM"
+	// against a container id. Install and save refuse it too -- this is for
+	// the stack that already exists, or whose network changed under it.
+	atts := composepkg.AttachedNetworks(st.Compose)
+	if st.Director != "" {
+		atts = directorAttachments(st.Director)
+	}
+	if msg := attachmentsUnusable(atts); msg != "" {
+		problems = append(problems, msg)
+	}
+
 	ports := composepkg.PublishedPorts(st.Compose, env)
 	// A stack with an address of its own binds nothing on the host: its ports
 	// live on that address. Checking them against the host's would refuse two
