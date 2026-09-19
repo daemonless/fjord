@@ -11,23 +11,27 @@ import (
 
 	"github.com/daemonless/fjord/pkg/engine"
 	"github.com/daemonless/fjord/pkg/hostnet"
+	"github.com/daemonless/fjord/pkg/lannet"
 )
 
 // networkKinds is appjail's contribution to Capabilities.
 //
-// Only "nat": a private network appjail creates and owns, gateway and all.
-// That is safe precisely because the segment is new. A LAN network is NOT
-// offered here -- creating one would mean `appjail network add` putting the
-// segment's gateway address, which is the router's, on a bridge it made.
-// Those are defined once as a conflist and both engines attach to them.
+// Both kinds. "nat" is appjail's own: a private network it creates and owns,
+// gateway and all, which is safe precisely because the segment is new.
+//
+// "lan" is the host's, not appjail's -- defining one writes a conflist, it
+// does not run `appjail network add`, which would put the segment's gateway
+// address (the router's) on a bridge it made. appjail always supports DHCP on
+// one: it runs dhclient inside the jail, so unlike podman there is no plugin
+// feature to check.
 var netNameRe = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,62}$`)
 
 func networkKinds() []engine.NetworkKind {
-	return []engine.NetworkKind{{
+	return []engine.NetworkKind{lannet.Kind(true), {
 		ID:                  "nat",
-		Label:               "Private network",
-		Help:                "appjail creates the bridge and hands out addresses. Jails reach the outside through the host; nothing on your LAN can reach them directly.",
-		AddressNote:         "Addresses come from this host: a segment appjail invents has no DHCP server to ask.",
+		Label:               "bridge",
+		Help:                "The engine creates the bridge and hands out addresses. Jails reach the outside through the host; nothing on your LAN can reach them directly.",
+		AddressNote:         "Addresses come from this host: a segment the engine invents has no DHCP server to ask.",
 		SupportsMTU:         true,
 		SupportsDescription: true,
 	}}
@@ -35,8 +39,12 @@ func networkKinds() []engine.NetworkKind {
 
 // CreateNetwork adds an appjail virtualnet.
 func (b *Backend) CreateNetwork(ctx context.Context, spec engine.NetworkSpec) (engine.Network, error) {
+	if spec.Kind == "lan" {
+		// Host state, written the same way whichever engine asked.
+		return lannet.Create(spec)
+	}
 	if spec.Kind != "" && spec.Kind != "nat" {
-		return engine.Network{}, fmt.Errorf("the appjail engine creates private networks, not %q; define a LAN network on the podman engine and both can attach to it", spec.Kind)
+		return engine.Network{}, fmt.Errorf("unknown network kind %q", spec.Kind)
 	}
 	if !netNameRe.MatchString(spec.Name) {
 		return engine.Network{}, fmt.Errorf("invalid network name %q: letters, digits, dot, dash and underscore only", spec.Name)
@@ -122,12 +130,10 @@ func (b *Backend) RemoveNetwork(ctx context.Context, name string, force bool) er
 	if !netNameRe.MatchString(name) {
 		return fmt.Errorf("invalid network name %q", name)
 	}
-	if _, ok := hostnet.Get(name); ok {
-		// Not appjail's to delete -- it is a conflist, and appjail only
-		// attaches to the bridge behind it. Naming podman as the remedy was a
-		// dead end once podman was uninstalled, so say what it is and let the
-		// caller decide; fjordd removes the file when no engine can.
-		return fmt.Errorf("%q is a LAN network defined on this host, not one appjail owns", name)
+	if def, ok := hostnet.Get(name); ok && def.Type == lannet.Plugin {
+		// A LAN network is host state: the same file, removed the same way,
+		// whichever engine was asked.
+		return lannet.Remove(name)
 	}
 	// -d is what actually deletes the definition: a plain remove, and even
 	// remove -f, exit 0 and leave the network in place.
@@ -147,10 +153,26 @@ func (b *Backend) RemoveNetwork(ctx context.Context, name string, force bool) er
 	return fmt.Errorf("appjail network remove: %w: %s", err, msg)
 }
 
-// NetworkParents is empty: appjail does not create networks here, so there is
-// no parent to pick.
+// NetworkParents lists the host bridges, same as any engine would: a LAN
+// network hangs off one, and which bridges exist is a fact about the host
+// rather than about appjail.
 func (b *Backend) NetworkParents(ctx context.Context) ([]engine.NetworkParent, error) {
-	return nil, nil
+	return lannet.Parents(ctx)
+}
+
+// ParentSetup re-renders the commands that make a bridge. Implements
+// engine.NetworkSetupper, so the form behaves the same on either engine.
+func (b *Backend) ParentSetup(ctx context.Context, kind, nic, vlan string) (engine.ParentSetup, error) {
+	if kind != "lan" {
+		return engine.ParentSetup{}, fmt.Errorf("network kind %q takes no parent", kind)
+	}
+	if vlan != "" && vlan != "auto" {
+		n, err := strconv.Atoi(vlan)
+		if err != nil || n < 1 || n > 4094 {
+			return engine.ParentSetup{}, fmt.Errorf("VLAN id must be a number from 1 to 4094")
+		}
+	}
+	return lannet.ParentSetup(nic, vlan)[0], nil
 }
 
 // firstAddr is the first usable address of a network -- what appjail takes as

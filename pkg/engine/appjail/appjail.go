@@ -365,6 +365,12 @@ func (b *Backend) Networks(ctx context.Context) ([]engine.Network, error) {
 		if n.Type != "epair" || n.Bridge == "" {
 			continue
 		}
+		// Made for another engine: the segment is shared, but the form was
+		// filled in for what that engine can do, so offering it here would
+		// offer an address source this one cannot use.
+		if n.For != "" && n.For != "appjail" {
+			continue
+		}
 		// A DHCP network is usable: fjord takes the lease on the host at
 		// install time and gives the jail a fixed address, because appjail
 		// runs dhclient inside the jail and these images ship none.
@@ -372,7 +378,12 @@ func (b *Backend) Networks(ctx context.Context) ([]engine.Network, error) {
 			continue
 		}
 		nets = append(nets, engine.Network{
-			Name: n.Name, Driver: "bridge", Subnet: n.Subnet, Gateway: n.Gateway,
+			// The conflist's own type, not "bridge": a network must not change
+			// identity depending on which engine describes it, and "bridge" is
+			// what a private NAT network is called -- so a LAN network read as
+			// a private one exactly when podman was not installed to say
+			// otherwise.
+			Name: n.Name, Driver: n.Type, Subnet: n.Subnet, Gateway: n.Gateway,
 			UsedBy: jailsOnBridge(ctx, n.Bridge),
 		})
 	}
@@ -405,6 +416,18 @@ func jailsOnBridge(ctx context.Context, bridge string) []string {
 }
 
 // listVirtualnets enumerates appjail's virtual networks.
+// Virtualnet reports an appjail virtual network by name. A jail joins one of
+// these with the `virtualnet` option, not with an epair onto a host bridge --
+// two different attachments that the director writer has to tell apart.
+func Virtualnet(ctx context.Context, name string) (engine.Network, bool) {
+	for _, n := range listVirtualnets(ctx) {
+		if n.Name == name {
+			return n, true
+		}
+	}
+	return engine.Network{}, false
+}
+
 func listVirtualnets(ctx context.Context) []engine.Network {
 	// -H no header, -p tab-separated columns; keywords are space-separated args.
 	out, err := exec.CommandContext(ctx, "appjail", "network", "list", "-Hp", "name", "network", "cidr", "gateway").Output()
@@ -424,9 +447,27 @@ func listVirtualnets(ctx context.Context) []engine.Network {
 		}
 		nets = append(nets, engine.Network{
 			Name: f[0], Driver: "virtualnet", Subnet: subnet, Gateway: f[3],
-			UsedBy: virtualnetUsers(ctx, f[0], f[3]),
 		})
 	}
+	// Who is on each one, all at once. `appjail network hosts` costs ~340ms a
+	// call -- appjail is shell -- and asking for one network at a time made
+	// listing cost 160ms + 340ms x networks: a third of a second to draw the
+	// page with one network, over two seconds with five. The calls do not
+	// depend on each other, so the wait is now one of them rather than all of
+	// them. Bounded so a host with many networks does not fork a process per
+	// network at once.
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, 8)
+	for i := range nets {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			nets[i].UsedBy = virtualnetUsers(ctx, nets[i].Name, nets[i].Gateway)
+		}(i)
+	}
+	wg.Wait()
 	return nets
 }
 

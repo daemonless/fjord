@@ -1,4 +1,4 @@
-package podman
+package lannet
 
 import (
 	"encoding/json"
@@ -19,7 +19,7 @@ func goodSpec() engine.NetworkSpec {
 // CNI resolves "type" to a binary of that name, so a wrong type silently
 // routes the network at whatever else is installed under it.
 func TestConflistShape(t *testing.T) {
-	data, err := conflist(goodSpec())
+	data, err := Conflist(goodSpec())
 	if err != nil {
 		t.Fatalf("conflist: %v", err)
 	}
@@ -75,7 +75,7 @@ func TestConflistShape(t *testing.T) {
 func TestConflistOptionalFields(t *testing.T) {
 	s := goodSpec()
 	s.MTU, s.RangeStart, s.RangeEnd = 9000, "192.168.4.200", "192.168.4.250"
-	data, err := conflist(s)
+	data, err := Conflist(s)
 	if err != nil {
 		t.Fatalf("conflist: %v", err)
 	}
@@ -102,7 +102,7 @@ func TestConflistRejects(t *testing.T) {
 	for name, mutate := range cases {
 		s := goodSpec()
 		mutate(&s)
-		if _, err := conflist(s); err == nil {
+		if _, err := Conflist(s); err == nil {
 			t.Errorf("%s: accepted %+v", name, s)
 		}
 	}

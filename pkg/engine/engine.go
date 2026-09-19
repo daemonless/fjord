@@ -78,6 +78,32 @@ type Network struct {
 	// hang an interface off -- not of one engine, so listing it per engine
 	// made one network look like two.
 	Engines []string `json:"engines,omitempty"`
+	// Subnet6/Gateway6 are the IPv6 half of the segment, when there is one.
+	Subnet6  string `json:"subnet6,omitempty"`
+	Gateway6 string `json:"gateway6,omitempty"`
+	// AddressSource says WHO allocates on this network, which is the only
+	// thing that decides whether a stack must bring its own address:
+	//
+	//	"dhcp"   the segment's DHCP server leases one
+	//	"pool"   the runtime's IPAM, from a range in the conflist -- appjail
+	//	         cannot ask it, so a jail here needs an address
+	//	"static" nothing does; every stack brings its own, on either engine
+	//	"engine" the engine's own IPAM (an appjail virtualnet, podman's
+	//	         bridge) -- it allocates, so no address is needed
+	//
+	// Reported rather than inferred. Inferring it from "has a subnet" broke
+	// the moment a DHCP network started recording its segment, and told
+	// people a virtualnet needed an address when appjail allocates on it.
+	AddressSource string `json:"addressSource,omitempty"`
+	// Static marks a network that allocates nothing: a stack joining it must
+	// bring its own address, on either engine. The form needs this to know
+	// the address field is required rather than optional.
+	Static bool `json:"static,omitempty"`
+	// Bridge is the host interface this network hangs off, when it has one.
+	// Two networks on one bridge are two names for one segment: joining both
+	// is pointless everywhere and impossible on appjail, so the picker needs
+	// to be able to see it rather than finding out at save time.
+	Bridge string `json:"bridge,omitempty"`
 }
 
 // NetworkKind is one shape of network a backend can create, and which spec
@@ -91,7 +117,7 @@ type NetworkKind struct {
 	// Engine is which backend creates this kind. Set by the daemon when it
 	// merges every engine's kinds into one list; a backend leaves it empty.
 	Engine string `json:"engine,omitempty"` // "lan" | "nat"
-	Label  string `json:"label"`            // e.g. "Own IP on an existing bridge"
+	Label  string `json:"label"`            // what the form calls it, e.g. "epair"
 	// Help is one line explaining what a container on this network gets.
 	Help string `json:"help,omitempty"`
 	// ParentLabel names what Parent must be for this runtime ("Bridge" on
@@ -105,14 +131,26 @@ type NetworkKind struct {
 	ParentInterfaces []ParentInterface `json:"parentInterfaces,omitempty"`
 	// Engines are every backend that can make this kind. Engine is the one
 	// that will, when the user does not say otherwise.
-	Engines      []string `json:"engines,omitempty"`
-	NeedsGateway bool     `json:"needsGateway,omitempty"`
+	Engines []string `json:"engines,omitempty"`
+	// Shared marks a kind whose result belongs to the HOST rather than to the
+	// engine that created it, so every engine can attach to the same one.
+	//
+	// A LAN network is shared: it is a bridge on this host, and both runtimes
+	// hang an interface off it. A private network is not: podman's is a CNI
+	// bridge from `podman network create`, appjail's is a virtualnet from
+	// `appjail network add`, and neither can attach to the other's. Merging
+	// those two into one row had the form claim both engines and then silently
+	// pick one -- so "Private network" gave you an appjail-only or a
+	// podman-only network depending on which engine was listed first.
+	Shared       bool `json:"shared,omitempty"`
+	NeedsGateway bool `json:"needsGateway,omitempty"`
 	// AddressNote says where addresses come from when DHCP is not on offer.
 	// Without it the radio is simply absent, which reads as something fjord
 	// forgot rather than something the kind cannot have.
 	AddressNote string `json:"addressNote,omitempty"`
 	// SupportsDHCP: addresses can come from the segment's own DHCP server
-	// instead of a pool this host manages. When available it is the better
+	// instead of a range podman's IPAM allocates from. When available it is
+	// the better
 	// default: one allocator instead of two on the same wire.
 	SupportsDHCP        bool `json:"supportsDhcp,omitempty"`
 	SupportsMTU         bool `json:"supportsMtu,omitempty"`
@@ -168,12 +206,26 @@ type NetworkSpec struct {
 	// / "" (this host allocates from Subnet). A dhcp network needs no subnet,
 	// gateway or range: the lease carries them.
 	AddressSource string `json:"addressSource,omitempty"`
-	Subnet        string `json:"subnet"`
-	Gateway       string `json:"gateway,omitempty"`
-	MTU           int    `json:"mtu,omitempty"`
-	RangeStart    string `json:"rangeStart,omitempty"`
-	RangeEnd      string `json:"rangeEnd,omitempty"`
-	Description   string `json:"description,omitempty"`
+	// Subnet6/Gateway6 are the IPv6 half, when the network has one. Optional
+	// and independent: a network may be v4-only, dual-stack, or v6-only.
+	//
+	// Only a pool or static network can carry one. A DHCP network's addresses
+	// come from the CNI dhcp plugin, which is IPv4-only, and one plugin cannot
+	// run two IPAMs -- its v6 would have to come from SLAAC, which the epair
+	// plugin does not do.
+	Subnet6  string `json:"subnet6,omitempty"`
+	Gateway6 string `json:"gateway6,omitempty"`
+	// For restricts a network to one engine: "" means any. The network is the
+	// same object either way -- this records which engine's abilities the form
+	// was filled in for, so a range network made for podman is not offered to
+	// appjail, which cannot ask host-local for an address.
+	For         string `json:"for,omitempty"`
+	Subnet      string `json:"subnet"`
+	Gateway     string `json:"gateway,omitempty"`
+	MTU         int    `json:"mtu,omitempty"`
+	RangeStart  string `json:"rangeStart,omitempty"`
+	RangeEnd    string `json:"rangeEnd,omitempty"`
+	Description string `json:"description,omitempty"`
 }
 
 // NetworkParent is a host interface a "lan" network can attach to.

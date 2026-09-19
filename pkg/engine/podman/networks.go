@@ -60,6 +60,17 @@ func (b *Backend) Networks(ctx context.Context) ([]engine.Network, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Drop the ones made for another engine. podman loads every conflist it
+	// finds, so without this a network filled in for appjail is offered here
+	// too -- and its addresses come from a place podman was not asked about.
+	kept := nets[:0]
+	for _, n := range nets {
+		if d, ok := hostnet.Get(n.Name); ok && d.For != "" && d.For != "podman" {
+			continue
+		}
+		kept = append(kept, n)
+	}
+	nets = kept
 	// Backfill what libpod could not tell us from the network's own config.
 	for i, n := range nets {
 		if n.Subnet == "" {
@@ -96,7 +107,7 @@ func (b *Backend) Networks(ctx context.Context) ([]engine.Network, error) {
 	for _, d := range hostnet.List() {
 		// Only this plugin's networks: a conflist for something else is not
 		// fjord's to explain.
-		if seen[d.Name] || d.Type != epairPlugin {
+		if seen[d.Name] || d.Type != epairPlugin || (d.For != "" && d.For != "podman") {
 			continue
 		}
 		nets = append(nets, engine.Network{
