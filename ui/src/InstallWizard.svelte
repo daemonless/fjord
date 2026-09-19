@@ -164,10 +164,18 @@
     const has = (id: string) => trainList.some((t) => t.id === id);
     // `latest` is the tag the image's compose ships with -- by convention an
     // alias of the default variant (`pkg`, `3.4-pkg-latest`, ...) -- so it is
-    // the first choice whenever the registry publishes it; the catalog's
-    // variant id is the fallback, never a development train.
+    // the first choice whenever the registry publishes it AND the image still
+    // declares it. An image that drops its upstream-binary build keeps the old
+    // `latest` tag in the registry forever, frozen at whatever it was: for
+    // tailscale that is 1.92.3 against 1.102.4 on every train it actually
+    // builds. Undeclared means leftover, not current.
+    //
+    // No variants at all means the catalog says nothing either way, so the
+    // convention still holds -- this must not regress an image with no variant
+    // metadata.
+    const declared = (id: string) => !variants.length || variants.some((v: any) => v.id === id);
     const pick =
-      (has('latest') && 'latest') ||
+      (has('latest') && declared('latest') && 'latest') ||
       (def && has(def) && def) ||
       (def && has(stripVersion(def)) && stripVersion(def)) ||
       ['pkg-latest', 'pkg'].find(has) ||
@@ -210,11 +218,34 @@
   let advancedOpen = false; // Settings → Advanced can pre-open these (wizard detail 2/3)
   // One line that states the defaults being accepted, so nobody has to open
   // Options just to learn what they'd get.
+  // What the rolling channel tag actually resolves to, asked of the registry
+  // by digest. Not the newest pin in the train: those disagree for any image
+  // carrying tags from a retired scheme, and the summary then names a version
+  // the install will not produce -- tailscale read "v1.92.3" while the tag it
+  // would pull was 1.102.4.
+  let rollingVersion = '';
+  let rollingFor = '';
+  async function loadRolling(img: string, t: string) {
+    const key = `${img}@${t}`;
+    if (!img || !t || rollingFor === key) return;
+    rollingFor = key;
+    rollingVersion = '';
+    try {
+      const r = await fetch(`/api/registry/rolling?image=${encodeURIComponent(img)}&train=${encodeURIComponent(t)}`);
+      if (r.ok && rollingFor === key) rollingVersion = (await r.json()).version ?? '';
+    } catch {
+      // registry unreachable -> fall back to naming the tag, which is still
+      // exactly what gets deployed.
+    }
+  }
+  $: loadRolling(imageRepo(), train);
+
   $: summaryVersion = (() => {
     if (customTag.trim()) return customTag.trim();
     if (versionTag) return versionTag;
-    const v = trains[train]?.[0]?.version || activeSource?.version;
-    return v ? `v${v}` : 'latest';
+    // The tag itself when the version is not known: honest, and it is what
+    // the install actually asks the registry for.
+    return rollingVersion ? `v${rollingVersion}` : train ? `:${train}` : 'latest';
   })();
   $: summaryTrain = trainList.length > 1 ? trainList.find((t) => t.id === train)?.label || '' : '';
 
@@ -336,15 +367,59 @@
   // Attachable networks (empty on hosts without them).
   // A network with no subnet gets its addresses from DHCP -- nothing here
   // needs to know the segment, and no address has to be supplied.
-  type Network = { name: string; subnet?: string };
+  type Network = { name: string; subnet?: string; static?: boolean; addressSource?: string };
   let networks: Network[] = [];
   let netChoice = '';
+  // appjail: false means a director project cannot take it -- both are jail
+  // parameters rather than director options, so install would refuse.
+  const BUILT_IN = [
+    { name: 'bridge', detail: 'A private address behind NAT, reached on the ports it publishes on this host.' },
+    { name: 'host', detail: "No address or port mapping of its own — it binds this host's ports directly.", appjail: false },
+    { name: 'none', detail: 'No network at all: nothing in and nothing out.' },
+  ];
+  const builtIn = (name: string) => BUILT_IN.some((b) => b.name === name);
+  $: chosenBuiltIn = BUILT_IN.find((b) => b.name === (netChoice || 'bridge'));
+  // A default of host or none is fine until the engine is appjail, which has
+  // no director option for either. The option was already grayed out, but it
+  // stayed SELECTED -- so the install went ahead and came back 400. Falling
+  // back to bridge keeps the operator's intent (no address of its own) on an
+  // engine that can honour it.
+  $: if (engineChoice === 'appjail' && BUILT_IN.some((b) => b.name === netChoice && b.appjail === false)) {
+    netChoice = 'bridge';
+  }
   let netIP = '';
   let netMAC = '';
+  // How a network hands out addresses, in the words the form uses. Read from
+  // what the daemon reports -- "no subnet means DHCP" was the old tell and
+  // stopped being true when DHCP networks began recording their segment.
+  const allocLabel = (n: { addressSource?: string; subnet?: string }) =>
+    n.addressSource === 'dhcp'
+      ? n.subnet ? `DHCP · ${n.subnet}` : 'DHCP'
+      : n.addressSource === 'static'
+        ? n.subnet ? `static · ${n.subnet}` : 'static'
+        : n.subnet || '';
+
+  // Shape only: whether it fits the segment is the daemon's call. Catches the
+  // typo that reached a jail as 0.0.0.1 before anything is submitted.
+  const badIPv4 = (v: string) =>
+    !!v.trim() && !/^(\d{1,3}\.){3}\d{1,3}$/.test(v.trim());
   $: chosenNet = networks.find((n) => n.name === netChoice);
   // appjail cannot draw from the pool the podman side's IPAM manages, so on a
   // pool network it needs an address given to it. On DHCP nothing does.
-  $: ipRequired = !!netChoice && engineChoice === 'appjail' && !!chosenNet?.subnet;
+  // Keyed on WHO allocates, which the network reports. Inferring it from "has
+  // a subnet" was wrong twice over: a DHCP network records its segment, and an
+  // appjail virtualnet has a CIDR that appjail itself allocates from -- so
+  // both were demanding an address that neither needs.
+  $: ipRequired =
+    !!netChoice &&
+    (chosenNet?.addressSource === 'static' ||
+      (engineChoice === 'appjail' && chosenNet?.addressSource === 'pool'));
+  // ...and a required field cannot hide. Networking sits in the Options
+  // disclosure, collapsed at low wizard-detail settings -- and it used to sit
+  // inside Advanced INSIDE Options, two disclosures deep, so a static network
+  // left Deploy disabled with the field that would satisfy it out of sight and
+  // no reason on screen.
+  $: if (ipRequired && !netIP.trim()) showOptions = true;
 
   // Scoped to the engine being installed on. The unscoped list spans both, so
   // it offers networks the chosen engine cannot attach to -- appjail's own
@@ -359,7 +434,7 @@
       networks = [];
     }
     // Whatever was picked may not exist for this engine.
-    if (netChoice && !networks.some((n) => n.name === netChoice)) netChoice = '';
+    if (netChoice && !builtIn(netChoice) && !networks.some((n) => n.name === netChoice)) netChoice = '';
     applyDefaultNetwork();
   }
   $: engineChoice, loadNetworks();
@@ -368,18 +443,28 @@
   // loaded. Both arrive asynchronously and in no fixed order, so each calls
   // this and it acts when both are in hand.
   let defaultNetwork = '';
+  // Per engine: a network only one engine can use cannot be everyone's
+  // default, and installing on the other engine used to fall back to nothing.
+  let defaultFor: Record<string, string> = {};
+  $: wantedNetwork = (engineChoice && defaultFor[engineChoice]) || defaultNetwork;
   let defaultNetworkKnown = false;
   function applyDefaultNetwork() {
-    if (!defaultNetworkKnown || netChoice || !defaultNetwork) return;
+    if (!defaultNetworkKnown || netChoice || !wantedNetwork) return;
     // Only when it exists for THIS engine -- one renamed, removed, or simply
     // not attachable here would otherwise fail every install.
-    if (networks.some((n) => n.name === defaultNetwork)) netChoice = defaultNetwork;
+    // A built-in exists on every host and for every engine, so it needs no
+    // lookup -- without this, setting one as the default did nothing at all.
+    if (builtIn(wantedNetwork) || networks.some((n) => n.name === wantedNetwork)) netChoice = wantedNetwork;
   }
 
   onMount(async () => {
     try {
       const dres = await fetch('/api/settings/network');
-      if (dres.ok) defaultNetwork = (await dres.json()).network || '';
+      if (dres.ok) {
+        const d = await dres.json();
+        defaultNetwork = d.network || '';
+        defaultFor = d.forEngine || {};
+      }
       defaultNetworkKnown = true;
       applyDefaultNetwork();
     } catch {
@@ -688,7 +773,102 @@
 
               {#each optionVars as v}{@render varField(v)}{/each}
 
-              {#if advancedVars.length || availableEngines.length > 1 || networks.length || variants.length}
+          <!-- Not gated on there being any named networks: bridge, host and
+               none are always choices, so gating the section on networks.length
+               removed the whole control on a host that defines none -- and any
+               time the engine-scoped fetch came back empty. The same gate was
+               wrong on the stack's own picker and was removed there. -->
+          {#if hostNetworked}
+            <div class="pt-4 border-t border-fjord-border">
+              <span class="text-sm font-semibold text-fjord-fg-secondary">Networking</span>
+              <p class="text-xs text-fjord-fg-dim mt-1">
+                This app runs on host networking — its services reach each other over
+                <span class="font-mono">localhost</span>, so it cannot take an address of its own. It
+                answers on the host's IP.
+              </p>
+            </div>
+          {:else}
+            {#snippet macField()}
+              <div class="flex gap-2 mt-2">
+                <input
+                  type="text"
+                  bind:value={netMAC}
+                  placeholder="MAC (optional — pin one for a DHCP reservation)"
+                  class="flex-1 bg-fjord-inset border border-fjord-border rounded-md px-3 py-2 text-fjord-fg-body font-mono text-sm focus:outline-none focus:border-fjord-accent"
+                />
+                <!-- Fills a blank field only, so a MAC is never replaced by
+                     accident: a reservation is keyed on it. -->
+                <button
+                  type="button"
+                  on:click={() => (netMAC = randomMAC())}
+                  disabled={!!netMAC.trim()}
+                  title={netMAC.trim()
+                    ? 'Clear the field first — changing a MAC breaks a DHCP reservation keyed on it'
+                    : 'Generate a locally-administered address'}
+                  class="shrink-0 px-3 rounded-md border border-fjord-border text-sm text-fjord-fg-secondary hover:bg-fjord-border disabled:opacity-30 disabled:hover:bg-transparent"
+                  >Generate</button
+                >
+              </div>
+            {/snippet}
+            <div class="pt-4 border-t border-fjord-border">
+              <label class="text-sm font-semibold text-fjord-fg-secondary" for="net">Networking</label>
+              <p class="text-xs text-fjord-fg-dim mb-2">How this app reaches the network.</p>
+              <select
+                id="net"
+                bind:value={netChoice}
+                class="w-full bg-fjord-inset border border-fjord-border rounded-md px-3 py-2 text-fjord-fg-body focus:outline-none focus:border-fjord-accent"
+              >
+                <!-- The built-ins by name, the same three words the Networks
+                     page and each stack's own picker use. "" is the historic
+                     value for bridge, from before it had a name. -->
+                {#each BUILT_IN as b}
+                  <option value={b.name} disabled={b.appjail === false && engineChoice === 'appjail'}>{b.name}</option>
+                {/each}
+                {#each networks as n}
+                  <!-- Name and detail, the same shape as the built-ins above
+                       and as the stack's own picker. "Own IP on vlan4" was a
+                       sentence where every other list is a name. -->
+                  <option value={n.name}>{n.name}{allocLabel(n) ? ` (${allocLabel(n)})` : ''}</option>
+                {/each}
+              </select>
+              {#if !netChoice || builtIn(netChoice)}
+                <p class="text-xs text-fjord-fg-dim mt-2">{chosenBuiltIn?.detail}</p>
+              {:else if chosenNet?.addressSource === 'dhcp'}
+                <p class="text-xs text-fjord-fg-dim mt-2">
+                  The address comes from the DHCP server on that segment, using this app's MAC.
+                </p>
+                {@render macField()}
+              {:else if netChoice}
+                <input
+                  type="text"
+                  bind:value={netIP}
+                  placeholder={ipRequired ? 'IP (required on this engine)' : 'IP (optional — auto-assign if blank)'}
+                  class="w-full mt-2 bg-fjord-inset border rounded-md px-3 py-2 text-fjord-fg-body font-mono text-sm focus:outline-none focus:border-fjord-accent {badIPv4(
+                    netIP,
+                  )
+                    ? 'border-fjord-danger/60'
+                    : 'border-fjord-border'}"
+                />
+                {#if badIPv4(netIP)}
+                  <p class="text-xs text-fjord-danger mt-1">{netIP.trim()} is not an IPv4 address.</p>
+                {/if}
+                {#if ipRequired && !netIP.trim()}
+                  <p class="text-xs text-fjord-warning mt-1">
+                    {#if chosenNet?.addressSource === 'static'}
+                      Nothing allocates on {netChoice} — give this app an address on
+                      {chosenNet.subnet || 'that segment'}.
+                    {:else}
+                      {netChoice} draws from a range set aside for podman's IPAM, which appjail cannot ask —
+                      give this jail an address from that range, or pick a DHCP network.
+                    {/if}
+                  </p>
+                {/if}
+                {@render macField()}
+              {/if}
+            </div>
+          {/if}
+
+              {#if advancedVars.length || availableEngines.length > 1 || variants.length}
                 <details class="group border-t border-fjord-border pt-4" open={advancedOpen}>
                   <summary class="flex items-center gap-1.5 cursor-pointer text-sm font-semibold text-fjord-fg-secondary hover:text-fjord-fg select-none list-none">
                     <Icon name="chevron-right" size={14} class="transition-transform group-open:rotate-90" />
@@ -726,73 +906,6 @@
             </div>
                     {/if}
                     {#each advancedVars as v}{@render varField(v)}{/each}
-          {#if networks.length && hostNetworked}
-            <div class="pt-4 border-t border-fjord-border">
-              <span class="text-sm font-semibold text-fjord-fg-secondary">Networking</span>
-              <p class="text-xs text-fjord-fg-dim mt-1">
-                This app runs on host networking — its services reach each other over
-                <span class="font-mono">localhost</span>, so it cannot take an address of its own. It
-                answers on the host's IP.
-              </p>
-            </div>
-          {:else if networks.length}
-            {#snippet macField()}
-              <div class="flex gap-2 mt-2">
-                <input
-                  type="text"
-                  bind:value={netMAC}
-                  placeholder="MAC (optional — pin one for a DHCP reservation)"
-                  class="flex-1 bg-fjord-inset border border-fjord-border rounded-md px-3 py-2 text-fjord-fg-body font-mono text-sm focus:outline-none focus:border-fjord-accent"
-                />
-                <!-- Fills a blank field only, so a MAC is never replaced by
-                     accident: a reservation is keyed on it. -->
-                <button
-                  type="button"
-                  on:click={() => (netMAC = randomMAC())}
-                  disabled={!!netMAC.trim()}
-                  title={netMAC.trim()
-                    ? 'Clear the field first — changing a MAC breaks a DHCP reservation keyed on it'
-                    : 'Generate a locally-administered address'}
-                  class="shrink-0 px-3 rounded-md border border-fjord-border text-sm text-fjord-fg-secondary hover:bg-fjord-border disabled:opacity-30 disabled:hover:bg-transparent"
-                  >Generate</button
-                >
-              </div>
-            {/snippet}
-            <div class="pt-4 border-t border-fjord-border">
-              <label class="text-sm font-semibold text-fjord-fg-secondary" for="net">Networking</label>
-              <p class="text-xs text-fjord-fg-dim mb-2">Give this app its own IP so it binds its ports without colliding on the host.</p>
-              <select
-                id="net"
-                bind:value={netChoice}
-                class="w-full bg-fjord-inset border border-fjord-border rounded-md px-3 py-2 text-fjord-fg-body focus:outline-none focus:border-fjord-accent"
-              >
-                <option value="">Host ports (default)</option>
-                {#each networks as n}
-                  <option value={n.name}>Own IP on {n.name} ({n.subnet || 'address from DHCP'})</option>
-                {/each}
-              </select>
-              {#if netChoice && !chosenNet?.subnet}
-                <p class="text-xs text-fjord-fg-dim mt-2">
-                  The address comes from the DHCP server on that segment, using this app's MAC.
-                </p>
-                {@render macField()}
-              {:else if netChoice}
-                <input
-                  type="text"
-                  bind:value={netIP}
-                  placeholder={ipRequired ? 'IP (required on this engine)' : 'IP (optional — auto-assign if blank)'}
-                  class="w-full mt-2 bg-fjord-inset border border-fjord-border rounded-md px-3 py-2 text-fjord-fg-body font-mono text-sm focus:outline-none focus:border-fjord-accent"
-                />
-                {#if ipRequired && !netIP.trim()}
-                  <p class="text-xs text-fjord-warning mt-1">
-                    {netChoice} hands out addresses from a pool this host manages, which appjail cannot
-                    draw from — give this jail an address, or pick a DHCP network.
-                  </p>
-                {/if}
-                {@render macField()}
-              {/if}
-            </div>
-          {/if}
                   </div>
                 </details>
               {/if}
@@ -806,7 +919,7 @@
       <button on:click={close} class="px-4 py-2 rounded-md font-medium text-fjord-fg-secondary hover:text-fjord-fg hover:bg-fjord-border transition-all">Cancel</button>
       <button
         on:click={deploy}
-        disabled={loading || !!error || !validName || missingRequired.length > 0 || (ipRequired && !netIP.trim())}
+        disabled={loading || !!error || !validName || missingRequired.length > 0 || (ipRequired && !netIP.trim()) || badIPv4(netIP)}
         title={!validName ? 'Enter a valid stack name' : missingRequired.length ? `Fill required: ${missingRequired.map((v) => v.name).join(', ')}` : ''}
         class="bg-fjord-accent hover:bg-fjord-accent-hover text-white px-6 py-2 rounded-md font-medium shadow-lg transition-all disabled:opacity-50"
         >Install</button
