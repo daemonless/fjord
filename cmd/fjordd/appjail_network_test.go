@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -46,7 +47,7 @@ func seedNetwork(t *testing.T) {
 // "expose requires the following options: virtualnet" alongside a bridge.
 func TestSetDirectorNetworks(t *testing.T) {
 	seedNetwork(t)
-	out, err := setDirectorNetworks(natDirector, "zensical", []composepkg.Attachment{{Network: "vlan5", IP: "192.168.5.222"}})
+	out, err := setDirectorNetworks(context.Background(), natDirector, "zensical", []composepkg.Attachment{{Network: "vlan5", IP: "192.168.5.222"}})
 	if err != nil {
 		t.Fatalf("setDirectorNetworks: %v", err)
 	}
@@ -74,12 +75,12 @@ func TestSetDirectorNetworks(t *testing.T) {
 
 func TestSetDirectorNetworksRejects(t *testing.T) {
 	seedNetwork(t)
-	if _, err := setDirectorNetworks(natDirector, "zensical", []composepkg.Attachment{{Network: "nosuch", IP: "192.168.5.222"}}); err == nil {
+	if _, err := setDirectorNetworks(context.Background(), natDirector, "zensical", []composepkg.Attachment{{Network: "nosuch", IP: "192.168.5.222"}}); err == nil {
 		t.Error("accepted an undefined network")
 	}
 	// appjail has no address pool for a network it does not manage, so an
 	// address is required rather than auto-assigned.
-	if _, err := setDirectorNetworks(natDirector, "zensical", []composepkg.Attachment{{Network: "vlan5"}}); err == nil {
+	if _, err := setDirectorNetworks(context.Background(), natDirector, "zensical", []composepkg.Attachment{{Network: "vlan5"}}); err == nil {
 		t.Error("accepted an empty address")
 	}
 }
@@ -114,14 +115,14 @@ func TestEpairName(t *testing.T) {
 // default route -- more than one and the jail's routing table is a coin toss.
 func TestSetDirectorNetworksTwo(t *testing.T) {
 	seedNetwork(t)
-	out, err := setDirectorNetworks(natDirector, "zensical", []composepkg.Attachment{
+	out, err := setDirectorNetworks(context.Background(), natDirector, "zensical", []composepkg.Attachment{
 		{Network: "vlan5", IP: "192.168.5.222", MAC: "02:1a:2b:3c:4d:5e"},
 		{Network: "vlan5", IP: "192.168.5.223"},
 	})
 	if err == nil {
 		t.Fatal("accepted the same network twice")
 	}
-	out, err = setDirectorNetworks(natDirector, "zensical", []composepkg.Attachment{
+	out, err = setDirectorNetworks(context.Background(), natDirector, "zensical", []composepkg.Attachment{
 		{Network: "vlan5", IP: "192.168.5.222", MAC: "02:1a:2b:3c:4d:5e"},
 	})
 	if err != nil {

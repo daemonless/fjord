@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -32,7 +33,7 @@ func directorJailName(stackID, service string) string {
 // appjail-director.yml (the file's presence is the per-stack "use director"
 // switch; stacks without it stay on the legacy `appjail oci run` path). Returns
 // the .env text written, so the caller records it on the stack.
-func writeAppjailBundle(dir, stackID string, b *manifest.AppjailBundle, resolvedEnv map[string]string, composeYAML string, atts []composepkg.Attachment) (string, error) {
+func writeAppjailBundle(dir, stackID string, b *manifest.AppjailBundle, resolvedEnv map[string]string, composeYAML string, atts []composepkg.Attachment, noNetwork bool) (string, error) {
 	if b.Director == "" {
 		return "", fmt.Errorf("appjail bundle has no director file")
 	}
@@ -54,11 +55,18 @@ func writeAppjailBundle(dir, stackID string, b *manifest.AppjailBundle, resolved
 	if err != nil {
 		return "", fmt.Errorf("director.yml: %w", err)
 	}
-	// Place the project's jails on a host bridge instead of appjail's NAT
-	// virtualnet. Done after materialize so it rewrites the finished document.
-	if len(atts) > 0 {
-		directorYML, err = setDirectorNetworks(directorYML, stackID, atts)
-		if err != nil {
+	// Place the project's jails on a host bridge or an appjail virtual network
+	// instead of appjail's NAT virtualnet, or on nothing at all. Done after
+	// materialize so it rewrites the finished document -- and here rather than
+	// in the caller, which does not have the director in hand until this has
+	// written it to disk.
+	switch {
+	case noNetwork:
+		if directorYML, err = disableDirectorNetworks(directorYML); err != nil {
+			return "", fmt.Errorf("network none: %w", err)
+		}
+	case len(atts) > 0:
+		if directorYML, err = setDirectorNetworks(context.Background(), directorYML, stackID, atts); err != nil {
 			return "", fmt.Errorf("network attach: %w", err)
 		}
 	}
