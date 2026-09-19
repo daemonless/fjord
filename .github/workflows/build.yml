@@ -31,9 +31,9 @@ jobs:
       GOARCH: amd64
       CGO_ENABLED: "0"
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: "24"
           cache: npm
@@ -45,7 +45,7 @@ jobs:
           npm ci
           npm run build
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
           cache: true
@@ -56,7 +56,7 @@ jobs:
           file fjordd
 
       - name: Upload binary
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: fjordd-freebsd-amd64
           path: |
@@ -77,11 +77,11 @@ jobs:
       # (which also checks that tag out, so assets match the tag, not main).
       TAG: ${{ github.event.inputs.tag || github.ref_name }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           ref: ${{ github.event.inputs.tag || github.ref }}
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: "24"
           cache: npm
@@ -93,7 +93,7 @@ jobs:
           npm ci
           npm run build
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
           cache: true
