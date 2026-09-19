@@ -14,6 +14,14 @@
 
   const dispatch = createEventDispatcher<{ done: void }>();
   const STEPS = ['Welcome', 'Engine', 'Storage', 'Catalog', 'Already running', 'How it works'];
+  // "Already running" only exists when something already is. Listing a step and
+  // then jumping over it reads as a bug, so the indicator omits it entirely
+  // when there is nothing to adopt. Entries carry their real index: `step`
+  // still counts through STEPS, and hiding a label must not shift it.
+  const ADOPT_STEP = 4;
+  $: visibleSteps = STEPS.map((label, i) => ({ label, i })).filter(
+    (s) => s.i !== ADOPT_STEP || candidates.length > 0,
+  );
   let step = 0;
 
   // ---- 1. readiness ----
@@ -285,15 +293,32 @@
 
   // ---- navigation ----
   let finishing = false;
+  // Every step that saves or looks something up awaits, and a button that
+  // looks idle while it does invites a second click -- which used to run next()
+  // twice and step straight past "Already running", the slowest one to load.
+  // One flag guards re-entry and drives the spinner, so the button is never
+  // both busy and idle-looking.
+  let navigating = false;
   async function next() {
-    if (step === 1 && !(await saveEngine())) return;
-    if (step === 2 && !(await saveStorage())) return;
-    if (step === 3) await loadCandidates();
-    step = Math.min(step + 1, STEPS.length - 1);
-    if (step === 4 && !candidates.length) step = 5; // nothing to adopt
+    if (navigating) return;
+    navigating = true;
+    try {
+      if (step === 1 && !(await saveEngine())) return;
+      if (step === 2 && !(await saveStorage())) return;
+      // Refresh: something may have been started since the wizard opened.
+      if (step === 3) await loadCandidates();
+      step = Math.min(step + 1, STEPS.length - 1);
+      if (step === ADOPT_STEP && !candidates.length) step = ADOPT_STEP + 1; // nothing to adopt
+    } finally {
+      navigating = false;
+    }
   }
   function back() {
-    step = Math.max(step - 1, 0);
+    let prev = Math.max(step - 1, 0);
+    // Stepping back into the adopt screen when it was skipped forwards would
+    // land on a step the indicator does not show, with nothing on it.
+    if (prev === ADOPT_STEP && !candidates.length) prev = Math.max(prev - 1, 0);
+    step = prev;
   }
   async function finish() {
     finishing = true;
@@ -312,6 +337,9 @@
     loadChecks();
     loadStorage();
     loadCatalog();
+    // Up front, not on the way into the step: the indicator has to know from
+    // the first screen whether there is an "Already running" step at all.
+    loadCandidates();
   });
 
   const STATUS: Record<string, { icon: string; cls: string }> = {
@@ -326,18 +354,18 @@
   <div class="w-full max-w-2xl">
     <!-- step indicator -->
     <div class="flex items-center gap-2 mb-6">
-      {#each STEPS as label, i}
+      {#each visibleSteps as s, n}
         <button
-          on:click={() => i < step && (step = i)}
-          class="flex items-center gap-2 text-xs font-medium {i === step ? 'text-fjord-fg' : i < step ? 'text-fjord-fg-muted hover:text-fjord-fg-body' : 'text-fjord-fg-faint'}"
-          disabled={i > step}
+          on:click={() => s.i < step && (step = s.i)}
+          class="flex items-center gap-2 text-xs font-medium {s.i === step ? 'text-fjord-fg' : s.i < step ? 'text-fjord-fg-muted hover:text-fjord-fg-body' : 'text-fjord-fg-faint'}"
+          disabled={s.i > step}
         >
-          <span class="w-5 h-5 rounded-full flex items-center justify-center text-[10px] {i === step ? 'bg-fjord-accent text-white' : i < step ? 'bg-fjord-border text-fjord-fg-secondary' : 'border border-fjord-border'}"
-            >{#if i < step}<Icon name="check" size={11} />{:else}{i + 1}{/if}</span
+          <span class="w-5 h-5 rounded-full flex items-center justify-center text-[10px] {s.i === step ? 'bg-fjord-accent text-white' : s.i < step ? 'bg-fjord-border text-fjord-fg-secondary' : 'border border-fjord-border'}"
+            >{#if s.i < step}<Icon name="check" size={11} />{:else}{n + 1}{/if}</span
           >
-          {label}
+          {s.label}
         </button>
-        {#if i < STEPS.length - 1}<span class="flex-1 h-px bg-fjord-border"></span>{/if}
+        {#if n < visibleSteps.length - 1}<span class="flex-1 h-px bg-fjord-border"></span>{/if}
       {/each}
     </div>
 
@@ -585,16 +613,16 @@
       <!-- footer -->
       <div class="flex items-center gap-3 mt-7 pt-5 border-t border-fjord-border">
         {#if step > 0}
-          <button on:click={back} class="px-3 py-2 rounded-lg text-sm font-medium text-fjord-fg-muted hover:text-fjord-fg">Back</button>
+          <button on:click={back} disabled={navigating} class="px-3 py-2 rounded-lg text-sm font-medium text-fjord-fg-muted hover:text-fjord-fg disabled:opacity-40">Back</button>
         {/if}
         <div class="flex-1"></div>
         {#if step < STEPS.length - 1}
           <button on:click={finish} disabled={finishing} class="px-3 py-2 rounded-lg text-sm font-medium text-fjord-fg-dim hover:text-fjord-fg-secondary">Skip setup</button>
           <button
             on:click={next}
-            disabled={savingStorage || savingEngine || adopting}
+            disabled={navigating || adopting}
             class="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-fjord-accent hover:bg-fjord-accent-hover text-white disabled:opacity-50"
-            >{#if savingStorage || savingEngine}<Spinner size={13} />{/if}Continue <Icon name="chevron-right" size={14} /></button
+            >{#if navigating}<Spinner size={13} />{/if}Continue <Icon name="chevron-right" size={14} /></button
           >
         {:else}
           <button
