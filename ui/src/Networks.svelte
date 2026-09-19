@@ -6,7 +6,7 @@
   import { toast } from './toast';
   import FixSnippet from './FixSnippet.svelte';
 
-  type Network = { name: string; driver: string; subnet?: string; gateway?: string; usedBy?: string[]; problem?: string; engines?: string[] };
+  type Network = { name: string; driver: string; subnet?: string; gateway?: string; usedBy?: string[]; problem?: string; engines?: string[]; addressSource?: string };
   // A kind is the engine's own declaration of what it can create and which
   // fields that shape uses -- the form is built from this rather than from
   // anything the UI knows about a specific runtime.
@@ -20,6 +20,7 @@
     needsGateway?: boolean;
     engine?: string;   // which backend makes this kind
     engines?: string[]; // every backend that can
+    shared?: boolean;   // result belongs to the host, so any engine can attach
     supportsDhcp?: boolean;
     addressNote?: string;   // where addresses come from when DHCP is not offered
     supportsMtu?: boolean;
@@ -54,25 +55,33 @@
   let loading = true;
   let error = '';
 
+  // Four independent requests that were made one after another, with the page
+  // showing a spinner until the last one landed -- so the wait was their sum
+  // rather than the slowest of them. They are started together now, and the
+  // list stops waiting on the three it does not need: kinds and parents only
+  // decide whether creating is offered, and the default only decorates a row.
   async function load() {
     loading = true;
     error = '';
+    const host = refreshHost();
+    const dflt = fetch('/api/settings/network')
+      .then((r) => (r.ok ? r.json() : null))
+      .catch(() => null);
     try {
       const res = await fetch('/api/networks');
       if (!res.ok) throw new Error(await res.text());
       networks = await res.json();
-      // Kinds and parents are advisory: a failure here disables creating but
-      // must not hide the networks that already exist.
-      await refreshHost();
-      defaultNetwork = await fetch('/api/settings/network')
-        .then((r) => (r.ok ? r.json() : null))
-        .then((d) => d?.network ?? '')
-        .catch(() => '');
     } catch (e: any) {
       error = e.message || 'Failed to load networks';
     } finally {
       loading = false;
     }
+    // Advisory: a failure here disables creating but must not hide, or delay,
+    // the networks that already exist.
+    await host;
+    const d = await dflt;
+    defaultNetwork = d?.network ?? '';
+    defaultFor = d?.forEngine ?? {};
   }
 
   // What the host looks like right now: which bridges exist, and what the
@@ -80,11 +89,20 @@
   // opens -- it tells the user to go make a bridge and come back, so the
   // answer is expected to have changed since the page loaded.
   async function refreshHost() {
-    const k = await fetch('/api/networks/kinds').then((r) => (r.ok ? r.json() : null)).catch(() => null);
+    const [k, p] = await Promise.all([
+      fetch('/api/networks/kinds').then((r) => (r.ok ? r.json() : null)).catch(() => null),
+      // Unscoped on purpose: a bridge is the HOST's, and both engines answer
+      // from the same place. Naming podman here meant the list came back empty
+      // the moment podman was turned off in Plugins -- so a host with a bridge
+      // sitting right there was told it had none, while the setup snippet
+      // below it offered to create "lanbridge2" because it could see the one
+      // that already existed.
+      fetch('/api/networks/parents').then((r) => (r.ok ? r.json() : [])).catch(() => []),
+    ]);
     kinds = k?.kinds ?? [];
     kindsNote = k?.note ?? '';
     canRemove = k?.canRemove ?? true;
-    parents = await fetch('/api/networks/parents?engine=podman').then((r) => (r.ok ? r.json() : [])).catch(() => []);
+    parents = p;
   }
 
   onMount(load);
@@ -102,8 +120,26 @@
   let createError = '';
   let kindID = '';
   let form = { name: '', parent: '', subnet: '', gateway: '', mtu: '', rangeStart: '', rangeEnd: '', description: '' };
-  // "dhcp" = the segment's own server allocates; "pool" = this host does.
-  let addressSource: 'dhcp' | 'pool' = 'dhcp';
+  // "dhcp" = the segment's own DHCP server allocates; "pool" = a range set
+  // aside in the conflist, which podman's host-local IPAM allocates from and
+  // appjail cannot draw from at all. Not fjord: it writes the range and never
+  // touches it again.
+  let addressSource: 'dhcp' | 'pool' | 'static' = 'dhcp';
+  // Which engine this network is for. One control, one meaning, in one place
+  // on both tabs -- it used to be "Created by" near the top of one tab and
+  // "For" near the bottom of the other, so the same question looked like two
+  // unrelated settings and the fields moved when you switched tabs.
+  //
+  // What it MEANS differs by kind, and that is the kind's business, not the
+  // control's: a private network really is one engine's own object, so only
+  // one engine can be chosen; an epair network is a host bridge both engines
+  // can attach to, so "both" is offered and is the default.
+  let forEngine = '';
+  // Both address sources are offered for every engine. A range once looked
+  // like podman's alone -- appjail cannot ask host-local to allocate from it
+  // -- but that only means a jail needs its address typed in, which is said
+  // under the choice. Hiding it took DHCP with it, since both buttons live in
+  // one control, and left the appjail tab with no address choice at all.
   let advanced = false;
   // The bridge-setup help, available whether or not a bridge already exists.
   let showSetup = false;
@@ -116,24 +152,125 @@
   // answer for one machine with one app and the wrong one as soon as the
   // operator has decided every stack gets its own address.
   let defaultNetwork = '';
+  // Per engine, for networks only one engine can use. "" in defaultNetwork is
+  // still the fallback for an engine with no entry of its own.
+  let defaultFor: Record<string, string> = {};
+  // Which engines a row is the default for, so the badge can say so.
+  const defaultEngines = (name: string) =>
+    Object.keys(defaultFor).filter((e) => defaultFor[e] === name);
+  // The three states a stack can be in with no network of its own, in podman's
+  // words: "bridge" is its NAT bridge, "host" is this host's own stack, "none"
+  // is no network at all. Listed here because they are as real a choice as any
+  // network the host defines -- and as valid a default for new installs.
+  const BUILT_IN = [
+    {
+      name: 'bridge',
+      // Not podman's: every engine has one. podman's is the network it calls
+      // "podman", appjail's is its NAT virtualnet -- the same deal either way,
+      // and naming one engine made it read as unavailable on the other.
+      detail: "The engine's own bridge — a private address behind NAT, reached on the ports it publishes on this host.",
+    },
+    {
+      name: 'host',
+      detail: "This host's own stack — no address and no port mapping of its own, so it binds host ports directly.",
+      // An appjail director project has no option for it: a jail parameter,
+      // not a director option. Shown in the engines column like every other
+      // row rather than as a badge of its own.
+      not: ['appjail'],
+    },
+    {
+      name: 'none',
+      detail: 'No network at all: nothing in and nothing out.',
+    },
+  ];
+  // Reactive, not a plain const: the markup calls this, and Svelte only
+  // re-renders an expression when something it REFERENCES changes. A const
+  // closure hides the dependency on defaultNetwork, so the rows kept their old
+  // state until the page was reloaded. "" is the historic value for bridge,
+  // from before it had a name.
+  $: isDefault = (name: string) =>
+    defaultNetwork === name ||
+    (name === 'bridge' && defaultNetwork === '') ||
+    defaultEngines(name).length > 0;
 
-  async function setDefault(name: string) {
-    const want = defaultNetwork === name ? '' : name; // clicking the current one clears it
-    const r = await fetch('/api/settings/network', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ network: want }),
-    });
-    if (!r.ok) {
-      toast((await r.text()).trim(), { kind: 'error' });
-      return;
+  // Every engine that can create networks here, from the kinds they offered.
+  $: allEngines = [...new Set(kinds.flatMap((k) => k.engines ?? (k.engine ? [k.engine] : [])))];
+  const enginesFor = (b: { not?: string[] }) => allEngines.filter((e) => !(b.not ?? []).includes(e));
+  // With one engine every row would say the same word, which is noise rather
+  // than information. The column earns its place only when there is a choice.
+  $: showEngines = allEngines.length > 1;
+  // And a built-in no engine here can use is not a row worth showing: host on
+  // an appjail-only host is not "unavailable", it is simply not a thing you
+  // can pick.
+  // ...unless it is the one new installs currently start on. Hiding that would
+  // leave a default nothing can honour and no row to change it from.
+  $: visibleBuiltIn = BUILT_IN.filter((b) => enginesFor(b).length > 0 || isDefault(b.name));
+
+  // How a network hands out addresses, in the words the form uses. Read from
+  // what the daemon reports -- "no subnet means DHCP" was the old tell and
+  // stopped being true when DHCP networks began recording their segment.
+  const allocLabel = (n: { addressSource?: string; subnet?: string }) =>
+    n.addressSource === 'dhcp'
+      ? n.subnet ? `DHCP · ${n.subnet}` : 'DHCP'
+      : n.addressSource === 'static'
+        ? n.subnet ? `static · ${n.subnet}` : 'static'
+        : n.subnet || '';
+
+  // Set the default for the engines that can actually use this network. One
+  // global default could not work once a network could belong to one engine:
+  // installing on the other silently fell back to nothing. A network both can
+  // use still sets the global one, so nothing changes on a single-engine host.
+  async function setDefault(name: string, engines: string[]) {
+    const scoped = allEngines.length > 1 && engines.length > 0 && engines.length < allEngines.length;
+    const targets = scoped ? engines : [''];
+    const clearing = scoped ? engines.every((e) => defaultFor[e] === name) : defaultNetwork === name;
+    for (const engine of targets) {
+      const r = await fetch('/api/settings/network', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ network: clearing ? '' : name, ...(engine ? { engine } : {}) }),
+      });
+      if (!r.ok) {
+        toast((await r.text()).trim(), { kind: 'error' });
+        return;
+      }
     }
-    defaultNetwork = want;
-    toast(want ? `New installs will use ${want}` : 'New installs will use host ports', { kind: 'success' });
+    if (scoped) {
+      defaultFor = { ...defaultFor };
+      for (const e of engines) {
+        if (clearing) delete defaultFor[e];
+        else defaultFor[e] = name;
+      }
+    } else {
+      defaultNetwork = clearing ? '' : name;
+    }
+    const who = scoped ? ` on ${engines.join(' and ')}` : '';
+    toast(clearing ? `New installs${who} go back to bridge` : `New installs${who} will use ${name}`, {
+      kind: 'success',
+    });
   }
 
   // The user runs the commands in another window; nothing tells fjord when
   // they are done, so give them a way to say so without losing the dialog.
+  // The host knows every network already defined and every address on every
+  // interface; the operator inventing a range is being asked to remember all
+  // of it. So ask the host.
+  let suggesting = false;
+  async function suggestSubnet() {
+    suggesting = true;
+    try {
+      const q = kind?.engine ? '?engine=' + encodeURIComponent(forEngine || kind.engine) : '';
+      const r = await fetch(`/api/networks/suggest${q}`);
+      if (!r.ok) throw new Error((await r.text()).trim());
+      form.subnet = (await r.json()).subnet ?? '';
+      if (kind?.needsGateway) guessGateway();
+    } catch (e) {
+      toast(`${e}`, { kind: 'error' });
+    } finally {
+      suggesting = false;
+    }
+  }
+
   async function recheck() {
     rechecking = true;
     try {
@@ -168,7 +305,39 @@
     }
   }
 
+  // What this host can actually do, said once at the foot of the dialog. Built
+  // from the same payload the form is built from, so it cannot drift from it
+  // -- no engine is claimed "ready" on the strength of anything but the kinds
+  // that engine just offered.
+  $: engineSummary = [
+    ...kinds
+      .reduce((by, k) => {
+        for (const e of k.engines?.length ? k.engines : k.engine ? [k.engine] : []) {
+          by.set(e, [...(by.get(e) ?? []), k.label]);
+        }
+        return by;
+      }, new Map<string, string[]>())
+      .entries(),
+  ].map(([engine, labels]) => `${engine} can create ${labels.join(' and ')} networks here`);
+
   $: kind = kinds.find((k) => k.id === kindID) || kinds[0];
+
+  // Which engine will own the network. Only asked for a kind whose result
+  // belongs to the engine rather than to the host: podman's private network is
+  // a CNI bridge and appjail's is a virtualnet, and neither can attach to the
+  // other's -- so the answer cannot be inferred from the default engine, which
+  // is what it used to fall out of.
+  // Shared kinds may be for either engine ("" = both); an engine-owned kind
+  // must name one.
+  $: engineOptions = kind?.shared ? [...allEngines, ''] : (kind?.engines ?? []);
+  $: if (kind) {
+    forEngine = engineOptions.includes(forEngine) ? forEngine : kind.shared ? '' : (kind.engine ?? '');
+  }
+  // Keep it meaningful for whatever kind is selected. It is seeded from
+  // kinds[0] before the user has chosen anything, so a kind with no DHCP was
+  // inheriting "dhcp" from the LAN kind next to it -- which then decided both
+  // what the form said and what the request carried.
+  $: if (kind && !kind.supportsDhcp && addressSource === 'dhcp') addressSource = 'pool';
   $: needsParent = !!kind?.parentLabel;
   $: isPrivate = kind?.id === 'nat';
   // A LAN network has nowhere to attach without a bridge; say so rather than
@@ -177,6 +346,7 @@
 
   async function openCreate() {
     form = { name: '', parent: '', subnet: '', gateway: '', mtu: '', rangeStart: '', rangeEnd: '', description: '' };
+    forEngine = '';
     advanced = false;
     createError = '';
     creating = true;
@@ -222,7 +392,11 @@
       for (let i = 2; networks.some((x) => x.name === n); i++) n = base + i;
       form.name = n;
     }
-    if (addressSource !== 'pool') return;
+    // The segment is filled in whichever way addresses are allocated. On a
+    // range it is the pool; on DHCP it is only a record of what the wire is --
+    // and that record is what lets a stack be pinned to a fixed address there
+    // later, so leaving it blank is not "not needed", it is a capability
+    // quietly dropped. defaultRange stays pool-only: a range is a pool.
     if (!form.subnet.trim() && p.subnet) form.subnet = p.subnet;
     if (!form.gateway.trim() && p.gateway) form.gateway = p.gateway;
     defaultRange();
@@ -250,18 +424,31 @@
 
   $: nameTaken = !!form.name.trim() && networks.some((n) => n.name === form.name.trim());
   $: canSubmit = form.name.trim() && !nameTaken && (!needsParent || form.parent) &&
-    (isPrivate ? !!form.subnet.trim() : addressSource === 'dhcp' || form.subnet.trim());
+    (isPrivate || addressSource !== 'dhcp' ? !!form.subnet.trim() : true);
 
   async function submitCreate() {
     if (!canSubmit) return;
     submitting = true;
     createError = '';
     const body: any = { name: form.name.trim(), kind: kind?.id, addressSource };
-    const eng = kind?.engine ? '?engine=' + encodeURIComponent(kind.engine) : '';
+    if (forEngine) body.for = forEngine;
+    // "both" (empty) has no owner to name: either engine writes the same
+    // conflist, so the request goes to whichever offered the kind.
+    const owner = forEngine || kind?.engine || '';
+    const eng = owner ? '?engine=' + encodeURIComponent(owner) : '';
     if (needsParent) body.parent = form.parent;
-    if (addressSource === 'pool') {
+    if (isPrivate || addressSource === 'pool' || addressSource === 'static') {
       body.subnet = form.subnet.trim();
       if (kind?.needsGateway) body.gateway = form.gateway.trim();
+    } else if (addressSource === 'dhcp') {
+      // Record the segment even though DHCP allocates on it. Nothing here
+      // allocates from it -- it is what lets a stack be given a fixed address
+      // later, since appjail configures the interface itself and needs the
+      // prefix length. Declining to write it down is what made a fixed
+      // address work on a range network and not on this one, on the same
+      // wire, by the same mechanism.
+      if (form.subnet.trim()) body.subnet = form.subnet.trim();
+      if (form.gateway.trim()) body.gateway = form.gateway.trim();
     }
     if (kind?.supportsMtu && form.mtu.trim()) body.mtu = parseInt(form.mtu, 10);
     if (addressSource === 'pool' && form.rangeStart.trim()) body.rangeStart = form.rangeStart.trim();
@@ -333,38 +520,58 @@
       <EmptyState icon="alert" title="Networks Unavailable" description={error} />
     {:else}
       <div class="border border-fjord-border rounded-xl overflow-hidden divide-y divide-fjord-border">
-        <!-- Host ports is not a network: it cannot be created, removed or
-             shared, and it is what a stack gets by asking for nothing. It is
-             here because one action DOES apply to it -- it is a value the
-             default can take -- and without a row to point at, clearing the
-             default means toggling off whichever network happens to hold it. -->
-        <div class="flex items-center gap-3 px-4 py-3">
-          <div class="shrink-0 text-fjord-fg-faint"><Icon name="globe" size={18} /></div>
-          <div class="min-w-0 flex-1">
-            <div class="flex items-center gap-2">
-              <span class="text-sm text-fjord-fg-secondary truncate">Host ports</span>
-              <span class="text-[11px] font-medium bg-fjord-border text-fjord-fg-muted px-1.5 py-0.5 rounded">built in</span>
+        <!-- The two built-ins. Neither is a network anyone creates, shares or
+             deletes: they are the states a stack is in without one, named as
+             podman names them so the page and `podman inspect` agree. They are
+             rows because the default can be either, and without something to
+             point at, choosing one means toggling off whichever network
+             happens to hold it. -->
+        {#snippet engines(list: string[])}
+          <!-- One column, one treatment, one place. The engine used to be an
+               amber badge on the left for a built-in and plain text on the
+               right for a network -- the same fact in two places, looking like
+               two different kinds of thing. -->
+          <div
+            class="shrink-0 w-28 text-right text-xs text-fjord-fg-dim font-mono truncate"
+            title="Usable by: {list.join(', ')}"
+          >{list.join(' · ')}</div>
+        {/snippet}
+        {#each visibleBuiltIn as b}
+          <div class="flex items-center gap-3 px-4 py-3">
+            <div class="shrink-0 text-fjord-fg-faint"><Icon name="globe" size={18} /></div>
+            <div class="min-w-0 flex-1">
+              <div class="flex items-center gap-2">
+                <span class="font-mono text-sm text-fjord-fg-secondary truncate">{b.name}</span>
+                <span class="text-[11px] font-medium bg-fjord-border text-fjord-fg-muted px-1.5 py-0.5 rounded">built in</span>
+              </div>
+              <div class="text-xs text-fjord-fg-dim truncate">{b.detail}</div>
             </div>
-            <div class="text-xs text-fjord-fg-dim truncate">
-              No address of its own — a stack publishes its ports on this host's address.
-            </div>
+            {#if showEngines}{@render engines(enginesFor(b))}{/if}
+            <button
+              type="button"
+              on:click={() => setDefault(b.name, enginesFor(b))}
+              disabled={isDefault(b.name)}
+              title={isDefault(b.name) ? 'New installs use this' : `Use ${b.name} for new installs`}
+              class="shrink-0 text-[11px] px-1.5 py-0.5 rounded border {isDefault(b.name)
+                ? 'border-fjord-accent/50 bg-fjord-accent/20 text-fjord-accent'
+                : 'border-fjord-border text-fjord-fg-dim hover:text-fjord-fg'}"
+              >{isDefault(b.name)
+                ? defaultEngines(b.name).length
+                  ? `Default · ${defaultEngines(b.name).join(', ')}`
+                  : 'Default'
+                : 'Set default'}</button
+            >
+            <!-- Same slot and same word as a real network's action, greyed:
+                 a bare em dash in the Delete column read as a fourth kind of
+                 thing rather than as "this one cannot be deleted". -->
+            <span
+              class="shrink-0 text-xs px-2 py-1 text-fjord-fg-faint cursor-not-allowed"
+              title="Built in — always available, nothing to delete">Delete</span
+            >
           </div>
-          <button
-            type="button"
-            on:click={() => setDefault('')}
-            disabled={defaultNetwork === ''}
-            title={defaultNetwork === ''
-              ? 'New installs publish on the host unless you pick a network'
-              : 'Go back to publishing on the host for new installs'}
-            class="shrink-0 text-[11px] px-1.5 py-0.5 rounded border {defaultNetwork === ''
-              ? 'border-fjord-accent/50 bg-fjord-accent/20 text-fjord-accent'
-              : 'border-fjord-border text-fjord-fg-dim hover:text-fjord-fg'}"
-            >{defaultNetwork === '' ? 'Default' : 'Set default'}</button
-          >
-          <span class="shrink-0 text-xs px-2 py-1 text-fjord-fg-faint">—</span>
-        </div>
+        {/each}
         {#if networks.length === 0}
-          <!-- Host ports stays above: it is always a real state a stack can be
+          <!-- The built-ins stay above: they are always real states a stack can be
                in, and always a value the default can take. Replacing the whole
                list with an empty state took it away exactly when someone had
                deleted everything and most needed to see where things stand. -->
@@ -383,28 +590,13 @@
                 <span class="text-[11px] font-medium bg-fjord-accent/20 text-fjord-accent px-1.5 py-0.5 rounded">{n.driver}</span>
               </div>
               <div class="text-xs text-fjord-fg-dim font-mono truncate">
-                {n.subnet || 'DHCP'}{n.gateway ? ` · gw ${n.gateway}` : ''}
+                {allocLabel(n)}{n.gateway && n.addressSource !== 'dhcp' ? ` · gw ${n.gateway}` : ''}
               </div>
               {#if n.problem}
                 <div class="text-xs text-fjord-warning mt-0.5">{n.problem}</div>
               {/if}
             </div>
-            <button
-              type="button"
-              on:click={() => setDefault(n.name)}
-              title={defaultNetwork === n.name
-                ? 'New installs start on this network. Click to go back to host ports.'
-                : 'Make this the network new installs start on'}
-              class="shrink-0 text-[11px] px-1.5 py-0.5 rounded border {defaultNetwork === n.name
-                ? 'border-fjord-accent/50 bg-fjord-accent/20 text-fjord-accent'
-                : 'border-fjord-border text-fjord-fg-dim hover:text-fjord-fg'}"
-              >{defaultNetwork === n.name ? 'Default' : 'Set default'}</button
-            >
-            {#if n.engines?.length}
-              <div class="shrink-0 text-xs text-fjord-fg-dim font-mono" title="Engines that can attach a stack to this network">
-                {n.engines.join(' · ')}
-              </div>
-            {/if}
+            {#if showEngines}{@render engines(n.engines ?? [])}{/if}
             {#if n.usedBy?.length}
               <div class="flex items-center gap-1 shrink-0 max-w-[35%] overflow-hidden" title="Attached: {n.usedBy.join(', ')}">
                 {#each n.usedBy.slice(0, 3) as c}
@@ -415,6 +607,21 @@
                 {/if}
               </div>
             {/if}
+            <button
+              type="button"
+              on:click={() => setDefault(n.name, n.engines ?? [])}
+              title={isDefault(n.name)
+                ? 'New installs start on this network. Click to go back to the default.'
+                : 'Make this the network new installs start on'}
+              class="shrink-0 text-[11px] px-1.5 py-0.5 rounded border {isDefault(n.name)
+                ? 'border-fjord-accent/50 bg-fjord-accent/20 text-fjord-accent'
+                : 'border-fjord-border text-fjord-fg-dim hover:text-fjord-fg'}"
+              >{isDefault(n.name)
+                ? defaultEngines(n.name).length
+                  ? `Default · ${defaultEngines(n.name).join(', ')}`
+                  : 'Default'
+                : 'Set default'}</button
+            >
             {#if !canRemove}
               <!-- nothing: this engine does not own these networks -->
             {:else if n.usedBy?.length}
@@ -462,6 +669,41 @@
             {/each}
           </div>
         {/if}
+        <!-- Only when there is a real choice. With one engine enabled, a shared
+             kind still offered "podman" and "both", which are the same thing
+             said twice; and a kind only one engine can make offered that one
+             engine. Either way the answer is already decided, so asking is
+             noise. Left unset, which keeps the network usable by whatever gets
+             enabled later rather than stamping it for whoever happens to be on
+             right now. -->
+        {#if allEngines.length > 1 && engineOptions.length > 1}
+          <div class="flex flex-col gap-1">
+            <span class="text-sm font-semibold text-fjord-fg-secondary">For</span>
+            <div class="flex gap-2">
+              {#each engineOptions as e}
+                <button
+                  type="button"
+                  on:click={() => (forEngine = e)}
+                  class="flex-1 px-3 py-2 rounded-md text-sm font-medium border transition-colors {forEngine === e
+                    ? 'bg-fjord-accent/20 text-fjord-accent border-fjord-accent/50'
+                    : 'border-fjord-border text-fjord-fg-secondary hover:bg-fjord-border'}">{e || 'both'}</button
+                >
+              {/each}
+            </div>
+            <p class="text-xs text-fjord-fg-faint">
+              {#if !kind?.shared}
+                Only <span class="font-mono">{forEngine}</span> stacks can attach to it — each engine makes its own
+                kind of private network, and neither can join the other's.
+              {:else if forEngine === 'appjail'}
+                One bridge, one segment — this only narrows the form to what appjail can do.
+              {:else if forEngine}
+                One bridge, one segment — this only narrows the form to what {forEngine} can do.
+              {:else}
+                Either engine can attach to it.
+              {/if}
+            </p>
+          </div>
+        {/if}
         {#if kindsNote}
           <!-- Why a kind you might expect is not on this host. Shown whenever
                there is one: the kinds that ARE available do not make it any
@@ -473,6 +715,9 @@
         {#if kind?.help}
           <p class="text-xs text-fjord-fg-dim -mt-2">{kind.help}</p>
         {/if}
+        <!-- Where the addresses come from is half the decision, and it is the
+             half people get wrong. The payload carried it and the form never
+             said it. -->
 
         {#snippet setupCard(ps: Setup, i: number)}
           <div class="flex flex-col gap-2">
@@ -553,7 +798,24 @@
           {#if isPrivate}
             <div class="flex flex-col gap-1">
               <label class="text-sm font-semibold text-fjord-fg-secondary" for="n-priv">Subnet</label>
-              <input id="n-priv" bind:value={form.subnet} placeholder="10.100.0.0/24" class={inputCls} />
+              <div class="flex gap-2">
+                <input id="n-priv" bind:value={form.subnet} placeholder="10.100.0.0/24" class="{inputCls} flex-1" />
+                <!-- Fills a blank field only, the same rule the MAC field
+                     follows: overwriting a range someone typed has to be
+                     deliberate, so clear it first. -->
+                <button
+                  type="button"
+                  on:click={suggestSubnet}
+                  disabled={suggesting || !!form.subnet.trim()}
+                  title={form.subnet.trim()
+                    ? 'Clear the field first'
+                    : 'Pick a private range nothing on this host uses'}
+                  class="shrink-0 flex items-center gap-1.5 px-3 rounded-md border border-fjord-border text-sm text-fjord-fg-secondary hover:bg-fjord-border disabled:opacity-30 disabled:hover:bg-transparent"
+                >
+                  {#if suggesting}<Spinner size={12} />{/if}
+                  Generate
+                </button>
+              </div>
               <span class="text-xs text-fjord-fg-dim">
                 A range nothing else uses — appjail creates the bridge and takes the first address as
                 the gateway.
@@ -586,6 +848,21 @@
                   <option value={NEW_PARENT}>+ Set up a new {kind.parentLabel?.toLowerCase()}…</option>
                 {/if}
               </select>
+              <!-- What the host already knows about the segment behind this
+                   bridge. It was being read into the form's subnet/gateway
+                   fields and then hidden under Advanced, so the one moment it
+                   answers a question -- "is this the right bridge?" -- it was
+                   nowhere on screen. -->
+              {#if chosenParent}
+                <p class="text-xs text-fjord-fg-dim mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 font-mono">
+                  {#if chosenParent.subnet}<span>{chosenParent.subnet}</span>{/if}
+                  {#if chosenParent.gateway}<span>gateway {chosenParent.gateway}</span>{/if}
+                  {#if chosenParent.hostIp}<span>host {chosenParent.hostIp}</span>{/if}
+                  {#if !chosenParent.subnet && !chosenParent.gateway && !chosenParent.hostIp}
+                    <span>no address on this host yet</span>
+                  {/if}
+                </p>
+              {/if}
               {#if showSetup && kind.parentSetups?.length}
                 <div class="mt-2 flex flex-col gap-3 border-l-2 border-fjord-border pl-3">
                   <div class="flex items-start justify-between gap-3">
@@ -615,6 +892,43 @@
             </div>
           {/if}
 
+          {#if kind?.supportsDhcp && !isPrivate}
+            <div class="flex flex-col gap-1">
+              <!-- Named for WHO supplies the address. "From DHCP" and "From a
+                   range" named the mechanism and read as modes you were locked
+                   into: one sounding like addresses were not yours to choose,
+                   the other like it was how you chose one. Static is the third
+                   and was missing -- it is what most people mean by "set an
+                   IP", and it was reachable only by typing into a field on a
+                   different screen. -->
+              <span class="text-sm font-semibold text-fjord-fg-secondary">Addresses</span>
+              <div class="flex gap-2">
+                {#each [{ id: 'dhcp', label: 'DHCP' }, { id: 'pool', label: 'Range' }, { id: 'static', label: 'Static' }] as src}
+                  <button
+                    type="button"
+                    on:click={() => { addressSource = src.id as typeof addressSource; applyParent(); }}
+                    class="flex-1 px-3 py-2 rounded-md text-sm font-medium border transition-colors {addressSource ===
+                    src.id
+                      ? 'bg-fjord-accent/20 text-fjord-accent border-fjord-accent/50'
+                      : 'border-fjord-border text-fjord-fg-secondary hover:bg-fjord-border'}">{src.label}</button
+                  >
+                {/each}
+              </div>
+              <p class="text-xs text-fjord-fg-dim">
+                {#if addressSource === 'dhcp'}
+                  The DHCP server on this segment leases one to each stack, keyed on its MAC, so reservations you
+                  already have apply. A stack can still be given a fixed address instead.
+                {:else if addressSource === 'pool'}
+                  {form.subnet || 'The subnet'} is handed out by podman's IPAM from a range set aside here. appjail
+                  cannot ask it, so an appjail stack needs an address typed in.
+                {:else}
+                  Nothing allocates: every stack is given an address when it attaches, on either engine. Forgetting
+                  one is an error rather than a surprise.
+                {/if}
+              </p>
+            </div>
+          {/if}
+
           <button
             type="button"
             on:click={() => (advanced = !advanced)}
@@ -623,7 +937,7 @@
             <Icon name={advanced ? 'chevron-up' : 'chevron-down'} size={12} /> Advanced
           </button>
 
-          {#if !advanced && addressSource === 'dhcp'}
+          {#if !advanced && addressSource === 'dhcp' && !isPrivate}
             <p class="text-xs text-fjord-fg-dim -mt-1">
               Addresses come from the DHCP server on that segment, using each container's MAC — so
               your existing reservations apply and nothing here has to know the subnet.
@@ -636,36 +950,12 @@
           {/if}
 
           {#if advanced}
-            {#if kind?.supportsDhcp && !isPrivate}
-              <div class="flex flex-col gap-1">
-                <span class="text-xs font-semibold text-fjord-fg-muted">Addresses</span>
-                <div class="flex gap-2">
-                  <button
-                    type="button"
-                    on:click={() => (addressSource = 'dhcp')}
-                    class="flex-1 px-3 py-2 rounded-md text-sm font-medium border transition-colors {addressSource ===
-                    'dhcp'
-                      ? 'bg-fjord-accent/20 text-fjord-accent border-fjord-accent/50'
-                      : 'border-fjord-border text-fjord-fg-secondary hover:bg-fjord-border'}"
-                    >From my DHCP server</button
-                  >
-                  <button
-                    type="button"
-                    on:click={() => { addressSource = 'pool'; applyParent(); }}
-                    class="flex-1 px-3 py-2 rounded-md text-sm font-medium border transition-colors {addressSource ===
-                    'pool'
-                      ? 'bg-fjord-accent/20 text-fjord-accent border-fjord-accent/50'
-                      : 'border-fjord-border text-fjord-fg-secondary hover:bg-fjord-border'}"
-                    >A pool fjord manages</button
-                  >
-                </div>
-              </div>
-            {/if}
-
-            {#if addressSource === 'pool' && !isPrivate}
+            {#if (addressSource === 'pool' || addressSource === 'static') && !isPrivate}
               <div class="grid grid-cols-2 gap-2">
                 <div class="flex flex-col gap-1">
-                  <label class="text-xs font-semibold text-fjord-fg-muted" for="n-subnet">Subnet</label>
+                  <label class="text-xs font-semibold text-fjord-fg-muted" for="n-subnet"
+                    >Subnet{#if addressSource === 'static'} (the segment){/if}</label
+                  >
                   <input id="n-subnet" bind:value={form.subnet} on:blur={() => { guessGateway(); defaultRange(); }} placeholder="192.168.4.0/24" class={inputCls} />
                 </div>
                 {#if kind?.needsGateway}
@@ -676,7 +966,11 @@
                 {/if}
               </div>
 
-              {#if kind?.supportsRange}
+              <!-- A range belongs to the pool only: on a static network
+                   nothing allocates, so there is nothing to allocate FROM.
+                   Widening the block above to show the subnet for static
+                   brought these along with it. -->
+              {#if kind?.supportsRange && addressSource === 'pool'}
                 <div class="grid grid-cols-2 gap-2">
                   <div class="flex flex-col gap-1">
                     <label class="text-xs font-semibold text-fjord-fg-muted" for="n-rs">Range start</label>
@@ -688,8 +982,9 @@
                   </div>
                 </div>
                 <p class="text-xs text-fjord-fg-dim -mt-2">
-                  fjord hands out addresses from this range. Your router does not know about it, so keep
-                  it clear of whatever it leases.{#if chosenParent?.hostIp}
+                  Containers get an address from this range — podman's IPAM picks one; a jail needs an
+                  address you choose from it. Your router knows nothing about the range, so keep it clear
+                  of whatever it leases.{#if chosenParent?.hostIp}
                     This host is <span class="font-mono text-fjord-fg-muted">{chosenParent.hostIp}</span> on
                     that segment.{/if}
                 </p>
@@ -707,6 +1002,22 @@
 
         {#if createError}
           <p class="text-sm text-fjord-danger">{createError}</p>
+        {/if}
+
+        {#if engineSummary.length}
+          <div class="flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-fjord-border pt-3 text-xs text-fjord-fg-faint">
+            {#each engineSummary as e}
+              <span class="flex items-center gap-1.5">
+                <Icon name="check" size={12} class="text-fjord-success shrink-0" />
+                <span>{e}</span>
+              </span>
+            {/each}
+            {#if parents.length}
+              <span class="font-mono"
+                >{parents.length} {parents.length === 1 ? 'bridge' : 'bridges'} on this host</span
+              >
+            {/if}
+          </div>
         {/if}
 
         <div class="flex justify-end gap-2 pt-2">
