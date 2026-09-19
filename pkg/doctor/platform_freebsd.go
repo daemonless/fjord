@@ -57,6 +57,12 @@ func platform(cfg Config) platformInfo {
 			Pkg:   map[string]string{"freebsd": "ocijail"},
 		},
 		{
+			ID: "epair", Name: "LAN networks (epair plugin)", Engine: "podman", HostOnly: true,
+			Probe: epairProbe,
+			Why:   "The CNI plugin that gives a container its own address on your LAN instead of a port published on the host. Optional: stacks run without it, but no podman network can hand out a LAN address. appjail does not use it -- it makes its own epair.",
+			Fix:   "# not in the ports tree yet:\nfetch -o /usr/local/libexec/cni/epair https://raw.githubusercontent.com/daemonless/cni-epair/main/epair\nchmod 755 /usr/local/libexec/cni/epair",
+		},
+		{
 			ID: "pf", Name: "pf firewall", Engine: "podman",
 			Probe: pfProbe,
 			Why:   "podman's bridge networking publishes ports through pf's rdr/nat anchors. If they aren't loaded, containers start fine but their published ports hang. Host-network stacks don't need this.",
@@ -123,7 +129,7 @@ func pfFix() string {
 		pfInsertSnippet(rules) +
 		"sysrc pf_enable=YES\n" +
 		"service pf start\n" +
-		"# already running? reload instead\n" +
+		"# and load them now: `service pf start` does nothing if pf was already up\n" +
 		"pfctl -f /etc/pf.conf"
 }
 
@@ -176,11 +182,11 @@ func appjailPfFix() string {
 		for _, r := range rules {
 			s += "#   " + r + "\n"
 		}
-		return s + "# they are just not loaded -- validate, then reload the ruleset\npfctl -nf /etc/pf.conf\npfctl -f /etc/pf.conf\n# pf not enabled at all?\nsysrc pf_enable=YES\nservice pf start"
+		return s + "# they are just not loaded -- validate, then reload the ruleset\npfctl -nf /etc/pf.conf\npfctl -f /etc/pf.conf\n# harmless if pf is already enabled and running:\nsysrc pf_enable=YES\nservice pf start"
 	}
 	return "# /etc/pf.conf is missing AppJail's anchors -- add them once\n" +
 		pfInsertSnippet(rules) +
-		"sysrc pf_enable=YES\nservice pf start\n# already running? reload instead\npfctl -f /etc/pf.conf"
+		"sysrc pf_enable=YES\nservice pf start\n# and load them now: `service pf start` does nothing if pf was already up\npfctl -f /etc/pf.conf"
 }
 
 // defaultIface returns the interface carrying the default route (the one
@@ -224,6 +230,26 @@ func appjailProbe(ctx context.Context) (Status, string) {
 // can't run a container without it, so missing Fails. Older ocijail runs but
 // carries correctness bugs (the create.cpp umask leak that makes built files
 // root-only, plus OCI-spec gaps), so a pre-0.6.0 build Warns with an upgrade.
+// epairProbe reports the LAN-network plugin. Warn, never Fail: a host without
+// it runs every stack perfectly well on published ports -- it just cannot give
+// one an address of its own.
+func epairProbe(ctx context.Context) (Status, string) {
+	const path = "/usr/local/libexec/cni/epair"
+	if _, err := os.Stat(path); err != nil {
+		return Warn, "not installed -- containers can only use published ports"
+	}
+	// Installed: say whether it can take a DHCP lease, because a network on a
+	// segment with a DHCP server is the common case and an older plugin
+	// silently cannot do it.
+	cmd := exec.CommandContext(ctx, path)
+	cmd.Env = append(os.Environ(), "CNI_COMMAND=FEATURES")
+	out, err := cmd.Output()
+	if err == nil && strings.Contains(string(out), "dhcp") {
+		return OK, "installed, with DHCP support"
+	}
+	return OK, "installed; no DHCP support -- networks on it need an address range"
+}
+
 func ocijailProbe(ctx context.Context) (Status, string) {
 	if _, err := exec.LookPath("ocijail"); err != nil {
 		return Fail, "ocijail not found in PATH"
