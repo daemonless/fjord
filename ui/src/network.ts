@@ -5,6 +5,7 @@
 // the engine happens to report at runtime.
 
 import * as yaml from 'js-yaml';
+import ipaddr from 'ipaddr.js';
 
 export const HOST_NETWORK = 'host';
 export const DEFAULT_NETWORK = 'bridge';
@@ -108,51 +109,75 @@ export function addressProblem(
 ): string {
   const a = (addr || '').trim();
   if (!a) return '';
-  const ip = parseIPv4(a);
-  if (ip === null) return `${a} is not an IPv4 address`;
-  // Only for networks the daemon checks the same way -- the ones defined by a
-  // conflist. On an engine-allocated network it reports the engine's own view,
-  // which does not follow these rules: appjail hands out the address it calls
-  // the gateway as the first one in the range. Refusing it here would disable
-  // Install over something the daemon would have taken.
-  if (net?.addressSource === 'engine') return '';
-  const cidr = parseCIDR(net?.subnet || '');
-  if (!cidr) return ''; // segment unknown; nothing to check it against
-  const { base, mask, bits } = cidr;
-  if ((ip & mask) >>> 0 !== base) return `${a} is not in ${net!.subnet}`;
-  if (bits < 32) {
-    if (ip === base) return `${a} is the network address of ${net!.subnet}, not a host in it`;
-    if (ip === ((base | ~mask) >>> 0)) {
-      return `${a} is the broadcast address of ${net!.subnet}, not a host in it`;
+  // isValidFourPartDecimal, NOT isValid: isValid("1") is true -- it reads a
+  // bare 1 as 0.0.0.1, which is the typo that reached a jail as
+  // `ifconfig sb_x:1/24` and left it answering nothing. The strict form also
+  // refuses leading zeros and 0x/1e forms, which is what the daemon's
+  // net.ParseIP does.
+  if (!ipaddr.IPv4.isValidFourPartDecimal(a)) return `${a} is not an IPv4 address`;
+  const subnet = net?.subnet || '';
+  if (!ipaddr.IPv4.isValidCIDRFourPartDecimal(subnet)) return ''; // segment unknown
+  const ip = ipaddr.IPv4.parse(a);
+  const range = ipaddr.IPv4.parseCIDR(subnet);
+  if (!ip.match(range)) return `${a} is not in ${subnet}`;
+  // A /32 is one host, and its network and broadcast addresses ARE that host.
+  // Same guard the daemon uses, so the two agree on a single-address network.
+  if (range[1] < 32) {
+    if (ip.toString() === ipaddr.IPv4.networkAddressFromCIDR(subnet).toString()) {
+      return `${a} is the network address of ${subnet}, not a host in it`;
+    }
+    if (ip.toString() === ipaddr.IPv4.broadcastAddressFromCIDR(subnet).toString()) {
+      return `${a} is the broadcast address of ${subnet}, not a host in it`;
     }
   }
-  if (net?.gateway && parseIPv4(net.gateway) === ip) return `${a} is the gateway for ${net!.subnet}`;
+  // The gateway is the one rule that isn't universal. On a network the engine
+  // allocates on, the address reported as the gateway is also the first one it
+  // hands out -- appjail's ajnet gives 10.0.0.1 as both -- so refusing it here
+  // would block an address that works. Everything above still holds: appjail's
+  // own range stops short of the network and broadcast addresses too.
+  if (
+    net?.addressSource !== 'engine' &&
+    net?.gateway &&
+    ipaddr.IPv4.isValidFourPartDecimal(net.gateway) &&
+    ipaddr.IPv4.parse(net.gateway).toString() === ip.toString()
+  ) {
+    return `${a} is the gateway for ${subnet}`;
+  }
   return '';
 }
 
-/** Dotted quad -> unsigned 32-bit, or null if it isn't one. */
-function parseIPv4(s: string): number | null {
-  const parts = (s || '').trim().split('.');
-  if (parts.length !== 4) return null;
-  let n = 0;
-  for (const p of parts) {
-    // Reject "1e2", "0x0a", " 7" -- each parses as a number but is not what
-    // the operator wrote. Leading zeros go too: the daemon's net.ParseIP
-    // refuses "010.1.1.1", so accepting it here would pass the field and fail
-    // the install.
-    if (!/^(0|[1-9]\d{0,2})$/.test(p)) return null;
-    const v = Number(p);
-    if (v > 255) return null;
-    n = ((n << 8) | v) >>> 0;
+/**
+ * The addresses a stack may actually take on a network, as "first – last".
+ *
+ * The subnet on its own doesn't answer "what can I type here": three of its
+ * addresses are spoken for, and which three depends on the network. This is
+ * the same set addressProblem accepts, said forwards.
+ *
+ * "" when there is nothing useful to say -- no segment, or a /31 or /32, which
+ * have no host range to speak of.
+ */
+export function usableRange(
+  net: { subnet?: string; gateway?: string; addressSource?: string } | undefined,
+): string {
+  const subnet = net?.subnet || '';
+  if (!ipaddr.IPv4.isValidCIDRFourPartDecimal(subnet)) return '';
+  if (ipaddr.IPv4.parseCIDR(subnet)[1] >= 31) return '';
+  let first = step(ipaddr.IPv4.networkAddressFromCIDR(subnet), 1);
+  let last = step(ipaddr.IPv4.broadcastAddressFromCIDR(subnet), -1);
+  // The gateway is out too, on the networks where addressProblem enforces it.
+  // It sits at one end almost always, so trimming the end it's on keeps the
+  // range contiguous and honest; a gateway in the middle stays inside it, and
+  // the field says so when someone types it.
+  if (net?.addressSource !== 'engine' && net?.gateway && ipaddr.IPv4.isValidFourPartDecimal(net.gateway)) {
+    const gw = ipaddr.IPv4.parse(net.gateway).toString();
+    if (gw === first.toString()) first = step(first, 1);
+    else if (gw === last.toString()) last = step(last, -1);
   }
-  return n;
+  return `${first.toString()} – ${last.toString()}`;
 }
 
-function parseCIDR(s: string): { base: number; mask: number; bits: number } | null {
-  const [addr, len] = (s || '').split('/');
-  const ip = parseIPv4(addr || '');
-  const bits = Number(len);
-  if (ip === null || !/^\d{1,2}$/.test(len || '') || bits > 32) return null;
-  const mask = bits === 0 ? 0 : (0xffffffff << (32 - bits)) >>> 0;
-  return { base: (ip & mask) >>> 0, mask, bits };
+/** The address `by` steps along from a. ipaddr.js has no "next address". */
+function step(a: ipaddr.IPv4, by: number): ipaddr.IPv4 {
+  const n = a.octets.reduce((acc, o) => acc * 256 + o, 0) + by;
+  return new ipaddr.IPv4([(n >>> 24) & 255, (n >>> 16) & 255, (n >>> 8) & 255, n & 255]);
 }

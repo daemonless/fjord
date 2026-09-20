@@ -25,7 +25,7 @@
   import { expandVars } from './expand';
   import { appUrl } from './appUrl';
   import { currentTheme, setTheme, watchSystem, type Theme } from './theme';
-  import { addressProblem, networkLabel, HOST_NETWORK, DEFAULT_NETWORK, randomMAC } from './network';
+  import { addressProblem, usableRange, networkLabel, HOST_NETWORK, DEFAULT_NETWORK, randomMAC } from './network';
 
   type ContainerStatus = {
     name: string;
@@ -489,8 +489,15 @@
   // Why this row's address won't work on the network it names, or "". Checked
   // as it is typed: the daemon refuses the same thing at Save, and finding out
   // then means the compose edit above it went with the refusal.
-  const rowIPProblem = (row: Attachment) =>
+  // Reactive, not consts: both read `networks`, and the rows they are called
+  // from are keyed on netRows. A const closure hides that dependency, so a
+  // table rendered before /api/networks answered would keep saying nothing.
+  $: rowIPProblem = (row: Attachment) =>
     isMode(row.network) ? '' : addressProblem(row.ip ?? '', networks.find((n) => n.name === row.network));
+  // What may be typed into this row, said forwards. The subnet in the picker
+  // doesn't answer it -- three of its addresses are spoken for.
+  $: rowRange = (row: Attachment) =>
+    isMode(row.network) ? '' : usableRange(networks.find((n) => n.name === row.network));
   function segmentTaken(n: Network, row: number): string {
     if (!n.bridge) return '';
     const clash = netRows.find(
@@ -2097,13 +2104,10 @@
                             {#each networks as n}
                               <option
                                 value={n.name}
-                                disabled={noNamedNetworks ||
-                                  !!n.problem ||
+                                disabled={!!n.problem ||
                                   !!segmentTaken(n, i) ||
                                   netRows.some((r, j) => j !== i && r.network === n.name)}
-                                title={noNamedNetworks
-                                  ? "This stack's services share the host's network stack and reach each other over localhost — an address of its own would break that"
-                                  : n.problem || segmentTaken(n, i)}
+                                title={n.problem || segmentTaken(n, i)}
                                 >{n.name}{allocLabel(n) ? ` (${allocLabel(n)})` : ''}</option
                               >
                             {/each}
@@ -2122,9 +2126,6 @@
                               ? 'border-fjord-danger/60'
                               : 'border-fjord-border'}"
                           />
-                          {#if rowIPProblem(row)}
-                            <p class="text-xs text-fjord-danger mt-1">{rowIPProblem(row)}.</p>
-                          {/if}
                         </td>
                         <td class="py-2 pr-2">
                           <div class="flex gap-1">
@@ -2168,9 +2169,41 @@
                           >
                         </td>
                       </tr>
+                      <!-- The reason and the range go on their own row, not in
+                           the IP cell: a message in the cell grows it, and the
+                           network, MAC and buttons beside it stop sharing a
+                           line with the field they belong to. -->
+                      {#if rowIPProblem(row) || rowRange(row)}
+                        <tr>
+                          <td></td>
+                          <td colspan="4" class="pb-2 text-xs">
+                            {#if rowIPProblem(row)}
+                              <span class="text-fjord-danger">{rowIPProblem(row)}.</span>
+                            {/if}
+                            {#if rowRange(row)}
+                              <span class="text-fjord-fg-dim"
+                                >Usable: <span class="font-mono text-fjord-fg-secondary">{rowRange(row)}</span></span
+                              >
+                            {/if}
+                          </td>
+                        </tr>
+                      {/if}
                     {/each}
                   </tbody>
                 </table>
+
+                <!-- Said here, not only as a title on the disabled <option>:
+                     browsers do not show a tooltip on a disabled option, so
+                     the rule was invisible and the greyed-out network just
+                     looked broken. -->
+                {#if noNamedNetworks}
+                  <p class="text-xs mt-2 max-w-lg text-fjord-warning">
+                    These services share the host's network stack and reach each other on
+                    <span class="font-mono">localhost</span>. Putting the stack on a network gives every service its
+                    own address, and those references stop resolving — they have to be changed to service names
+                    first. <b>bridge</b> and <b>none</b> keep them as they are.
+                  </p>
+                {/if}
 
                 {#if isMode(netRows[0].network)}
                   <p class="text-xs mt-2 max-w-lg {netRowsDirty ? 'text-fjord-warning' : 'text-fjord-fg-dim'}">

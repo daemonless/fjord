@@ -65,9 +65,15 @@ type Network struct {
 	Driver  string `json:"driver"`
 	Subnet  string `json:"subnet,omitempty"`
 	Gateway string `json:"gateway,omitempty"`
-	// UsedBy names what is currently attached. A network with attachments
-	// must not be deletable from the UI: removing it strands every attached
-	// container on an address nothing can route or clean up.
+	// UsedBy names what depends on this network: what an engine reports as
+	// attached right now, plus the stacks whose own configuration puts them
+	// on it. A network with either must not be deletable from the UI --
+	// removing it strands an attached container on an address nothing can
+	// route or clean up, and leaves a stopped stack naming a network that no
+	// longer exists.
+	//
+	// The second half is the daemon's to fill in: an engine can only answer
+	// for what is running, and a stopped stack is attached to nothing.
 	UsedBy []string `json:"usedBy,omitempty"`
 	// Problem is why the runtime will not use this network, when it is defined
 	// on the host but rejected. Such a network has to stay visible: fjord

@@ -4,7 +4,7 @@
   import Icon from './Icon.svelte';
   import Spinner from './Spinner.svelte';
   import DirPicker from './DirPicker.svelte';
-  import { addressProblem, randomMAC } from './network';
+  import { addressProblem, usableRange, randomMAC } from './network';
 
   // sources: every catalog offering this app; the user picks one (Repository)
   // when there's more than one. Each carries its own manifest_url + variants.
@@ -409,6 +409,9 @@
   // Install, and the wizard is gone by then -- a network address typed into
   // this field cost the operator every other answer in the form.
   $: ipProblem = netChoice && !builtIn(netChoice) ? addressProblem(netIP, chosenNet) : '';
+  // What may go in the field, said forwards -- the subnet in the picker does
+  // not answer it, since three of its addresses are spoken for.
+  $: ipRange = netChoice && !builtIn(netChoice) ? usableRange(chosenNet) : '';
   // appjail cannot draw from the pool the podman side's IPAM manages, so on a
   // pool network it needs an address given to it. On DHCP nothing does.
   // Keyed on WHO allocates, which the network reports. Inferring it from "has
@@ -450,11 +453,10 @@
   // The operator's default, applied once the list it has to exist in is
   // loaded. Both arrive asynchronously and in no fixed order, so each calls
   // this and it acts when both are in hand.
-  let defaultNetwork = '';
-  // Per engine: a network only one engine can use cannot be everyone's
-  // default, and installing on the other engine used to fall back to nothing.
+  // Per engine, and only per engine: a network only one engine can use cannot
+  // be everyone's default, so there is no shared value to fall back to.
   let defaultFor: Record<string, string> = {};
-  $: wantedNetwork = (engineChoice && defaultFor[engineChoice]) || defaultNetwork;
+  $: wantedNetwork = engineChoice ? defaultFor[engineChoice] || '' : '';
   let defaultNetworkKnown = false;
   function applyDefaultNetwork() {
     if (!defaultNetworkKnown || netChoice || !wantedNetwork) return;
@@ -470,7 +472,6 @@
       const dres = await fetch('/api/settings/network');
       if (dres.ok) {
         const d = await dres.json();
-        defaultNetwork = d.network || '';
         defaultFor = d.forEngine || {};
       }
       defaultNetworkKnown = true;
@@ -855,8 +856,13 @@
                     ? 'border-fjord-danger/60'
                     : 'border-fjord-border'}"
                 />
-                {#if ipProblem}
-                  <p class="text-xs text-fjord-danger mt-1">{ipProblem}.</p>
+                {#if ipProblem || ipRange}
+                  <p class="text-xs mt-1">
+                    {#if ipProblem}<span class="text-fjord-danger">{ipProblem}.</span>{/if}
+                    {#if ipRange}<span class="text-fjord-fg-dim"
+                        >Usable: <span class="font-mono text-fjord-fg-secondary">{ipRange}</span></span
+                      >{/if}
+                  </p>
                 {/if}
                 {#if ipRequired && !netIP.trim()}
                   <p class="text-xs text-fjord-warning mt-1">

@@ -41,7 +41,7 @@ func networkKinds() []engine.NetworkKind {
 func (b *Backend) CreateNetwork(ctx context.Context, spec engine.NetworkSpec) (engine.Network, error) {
 	if spec.Kind == "lan" {
 		// Host state, written the same way whichever engine asked.
-		return lannet.Create(spec)
+		return lannet.Create(ctx, spec)
 	}
 	if spec.Kind != "" && spec.Kind != "nat" {
 		return engine.Network{}, fmt.Errorf("unknown network kind %q", spec.Kind)

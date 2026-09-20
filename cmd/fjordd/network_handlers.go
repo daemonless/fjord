@@ -109,6 +109,59 @@ func (s *server) networkUsers(ctx context.Context, name string) []string {
 	return nil
 }
 
+// migrateSharedDefault turns the one shared default into a per-engine one.
+//
+// There used to be a global default plus per-engine overrides, and the page
+// wrote whichever one it guessed a row meant: the same button set the shared
+// value on a network both engines could use, and this engine's on one they
+// could not. Two meanings, one control, and the shared value could name a
+// network the other engine has no way to attach to.
+//
+// So the old value is copied out to each engine that can actually use it and
+// then dropped. A built-in goes to all of them -- that is what the shared one
+// did -- while a named network only reaches the engines that list it. Runs
+// once: after the write there is nothing left to migrate.
+func (s *server) migrateSharedDefault(ctx context.Context) {
+	want := loadSettings(s.fjordRoot).DefaultNetwork
+	if want == "" {
+		return
+	}
+	var usable []string
+	for _, name := range s.engineNames() {
+		if composepkg.BuiltIn(want) {
+			usable = append(usable, name)
+			continue
+		}
+		be, ok := s.backend(name)
+		if !ok {
+			continue
+		}
+		nets, err := be.Networks(ctx)
+		if err != nil {
+			continue // can't say; leave this engine for the next read
+		}
+		for _, n := range nets {
+			if n.Name == want {
+				usable = append(usable, name)
+				break
+			}
+		}
+	}
+	if err := updateSettings(s.fjordRoot, func(st *savedSettings) {
+		if st.DefaultNetworkFor == nil {
+			st.DefaultNetworkFor = map[string]string{}
+		}
+		for _, e := range usable {
+			if _, taken := st.DefaultNetworkFor[e]; !taken {
+				st.DefaultNetworkFor[e] = want
+			}
+		}
+		st.DefaultNetwork = ""
+	}); err != nil {
+		log.Printf("migrating the shared default network: %v", err)
+	}
+}
+
 // handleDefaultNetwork reads and sets the network new installs start on.
 //
 // The bridge is the right default for one machine with one app on it, and the
@@ -118,20 +171,32 @@ func (s *server) networkUsers(ctx context.Context, name string) []string {
 func (s *server) handleDefaultNetwork(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
+		s.migrateSharedDefault(r.Context())
 		w.Header().Set("Content-Type", "application/json")
 		st := loadSettings(s.fjordRoot)
-		json.NewEncoder(w).Encode(map[string]any{
-			"network": st.DefaultNetwork, "forEngine": st.DefaultNetworkFor,
-		})
+		forEngine := st.DefaultNetworkFor
+		if forEngine == nil {
+			forEngine = map[string]string{}
+		}
+		json.NewEncoder(w).Encode(map[string]any{"forEngine": forEngine})
 	case http.MethodPost:
 		var req struct {
 			Network string `json:"network"`
-			// Which engine this default is for. Empty sets the one used by any
-			// engine without its own.
+			// Which engine this default is for. There is no other kind: a
+			// default belongs to an engine, because the network it names may
+			// be one only that engine can attach to.
 			Engine string `json:"engine"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "invalid JSON payload", 400)
+			return
+		}
+		if req.Engine == "" {
+			http.Error(w, "engine required: a default network belongs to one engine", 400)
+			return
+		}
+		if _, ok := s.backend(req.Engine); !ok {
+			http.Error(w, "no engine named "+req.Engine+" on this host", 400)
 			return
 		}
 		// "" clears it, and the two built-ins are always valid -- they are
@@ -157,10 +222,6 @@ func (s *server) handleDefaultNetwork(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if err := updateSettings(s.fjordRoot, func(st *savedSettings) {
-			if req.Engine == "" {
-				st.DefaultNetwork = req.Network
-				return
-			}
 			if st.DefaultNetworkFor == nil {
 				st.DefaultNetworkFor = map[string]string{}
 			}
@@ -301,6 +362,22 @@ func (s *server) handleNetworkDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	force := r.URL.Query().Get("force") == "true"
+	// Asked before the engine is, because the engine cannot answer it: it
+	// knows what is attached now, not what is configured to attach. A stopped
+	// stack is attached to nothing, so its network deleted cleanly and the
+	// stack came back to a name that no longer resolves. The UI greys the
+	// button out for the same reason, but the rule belongs here -- the button
+	// is not the only way to reach this.
+	if !force {
+		if users := s.stackNetworkUsers()[name]; len(users) > 0 {
+			http.Error(w, fmt.Sprintf(
+				"%s is still the network for %s -- move %s onto another one first, or it comes back to a network that is not there",
+				name, strings.Join(users, ", "),
+				map[bool]string{true: "that stack", false: "those stacks"}[len(users) == 1]),
+				http.StatusConflict)
+			return
+		}
+	}
 	if err := s.backendForRequest(r).RemoveNetwork(r.Context(), name, force); err != nil {
 		// Attached containers are a 409 the UI can act on (offer force).
 		if errors.Is(err, engine.ErrInUse) {
@@ -332,15 +409,12 @@ func (s *server) handleNetworkDelete(w http.ResponseWriter, r *http.Request) {
 	// and the setting sits there being wrong. Deleting the network is the
 	// moment to clear it.
 	cur := loadSettings(s.fjordRoot)
-	isDefault := cur.DefaultNetwork == name
+	isDefault := false
 	for _, v := range cur.DefaultNetworkFor {
 		isDefault = isDefault || v == name
 	}
 	if isDefault {
 		if err := updateSettings(s.fjordRoot, func(st *savedSettings) {
-			if st.DefaultNetwork == name {
-				st.DefaultNetwork = ""
-			}
 			for e, v := range st.DefaultNetworkFor {
 				if v == name {
 					delete(st.DefaultNetworkFor, e)
@@ -368,9 +442,29 @@ func (s *server) handleNetworkDelete(w http.ResponseWriter, r *http.Request) {
 // with "IP address not provided by IPAM" -- leaving a stack on disk whose
 // container would never start. The rule belongs to the NETWORK, so it is
 // checked once here for whichever engine is asked.
-func attachmentsUnusable(atts []composepkg.Attachment) string {
+// engineNets is what the engine says it can attach to, for the networks no
+// conflist describes. Only conflist networks used to be checked, so an address
+// on one the ENGINE allocates went through untouched: 192.168.86.1 on
+// appjail's ajnet (10.0.0.0/10) was written into the director, and the jail
+// failed to come up long afterwards. The engine reports the segment, which is
+// all the containment rules need.
+//
+// Its gateway is not carried over. On a network the engine allocates on, the
+// address it calls the gateway is also the first one it hands out -- ajnet's
+// range starts AT 10.0.0.1 -- so refusing that one would refuse an address
+// that works. The network and broadcast addresses are still out: appjail's own
+// range stops short of both.
+func attachmentsUnusable(atts []composepkg.Attachment, engineNets []engine.Network) string {
 	for _, a := range atts {
 		n, ok := hostnet.Get(a.Network)
+		if !ok {
+			for _, en := range engineNets {
+				if en.Name == a.Network && en.Subnet != "" {
+					n, ok = hostnet.Network{Subnet: en.Subnet}, true
+					break
+				}
+			}
+		}
 		if !ok {
 			continue
 		}
@@ -432,6 +526,21 @@ func addressUnusable(addr string, n hostnet.Network) string {
 	return ""
 }
 
+// engineNetworks is what one engine says it can attach to, or nil when it
+// cannot say. Used to check an address against a network the engine allocates
+// on, which no conflist describes.
+func (s *server) engineNetworks(ctx context.Context, engineName string) []engine.Network {
+	be, ok := s.backend(engineName)
+	if !ok {
+		return nil
+	}
+	nets, err := be.Networks(ctx)
+	if err != nil {
+		return nil
+	}
+	return nets
+}
+
 func (s *server) networkUnusable(ctx context.Context, engineName, network string) string {
 	be, ok := s.backend(engineName)
 	if !ok {
@@ -472,6 +581,39 @@ func (s *server) networkUnusable(ctx context.Context, engineName, network string
 // allNetworks merges every engine's view into one list, recording which
 // engines can attach to each. The same LAN bridge is reported by both
 // runtimes; that is one network, not two.
+// stackNetworkUsers maps each network to the stacks whose own configuration
+// puts them on it, running or not.
+//
+// The engines answer a different question: what is attached RIGHT NOW. So a
+// stopped stack was attached to nothing, the network it depends on looked
+// unused, and the page offered to delete it -- which it then did, leaving the
+// stack naming a network that no longer exists.
+func (s *server) stackNetworkUsers() map[string][]string {
+	list, err := s.manager.List()
+	if err != nil {
+		return nil
+	}
+	out := map[string][]string{}
+	for _, entry := range list {
+		// List gives names, not contents -- the compose and the director are
+		// only read by Get, and they are where the attachment is written.
+		st, err := s.manager.Get(entry.Name)
+		if err != nil {
+			continue
+		}
+		atts := composepkg.AttachedNetworks(st.Compose)
+		if st.Director != "" {
+			atts = directorAttachments(st.Director)
+		}
+		for _, a := range atts {
+			if a.Network != "" {
+				out[a.Network] = append(out[a.Network], st.Name)
+			}
+		}
+	}
+	return out
+}
+
 func (s *server) allNetworks(ctx context.Context) ([]engine.Network, error) {
 	byName := map[string]*engine.Network{}
 	var order []string
@@ -506,9 +648,36 @@ func (s *server) allNetworks(ctx context.Context) ([]engine.Network, error) {
 			cur.UsedBy = append(cur.UsedBy, n.UsedBy...)
 		}
 	}
+	declared := s.stackNetworkUsers()
 	out := make([]engine.Network, 0, len(order))
 	for _, name := range order {
-		out = append(out, *byName[name])
+		n := *byName[name]
+		// A stack and the container it owns are one entry, not two: the engine
+		// reports "zensical_zensical_1" and the stack is "zensical", and
+		// listing both said the same thing twice in a sentence that reads as a
+		// list of separate things.
+		seen := map[string]bool{}
+		for _, u := range n.UsedBy {
+			seen[u] = true
+		}
+		for _, st := range declared[name] {
+			if seen[st] {
+				continue
+			}
+			owned := false
+			for _, u := range n.UsedBy {
+				if strings.HasPrefix(u, st+"_") {
+					owned = true
+					break
+				}
+			}
+			if owned {
+				continue
+			}
+			n.UsedBy = append(n.UsedBy, st)
+			seen[st] = true
+		}
+		out = append(out, n)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out, nil

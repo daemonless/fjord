@@ -6,7 +6,7 @@
   import { toast } from './toast';
   import FixSnippet from './FixSnippet.svelte';
 
-  type Network = { name: string; driver: string; subnet?: string; gateway?: string; usedBy?: string[]; problem?: string; engines?: string[]; addressSource?: string };
+  type Network = { name: string; driver: string; subnet?: string; gateway?: string; usedBy?: string[]; problem?: string; engines?: string[]; addressSource?: string; bridge?: string };
   // A kind is the engine's own declaration of what it can create and which
   // fields that shape uses -- the form is built from this rather than from
   // anything the UI knows about a specific runtime.
@@ -80,7 +80,6 @@
     // the networks that already exist.
     await host;
     const d = await dflt;
-    defaultNetwork = d?.network ?? '';
     defaultFor = d?.forEngine ?? {};
   }
 
@@ -148,16 +147,11 @@
   let setups: Setup[] = [];
   let setupBusy = '';
   let rechecking = false;
-  // The network new installs start on. "" = host ports, which is the right
-  // answer for one machine with one app and the wrong one as soon as the
-  // operator has decided every stack gets its own address.
-  let defaultNetwork = '';
-  // Per engine, for networks only one engine can use. "" in defaultNetwork is
-  // still the fallback for an engine with no entry of its own.
+  // What new installs start on, per engine. There is no shared value: a
+  // network can belong to one engine, so a single default could name one the
+  // other cannot attach to -- and the page then had to decide, per row,
+  // which of the two a "Default" button meant.
   let defaultFor: Record<string, string> = {};
-  // Which engines a row is the default for, so the badge can say so.
-  const defaultEngines = (name: string) =>
-    Object.keys(defaultFor).filter((e) => defaultFor[e] === name);
   // The three states a stack can be in with no network of its own, in podman's
   // words: "bridge" is its NAT bridge, "host" is this host's own stack, "none"
   // is no network at all. Listed here because they are as real a choice as any
@@ -183,28 +177,22 @@
       detail: 'No network at all: nothing in and nothing out.',
     },
   ];
-  // Reactive, not a plain const: the markup calls this, and Svelte only
-  // re-renders an expression when something it REFERENCES changes. A const
-  // closure hides the dependency on defaultNetwork, so the rows kept their old
-  // state until the page was reloaded. "" is the historic value for bridge,
-  // from before it had a name.
-  $: isDefault = (name: string) =>
-    defaultNetwork === name ||
-    (name === 'bridge' && defaultNetwork === '') ||
-    defaultEngines(name).length > 0;
-
   // Every engine that can create networks here, from the kinds they offered.
   $: allEngines = [...new Set(kinds.flatMap((k) => k.engines ?? (k.engine ? [k.engine] : [])))];
-  const enginesFor = (b: { not?: string[] }) => allEngines.filter((e) => !(b.not ?? []).includes(e));
+  // Reactive, not a const: visibleBuiltIn below is computed from this, and a
+  // const closure hid that it reads allEngines. So the row list was decided at
+  // first render -- before /api/networks/kinds had answered and allEngines was
+  // still empty -- and never recomputed, because the only reactive thing it
+  // referenced settled on the value it already had. host and none vanished
+  // from the page and only bridge survived, on the strength of being default.
+  $: enginesFor = (b: { not?: string[] }) => allEngines.filter((e) => !(b.not ?? []).includes(e));
   // With one engine every row would say the same word, which is noise rather
   // than information. The column earns its place only when there is a choice.
   $: showEngines = allEngines.length > 1;
   // And a built-in no engine here can use is not a row worth showing: host on
   // an appjail-only host is not "unavailable", it is simply not a thing you
   // can pick.
-  // ...unless it is the one new installs currently start on. Hiding that would
-  // leave a default nothing can honour and no row to change it from.
-  $: visibleBuiltIn = BUILT_IN.filter((b) => enginesFor(b).length > 0 || isDefault(b.name));
+  $: visibleBuiltIn = BUILT_IN.filter((b) => enginesFor(b).length > 0);
 
   // How a network hands out addresses, in the words the form uses. Read from
   // what the daemon reports -- "no subnet means DHCP" was the old tell and
@@ -216,38 +204,38 @@
         ? n.subnet ? `static · ${n.subnet}` : 'static'
         : n.subnet || '';
 
-  // Set the default for the engines that can actually use this network. One
-  // global default could not work once a network could belong to one engine:
-  // installing on the other silently fell back to nothing. A network both can
-  // use still sets the global one, so nothing changes on a single-engine host.
-  async function setDefault(name: string, engines: string[]) {
-    const scoped = allEngines.length > 1 && engines.length > 0 && engines.length < allEngines.length;
-    const targets = scoped ? engines : [''];
-    const clearing = scoped ? engines.every((e) => defaultFor[e] === name) : defaultNetwork === name;
-    for (const engine of targets) {
-      const r = await fetch('/api/settings/network', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ network: clearing ? '' : name, ...(engine ? { engine } : {}) }),
-      });
-      if (!r.ok) {
-        toast((await r.text()).trim(), { kind: 'error' });
-        return;
-      }
-    }
-    if (scoped) {
-      defaultFor = { ...defaultFor };
-      for (const e of engines) {
-        if (clearing) delete defaultFor[e];
-        else defaultFor[e] = name;
-      }
-    } else {
-      defaultNetwork = clearing ? '' : name;
-    }
-    const who = scoped ? ` on ${engines.join(' and ')}` : '';
-    toast(clearing ? `New installs${who} go back to bridge` : `New installs${who} will use ${name}`, {
-      kind: 'success',
+  // What one engine may be defaulted to: the built-ins it can take, then the
+  // networks that list it. A default it cannot attach to is not an option,
+  // which is the whole reason these are per engine.
+  $: defaultChoices = (e: string) => {
+    const out = [
+      ...visibleBuiltIn.filter((b) => enginesFor(b).includes(e)).map((b) => b.name),
+      ...networks.filter((n) => !n.problem && (n.engines ?? []).includes(e)).map((n) => n.name),
+    ];
+    // Whatever is stored stays listed even when it no longer qualifies -- a
+    // select whose value matches no option renders the first one instead, and
+    // then the page is showing a default that is not the one in the file.
+    const cur = defaultFor[e];
+    if (cur && !out.includes(cur)) out.push(cur);
+    return out;
+  };
+
+  // One engine, one value. No cross-row state to reconcile and no way to
+  // express two defaults for the same engine, which a per-row toggle could.
+  async function setDefault(engine: string, name: string) {
+    const was = defaultFor[engine] ?? '';
+    defaultFor = { ...defaultFor, [engine]: name };
+    const r = await fetch('/api/settings/network', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ network: name, engine }),
     });
+    if (!r.ok) {
+      defaultFor = { ...defaultFor, [engine]: was };
+      toast((await r.text()).trim(), { kind: 'error' });
+      return;
+    }
+    toast(`New installs on ${engine} will use ${name}`, { kind: 'success' });
   }
 
   // The user runs the commands in another window; nothing tells fjord when
@@ -276,7 +264,7 @@
     try {
       await refreshHost();
       if (parents.length) {
-        showSetup = !parents.some((p) => !p.inUse);
+        showSetup = false;
         toast(`Found ${parents.length} ${parents.length === 1 ? 'bridge' : 'bridges'}`, { kind: 'success' });
       } else {
         toast('Still no bridge on this host', { kind: 'error' });
@@ -343,9 +331,15 @@
   // A LAN network has nowhere to attach without a bridge; say so rather than
   // letting someone fill in a form that cannot succeed.
   $: blocked = needsParent && parents.length === 0;
+  // How many networks already hang off a bridge. A bridge is a wire, and a
+  // wire carries as many networks as you like -- one taking DHCP leases and
+  // one for addresses you assign by hand is an ordinary pair. So this is a
+  // count to show, not a reason to stop.
+  $: netsOn = (bridge: string) => networks.filter((n) => n.bridge === bridge).length;
 
   async function openCreate() {
     form = { name: '', parent: '', subnet: '', gateway: '', mtu: '', rangeStart: '', rangeEnd: '', description: '' };
+    filled = { subnet: '', gateway: '' };
     forEngine = '';
     advanced = false;
     createError = '';
@@ -355,7 +349,10 @@
     // One allocator beats two on the same wire, so DHCP leads where the
     // plugin can do it. A pool is the fallback, not the default.
     addressSource = kinds[0]?.supportsDhcp ? 'dhcp' : 'pool';
-    showSetup = parents.length > 0 && parents.every((p) => p.inUse);
+    // Offered when there is no bridge at all. It used to open whenever every
+    // bridge already had a network, which told an operator to build a second
+    // wire when all they wanted was a second network on the first one.
+    showSetup = parents.length === 0;
   }
 
   // Offer the usual .1 for a /24 so the common case is one less field to fill.
@@ -366,9 +363,13 @@
 
   $: chosenParent = parents.find((p) => p.name === form.parent);
 
+  // What applyParent last put in these fields. A segment is a fact about the
+  // PARENT, so it has to follow the parent -- but only the value we filled in
+  // may be replaced, never one the operator typed.
+  let filled = { subnet: '', gateway: '' };
+
   // Picking a parent fills in what the host already knows: the segment's
   // subnet and gateway, a name following the bridge, and a default range.
-  // Only empty fields are touched, so nothing typed is overwritten.
   // A sentinel option in the dropdown: choosing it opens the setup help
   // rather than selecting a parent. The dropdown is where someone looks when
   // it does not list what they need, so the way out belongs there.
@@ -397,8 +398,20 @@
     // and that record is what lets a stack be pinned to a fixed address there
     // later, so leaving it blank is not "not needed", it is a capability
     // quietly dropped. defaultRange stays pool-only: a range is a pool.
-    if (!form.subnet.trim() && p.subnet) form.subnet = p.subnet;
-    if (!form.gateway.trim() && p.gateway) form.gateway = p.gateway;
+    // Replaced, not just filled: picking a second bridge used to leave the
+    // first one's segment sitting there. On DHCP that field lives under
+    // Advanced, so the stale value was invisible -- and it went into the
+    // conflist as the segment of a bridge it had nothing to do with. A parent
+    // the host cannot see a segment for clears it back to empty, which is the
+    // honest answer and the one the form then asks about.
+    if (form.subnet.trim() === filled.subnet) {
+      form.subnet = p.subnet ?? '';
+      filled.subnet = form.subnet;
+    }
+    if (form.gateway.trim() === filled.gateway) {
+      form.gateway = p.gateway ?? '';
+      filled.gateway = form.gateway;
+    }
     defaultRange();
   }
 
@@ -423,8 +436,25 @@
   }
 
   $: nameTaken = !!form.name.trim() && networks.some((n) => n.name === form.name.trim());
+  // DHCP is the one source that needs no segment from us -- the server on the
+  // wire supplies it. Everything else allocates, and cannot without one.
+  $: needsSubnet = isPrivate || addressSource !== 'dhcp';
   $: canSubmit = form.name.trim() && !nameTaken && (!needsParent || form.parent) &&
-    (isPrivate || addressSource !== 'dhcp' ? !!form.subnet.trim() : true);
+    (!needsSubnet || !!form.subnet.trim());
+  // ...and a required field cannot hide. Subnet lives in Advanced, collapsed
+  // by default, so picking Static left Create disabled with the one field that
+  // would enable it out of sight and no reason on screen.
+  $: if (needsSubnet && !form.subnet.trim()) advanced = true;
+  // Said on the button too, for the moment before Advanced is noticed.
+  $: createBlockedBy = !form.name.trim()
+    ? 'Name this network'
+    : nameTaken
+      ? `A network named ${form.name.trim()} already exists`
+      : needsParent && !form.parent
+        ? 'Pick a bridge'
+        : needsSubnet && !form.subnet.trim()
+          ? 'This network allocates its own addresses -- give it a subnet'
+          : '';
 
   async function submitCreate() {
     if (!canSubmit) return;
@@ -519,13 +549,37 @@
     {:else if error}
       <EmptyState icon="alert" title="Networks Unavailable" description={error} />
     {:else}
+      <!-- One dropdown per engine, above the list rather than a toggle on each
+           row. A row-level control cannot say "one per engine" -- nothing
+           stops two rows claiming the same engine -- and it made the reader
+           scan every row to answer what an install will actually pick. -->
+      {#if allEngines.length}
+        <div class="border border-fjord-border rounded-xl px-4 py-3 mb-4">
+          <div class="text-xs text-fjord-fg-dim mb-2">New installs use</div>
+          <div class="flex flex-wrap gap-x-6 gap-y-2">
+            {#each allEngines as e}
+              <label class="flex items-center gap-2">
+                {#if allEngines.length > 1}
+                  <span class="text-xs font-mono text-fjord-fg-secondary w-16 shrink-0">{e}</span>
+                {/if}
+                <select
+                  value={defaultFor[e] ?? 'bridge'}
+                  on:change={(ev) => setDefault(e, (ev.currentTarget as HTMLSelectElement).value)}
+                  class="bg-fjord-inset border border-fjord-border rounded px-2 py-1 text-sm font-mono text-fjord-fg-body focus:border-fjord-accent outline-none"
+                >
+                  {#each defaultChoices(e) as name}
+                    <option value={name}>{name}</option>
+                  {/each}
+                </select>
+              </label>
+            {/each}
+          </div>
+        </div>
+      {/if}
       <div class="border border-fjord-border rounded-xl overflow-hidden divide-y divide-fjord-border">
-        <!-- The two built-ins. Neither is a network anyone creates, shares or
+        <!-- The built-ins. Neither is a network anyone creates, shares or
              deletes: they are the states a stack is in without one, named as
-             podman names them so the page and `podman inspect` agree. They are
-             rows because the default can be either, and without something to
-             point at, choosing one means toggling off whichever network
-             happens to hold it. -->
+             podman names them so the page and `podman inspect` agree. -->
         {#snippet engines(list: string[])}
           <!-- One column, one treatment, one place. The engine used to be an
                amber badge on the left for a built-in and plain text on the
@@ -547,20 +601,6 @@
               <div class="text-xs text-fjord-fg-dim truncate">{b.detail}</div>
             </div>
             {#if showEngines}{@render engines(enginesFor(b))}{/if}
-            <button
-              type="button"
-              on:click={() => setDefault(b.name, enginesFor(b))}
-              disabled={isDefault(b.name)}
-              title={isDefault(b.name) ? 'New installs use this' : `Use ${b.name} for new installs`}
-              class="shrink-0 text-[11px] px-1.5 py-0.5 rounded border {isDefault(b.name)
-                ? 'border-fjord-accent/50 bg-fjord-accent/20 text-fjord-accent'
-                : 'border-fjord-border text-fjord-fg-dim hover:text-fjord-fg'}"
-              >{isDefault(b.name)
-                ? defaultEngines(b.name).length
-                  ? `Default · ${defaultEngines(b.name).join(', ')}`
-                  : 'Default'
-                : 'Set default'}</button
-            >
             <!-- Same slot and same word as a real network's action, greyed:
                  a bare em dash in the Delete column read as a fourth kind of
                  thing rather than as "this one cannot be deleted". -->
@@ -607,21 +647,6 @@
                 {/if}
               </div>
             {/if}
-            <button
-              type="button"
-              on:click={() => setDefault(n.name, n.engines ?? [])}
-              title={isDefault(n.name)
-                ? 'New installs start on this network. Click to go back to the default.'
-                : 'Make this the network new installs start on'}
-              class="shrink-0 text-[11px] px-1.5 py-0.5 rounded border {isDefault(n.name)
-                ? 'border-fjord-accent/50 bg-fjord-accent/20 text-fjord-accent'
-                : 'border-fjord-border text-fjord-fg-dim hover:text-fjord-fg'}"
-              >{isDefault(n.name)
-                ? defaultEngines(n.name).length
-                  ? `Default · ${defaultEngines(n.name).join(', ')}`
-                  : 'Default'
-                : 'Set default'}</button
-            >
             {#if !canRemove}
               <!-- nothing: this engine does not own these networks -->
             {:else if n.usedBy?.length}
@@ -842,7 +867,11 @@
               <select id="n-parent" bind:value={form.parent} on:change={onParentChange} class={inputCls}>
                 <option value="">Select a {kind.parentLabel?.toLowerCase()}…</option>
                 {#each parents as p}
-                  <option value={p.name}>{p.name}{p.inUse ? ' (already has a network)' : ''}</option>
+                  <option value={p.name}
+                    >{p.name}{netsOn(p.name)
+                      ? ` (${netsOn(p.name)} network${netsOn(p.name) > 1 ? 's' : ''})`
+                      : ''}</option
+                  >
                 {/each}
                 {#if kind.parentSetups?.length}
                   <option value={NEW_PARENT}>+ Set up a new {kind.parentLabel?.toLowerCase()}…</option>
@@ -1025,6 +1054,7 @@
           <button
             on:click={submitCreate}
             disabled={submitting || blocked || !canSubmit}
+            title={createBlockedBy}
             class="px-4 py-2 rounded-md text-sm font-medium bg-fjord-accent hover:bg-fjord-accent-hover text-white disabled:opacity-50 disabled:cursor-not-allowed"
             >{submitting ? 'Creating…' : 'Create'}</button
           >

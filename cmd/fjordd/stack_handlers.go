@@ -19,6 +19,7 @@ import (
 	"github.com/daemonless/fjord/pkg/registry"
 	"github.com/daemonless/fjord/pkg/stack"
 	"github.com/daemonless/fjord/pkg/updates"
+	"gopkg.in/yaml.v3"
 )
 
 // saveRequest is the /api/stacks/<n>/save payload: the editable stack fields
@@ -125,17 +126,51 @@ func nameIfaces(atts []composepkg.Attachment) {
 // unsupportedModes lists the built-in network choices a stack cannot take.
 //
 // A director stack's networking is the director's -- appjail never reads its
-// compose for it -- and host has no director option at all: it is a jail
-// parameter, set through appjail-config, which fjord does not do yet.
+// compose for it -- and fjord has no way to PUT a director project on host:
+// that is a jail parameter rather than a director option.
+//
+// But a bundle can arrive already on it. dbuild writes `ip4_inherit` into the
+// director options and `ip4: inherit` into the jail template for a
+// host-networked app, which is exactly how immich's four services find each
+// other on 127.0.0.1. Calling host unsupported there told the operator their
+// stack was in a state it could not be in, and left the picker unable to show
+// the stack's own current mode -- every option greyed and the select holding a
+// value that was not among them.
+//
 // bridge is not in the list: for appjail that is its own NAT virtualnet, which
 // is what bridge means on every engine.
 func unsupportedModes(st *stack.Stack) []string {
 	if st.Director == "" {
 		return nil
 	}
+	if directorInheritsHost(st.Director) {
+		return nil
+	}
 	// none is NOT in the list: a director project takes it by having no
 	// network option at all, which is exactly what it means.
 	return []string{composepkg.Host}
+}
+
+// directorInheritsHost reports a director project whose options put its jails
+// on the host's stack (`ip4_inherit`, and `ip6_inherit` for the v6 half).
+func directorInheritsHost(directorYML string) bool {
+	var doc yaml.Node
+	if yaml.Unmarshal([]byte(directorYML), &doc) != nil || len(doc.Content) == 0 {
+		return false
+	}
+	opts := mapKey(doc.Content[0], "options")
+	if opts == nil || opts.Kind != yaml.SequenceNode {
+		return false
+	}
+	for _, item := range opts.Content {
+		if item.Kind == yaml.MappingNode && len(item.Content) >= 1 {
+			switch item.Content[0].Value {
+			case "ip4_inherit", "ip6_inherit":
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // handleStackRoutes dispatches /api/stacks/<name>[/<action>].
@@ -403,7 +438,7 @@ func (s *server) stackSave(w http.ResponseWriter, r *http.Request, name string) 
 				return
 			}
 		}
-		if msg := attachmentsUnusable(atts); msg != "" {
+		if msg := attachmentsUnusable(atts, s.engineNetworks(r.Context(), eng)); msg != "" {
 			http.Error(w, msg, 400)
 			return
 		}
@@ -696,4 +731,14 @@ func (s *server) stackLifecycle(w http.ResponseWriter, r *http.Request, name, ac
 	}
 
 	streamOutput(w, stream)
+
+	// The fleet cache holds its verdict for half an hour, and it is what the
+	// badge reads. Without this, updating a stack that really was behind left
+	// "update available" on screen afterwards -- so the obvious move was to
+	// update again, and again, each one working and none of them changing
+	// what the page said. Only the two actions that pull: a registry check
+	// per stack is rate-limited, and down/restart cannot move an image.
+	if action == "up" || action == "update" {
+		s.fleet.forget(name)
+	}
 }

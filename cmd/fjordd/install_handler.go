@@ -222,7 +222,7 @@ func (s *server) handleInstall(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, msg, 400)
 			return
 		}
-		if msg := attachmentsUnusable(req.attachments()); msg != "" {
+		if msg := attachmentsUnusable(req.attachments(), s.engineNetworks(r.Context(), req.Engine)); msg != "" {
 			http.Error(w, msg, 400)
 			return
 		}

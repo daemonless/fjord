@@ -81,7 +81,7 @@ func (b *Backend) CreateNetwork(ctx context.Context, spec engine.NetworkSpec) (e
 			}
 		}
 	}
-	return lannet.Create(spec)
+	return lannet.Create(ctx, spec)
 }
 
 // RemoveNetwork deletes the network's conflist. Unlike a podman-managed

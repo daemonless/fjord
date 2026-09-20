@@ -25,7 +25,17 @@ const ifaceMax = 12
 // run time, and the ifconfig option has to name "sb_<iface>" -- fjord cannot
 // reference a name it will not know. Anything outside [a-z0-9] is dropped
 // rather than substituted, since an interface name has a narrow charset.
-func epairName(stackID string, n int) string {
+// epairName builds the host-side interface name for one service's attachment
+// to one network.
+//
+// It is per SERVICE, not per project. A director project used to get a single
+// `epair:<stack>`, which works only while the project has one jail: with four,
+// the first takes sb_<stack> into its vnet and the rest fail to start with
+// "interface sb_<stack> does not exist". Each jail needs its own epair.
+func epairName(stackID, service string, n int) string {
+	if service != "" {
+		stackID = stackID + service
+	}
 	var b strings.Builder
 	for _, r := range strings.ToLower(stackID) {
 		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
@@ -77,13 +87,57 @@ func setDirectorNetworks(ctx context.Context, directorYML, stackID string, atts 
 	}
 	root := doc.Content[0]
 
+	// Every jail in the project needs its own epair, so the options are built
+	// once per service and written into that service rather than into the
+	// project. A project-level attachment names one interface, which the first
+	// jail takes into its vnet and the rest then cannot find.
+	names := directorServiceNames(root)
+	if len(names) == 0 {
+		return "", fmt.Errorf("director has no services to put on a network")
+	}
+	for si, service := range names {
+		// One service keeps the bare stack id, which is what every existing
+		// stack already has on disk and in its jail. Only a project with
+		// several needs them told apart.
+		qualifier := ""
+		if len(names) > 1 {
+			qualifier = service
+		}
+		opts, err := attachOptions(ctx, stackID, qualifier, atts, si == 0, len(names))
+		if err != nil {
+			return "", err
+		}
+		svc := directorService(root, service)
+		setServiceOptions(svc, mergeServiceOptions(svc, opts))
+	}
+	// The project keeps none of it: a networking option here would override
+	// what each service just declared (appjail applies the project's `alias`
+	// to every jail, which makes a per-service `virtualnet` fail outright).
+	setDirectorOptions(root, mergeDirectorOptions(root, &yaml.Node{Kind: yaml.SequenceNode}))
+	dropServiceExpose(root)
+
+	var sb strings.Builder
+	enc := yaml.NewEncoder(&sb)
+	enc.SetIndent(2)
+	if err := enc.Encode(root); err != nil {
+		return "", err
+	}
+	enc.Close()
+	return sb.String(), nil
+}
+
+// attachOptions builds one service's networking options. first marks the
+// service that carries a pinned address and the default route; nsvc is how
+// many services share these networks, which decides whether a pin is even
+// expressible.
+func attachOptions(ctx context.Context, stackID, service string, atts []composepkg.Attachment, first bool, nsvc int) (*yaml.Node, error) {
 	var kvs [][2]string
 	bpf := false
 	seen := map[string]bool{}
 	onBridge := map[string]string{}
 	for i, a := range atts {
 		if seen[a.Network] {
-			return "", fmt.Errorf("network %q is listed twice", a.Network)
+			return nil, fmt.Errorf("network %q is listed twice", a.Network)
 		}
 		seen[a.Network] = true
 		// An appjail virtual network is joined with the `virtualnet` option,
@@ -93,7 +147,7 @@ func setDirectorNetworks(ctx context.Context, directorYML, stackID string, atts 
 		// it, with "no network named ... is defined on this host".
 		if vnet, isVirtual := appjail.Virtualnet(ctx, a.Network); isVirtual {
 			if seenBridge := onBridge[a.Network]; seenBridge != "" {
-				return "", fmt.Errorf("network %q is listed twice", a.Network)
+				return nil, fmt.Errorf("network %q is listed twice", a.Network)
 			}
 			onBridge[a.Network] = a.Network
 			// appjail-quick(1): virtualnet="[network]:interface [default]
@@ -103,22 +157,25 @@ func setDirectorNetworks(ctx context.Context, directorYML, stackID string, atts 
 			// appjail validates it against the network's CIDR and against
 			// every other jail's reservation, so there is nothing to check
 			// here that it does not check better.
-			vn := a.Network + ":" + epairName(stackID, i)
+			vn := a.Network + ":" + epairName(stackID, service, i)
+			if a.IP != "" && !first {
+				a.IP = "" // appjail allocates this jail's address from the network
+			}
 			if a.IP != "" {
 				vn += " address:" + a.IP
 			}
 			kvs = append(kvs, [2]string{"virtualnet", vn})
-			if i == 0 && vnet.Gateway != "" {
+			if i == 0 && first && vnet.Gateway != "" {
 				kvs = append(kvs, [2]string{"nat", ""})
 			}
 			continue
 		}
 		net, ok := hostnet.Get(a.Network)
 		if !ok {
-			return "", fmt.Errorf("no network named %q is defined on this host", a.Network)
+			return nil, fmt.Errorf("no network named %q is defined on this host", a.Network)
 		}
 		if net.Bridge == "" {
-			return "", fmt.Errorf("network %q has no bridge to attach a jail to", a.Network)
+			return nil, fmt.Errorf("network %q has no bridge to attach a jail to", a.Network)
 		}
 		prefix := ""
 		if _, p, found := strings.Cut(net.Subnet, "/"); found {
@@ -126,11 +183,22 @@ func setDirectorNetworks(ctx context.Context, directorYML, stackID string, atts 
 		}
 		// Guessing /24 onto a segment fjord has never seen would put the jail
 		// on the wrong mask and break it in a way nobody would look for here.
+		// An address identifies ONE interface. With several services on the
+		// network only the first can hold it; the rest need allocation they
+		// can ask for, which a DHCP network has and a static/pool one does
+		// not. Silently giving them all the same address makes a project that
+		// half-starts and blames the app.
+		if a.IP != "" && !first {
+			if !net.DHCP {
+				return nil, fmt.Errorf("%q is a %s network, so every jail needs an address of its own -- this stack has %d services and one address to give. Use a DHCP network, or an appjail network that allocates", a.Network, map[bool]string{true: "static", false: "range"}[net.Static], nsvc)
+			}
+			a.IP = "" // this jail takes a lease instead
+		}
 		if a.IP != "" && prefix == "" {
-			return "", fmt.Errorf("fjord does not know which segment %q is on, so it cannot place %s there: appjail configures the interface itself and needs the prefix length. Give the network a subnet, or leave the address blank and let the jail take a lease", a.Network, a.IP)
+			return nil, fmt.Errorf("fjord does not know which segment %q is on, so it cannot place %s there: appjail configures the interface itself and needs the prefix length. Give the network a subnet, or leave the address blank and let the jail take a lease", a.Network, a.IP)
 		}
 		if !net.DHCP && net.Subnet == "" {
-			return "", fmt.Errorf("network %q has no subnet to place a jail on", a.Network)
+			return nil, fmt.Errorf("network %q has no subnet to place a jail on", a.Network)
 		}
 		// A pool network is allocated by the podman side's IPAM, which appjail
 		// cannot ask -- so an address has to be given. A DHCP network has no
@@ -140,7 +208,7 @@ func setDirectorNetworks(ctx context.Context, directorYML, stackID string, atts 
 			if net.Static {
 				why = "nothing allocates on that network -- every stack brings its own address"
 			}
-			return "", fmt.Errorf("an address is required to place a jail on %q: %s", a.Network, why)
+			return nil, fmt.Errorf("an address is required to place a jail on %q: %s", a.Network, why)
 		}
 
 		// Two epairs onto the same bridge is two interfaces on one segment:
@@ -150,11 +218,11 @@ func setDirectorNetworks(ctx context.Context, directorYML, stackID string, atts 
 		// start. (Verified on FreeBSD 15.1: two epairs on DIFFERENT bridges
 		// are fine; two on the same one are not.)
 		if other, dup := onBridge[net.Bridge]; dup {
-			return "", fmt.Errorf("%q and %q are both on bridge %s, and appjail cannot put a jail on one bridge twice -- they are the same segment, so one of them is enough", other, a.Network, net.Bridge)
+			return nil, fmt.Errorf("%q and %q are both on bridge %s, and appjail cannot put a jail on one bridge twice -- they are the same segment, so one of them is enough", other, a.Network, net.Bridge)
 		}
 		onBridge[net.Bridge] = a.Network
 
-		iface := epairName(stackID, i)
+		iface := epairName(stackID, service, i)
 		kvs = append(kvs, [2]string{"bridge", fmt.Sprintf("epair:%s bridge:%s", iface, net.Bridge)})
 		// DHCP or a fixed address is a per-stack choice, not a property of the
 		// network: the wire is the same either way, and so is the mechanism --
@@ -171,7 +239,7 @@ func setDirectorNetworks(ctx context.Context, directorYML, stackID string, atts 
 		} else {
 			kvs = append(kvs, [2]string{"ifconfig", fmt.Sprintf("sb_%s:%s/%s", iface, a.IP, prefix)})
 			if i == 0 {
-				// Only one default route, and it belongs to the first network.
+				// One default route per jail, on its primary network.
 				kvs = append(kvs, [2]string{"defaultrouter", net.Gateway})
 			}
 		}
@@ -199,21 +267,66 @@ func setDirectorNetworks(ctx context.Context, directorYML, stackID string, atts 
 			},
 		})
 	}
-	// Keep the options fjord does not own. The first cut replaced the whole
-	// list, which threw away anything a bundle had put there -- and made the
-	// original unrecoverable, so there is nothing to put back when the jail
-	// later leaves the bridge.
-	setDirectorOptions(root, mergeDirectorOptions(root, opts))
-	dropServiceExpose(root)
+	return opts, nil
+}
 
-	var sb strings.Builder
-	enc := yaml.NewEncoder(&sb)
-	enc.SetIndent(2)
-	if err := enc.Encode(root); err != nil {
-		return "", err
+// directorServiceNames lists a project's services in document order.
+func directorServiceNames(root *yaml.Node) []string {
+	services := mapKey(root, "services")
+	if services == nil || services.Kind != yaml.MappingNode {
+		return nil
 	}
-	enc.Close()
-	return sb.String(), nil
+	var out []string
+	for i := 0; i+1 < len(services.Content); i += 2 {
+		out = append(out, services.Content[i].Value)
+	}
+	return out
+}
+
+// directorService returns one service's mapping node, or nil.
+func directorService(root *yaml.Node, name string) *yaml.Node {
+	services := mapKey(root, "services")
+	if services == nil || services.Kind != yaml.MappingNode {
+		return nil
+	}
+	for i := 0; i+1 < len(services.Content); i += 2 {
+		if services.Content[i].Value == name {
+			return services.Content[i+1]
+		}
+	}
+	return nil
+}
+
+// mergeServiceOptions is mergeDirectorOptions for one service: the networking
+// options fjord owns are replaced, everything the bundle put there is kept.
+func mergeServiceOptions(svc, generated *yaml.Node) *yaml.Node {
+	out := &yaml.Node{Kind: yaml.SequenceNode}
+	if cur := mapKey(svc, "options"); cur != nil && cur.Kind == yaml.SequenceNode {
+		for _, item := range cur.Content {
+			if item.Kind == yaml.MappingNode && len(item.Content) >= 1 && directorNetOptions[item.Content[0].Value] {
+				continue
+			}
+			out.Content = append(out.Content, item)
+		}
+	}
+	out.Content = append(out.Content, generated.Content...)
+	return out
+}
+
+// setServiceOptions writes a service's options list, adding the key when the
+// bundle did not have one.
+func setServiceOptions(svc, opts *yaml.Node) {
+	if svc == nil || svc.Kind != yaml.MappingNode {
+		return
+	}
+	for i := 0; i+1 < len(svc.Content); i += 2 {
+		if svc.Content[i].Value == "options" {
+			svc.Content[i+1] = opts
+			return
+		}
+	}
+	svc.Content = append(svc.Content,
+		&yaml.Node{Kind: yaml.ScalarNode, Value: "options"}, opts)
 }
 
 // dropServiceExpose removes every service's `expose:` option.
@@ -268,9 +381,17 @@ func setMapKey(n *yaml.Node, key string, val *yaml.Node) {
 //
 // virtualnet and nat are in here because they are the thing a bridge REPLACES:
 // a jail cannot be on appjail's NAT network and a host bridge at once.
+//
+// So are alias and ip4_inherit/ip6_inherit, which a host-networked bundle
+// carries: appjail refuses them outright next to a network. `alias` is a
+// networking mode declared exclusive with bridge/vnet (cmd/quick:2259), and
+// `virtualnet` errors on ip4_inherit by name (cmd/quick:1847). Left in place
+// they turned attaching a network into an appjail exclusivity error rather
+// than a jail on that network.
 var directorNetOptions = map[string]bool{
 	"bridge": true, "dhcp": true, "ifconfig": true, "defaultrouter": true,
 	"macaddr": true, "device": true, "virtualnet": true, "nat": true,
+	"alias": true, "ip4_inherit": true, "ip6_inherit": true,
 }
 
 // mergeDirectorOptions puts the generated networking options after whatever

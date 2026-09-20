@@ -691,7 +691,20 @@ func Kind(dhcp bool) engine.NetworkKind {
 // Create defines a LAN network: it writes the conflist and nothing else. The
 // bridge it names is the operator's to make -- persistent host configuration
 // fjord will not create behind their back.
-func Create(spec engine.NetworkSpec) (engine.Network, error) {
+func Create(ctx context.Context, spec engine.NetworkSpec) (engine.Network, error) {
+	// A DHCP network's subnet is not a choice, it is a fact about the bridge:
+	// the DHCP server on that wire decides, and this is only written down so a
+	// stack can later be pinned to a fixed address on it. So when the host can
+	// see what segment the bridge is on, a different answer is a mistake --
+	// usually one bridge's segment left behind after picking another, which
+	// hides under Advanced and reaches the file unseen.
+	if spec.AddressSource == "dhcp" && spec.Subnet != "" && spec.Parent != "" {
+		if seg, _, _ := segmentOf(ctx, spec.Parent); seg != "" && seg != spec.Subnet {
+			return engine.Network{}, fmt.Errorf(
+				"%s is on %s, not %s -- a DHCP network records the segment its bridge is already on",
+				spec.Parent, seg, spec.Subnet)
+		}
+	}
 	data, err := Conflist(spec)
 	if err != nil {
 		return engine.Network{}, err

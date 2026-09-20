@@ -42,7 +42,7 @@ func (s *server) preflight(ctx context.Context, st *stack.Stack) []string {
 	if st.Director != "" {
 		atts = directorAttachments(st.Director)
 	}
-	if msg := attachmentsUnusable(atts); msg != "" {
+	if msg := attachmentsUnusable(atts, s.engineNetworks(ctx, st.EngineName())); msg != "" {
 		problems = append(problems, msg)
 	}
 

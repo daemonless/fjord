@@ -54,6 +54,10 @@ jobs:
         working-directory: ui
         run: npm run check
 
+      - name: UI tests
+        working-directory: ui
+        run: npm test
+
       # Must come before any Go step: ui/embed.go embeds ui/dist, which is
       # gitignored, so `go vet`/`go build` fail with "pattern dist/*: no
       # matching files found" until the UI has been built.

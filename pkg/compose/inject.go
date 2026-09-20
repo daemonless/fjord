@@ -120,18 +120,21 @@ func InjectNetworks(composeYAML string, atts []Attachment) (string, error) {
 		// "none" and "host" are fjord's own doing -- both are choices on the
 		// stack's network picker -- so attaching is how either is undone.
 		//
-		// Except for host with more than one service, which stays refused.
-		// The two modes are not symmetrical: under "none" every service
-		// already has its own empty vnet, so localhost between them is
-		// broken before we touch it and attaching can only improve matters.
-		// Under "host" they share the host's stack and DB_HOST=localhost
-		// works TODAY -- giving each its own address breaks a running stack
-		// at runtime, with nothing to say so at save time.
-		if m.Value == None || (m.Value == Host && len(svcs) == 1) {
+		// host with several services used to be refused here. The hazard is
+		// real: under "host" they share one stack and DB_HOST=localhost works
+		// TODAY, so giving each its own address breaks a running stack at
+		// runtime. But refusing outright also made the choice unreachable for
+		// a stack whose services address each other by name, and left no way
+		// to say "I know". The operator is told what breaks, on the page, and
+		// decides; fjord no longer decides for them.
+		//
+		// Until networking is per service, this is all-or-nothing: every
+		// service lands on the network, not just the one that serves.
+		if m.Value == None || m.Value == Host {
 			clearMode(sv.node)
 			continue
 		}
-		return "", fmt.Errorf("service %q uses network_mode: %s, so this stack cannot take its own address -- its services reach each other over localhost", sv.name, m.Value)
+		return "", fmt.Errorf("service %q uses network_mode: %s, which fjord does not know how to move onto a network", sv.name, m.Value)
 	}
 	// The stash exists to survive a trip through a mode, and attaching is the
 	// end of that trip. It is dropped whether or not the caller used it: the

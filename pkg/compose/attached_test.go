@@ -103,24 +103,34 @@ const immichCompose = `services:
     network_mode: host
 `
 
-// Refused because there are FOUR of them: one service on host mode is just a
-// picker choice, and attaching is how it is undone (TestNetworkModeRoundTrip).
-func TestInjectNetworkRefusesNetworkMode(t *testing.T) {
-	_, err := InjectNetwork(immichCompose, "lan86", "192.168.86.244", "")
-	if err == nil {
-		t.Fatal("accepted a host-networked stack")
+// A multi-service host stack can be moved onto a network. It used to be
+// refused outright, which also made the choice unreachable for a stack whose
+// services address each other by name and left no way to say "I know". The
+// hazard is unchanged -- these four find each other on 127.0.0.1 and will stop
+// -- so NoNamedNetworks still reports it and the page says so. Fjord no longer
+// decides on the operator's behalf.
+func TestInjectNetworkAllowsHostModeWithWarning(t *testing.T) {
+	out, err := InjectNetwork(immichCompose, "lan86", "", "")
+	if err != nil {
+		t.Fatalf("refused a host-networked stack: %v", err)
 	}
-	for _, want := range []string{"network_mode", "localhost"} {
-		if !contains(err.Error(), want) {
-			t.Errorf("error %q should mention %q", err, want)
+	if contains(out, "network_mode") {
+		t.Errorf("network_mode survived the attach:\n%s", out)
+	}
+	// Every service lands on it: networking is per stack, not per service.
+	for _, svc := range []string{"immich-server", "immich-machine-learning", "redis", "database"} {
+		if !contains(out, svc) {
+			t.Errorf("lost service %q:\n%s", svc, out)
 		}
 	}
-	// Also refused without an IP: the injected compose would be invalid.
-	if _, err := InjectNetwork(immichCompose, "lan86", "", ""); err == nil {
-		t.Error("accepted a host-networked stack when no IP was given")
-	}
+	// Still reported, so the page can warn before the operator commits.
 	if !NoNamedNetworks(immichCompose) {
-		t.Error("not reported as locked, so the UI would offer what Save refuses")
+		t.Error("no longer reported, so the page would warn about nothing")
+	}
+	// A pin still needs one service to pin TO: with four and none published,
+	// there is no answer, and guessing would put the address on the wrong jail.
+	if _, err := InjectNetwork(immichCompose, "lan86", "192.168.86.244", ""); err == nil {
+		t.Error("accepted a pin with no single service to pin to")
 	}
 	// One service on host mode is not locked: nothing is reaching anything
 	// else over localhost, so attaching is safe and is how the user gets out.
