@@ -53,15 +53,30 @@ func (s *server) handleComposeMounts(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), 400)
 			return
 		}
-		json.NewEncoder(w).Encode(map[string]string{"compose": out})
+		json.NewEncoder(w).Encode(transformed(out, req.Env))
 	case "remove":
 		out, err := composepkg.RemoveMount(req.Compose, req.Dest)
 		if err != nil {
 			http.Error(w, err.Error(), 400)
 			return
 		}
-		json.NewEncoder(w).Encode(map[string]string{"compose": out})
+		json.NewEncoder(w).Encode(transformed(out, req.Env))
 	default:
 		http.Error(w, "unknown op: "+req.Op, 400)
+	}
+}
+
+// transformed is what a mount change hands back: the new compose, and the
+// per-service view derived FROM it.
+//
+// Both, because the caller cannot have one without the other. The services
+// list is computed on this side, so a client that changed a mount used to
+// re-read the stack to get it -- and re-reading returns what is on DISK,
+// which silently discarded the change the client had just been given to hold
+// until Save. Adding a bind mount looked like it did nothing at all.
+func transformed(compose, env string) map[string]any {
+	return map[string]any{
+		"compose":  compose,
+		"services": composeServiceViews(&stack.Stack{Compose: compose, Env: env}),
 	}
 }

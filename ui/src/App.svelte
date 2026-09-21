@@ -720,13 +720,11 @@
           source = await ensureRemoteVolume(f, { stack: selectedStack.name });
           kind = 'volume';
         }
-        const { compose } = await mountsAPI({ op: 'add', kind, source, dest: at, readOnly: addRO });
-        selectedStack = { ...selectedStack, compose };
+        adopt(await mountsAPI({ op: 'add', kind, source, dest: at, readOnly: addRO }));
       }
       addSource = '';
       addDest = '';
       addRO = false;
-      await refreshStackDetail();
     } catch (e: any) {
       toast(e.message || 'Add failed', { kind: 'error' });
     }
@@ -747,18 +745,16 @@
   async function addMount() {
     if (!selectedStack || !addSource.trim() || !addDest.trim()) return;
     try {
-      const { compose } = await mountsAPI({
+      adopt(await mountsAPI({
         op: 'add',
         kind: addKind,
         source: addSource.trim(),
         dest: addDest.trim(),
         readOnly: addRO,
-      });
-      selectedStack = { ...selectedStack, compose };
+      }));
       addSource = '';
       addDest = '';
       addRO = false;
-      await refreshStackDetail();
     } catch (e: any) {
       toast(e.message || 'Add failed', { kind: 'error' });
     }
@@ -774,26 +770,26 @@
     }
     try {
       const source = await ensureRemoteVolume(row, { stack: selectedStack.name });
-      const { compose } = await mountsAPI({ op: 'add', kind: 'volume', source, dest, readOnly: addRO });
-      selectedStack = { ...selectedStack, compose };
+      adopt(await mountsAPI({ op: 'add', kind: 'volume', source, dest, readOnly: addRO }));
       addDest = '';
       addRO = false;
       addKind = 'bind';
-      await refreshStackDetail();
       loadVolumes(selectedStack.name);
     } catch (e: any) {
       toast(e.message || 'Add failed', { kind: 'error' });
     }
   }
-  // A mount change rewrites the compose on the server, and the per-service
-  // Storage list is derived THERE -- so the stack has to be re-read or the
-  // service keeps showing what it no longer holds.
-  async function refreshStackDetail() {
+  // A mount change is an EDIT, not a save: the daemon transforms the compose
+  // text it was sent and hands it back for the editor to hold until Save. It
+  // returns the per-service view of that new compose alongside it, because the
+  // Storage list under each service is derived on that side.
+  //
+  // Both are adopted together. Re-reading the stack instead returns what is on
+  // disk, which threw the edit away -- adding a bind mount looked like it did
+  // nothing at all.
+  function adopt(res: { compose: string; services?: unknown[] }) {
     if (!selectedStack) return;
-    try {
-      const res = await fetch(`/api/stacks/${selectedStack.name}`);
-      if (res.ok) selectedStack = await res.json();
-    } catch {}
+    selectedStack = { ...selectedStack, compose: res.compose, services: res.services ?? selectedStack.services };
   }
 
   // Removing a mount rewrites the compose straight away -- no Save, no revert --
@@ -802,8 +798,7 @@
   async function removeMount(dest: string) {
     if (!selectedStack) return;
     try {
-      await mountsAPI({ op: 'remove', dest });
-      await refreshStackDetail();
+      adopt(await mountsAPI({ op: 'remove', dest }));
     } catch (e: any) {
       toast(e.message || 'Remove failed', { kind: 'error' });
     }

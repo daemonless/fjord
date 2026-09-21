@@ -87,4 +87,4 @@ plugins — lives in Settings and is persisted in `<fjord root>/settings.json`.
 
 Go code is `gofmt`-clean and `go vet`/`go test ./...` pass; the UI is
 Svelte 5 (legacy syntax) built with Vite — `npm run check` for types. See
-`DESIGN.md` for the architecture and `CHANGELOG.md` for what shipped.
+`DESIGN.md` for the architecture and the releases page for what shipped.
