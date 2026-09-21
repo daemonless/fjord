@@ -2,6 +2,7 @@ package manifest
 
 import (
 	"fmt"
+	composepkg "github.com/daemonless/fjord/pkg/compose"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -38,6 +39,18 @@ func (m *Manifest) Resolve(values map[string]string, slug, storageBase string) (
 		val := v.Default
 		if got, ok := values[v.Name]; ok && got != "" {
 			val = got
+		} else {
+			// A DEFAULT that is still a compose reference is not a value. A
+			// manifest derived from a variabilized compose can carry
+			// "${GARAGE_ZONE:-dc1}" as the default, and writing that into the
+			// .env verbatim gave the container a zone literally named
+			// ${GARAGE_ZONE:-dc1} -- an install that looks clean and runs
+			// wrong. Resolved the way compose would, against nothing, so the
+			// fallback wins and a bare ${VAR} becomes empty.
+			//
+			// Only the default. What the operator typed is theirs, even if it
+			// looks like a reference.
+			val = composepkg.ExpandEnv(val, nil)
 		}
 
 		switch v.Type {
