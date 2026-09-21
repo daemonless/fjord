@@ -126,7 +126,7 @@ func directorUp(ctx context.Context, s *stack.Stack) (io.ReadCloser, error) {
 // stackDelete never orphans a stopped-but-present jail. Up rebuilds from the
 // Makejail. A missing project is tolerated (delete of an already-stopped stack).
 func directorDown(ctx context.Context, s *stack.Stack) (io.ReadCloser, error) {
-	return directorOp(ctx, s, func(w io.Writer) error { return runDirector(ctx, w, s.Dir, true, "down", "--destroy") })
+	return directorOp(ctx, s, func(w io.Writer) error { return downDestroy(ctx, stackDir(s.Dir), w) })
 }
 
 // directorRestart stops then starts in place. Plain `down` (no --destroy) keeps
@@ -143,7 +143,7 @@ func directorRestart(ctx context.Context, s *stack.Stack) (io.ReadCloser, error)
 // director spec passes `--pull` to buildah.
 func directorUpdate(ctx context.Context, s *stack.Stack) (io.ReadCloser, error) {
 	return directorOp(ctx, s,
-		func(w io.Writer) error { return runDirector(ctx, w, s.Dir, true, "down", "--destroy") },
+		func(w io.Writer) error { return downDestroy(ctx, stackDir(s.Dir), w) },
 		func(w io.Writer) error { return runDirector(ctx, w, s.Dir, false, "up") })
 }
 
