@@ -152,13 +152,29 @@ func aggregateStatus(containers []libpodContainer) engine.StackStatus {
 				ports = append(ports, engine.Port{HostPort: p.HostPort, ContainerPort: p.ContainerPort, Protocol: p.Protocol})
 			}
 		}
-		cs := engine.ContainerStatus{Name: name, State: c.State, Ports: ports, Address: containerAddress(c)}
+		cs := engine.ContainerStatus{Name: name, State: c.State, Ports: ports,
+			Address: containerAddress(c), Addresses: containerAddresses(c)}
 		// Attached but address-less: the CNI plugin failed and podman started
 		// the container anyway, so it is "running" with no interface at all.
 		// Without this the UI just shows a blank address, which reads as a
 		// broken address lookup rather than a network that answered nothing.
-		if cs.State == "running" && cs.Address == "" && len(c.Networks) > 0 {
-			cs.Detail = hostnet.NoAddressReason(c.Networks[0])
+		if cs.State == "running" && len(c.Networks) > 0 {
+			// Per network, not just the first: a container on two reported the
+			// reason for whichever came first, so a missing LAN lease was
+			// blamed on the private segment that was working fine.
+			var missing []string
+			for _, n := range c.Networks {
+				if cs.Addresses[n] == "" {
+					missing = append(missing, n)
+				}
+			}
+			if len(missing) == len(c.Networks) {
+				cs.Detail = hostnet.NoAddressReason(missing[0])
+			} else if len(missing) > 0 {
+				cs.Detail = hostnet.NoAddressReason(missing[0]) +
+					" (its other " + map[bool]string{true: "network is", false: "networks are"}[len(c.Networks)-len(missing) == 1] +
+					" fine)"
+			}
 		}
 		out.Containers = append(out.Containers, cs)
 		if c.State == "running" {
@@ -185,6 +201,71 @@ func aggregateStatus(containers []libpodContainer) engine.StackStatus {
 // network carries no address at all. The compose only records one when the
 // user pinned it, which leaves every auto-assigned stack with no address to
 // report -- and nothing to build a working link from.
+// containerAddresses is every address the container holds, by network.
+//
+// A DHCP network keeps no IPAM state on the host -- the lease lives in the
+// jail -- so it is asked separately rather than being skipped, which is what
+// left a container on lan+private reporting only the private one.
+func containerAddresses(c libpodContainer) map[string]string {
+	if c.ID == "" || len(c.Networks) == 0 {
+		return nil
+	}
+	out := map[string]string{}
+	needLease := false
+	for _, n := range c.Networks {
+		if addr := hostnet.AddressOf(n, c.ID); addr != "" {
+			out[n] = addr
+			continue
+		}
+		needLease = true
+	}
+	if needLease && c.State == "running" {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		// The jail lists its addresses and says nothing about which interface
+		// each came from, so each is matched to the network whose segment
+		// contains it. Taking the first one attributed the private address to
+		// the LAN and built a link nothing could open.
+		addrs := hostnet.JailAddresses(ctx, c.ID)
+		claimed := map[string]bool{}
+		for _, a := range out {
+			claimed[a] = true
+		}
+		// First by subnet, where the network records one.
+		for _, n := range c.Networks {
+			if _, known := out[n]; known {
+				continue
+			}
+			def, ok := hostnet.Get(n)
+			if !ok || def.Subnet == "" {
+				continue
+			}
+			for _, a := range addrs {
+				if !claimed[a] && hostnet.InSubnet(a, def.Subnet) {
+					out[n], claimed[a] = a, true
+					break
+				}
+			}
+		}
+		// Then by elimination. A DHCP network records no subnet -- the lease
+		// carries it -- so there is nothing to match against; what is left
+		// after every subnet-bearing network has taken its own is its.
+		for _, n := range c.Networks {
+			if _, known := out[n]; known {
+				continue
+			}
+			for _, a := range addrs {
+				if claimed[a] || inAnyOther(a, c.Networks, n) {
+					continue
+				}
+				out[n], claimed[a] = a, true
+				break
+			}
+		}
+	}
+	return out
+}
+
 func containerAddress(c libpodContainer) string {
 	if c.ID == "" {
 		return ""
@@ -202,4 +283,19 @@ func containerAddress(c libpodContainer) string {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	return hostnet.JailAddress(ctx, c.ID)
+}
+
+// inAnyOther reports whether addr belongs to one of the container's OTHER
+// networks by subnet, so elimination never hands a network an address that
+// demonstrably came from a different one.
+func inAnyOther(addr string, networks []string, self string) bool {
+	for _, n := range networks {
+		if n == self {
+			continue
+		}
+		if def, ok := hostnet.Get(n); ok && def.Subnet != "" && hostnet.InSubnet(addr, def.Subnet) {
+			return true
+		}
+	}
+	return false
 }
