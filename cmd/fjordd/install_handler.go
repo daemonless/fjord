@@ -417,7 +417,7 @@ func (s *server) handleInstall(w http.ResponseWriter, r *http.Request) {
 			if nested {
 				at = strings.TrimRight(dest, "/") + "/" + names[len(locals)+i]
 			}
-			composeYAML, err = composepkg.AttachVolume(composeYAML, vol, at, false)
+			composeYAML, err = composepkg.AttachVolume(composeYAML, composepkg.FirstService, vol, at, false)
 			if err != nil {
 				http.Error(w, "attach "+vol+": "+err.Error(), 500)
 				return

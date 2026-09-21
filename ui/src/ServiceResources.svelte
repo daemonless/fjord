@@ -8,6 +8,7 @@
   // belonged to was not written down anywhere.
   import { createEventDispatcher } from 'svelte';
   import Icon from './Icon.svelte';
+  import AddMount from './AddMount.svelte';
   import { addressProblem, usableRange, randomMAC } from './network';
   import { setInterface, perServiceModes, isolatedServices } from './planSeed';
 
@@ -61,11 +62,31 @@
   /** Whose page this is. A private segment belonging to THIS stack is offered;
    *  every other stack's stays hidden. */
   export let stackName = '';
+  /** Passed through to the per-service add form. */
+  export let canUseVolumes = true;
+  export let namedVolumes: { name: string; kind?: string }[] = [];
+  export let folderSets: { id: string; name: string }[] = [];
+  /** Host path the page-level picker filled in, bound back to the open form. */
+  export let addSource = '';
+  /** The service whose add form is open, '' for none. */
+  export let addingTo = '';
 
-  const dispatch = createEventDispatcher<{ change: void; unmount: string }>();
+  const dispatch = createEventDispatcher<{
+    change: void;
+    unmount: { service: string; dest: string };
+    add: { service: string; kind: string; source: string; dest: string; readOnly: boolean };
+    remote: { service: string; row: string; dest: string; readOnly: boolean };
+    folderset: { service: string; id: string; dest: string; readOnly: boolean };
+    browse: void;
+    openAdd: string;
+    closeAdd: void;
+  }>();
   // Which row is asking to be removed. Two clicks, in place -- the same shape
   // the stack-level list used, kept because unmounting is not undoable from
   // here and a stray click on a trash icon should not cost a mount.
+  // Keyed "<service>:<dest>", not "<dest>": the same container path is mounted
+  // by several services (/etc/localtime is on four of immich's), and a single
+  // key put every one of those rows into confirm at the same click.
   let confirmUnmount = '';
   const touch = () => {
     edits = { ...edits };
@@ -381,9 +402,9 @@
                       <td class="py-1 text-right whitespace-nowrap">
                         {#if v.readOnly}<span class="text-[10px] px-1 rounded bg-fjord-inset text-fjord-fg-dim mr-1">RO</span>{/if}
                         <span class="text-[10px] px-1 rounded bg-fjord-inset text-fjord-fg-dim">{v.kind ?? ''}</span>
-                        {#if confirmUnmount === v.dest}
+                        {#if confirmUnmount === `${s.name}:${v.dest}`}
                           <button
-                            on:click={() => { dispatch('unmount', v.dest ?? ''); confirmUnmount = ''; }}
+                            on:click={() => { dispatch('unmount', { service: s.name, dest: v.dest ?? '' }); confirmUnmount = ''; }}
                             class="ml-1 text-[10px] px-1.5 py-0.5 rounded bg-fjord-danger hover:bg-fjord-danger-hover text-white"
                             >Confirm</button
                           >
@@ -393,7 +414,7 @@
                           >
                         {:else}
                           <button
-                            on:click={() => (confirmUnmount = v.dest ?? '')}
+                            on:click={() => (confirmUnmount = `${s.name}:${v.dest}`)}
                             title="Unmount this — the files stay, the stack stops seeing them"
                             class="ml-1 align-middle text-fjord-fg-dim hover:text-fjord-danger transition-colors"
                             ><Icon name="trash" size={13} /></button
@@ -406,6 +427,26 @@
               </table>
             {:else}
               <p class="text-xs text-fjord-fg-dim">Nothing mounted.</p>
+            {/if}
+            {#if addingTo === s.name}
+              <AddMount
+                service={s.name}
+                {canUseVolumes}
+                {namedVolumes}
+                {folderSets}
+                bind:source={addSource}
+                on:add
+                on:remote
+                on:folderset
+                on:browse
+                on:cancel={() => dispatch('closeAdd')}
+              />
+            {:else}
+              <button
+                on:click={() => dispatch('openAdd', s.name)}
+                class="mt-2 text-xs px-2.5 py-1 rounded-lg bg-fjord-inset border border-fjord-border text-fjord-fg-secondary hover:text-fjord-fg hover:border-fjord-accent/40 transition-colors"
+                >+ Add…</button
+              >
             {/if}
           </div>
           {/if}

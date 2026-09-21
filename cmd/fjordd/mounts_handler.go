@@ -21,8 +21,9 @@ func (s *server) handleComposeMounts(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Compose  string `json:"compose"`
 		Env      string `json:"env"`
-		Op       string `json:"op"`   // "list" | "add" | "remove"
-		Kind     string `json:"kind"` // add: "bind" | "volume"
+		Op       string `json:"op"`      // "list" | "add" | "remove"
+		Service  string `json:"service"` // which service to mount into; "" = the first
+		Kind     string `json:"kind"`    // add: "bind" | "volume"
 		Source   string `json:"source"`
 		Dest     string `json:"dest"`
 		ReadOnly bool   `json:"readOnly"`
@@ -45,9 +46,9 @@ func (s *server) handleComposeMounts(w http.ResponseWriter, r *http.Request) {
 		var out string
 		var err error
 		if req.Kind == "volume" {
-			out, err = composepkg.AttachVolume(req.Compose, req.Source, req.Dest, req.ReadOnly)
+			out, err = composepkg.AttachVolume(req.Compose, req.Service, req.Source, req.Dest, req.ReadOnly)
 		} else {
-			out, err = composepkg.AttachBindMount(req.Compose, req.Source, req.Dest, req.ReadOnly)
+			out, err = composepkg.AttachBindMount(req.Compose, req.Service, req.Source, req.Dest, req.ReadOnly)
 		}
 		if err != nil {
 			http.Error(w, err.Error(), 400)
@@ -55,7 +56,7 @@ func (s *server) handleComposeMounts(w http.ResponseWriter, r *http.Request) {
 		}
 		json.NewEncoder(w).Encode(transformed(out, req.Env))
 	case "remove":
-		out, err := composepkg.RemoveMount(req.Compose, req.Dest)
+		out, err := composepkg.RemoveMount(req.Compose, req.Service, req.Dest)
 		if err != nil {
 			http.Error(w, err.Error(), 400)
 			return
