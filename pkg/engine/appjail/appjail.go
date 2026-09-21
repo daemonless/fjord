@@ -194,6 +194,11 @@ func (b *Backend) Status(ctx context.Context, s *stack.Stack) (engine.StackStatu
 			// like fjord losing the address rather than the network failing.
 			if cs.State == "running" && cs.Address == "" && cs.Detail == "" && attached != "" {
 				cs.Detail = hostnet.NoAddressReason(attached)
+				// Before blaming the DHCP server, check the jail can even ask.
+				if net, ok := hostnet.Get(attached); ok && net.DHCP && missingDHClient(ctx, name) {
+					cs.Detail = "no address: this image has no /etc/rc.d/dhclient, so nothing in the jail " +
+						"can ask for a lease -- give it a static address, or use an image that ships one"
+				}
 			}
 			if cs.State == "running" {
 				up++
@@ -397,22 +402,82 @@ func (b *Backend) Networks(ctx context.Context) ([]engine.Network, error) {
 // the host side "sa_<iface>" and a jail's vnet interface "sb_<iface>", so the
 // bridge's member list is the attachment record.
 func jailsOnBridge(ctx context.Context, bridge string) []string {
+	members := bridgeMembers(ctx, bridge)
+	if len(members) == 0 {
+		return nil
+	}
+	// The bridge names INTERFACES, and an interface is not a user: the page
+	// read "used by immichdataba", which is an epair trimmed to fit IFNAMSIZ
+	// and not the name of anything a person installed. The jail side of that
+	// epair is inside the jail, so each jail is asked what it holds.
+	var out []string
+	for _, jail := range runningJails(ctx) {
+		for _, iface := range jailInterfaces(ctx, jail) {
+			base, ok := epairPeer(iface)
+			if ok && members[base] {
+				out = append(out, jail)
+				break
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// bridgeMembers is the set of epair base names attached to a bridge, from the
+// host-side interface of each -- sa_<name> for a bridge attachment, ea_<name>
+// for an appjail virtual network.
+func bridgeMembers(ctx context.Context, bridge string) map[string]bool {
 	out, err := exec.CommandContext(ctx, "ifconfig", bridge).Output()
 	if err != nil {
 		return nil
 	}
-	var ifaces []string
+	members := map[string]bool{}
 	for _, ln := range strings.Split(string(out), "\n") {
 		f := strings.Fields(ln)
 		if len(f) < 2 || f[0] != "member:" {
 			continue
 		}
-		if name, ok := strings.CutPrefix(f[1], "sa_"); ok {
-			ifaces = append(ifaces, name)
+		for _, prefix := range []string{"sa_", "ea_"} {
+			if name, ok := strings.CutPrefix(f[1], prefix); ok {
+				members[name] = true
+			}
 		}
 	}
-	sort.Strings(ifaces)
-	return ifaces
+	return members
+}
+
+// epairPeer turns a jail-side epair name into the base the host side shares.
+func epairPeer(iface string) (string, bool) {
+	for _, prefix := range []string{"sb_", "eb_"} {
+		if name, ok := strings.CutPrefix(iface, prefix); ok {
+			return name, true
+		}
+	}
+	return "", false
+}
+
+// runningJails lists the jails that exist right now, by name.
+func runningJails(ctx context.Context) []string {
+	out, err := exec.CommandContext(ctx, "jls", "-h", "name").Output()
+	if err != nil {
+		return nil
+	}
+	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+	if len(lines) < 2 {
+		return nil // header only
+	}
+	return lines[1:]
+}
+
+// jailInterfaces is what a jail holds. ifconfig -j is the cheap way to ask:
+// one exec per jail, and no need to enter it.
+func jailInterfaces(ctx context.Context, jail string) []string {
+	out, err := exec.CommandContext(ctx, "ifconfig", "-j", jail, "-l").Output()
+	if err != nil {
+		return nil
+	}
+	return strings.Fields(string(out))
 }
 
 // listVirtualnets enumerates appjail's virtual networks.

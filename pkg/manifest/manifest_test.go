@@ -138,3 +138,36 @@ func TestWebContainerPort(t *testing.T) {
 		t.Errorf("unknown var = %q, want empty", got)
 	}
 }
+
+// A manifest derived from a variabilized compose can carry "${VAR:-x}" as a
+// variable's DEFAULT. Written through to the .env it gave the container an
+// environment full of shell syntax -- garage came up with a zone literally
+// named ${GARAGE_ZONE:-dc1}. fjord resolves it rather than trusting the
+// catalog, because a third-party catalog is not fjord's code.
+func TestResolveExpandsReferenceDefaults(t *testing.T) {
+	m := &Manifest{Variables: []Var{
+		{Name: "GARAGE_ZONE", Default: "${GARAGE_ZONE:-dc1}"},
+		{Name: "CAPACITY", Default: "${GARAGE_CAPACITY:-10G}"},
+		{Name: "RPC_SECRET", Default: "${RPC_SECRET}", Optional: true},
+		{Name: "ADDR", Default: "http://${H:-localhost}:3901"},
+		{Name: "PLAIN", Default: "UTC"},
+		{Name: "TYPED", Default: "${IGNORED:-no}"},
+	}}
+	res, err := m.Resolve(map[string]string{"TYPED": "${literally what I typed}"}, "s", "/tmp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for k, want := range map[string]string{
+		"GARAGE_ZONE": "dc1",
+		"CAPACITY":    "10G",
+		"RPC_SECRET":  "",
+		"ADDR":        "http://localhost:3901",
+		"PLAIN":       "UTC",
+		// What the operator typed is theirs, reference-looking or not.
+		"TYPED": "${literally what I typed}",
+	} {
+		if got := res.Env[k]; got != want {
+			t.Errorf("%s = %q, want %q", k, got, want)
+		}
+	}
+}

@@ -33,7 +33,7 @@ func directorJailName(stackID, service string) string {
 // appjail-director.yml (the file's presence is the per-stack "use director"
 // switch; stacks without it stay on the legacy `appjail oci run` path). Returns
 // the .env text written, so the caller records it on the stack.
-func writeAppjailBundle(dir, stackID string, b *manifest.AppjailBundle, resolvedEnv map[string]string, composeYAML string, atts []composepkg.Attachment, noNetwork bool) (string, error) {
+func writeAppjailBundle(dir, stackID string, b *manifest.AppjailBundle, resolvedEnv map[string]string, composeYAML string, atts []composepkg.Attachment, modes map[string]string, noNetwork bool) (string, error) {
 	if b.Director == "" {
 		return "", fmt.Errorf("appjail bundle has no director file")
 	}
@@ -55,6 +55,13 @@ func writeAppjailBundle(dir, stackID string, b *manifest.AppjailBundle, resolved
 	if err != nil {
 		return "", fmt.Errorf("director.yml: %w", err)
 	}
+	// The version the user chose, put where appjail reads it. The compose
+	// carries it too, but nothing builds a jail from the compose.
+	if tag := composeImageTag(composeYAML); tag != "" {
+		if directorYML, err = setDirectorTag(directorYML, tag); err != nil {
+			return "", fmt.Errorf("director tag: %w", err)
+		}
+	}
 	// Place the project's jails on a host bridge or an appjail virtual network
 	// instead of appjail's NAT virtualnet, or on nothing at all. Done after
 	// materialize so it rewrites the finished document -- and here rather than
@@ -69,6 +76,11 @@ func writeAppjailBundle(dir, stackID string, b *manifest.AppjailBundle, resolved
 		if directorYML, err = setDirectorNetworks(context.Background(), directorYML, stackID, atts); err != nil {
 			return "", fmt.Errorf("network attach: %w", err)
 		}
+	}
+	// Built-ins are the director's business too: a mode written only into the
+	// compose is invisible to appjail, which never reads it.
+	if directorYML, err = setDirectorModes(directorYML, modes); err != nil {
+		return "", fmt.Errorf("network mode: %w", err)
 	}
 
 	env := directorEnv(b.EnvDefaults, stackID, resolvedEnv, volPlaceholders, allVolVars)
@@ -106,6 +118,13 @@ func writeAppjailBundle(dir, stackID string, b *manifest.AppjailBundle, resolved
 		if err := os.WriteFile(filepath.Join(dir, wf.name), []byte(body), wf.mode); err != nil {
 			return "", err
 		}
+	}
+	// The networked variant of every jail template the director references,
+	// written whether or not this stack is on a network: putting a service on
+	// one is then a file name in the director rather than a file that has to
+	// be generated at the same moment, including for a stack saved later.
+	if err := ensureNetTemplates(dir, directorYML); err != nil {
+		return "", fmt.Errorf("jail templates: %w", err)
 	}
 	return env, nil
 }

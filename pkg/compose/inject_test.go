@@ -385,3 +385,182 @@ func mustDisable(t *testing.T, in string) string {
 	}
 	return out
 }
+
+// A stack whose app is on the LAN and whose database and cache are on a
+// private segment. Before this, four services sharing one network read as the
+// same network four times -- "network \"lan\" is listed twice" -- and nothing
+// saved.
+func TestInjectNetworksPerService(t *testing.T) {
+	const in = `services:
+  web:
+    image: nginx
+    ports:
+      - "8080:80"
+  db:
+    image: postgres
+  cache:
+    image: redis
+`
+	out, err := InjectNetworks(in, []Attachment{
+		{Network: "lan", Service: "web", IP: "192.168.4.90"},
+		{Network: "priv", Service: "web", IP: "10.99.0.5"},
+		{Network: "priv", Service: "db", IP: "10.99.0.2"},
+		{Network: "priv", Service: "cache", IP: "10.99.0.3"},
+	})
+	if err != nil {
+		t.Fatalf("InjectNetworks: %v", err)
+	}
+	byService := ServiceAttachments(out)
+	if n := byService["web"]; len(n) != 2 {
+		t.Errorf("web has %d networks, want 2: %+v", len(n), n)
+	}
+	for _, svc := range []string{"db", "cache"} {
+		n := byService[svc]
+		if len(n) != 1 || n[0].Network != "priv" {
+			t.Errorf("%s = %+v, want one attachment to priv", svc, n)
+		}
+	}
+	// Every service keeps its OWN address: the one-pin rule exists only
+	// because a single list used to be shared by every service.
+	for svc, want := range map[string]string{"web": "192.168.4.90", "db": "10.99.0.2", "cache": "10.99.0.3"} {
+		found := false
+		for _, a := range byService[svc] {
+			if a.IP == want {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("%s did not keep %s: %+v", svc, want, byService[svc])
+		}
+	}
+}
+
+// A service no attachment names keeps what it had, rather than being detached
+// by a payload that never mentioned it.
+func TestInjectNetworksPerServiceLeavesOthersAlone(t *testing.T) {
+	const in = `services:
+  web:
+    image: nginx
+  db:
+    image: postgres
+    network_mode: host
+`
+	out, err := InjectNetworks(in, []Attachment{{Network: "lan", Service: "web"}})
+	if err != nil {
+		t.Fatalf("InjectNetworks: %v", err)
+	}
+	if got := ServiceAttachments(out); len(got["db"]) != 0 {
+		t.Errorf("db was attached without being asked: %+v", got["db"])
+	}
+	if !strings.Contains(out, "network_mode: host") {
+		t.Errorf("db lost its mode:\n%s", out)
+	}
+}
+
+// The same service on one network twice is still two names for one interface.
+func TestInjectNetworksPerServiceRejectsDuplicate(t *testing.T) {
+	const in = "services:\n  web:\n    image: nginx\n"
+	_, err := InjectNetworks(in, []Attachment{
+		{Network: "lan", Service: "web"},
+		{Network: "lan", Service: "web"},
+	})
+	if err == nil {
+		t.Fatal("accepted one service on the same network twice")
+	}
+}
+
+// Each service gets its own mode; the rest of the stack is untouched.
+func TestSetServiceModes(t *testing.T) {
+	const in = `services:
+  web:
+    image: nginx
+    networks: [lan]
+  db:
+    image: postgres
+  cache:
+    image: redis
+`
+	out, err := SetServiceModes(in, map[string]string{"web": "host", "db": "none", "cache": "bridge"})
+	if err != nil {
+		t.Fatalf("SetServiceModes: %v", err)
+	}
+	if !strings.Contains(out, "network_mode: host") || !strings.Contains(out, "network_mode: none") {
+		t.Errorf("modes not written:\n%s", out)
+	}
+	// bridge is the engine's default, which in compose is the absence of both.
+	if strings.Count(out, "network_mode:") != 2 {
+		t.Errorf("bridge should write no mode:\n%s", out)
+	}
+	// A mode and a network are exclusive, so the attachment goes.
+	if len(ServiceAttachments(out)["web"]) != 0 {
+		t.Errorf("web kept its network alongside a mode:\n%s", out)
+	}
+}
+
+// Attaching stashes a service's ports; a private segment is the case where
+// they have to come back, because the address it hands out reaches no browser.
+func TestRepublishPorts(t *testing.T) {
+	in := `services:
+  web:
+    image: x
+    ports:
+      - "2283:2283"
+  db:
+    image: y
+    ports:
+      - "5432:5432"
+`
+	attached, err := InjectNetworks(in, []Attachment{
+		{Network: "priv", Service: "web"},
+		{Network: "priv", Service: "db"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(attached, "\n    ports:") {
+		t.Fatalf("attaching should stash the ports:\n%s", attached)
+	}
+	out, err := RepublishPorts(attached, []string{"web"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	web := serviceBlock(out, "web")
+	if !strings.Contains(web, "ports:") || !strings.Contains(web, `"2283:2283"`) {
+		t.Errorf("web did not get its ports back:\n%s", out)
+	}
+	if strings.Contains(web, "x-fjord-published") {
+		t.Errorf("web's stash should be gone once it is given back:\n%s", out)
+	}
+	// Only the services named: db was not asked for, so its ports stay stashed.
+	if db := serviceBlock(out, "db"); strings.Contains(db, "\n    ports:") {
+		t.Errorf("db's ports were given back without being asked for:\n%s", out)
+	}
+	// And a later move onto a real segment stashes them again, so the two
+	// halves of this are symmetric rather than a one-way door.
+	again, err := InjectNetworks(out, []Attachment{{Network: "lan", Service: "web"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(again, "\n    ports:") {
+		t.Errorf("moving web onto a real network should stash its ports again:\n%s", again)
+	}
+}
+
+// serviceBlock is one service's YAML out of a rendered compose, so an
+// assertion about one service cannot be satisfied by another's lines.
+func serviceBlock(composeYAML, name string) string {
+	start := strings.Index(composeYAML, "\n  "+name+":\n")
+	if start < 0 {
+		return ""
+	}
+	rest := composeYAML[start+1:]
+	for i := 1; i < len(rest); i++ {
+		if rest[i] == '\n' && i+3 < len(rest) && rest[i+1] == ' ' && rest[i+2] == ' ' && rest[i+3] != ' ' {
+			return rest[:i]
+		}
+		if rest[i] == '\n' && i+1 < len(rest) && rest[i+1] != ' ' {
+			return rest[:i]
+		}
+	}
+	return rest
+}

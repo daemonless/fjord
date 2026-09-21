@@ -171,7 +171,7 @@
     img.src = FALLBACK_ICON;
   }
 
-  function handleDeploy(e: CustomEvent<{name: string, engine: string, manifest: string, values: Record<string,string>, paths: Record<string,string[]>, appData: string, tag: string, network: string, ip: string, mac: string}>) {
+  function handleDeploy(e: CustomEvent<{name: string, engine: string, manifest: string, values: Record<string,string>, paths: Record<string,string[]>, appData: string, tag: string, network: string, ip: string, mac: string, networkPlan?: Record<string,string>, networkModes?: Record<string,string>}>) {
     if (!installingApp) return;
     installBusy = true;
     installError = '';

@@ -32,7 +32,37 @@ type Manifest struct {
 	Variables []Var
 	WebPort   string
 	WebHTTPS  bool
+	// Networking is the app's own answer to "which service goes where": a map
+	// of service name to a network SPEC, with "*" standing for every service
+	// not named. The specs are Default (whatever the install was told to use)
+	// and Private (a segment only this stack can reach); anything else is a
+	// network name to use as it stands.
+	//
+	// A stack knows which of its services is the one people open and which are
+	// its database and cache; the person installing it does not, and should
+	// not have to say. Without this, putting immich on a network put its
+	// postgres on that network too.
+	Networking map[string]string
+	// Hostnames maps a service to the environment variable that carries its
+	// address for the rest of the stack: immich's database -> DB_HOSTNAME.
+	//
+	// With container DNS a service is reachable at its own name, so fjord
+	// writes the NAME, not an address -- no pinning, no allocation, nothing
+	// to decide at install. The bundle keeps localhost as its default, which
+	// is right for a stack that shares one network stack and wrong the moment
+	// its parts are given their own.
+	Hostnames map[string]string
 }
+
+// Network specs a manifest may give a service.
+const (
+	// NetworkDefault is what the install was told to use.
+	NetworkDefault = "default"
+	// NetworkPrivate is a segment only this stack's own services can reach.
+	NetworkPrivate = "private"
+	// NetworkEveryOther is the key standing for every service not named.
+	NetworkEveryOther = "*"
+)
 
 // AppjailBundle is the dbuild-rendered AppJail deploy bundle carried inline in
 // the manifest under x-fjord.appjail. The appjail engine runs these verbatim
@@ -153,8 +183,10 @@ func Parse(manifestYAML string) (*Manifest, error) {
 			WebPort  string `yaml:"web_port"`
 			WebHTTPS bool   `yaml:"web_https"`
 		} `yaml:"info"`
-		Variables []xfVar        `yaml:"variables"`
-		Appjail   *AppjailBundle `yaml:"appjail"`
+		Variables  []xfVar           `yaml:"variables"`
+		Appjail    *AppjailBundle    `yaml:"appjail"`
+		Networking map[string]string `yaml:"networking"`
+		Hostnames  map[string]string `yaml:"hostnames"`
 	}
 	if err := xfNode.Decode(&xf); err != nil {
 		return nil, fmt.Errorf("decode x-fjord: %w", err)
@@ -176,7 +208,9 @@ func Parse(manifestYAML string) (*Manifest, error) {
 	}
 	enc.Close()
 
-	return &Manifest{compose: buf.String(), appjail: xf.Appjail, Variables: vars, WebPort: xf.Info.WebPort, WebHTTPS: xf.Info.WebHTTPS}, nil
+	return &Manifest{compose: buf.String(), appjail: xf.Appjail, Variables: vars,
+		WebPort: xf.Info.WebPort, WebHTTPS: xf.Info.WebHTTPS,
+		Networking: xf.Networking, Hostnames: xf.Hostnames}, nil
 }
 
 // stripContainerNames removes container_name from every service mapping.

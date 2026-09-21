@@ -74,6 +74,62 @@ func (r installRequest) attachments() []composepkg.Attachment {
 	return []composepkg.Attachment{{Network: r.Network, IP: r.IP, MAC: r.MAC}}
 }
 
+// What an install request asks for on the network.
+const (
+	netActionNothing = ""
+	netActionNone    = "none"
+	netActionHost    = "host"
+	netActionAttach  = "attach"
+)
+
+// networkAction decides which of the three a request means.
+//
+// A per-service list is the whole answer and outranks the stack-wide
+// Network/IP/MAC fields, which are the single-network form. The wizard sends
+// its chosen network alongside the per-service rows, and that choice can be a
+// built-in: read in the other order, HostNetwork() put every service on the
+// host's stack, discarded the whole plan, and reported success -- which is
+// what "per service didn't save" was.
+func (r installRequest) networkAction() string {
+	if len(r.Networks) > 0 {
+		return netActionAttach
+	}
+	switch r.Network {
+	case composepkg.None:
+		return netActionNone
+	case composepkg.Host:
+		return netActionHost
+	}
+	// Modes with no interfaces at all is a real answer -- it is what the
+	// wizard sends for a stack kept on the arrangement it ships with -- and
+	// falling through left SetServiceModes unreached, so the choice was
+	// silently dropped for any app not already in that mode.
+	if len(r.attachments()) > 0 || len(r.NetworkModes) > 0 {
+		return netActionAttach
+	}
+	return netActionNothing
+}
+
+// installNetworkPlan is the service -> spec map this install should apply, or
+// nil when the request already answered per service.
+//
+// The manifest's own declaration is the default, which is what makes a
+// one-click install land correctly. But a request carrying a per-service
+// interface list has ALREADY had it applied -- the wizard resolved it on
+// screen and the operator then edited it -- and re-applying it here threw
+// those rows away: immich-server's spec is "default", which matches only a
+// stack-wide network, so the service people open ended up on no network at
+// all while the rest of the stack moved to the private segment.
+func installNetworkPlan(req installRequest, declared map[string]string) map[string]string {
+	if len(req.Networks) > 0 {
+		return nil
+	}
+	if req.NetworkPlan != nil {
+		return req.NetworkPlan
+	}
+	return declared
+}
+
 type installRequest struct {
 	Name     string            `json:"name"`
 	AppID    string            `json:"app_id,omitempty"` // catalog app id, for icon/link resolution
@@ -92,6 +148,14 @@ type installRequest struct {
 	// Networks is the full list when a stack takes more than one interface.
 	// Network/IP/MAC above remain the single-network form.
 	Networks []composepkg.Attachment `json:"networks,omitempty"`
+	// NetworkPlan overrides the app's own service -> network-spec map, so the
+	// wizard can show what the app suggests and let it be changed before
+	// install. The specs are resolved here, not there: "private" names a
+	// segment that does not exist until this install makes it.
+	NetworkPlan map[string]string `json:"networkPlan,omitempty"`
+	// NetworkModes is service -> built-in (host/bridge/none). A mode is set on
+	// the service rather than joined, so it cannot travel as an attachment.
+	NetworkModes map[string]string `json:"networkModes,omitempty"`
 }
 
 // handleInstall installs a catalog app end-to-end: resolve wizard input,
@@ -209,24 +273,77 @@ func (s *server) handleInstall(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	// Built-ins chosen per service, carried to the appjail bundle below:
+	// the compose is not where an appjail stack's networking lives.
+	svcModes := map[string]string{}
+	var plannedAtts []composepkg.Attachment
 	// The built-ins are states rather than networks to attach to, so
 	// attachments() is empty for them and nothing here used to act on one: an
 	// install asking for "none" quietly landed on the bridge instead.
-	switch {
-	case req.Network == composepkg.None:
+	perSvcList := len(req.Networks) > 0
+	switch req.networkAction() {
+	case netActionNone:
 		composeYAML, err = composepkg.DisableNetwork(composeYAML)
-	case req.Network == composepkg.Host:
+	case netActionHost:
 		composeYAML, err = composepkg.HostNetwork(composeYAML)
-	case len(req.attachments()) > 0:
-		if msg := s.networkUnusable(r.Context(), req.Engine, req.Network); msg != "" {
+	case netActionAttach:
+		// Only when a stack-level network was named. An install that lists its
+		// interfaces per service sends none, and checking the empty string
+		// refused the install with `no network named ""`.
+		if !perSvcList && req.Network != "" {
+			if msg := s.networkUnusable(r.Context(), req.Engine, req.Network); msg != "" {
+				http.Error(w, msg, 400)
+				return
+			}
+		}
+		// Specs are not networks: "private" names a segment this install
+		// creates, so it cannot be looked up before it exists.
+		var declared []composepkg.Attachment
+		for _, a := range req.attachments() {
+			if a.Network != "" && a.Network != manifest.NetworkPrivate {
+				declared = append(declared, a)
+			}
+		}
+		if msg := attachmentsUnusable(declared, s.engineNetworks(r.Context(), req.Engine)); msg != "" {
 			http.Error(w, msg, 400)
 			return
 		}
-		if msg := attachmentsUnusable(req.attachments(), s.engineNetworks(r.Context(), req.Engine)); msg != "" {
-			http.Error(w, msg, 400)
+		// The app says which of its services is the one people open and which
+		// are its database and cache. Without that, choosing a network for
+		// immich put its postgres on the LAN too.
+		var names []string
+		for _, svc := range composepkg.ParseServices(composeYAML, res.Env) {
+			names = append(names, svc.Name)
+		}
+		plan := installNetworkPlan(req, m.Networking)
+		atts, modes, planErr := planServiceNetworks(r.Context(), plan, req.attachments(), names,
+			func() (string, error) { return s.ensurePrivateNetwork(r.Context(), req.Engine, id) })
+		if planErr != nil {
+			http.Error(w, "network: "+planErr.Error(), 400)
 			return
 		}
-		composeYAML, err = composepkg.InjectNetworks(composeYAML, req.attachments())
+		if len(atts) > 0 {
+			composeYAML, err = composepkg.InjectNetworks(composeYAML, atts)
+		}
+		// Services asking for a built-in are modes, not attachments, and are
+		// set after: InjectNetworks clears the mode of anything it attaches.
+		for svc, m := range req.NetworkModes {
+			modes[svc] = m
+		}
+		svcModes, plannedAtts = modes, atts
+		if err == nil && len(modes) > 0 {
+			composeYAML, err = composepkg.SetServiceModes(composeYAML, modes)
+		}
+		// A service that ended up ONLY on this stack's private segment keeps
+		// its published ports. Attaching stashes them because a container with
+		// its own address on a real segment is the endpoint -- but a private
+		// address is reachable from this host and nowhere else, so without
+		// them the stack answers nowhere at all. That is what a host with no
+		// attachable network gets, and immich came up healthy on 10.100.0.x
+		// with no way to open it.
+		if err == nil {
+			composeYAML, err = composepkg.RepublishPorts(composeYAML, privateOnlyServices(atts, privateNetworkName(id)))
+		}
 	}
 	if err != nil {
 		http.Error(w, "network: "+err.Error(), 400)
@@ -317,6 +434,11 @@ func (s *server) handleInstall(w http.ResponseWriter, r *http.Request) {
 			composeYAML += "  web_https: true\n"
 		}
 	}
+	// So the stack's parts can find each other: each service's consumers get
+	// its NAME, which container DNS resolves on any network they share.
+	for k, v := range serviceHostnames(m.Hostnames, plannedAtts, svcModes) {
+		res.Env[k] = v
+	}
 	st := &stack.Stack{Name: id, Compose: composeYAML, Env: buildEnv(res.Env)}
 	if err := s.manager.Save(st); err != nil {
 		http.Error(w, err.Error(), 500)
@@ -350,7 +472,7 @@ func (s *server) handleInstall(w http.ResponseWriter, r *http.Request) {
 				"on a network, or on podman", 400)
 			return
 		}
-		env, err := writeAppjailBundle(st.Dir, id, b, res.Env, composeYAML, req.attachments(), req.Network == composepkg.None)
+		env, err := writeAppjailBundle(st.Dir, id, b, res.Env, composeYAML, req.attachments(), svcModes, req.Network == composepkg.None)
 		if err != nil {
 			http.Error(w, "appjail bundle: "+err.Error(), 500)
 			return

@@ -6,7 +6,7 @@
   import { toast } from './toast';
   import FixSnippet from './FixSnippet.svelte';
 
-  type Network = { name: string; driver: string; subnet?: string; gateway?: string; usedBy?: string[]; problem?: string; engines?: string[]; addressSource?: string; bridge?: string };
+  type Network = { name: string; driver: string; subnet?: string; gateway?: string; usedBy?: string[]; problem?: string; engines?: string[]; addressSource?: string; bridge?: string; private?: boolean; ownedBy?: string };
   // A kind is the engine's own declaration of what it can create and which
   // fields that shape uses -- the form is built from this rather than from
   // anything the UI knows about a specific runtime.
@@ -193,6 +193,34 @@
   // an appjail-only host is not "unavailable", it is simply not a thing you
   // can pick.
   $: visibleBuiltIn = BUILT_IN.filter((b) => enginesFor(b).length > 0);
+
+  // Networks nothing on the LAN can reach. They go behind a disclosure rather
+  // than pushing the real ones down -- one per multi-service stack adds up
+  // fast -- but they are not all the same thing, and saying "made by a stack"
+  // over all of them was wrong about appjail's own ajnet, which no stack made
+  // and which every jail can use.
+  //
+  //   ownedBy   fjord made this FOR one stack, to hold its database
+  //   engine    the engine's own default NAT, shared by everything on it
+  const stackOwned = (n: Network) => !!n.ownedBy;
+  const engineOwned = (n: Network) => !stackOwned(n) && n.addressSource === 'engine';
+  const isPrivateNet = (n: Network) => stackOwned(n) || engineOwned(n);
+  $: lanNets = networks.filter((n) => !isPrivateNet(n));
+  $: privateNets = networks.filter(isPrivateNet);
+  // What the disclosure says it is hiding, without claiming a stack made any
+  // of it unless one did.
+  $: privateSummary = (() => {
+    const owned = privateNets.filter(stackOwned).length;
+    const engine = privateNets.length - owned;
+    const bits: string[] = [];
+    if (owned) bits.push(`${owned} made by a stack`);
+    if (engine) bits.push(`${engine} the engine's own`);
+    return bits.join(', ');
+  })();
+  // Whose it is, per row.
+  const privateWhose = (n: Network) =>
+    stackOwned(n) ? `made by ${n.ownedBy}` : "the engine's own default network";
+  let showPrivate = false;
 
   // How a network hands out addresses, in the words the form uses. Read from
   // what the daemon reports -- "no subnet means DHCP" was the old tell and
@@ -610,7 +638,7 @@
             >
           </div>
         {/each}
-        {#if networks.length === 0}
+        {#if lanNets.length === 0 && privateNets.length === 0}
           <!-- The built-ins stay above: they are always real states a stack can be
                in, and always a value the default can take. Replacing the whole
                list with an empty state took it away exactly when someone had
@@ -621,7 +649,7 @@
               : 'No networks yet — create one to give stacks an address of their own.'}
           </div>
         {/if}
-        {#each networks as n}
+        {#snippet netRow(n: Network)}
           <div class="flex items-center gap-3 px-4 py-3">
             <div class="shrink-0 text-fjord-fg-muted"><Icon name="globe" size={18} /></div>
             <div class="min-w-0 flex-1">
@@ -632,6 +660,12 @@
               <div class="text-xs text-fjord-fg-dim font-mono truncate">
                 {allocLabel(n)}{n.gateway && n.addressSource !== 'dhcp' ? ` · gw ${n.gateway}` : ''}
               </div>
+              {#if isPrivateNet(n)}
+                <!-- Whose it is, on the row itself: the disclosure above can
+                     only give a count, and "made by a stack" over all of them
+                     was a lie about the engine's own default. -->
+                <div class="text-xs text-fjord-fg-faint">{privateWhose(n)}</div>
+              {/if}
               {#if n.problem}
                 <div class="text-xs text-fjord-warning mt-0.5">{n.problem}</div>
               {/if}
@@ -649,6 +683,17 @@
             {/if}
             {#if !canRemove}
               <!-- nothing: this engine does not own these networks -->
+            {:else if engineOwned(n)}
+              <!-- The engine's own default (appjail's ajnet, podman's podman).
+                   It is not fjord's to delete: the engine recreates it, and
+                   "bridge" -- which is how a stack asks for exactly this
+                   network -- is broken until it does. Nothing attached right
+                   now made it look like a safe thing to tidy away. -->
+              <span
+                class="text-xs px-2 py-1 text-fjord-fg-faint cursor-not-allowed"
+                title="The engine's own default network — it makes this one itself, and the bridge mode needs it"
+                >Delete</span
+              >
             {:else if n.usedBy?.length}
               <span
                 class="text-xs px-2 py-1 text-fjord-fg-faint cursor-not-allowed"
@@ -665,7 +710,24 @@
               >
             {/if}
           </div>
-        {/each}
+        {/snippet}
+        {#each lanNets as n}{@render netRow(n)}{/each}
+        {#if privateNets.length}
+          <button
+            on:click={() => (showPrivate = !showPrivate)}
+            class="w-full flex items-center gap-2 px-4 py-2.5 text-left text-xs text-fjord-fg-muted hover:text-fjord-fg hover:bg-fjord-inset/40 transition-colors"
+          >
+            <span class="w-3">{showPrivate ? '▼' : '▶'}</span>
+            <span
+              >{privateNets.length} {privateNets.length === 1 ? 'network' : 'networks'} not reachable
+              from your LAN</span
+            >
+            <span class="text-fjord-fg-faint">— {privateSummary}</span>
+          </button>
+          {#if showPrivate}
+            {#each privateNets as n}{@render netRow(n)}{/each}
+          {/if}
+        {/if}
       </div>
     {/if}
   </div>

@@ -5,6 +5,8 @@
   import Spinner from './Spinner.svelte';
   import DirPicker from './DirPicker.svelte';
   import { addressProblem, usableRange, randomMAC } from './network';
+  import ServiceResources from './ServiceResources.svelte';
+  import { resolveDefault, seedInterfaces, splitPlan, joinable, type Iface } from './planSeed';
 
   // sources: every catalog offering this app; the user picks one (Repository)
   // when there's more than one. Each carries its own manifest_url + variants.
@@ -358,20 +360,65 @@
     }
   }
 
-  // A stack whose services declare network_mode shares the host's (or another
-  // container's) network stack and addresses its own parts over localhost, so
-  // it cannot be moved onto a network -- and `networks:` alongside
-  // `network_mode:` is not valid compose. Don't offer what would only fail on
-  // submit (immich: 4 host-networked services talking over localhost).
+  // A stack whose services declare network_mode shares the host's network
+  // stack and addresses its own parts over localhost. That used to remove the
+  // picker outright, which left the section a statement with nothing to do:
+  // no way to say "put it on my LAN anyway", and no hint that it can be
+  // changed later. The hazard is real, so it is said plainly -- but it is the
+  // operator's call, and attaching clears the mode for the services it moves.
   $: hostNetworked = /^\s*network_mode\s*:/m.test(manifestText);
-  $: if (hostNetworked && netChoice) {
-    netChoice = '';
-    netIP = '';
+  // An app that declares x-fjord.networking has said which of its services is
+  // the one people open and where the rest belong, so it knows how to be put
+  // on a network and the warning does not apply to it.
+  // The app's services, and its own answer to where each belongs. The plan is
+  // editable: what the app suggests is a default, not a decision.
+  let svcNames: string[] = [];
+  let netPlan: Record<string, string> = {};
+  $: declaresNetworking = Object.keys(netPlan).length > 0;
+  // The interfaces the operator edits, one list per service -- the same editor
+  // the stack page uses, so there is one way to read and change this and not
+  // two. Seeded from the app's own declaration and NOT re-seeded afterwards:
+  // recomputing it on every reactive pass threw each edit away as it was made.
+  let planEdits: Record<string, Iface[]> = {};
+  let seededFor = '';
+  $: {
+    // "default" can only be resolved once the networks it has to become are
+    // in hand, so the seed waits for them and re-runs if the engine (and so
+    // the network list) changes.
+    const key = `${svcNames.join(',')}|${JSON.stringify(netPlan)}|${engineChoice}|${netChoice}|${networksLoaded}|${hostNetworked}`;
+    if (declaresNetworking && networksLoaded && key !== seededFor) {
+      seededFor = key;
+      // How the app already arranges itself, for the case where this host has
+      // no network to offer: then it is installed as it ships rather than
+      // being split across a built-in and a private segment.
+      planEdits = seedInterfaces(
+        svcNames,
+        resolveDefault(netPlan, networks, netChoice, hostNetworked ? 'host' : 'bridge'),
+      );
+    }
   }
-
-  // Attachable networks (empty on hosts without them).
-  // A network with no subnet gets its addresses from DHCP -- nothing here
-  // needs to know the segment, and no address has to be supplied.
+  // The services as the editor wants them. Nothing is running yet, so a name
+  // is all there is to say about each.
+  $: planServices = svcNames.map((name) => ({ name }));
+  // Networks an app can actually be PUT on: another stack's private segment is
+  // not one, and one is left behind by every multi-service install.
+  $: joinableNets = joinable(networks);
+  // What the blurb promises has to be what the rows say, or the screen gives
+  // two answers.
+  $: exposedOn = Object.entries(planEdits).find(([svc]) => netPlan[svc] === PLAN_DEFAULT)?.[1]?.[0]?.network ?? '';
+  // An appjail stack is a director project, and a director cannot put a jail
+  // on the host's stack: that is a jail parameter. The daemon refuses it, so
+  // the picker must not offer it.
+  $: isDirectorStack = /^\s{2,}appjail:\s*$/m.test(manifestText);
+  $: wizardUnsupported = engineChoice === 'appjail' && isDirectorStack ? ['host'] : [];
+  const PLAN_PRIVATE = 'private';
+  const PLAN_DEFAULT = 'default';
+  const PLAN_NONE = 'none';
+  // The address and MAC describe ONE interface, so they belong to whichever
+  // service sits on the chosen network -- not to "the app", which with four
+  // Attachable networks (empty on hosts without them). A network with no
+  // subnet gets its addresses from DHCP -- nothing here needs to know the
+  // segment, and no address has to be supplied.
   type Network = { name: string; subnet?: string; static?: boolean; addressSource?: string };
   let networks: Network[] = [];
   let netChoice = '';
@@ -436,13 +483,19 @@
   // it offers networks the chosen engine cannot attach to -- appjail's own
   // virtualnets to a podman install -- and the install fails at the last step
   // on something the form suggested. Re-runs when the engine changes.
+  // Whether /api/networks has answered. "default" must not be resolved before
+  // it has: an empty list made every app fall through to bridge, which is not
+  // what the manifest meant and cannot be undone once written.
+  let networksLoaded = false;
   async function loadNetworks() {
     const engine = engineChoice ? `?engine=${encodeURIComponent(engineChoice)}` : '';
     try {
       const res = await fetch(`/api/networks${engine}`);
       networks = res.ok ? await res.json() : [];
+      networksLoaded = true;
     } catch {
       networks = [];
+      networksLoaded = true;
     }
     // Whatever was picked may not exist for this engine.
     if (netChoice && !builtIn(netChoice) && !networks.some((n) => n.name === netChoice)) netChoice = '';
@@ -518,6 +571,16 @@
       if (!res.ok) throw new Error('Failed to fetch manifest');
       manifestText = await res.text();
       const parsed: any = yaml.load(manifestText);
+      svcNames = Object.keys(parsed?.services ?? {});
+      {
+        const declared: Record<string, string> = parsed?.['x-fjord']?.networking ?? {};
+        const star = declared['*'];
+        netPlan = {};
+        // "*" is expanded here so every service is a row the operator can see
+        // and change, rather than a wildcard they have to reason about.
+        for (const n of svcNames) netPlan[n] = declared[n] ?? star ?? '';
+        if (!Object.values(netPlan).some((v) => v)) netPlan = {};
+      }
       if (parsed['x-fjord'] && parsed['x-fjord'].variables) {
         variables = parsed['x-fjord'].variables;
         variables.forEach((v) => {
@@ -546,6 +609,10 @@
   function deploy() {
     // Host-path vars: the first folder is the variable's value, the whole
     // (non-empty) list rides along for multi-folder expansion.
+    // What the operator left in the per-service editor, split into the two
+    // shapes the daemon takes. null when the app named no services, which is
+    // when the stack-wide picker above is the answer instead.
+    const plan = declaresNetworking ? splitPlan(planEdits) : null;
     const values: Record<string, string> = { ...formData };
     const pathLists: Record<string, string[]> = {};
     for (const v of variables) {
@@ -564,9 +631,16 @@
       // Stacks: the train pick lands via the image_tag variables; a global tag
       // rewrite would stomp every service (db/redis included).
       tag: appClass === 'stack' ? '' : tag.trim(),
-      network: netChoice,
-      mac: netMAC.trim(),
-      ip: netIP.trim(),
+      // The stack-wide form only when there is no per-service list. Sending
+      // both let `network: 'host'` win over the whole plan and throw it away.
+      network: plan ? '' : netChoice,
+      mac: plan ? '' : netMAC.trim(),
+      ip: plan ? '' : netIP.trim(),
+      // The two things the daemon takes: interfaces to attach, and modes to
+      // set. "private" rides along as a spec -- the segment has no name until
+      // the install makes one.
+      networks: plan?.networks,
+      networkModes: plan?.modes,
     });
   }
 
@@ -787,17 +861,7 @@
                removed the whole control on a host that defines none -- and any
                time the engine-scoped fetch came back empty. The same gate was
                wrong on the stack's own picker and was removed there. -->
-          {#if hostNetworked}
-            <div class="pt-4 border-t border-fjord-border">
-              <span class="text-sm font-semibold text-fjord-fg-secondary">Networking</span>
-              <p class="text-xs text-fjord-fg-dim mt-1">
-                This app runs on host networking — its services reach each other over
-                <span class="font-mono">localhost</span>, so it cannot take an address of its own. It
-                answers on the host's IP.
-              </p>
-            </div>
-          {:else}
-            {#snippet macField()}
+          {#snippet macField()}
               <div class="flex gap-2 mt-2">
                 <input
                   type="text"
@@ -820,65 +884,102 @@
               </div>
             {/snippet}
             <div class="pt-4 border-t border-fjord-border">
-              <label class="text-sm font-semibold text-fjord-fg-secondary" for="net">Networking</label>
-              <p class="text-xs text-fjord-fg-dim mb-2">How this app reaches the network.</p>
-              <select
-                id="net"
-                bind:value={netChoice}
-                class="w-full bg-fjord-inset border border-fjord-border rounded-md px-3 py-2 text-fjord-fg-body focus:outline-none focus:border-fjord-accent"
-              >
-                <!-- The built-ins by name, the same three words the Networks
-                     page and each stack's own picker use. "" is the historic
-                     value for bridge, from before it had a name. -->
-                {#each BUILT_IN as b}
-                  <option value={b.name} disabled={b.appjail === false && engineChoice === 'appjail'}>{b.name}</option>
-                {/each}
-                {#each networks as n}
-                  <!-- Name and detail, the same shape as the built-ins above
-                       and as the stack's own picker. "Own IP on vlan4" was a
-                       sentence where every other list is a name. -->
-                  <option value={n.name}>{n.name}{allocLabel(n) ? ` (${allocLabel(n)})` : ''}</option>
-                {/each}
-              </select>
-              {#if !netChoice || builtIn(netChoice)}
-                <p class="text-xs text-fjord-fg-dim mt-2">{chosenBuiltIn?.detail}</p>
-              {:else if chosenNet?.addressSource === 'dhcp'}
-                <p class="text-xs text-fjord-fg-dim mt-2">
-                  The address comes from the DHCP server on that segment, using this app's MAC.
-                </p>
-                {@render macField()}
-              {:else if netChoice}
-                <input
-                  type="text"
-                  bind:value={netIP}
-                  placeholder={ipRequired ? 'IP (required on this engine)' : 'IP (optional — auto-assign if blank)'}
-                  class="w-full mt-2 bg-fjord-inset border rounded-md px-3 py-2 text-fjord-fg-body font-mono text-sm focus:outline-none focus:border-fjord-accent {ipProblem
-                    ? 'border-fjord-danger/60'
-                    : 'border-fjord-border'}"
+              {#if declaresNetworking}
+                <label class="text-sm font-semibold text-fjord-fg-secondary" for="net">Networking</label>
+                {#if joinableNets.length}
+                  <p class="text-xs text-fjord-fg-dim mb-3">
+                    This app says which of its parts belongs where: the one you open goes on
+                    <span class="font-mono">{exposedOn || joinableNets[0].name}</span>, and its
+                    database and cache go on a private segment only it can reach. Change any of it
+                    here, or after installing.
+                  </p>
+                {:else}
+                  <!-- Promising a private segment while every row below says
+                       "host" is two answers on one screen, and the rows are the
+                       true one. -->
+                  <p class="text-xs text-fjord-fg-dim mb-3">
+                    There is no network on this host to put it on, so it is installed the way it
+                    ships — every part together, answering on this host's address. Add a network
+                    under Networks to give the part you open one of its own.
+                  </p>
+                {/if}
+                <ServiceResources
+                  services={planServices}
+                  {networks}
+                  bind:edits={planEdits}
+                  planning
+                  unsupportedModes={wizardUnsupported}
+                  on:change={() => (planEdits = planEdits)}
                 />
-                {#if ipProblem || ipRange}
-                  <p class="text-xs mt-1">
-                    {#if ipProblem}<span class="text-fjord-danger">{ipProblem}.</span>{/if}
-                    {#if ipRange}<span class="text-fjord-fg-dim"
-                        >Usable: <span class="font-mono text-fjord-fg-secondary">{ipRange}</span></span
-                      >{/if}
+              {:else}
+                <label class="text-sm font-semibold text-fjord-fg-secondary" for="net">Networking</label>
+                {#if hostNetworked && !declaresNetworking}
+                  <p class="text-xs text-fjord-warning mt-1 mb-2">
+                    This app expects host networking — its services reach each other over
+                    <span class="font-mono">localhost</span>. Giving it an address of its own means
+                    they have to find each other by name or address instead, which this app has not
+                    said it can do. Install it as it is and change it afterwards if you want to try.
                   </p>
+                {:else}
+                  <p class="text-xs text-fjord-fg-dim mb-2">How this app reaches the network.</p>
                 {/if}
-                {#if ipRequired && !netIP.trim()}
-                  <p class="text-xs text-fjord-warning mt-1">
-                    {#if chosenNet?.addressSource === 'static'}
-                      Nothing allocates on {netChoice} — give this app an address on
-                      {chosenNet.subnet || 'that segment'}.
-                    {:else}
-                      {netChoice} draws from a range set aside for podman's IPAM, which appjail cannot ask —
-                      give this jail an address from that range, or pick a DHCP network.
-                    {/if}
+                <select
+                  id="net"
+                  bind:value={netChoice}
+                  class="w-full bg-fjord-inset border border-fjord-border rounded-md px-3 py-2 text-fjord-fg-body focus:outline-none focus:border-fjord-accent"
+                >
+                  <!-- The built-ins by name, the same three words the Networks
+                       page and each stack's own picker use. "" is the historic
+                       value for bridge, from before it had a name. -->
+                  {#each BUILT_IN as b}
+                    <option value={b.name} disabled={b.appjail === false && engineChoice === 'appjail'}>{b.name}</option>
+                  {/each}
+                  {#each networks as n}
+                    <!-- Name and detail, the same shape as the built-ins above
+                         and as the stack's own picker. "Own IP on vlan4" was a
+                         sentence where every other list is a name. -->
+                    <option value={n.name}>{n.name}{allocLabel(n) ? ` (${allocLabel(n)})` : ''}</option>
+                  {/each}
+                </select>
+                {#if !netChoice || builtIn(netChoice)}
+                  <p class="text-xs text-fjord-fg-dim mt-2">{chosenBuiltIn?.detail}</p>
+                {:else if chosenNet?.addressSource === 'dhcp'}
+                  <p class="text-xs text-fjord-fg-dim mt-2">
+                    The address comes from the DHCP server on that segment, using the MAC below.
                   </p>
+                  {@render macField()}
+                {:else if netChoice}
+                  <input
+                    type="text"
+                    bind:value={netIP}
+                    placeholder={ipRequired ? 'IP (required on this engine)' : 'IP (optional — auto-assign if blank)'}
+                    class="w-full mt-2 bg-fjord-inset border rounded-md px-3 py-2 text-fjord-fg-body font-mono text-sm focus:outline-none focus:border-fjord-accent {ipProblem
+                      ? 'border-fjord-danger/60'
+                      : 'border-fjord-border'}"
+                  />
+                  {#if ipProblem || ipRange}
+                    <p class="text-xs mt-1">
+                      {#if ipProblem}<span class="text-fjord-danger">{ipProblem}.</span>{/if}
+                      {#if ipRange}<span class="text-fjord-fg-dim"
+                          >Usable: <span class="font-mono text-fjord-fg-secondary">{ipRange}</span></span
+                        >{/if}
+                    </p>
+                  {/if}
+                  {#if ipRequired && !netIP.trim()}
+                    <p class="text-xs text-fjord-warning mt-1">
+                      {#if chosenNet?.addressSource === 'static'}
+                        Nothing allocates on {netChoice} — give this app an address on
+                        {chosenNet.subnet || 'that segment'}.
+                      {:else}
+                        {netChoice} draws from a range set aside for podman's IPAM, which appjail cannot ask —
+                        give this jail an address from that range, or pick a DHCP network.
+                      {/if}
+                    </p>
+                  {/if}
+                  {@render macField()}
                 {/if}
-                {@render macField()}
               {/if}
             </div>
-          {/if}
 
               {#if advancedVars.length || availableEngines.length > 1 || variants.length}
                 <details class="group border-t border-fjord-border pt-4" open={advancedOpen}>

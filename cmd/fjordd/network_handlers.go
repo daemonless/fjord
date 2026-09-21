@@ -48,7 +48,20 @@ func (s *server) handleNetworks(w http.ResponseWriter, r *http.Request) {
 		}
 		// One place for both engines: the bridge is the host's, not either
 		// runtime's, and neither backend has a reason to report it itself.
+		// Which of these fjord made for a stack. Known by name, because fjord
+		// is what named them -- and by the stack still existing, so an orphan
+		// left behind by a delete shows up rather than hiding forever.
+		// Whose each one is, named. Every response says it, so it does not
+		// matter which request the UI happened to make.
+		ownerOf := map[string]string{}
+		if list, err := s.manager.List(); err == nil {
+			for _, st := range list {
+				ownerOf[privateNetworkName(st.Name)] = st.Name
+			}
+		}
 		for i, n := range nets {
+			nets[i].Private = ownerOf[n.Name] != ""
+			nets[i].OwnedBy = ownerOf[n.Name]
 			d, ok := hostnet.Get(n.Name)
 			if !ok {
 				// Not a conflist: the engine owns it and allocates on it.

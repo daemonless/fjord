@@ -83,7 +83,7 @@ func TestWriteAppjailBundleWritesExtras(t *testing.T) {
 		TemplateConf: "persist\n",
 		Extras:       map[string]string{"immich-postgres-template.conf": tmpl},
 	}
-	if _, err := writeAppjailBundle(dir, "immich", b, map[string]string{}, "services:\n  bazarr:\n    image: x\n", nil, false); err != nil {
+	if _, err := writeAppjailBundle(dir, "immich", b, map[string]string{}, "services:\n  bazarr:\n    image: x\n", nil, nil, false); err != nil {
 		t.Fatal(err)
 	}
 	got, err := os.ReadFile(filepath.Join(dir, "immich-postgres-template.conf"))
@@ -109,7 +109,7 @@ func TestWriteAppjailBundleRefusesEscapingExtra(t *testing.T) {
 			Director: testDirector,
 			Extras:   map[string]string{bad: "x\n"},
 		}
-		if _, err := writeAppjailBundle(t.TempDir(), "immich", b, map[string]string{}, "services:\n  bazarr:\n    image: x\n", nil, false); err == nil {
+		if _, err := writeAppjailBundle(t.TempDir(), "immich", b, map[string]string{}, "services:\n  bazarr:\n    image: x\n", nil, nil, false); err == nil {
 			t.Errorf("accepted extra named %q", bad)
 		}
 	}

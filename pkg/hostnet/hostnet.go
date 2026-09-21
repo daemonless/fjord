@@ -212,6 +212,46 @@ var ipamStateDir = "/var/run/cni/networks"
 //
 // Both podman and appjail name the jail after the thing they started: a
 // container ID, or the jail name.
+// JailAddresses is every non-loopback address a jail holds.
+//
+// JailAddress returns the first, which is the wrong one as soon as a jail is
+// on two networks: a container on the LAN and on a private segment reported
+// whichever interface ifconfig listed first, so the link offered to open the
+// app pointed at an address no browser can reach.
+func JailAddresses(ctx context.Context, jail string) []string {
+	jidOut, err := exec.CommandContext(ctx, "jls", "-j", jail, "jid").Output()
+	if err != nil {
+		return nil
+	}
+	out, err := exec.CommandContext(ctx, "jexec", strings.TrimSpace(string(jidOut)), "ifconfig").Output()
+	if err != nil {
+		return nil
+	}
+	var addrs []string
+	for _, ln := range strings.Split(string(out), "\n") {
+		f := strings.Fields(ln)
+		if len(f) < 2 || f[0] != "inet" {
+			continue
+		}
+		if ip := net.ParseIP(f[1]); ip != nil && !ip.IsLoopback() {
+			addrs = append(addrs, ip.String())
+		}
+	}
+	return addrs
+}
+
+// InSubnet reports whether addr falls inside the network's own segment. It is
+// how an address is matched to the interface it came from when the runtime
+// reports a list and says nothing about which is which.
+func InSubnet(addr, subnet string) bool {
+	ip := net.ParseIP(addr)
+	_, cidr, err := net.ParseCIDR(subnet)
+	if ip == nil || err != nil {
+		return false
+	}
+	return cidr.Contains(ip)
+}
+
 func JailAddress(ctx context.Context, jail string) string {
 	jidOut, err := exec.CommandContext(ctx, "jls", "-j", jail, "jid").Output()
 	if err != nil {

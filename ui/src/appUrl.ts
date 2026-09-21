@@ -7,6 +7,11 @@ import { expandVars } from './expand';
 
 export type AppUrlStack = {
   compose?: string;
+  /** The address to open this stack at, decided by the daemon: only it knows
+   *  each service's address ON EACH network and which of those a browser can
+   *  reach. Guessing from the stack's first network picked the private
+   *  segment for a stack whose app is on the LAN. */
+  linkHost?: string;
   env?: string;
   network?: string;
   /** The first network puts the container on a real segment (daemon says so). */
@@ -32,7 +37,7 @@ export function appUrl(stack: AppUrlStack | null): string {
   // compose only carries ipv4_address when the user pinned it, which leaves
   // every DHCP stack with nothing to build a link from.
   const running = attached ? (stack.status?.containers || []).find((x: any) => x.address)?.address : undefined;
-  const ip = running || (attached ? (c.match(/ipv4_address:\s*([0-9.]+)/) || [])[1] : undefined);
+  const ip = stack.linkHost || running || (attached ? (c.match(/ipv4_address:\s*([0-9.]+)/) || [])[1] : undefined);
   // Attached but address-less: the network gave it none, so there is no link
   // to offer -- the host would just time out. Say why instead (see noAddress).
   if (!ip && attached) return '';

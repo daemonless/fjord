@@ -130,11 +130,7 @@ func directorProjects() map[string]string {
 // recordedImage reads container_image from the jail's own config.conf under
 // JAILDIR, resolved the way appjail resolves it (appjail.conf may move it).
 func recordedImage(ctx context.Context, name string) string {
-	dir := "/usr/local/appjail/jails"
-	if out, err := exec.CommandContext(ctx, "sh", "-c", `. /usr/local/share/appjail/files/config.conf && printf %s "$JAILDIR"`).Output(); err == nil && strings.TrimSpace(string(out)) != "" {
-		dir = strings.TrimSpace(string(out))
-	}
-	b, err := os.ReadFile(filepath.Join(dir, name, "conf", "config.conf"))
+	b, err := os.ReadFile(filepath.Join(jailsDir(ctx), name, "conf", "config.conf"))
 	if err != nil {
 		return ""
 	}
@@ -399,4 +395,42 @@ func sortedKeys(m map[string]string) []string {
 	}
 	sort.Strings(keys)
 	return keys
+}
+
+// jailsDir is where appjail keeps its jails, resolved the way appjail resolves
+// it -- appjail.conf may move it.
+// jailsDirOverride replaces the resolved path in tests.
+var jailsDirOverride string
+
+func jailsDir(ctx context.Context) string {
+	if jailsDirOverride != "" {
+		return jailsDirOverride
+	}
+	dir := "/usr/local/appjail/jails"
+	if out, err := exec.CommandContext(ctx, "sh", "-c",
+		`. /usr/local/share/appjail/files/config.conf && printf %s "$JAILDIR"`).Output(); err == nil &&
+		strings.TrimSpace(string(out)) != "" {
+		dir = strings.TrimSpace(string(out))
+	}
+	return dir
+}
+
+// missingDHClient reports whether a running jail's image lacks the dhclient
+// script, which is what a DHCP interface needs.
+//
+// appjail writes ifconfig_<iface>="SYNCDHCP" and the JAIL runs it, so the
+// image has to carry it. Without it rc fails with
+// "eval: /etc/rc.d/dhclient: not found" and the whole netif stage aborts --
+// taking any static interface on the same jail down with it -- and the jail
+// comes up holding no address at all. Reporting that the DHCP server did not
+// answer sends someone to the wrong machine: nothing ever asked it.
+func missingDHClient(ctx context.Context, jail string) bool {
+	root := filepath.Join(jailsDir(ctx), jail, "jail")
+	// Only answer for a jail whose filesystem is actually there. A jail that
+	// is not mounted would look like every image lacks dhclient.
+	if _, err := os.Stat(filepath.Join(root, "etc", "rc.d")); err != nil {
+		return false
+	}
+	_, err := os.Stat(filepath.Join(root, "etc", "rc.d", "dhclient"))
+	return os.IsNotExist(err)
 }

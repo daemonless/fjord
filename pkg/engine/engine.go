@@ -44,6 +44,12 @@ type ContainerStatus struct {
 	// Detail explains a non-running state in one line (e.g. "crash-looping:
 	// see Logs") -- shown as a hint, never parsed.
 	Detail string `json:"detail,omitempty"`
+	// Addresses is the container's IP on EACH network it is on, keyed by
+	// network name. A container on two is the case Address cannot describe:
+	// it holds one, and "the first network that answered" picked the private
+	// segment over the LAN, so the link offered to open the app pointed at an
+	// address no browser can reach.
+	Addresses map[string]string `json:"addresses,omitempty"`
 	// Address is the container's own IP on an attachable network, when it has
 	// one. Reported by the backend because the compose records an address only
 	// when the user pinned it: an auto-assigned one exists solely at runtime.
@@ -75,6 +81,27 @@ type Network struct {
 	// The second half is the daemon's to fill in: an engine can only answer
 	// for what is running, and a stopped stack is attached to nothing.
 	UsedBy []string `json:"usedBy,omitempty"`
+	// Private marks a segment fjord made FOR one stack: nothing outside this
+	// host reaches it, and it exists only because that stack needed somewhere
+	// to put its database. Not a thing anyone chose from a list, so pickers
+	// leave it out -- one per multi-service stack adds up fast.
+	//
+	// Not derivable from AddressSource: appjail's own networks report
+	// "engine", podman's report "pool", and "pool" is also what a perfectly
+	// ordinary LAN network with a range reports.
+	Private bool `json:"private,omitempty"`
+	// OwnedBy names the stack a private segment was made for.
+	//
+	// A private network is hidden from the pickers because it is SOMEONE
+	// ELSE'S -- but a stack's own segment is exactly where its parts belong,
+	// and hiding it there made moving a service off it a one-way door: the
+	// option vanished the moment anything else was chosen.
+	//
+	// Stated absolutely rather than relative to a ?stack= query. As a flag
+	// meaning "yours", it was only set on the scoped request -- and the UI
+	// fires an unscoped one too, so whichever landed last decided whether the
+	// option existed at all.
+	OwnedBy string `json:"ownedBy,omitempty"`
 	// Problem is why the runtime will not use this network, when it is defined
 	// on the host but rejected. Such a network has to stay visible: fjord
 	// wrote it, so fjord has to let you see and remove it.
