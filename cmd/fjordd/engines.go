@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"log"
 	"net/http"
 	"os/exec"
 	"strings"
@@ -33,6 +34,25 @@ type engineInfo struct {
 	Reason      string `json:"reason,omitempty"`  // why it can't run, when unavailable
 	Warning     string `json:"warning,omitempty"` // usable-with-a-caveat note
 	CanInstall  bool   `json:"canInstall,omitempty"`
+}
+
+// pinDefaultEngine writes the default that is in effect right now, so adding
+// an engine cannot silently take it over.
+//
+// The stored default survives its engine being uninstalled: another engine
+// becomes the effective default meanwhile, and installing the stored one back
+// hands the default straight to it -- a change nobody asked for, in the middle
+// of an action that was only meant to add a choice. Freezing what is in effect
+// makes "install" mean install and nothing else. Setting the default stays an
+// explicit act, on the Engines page.
+func (s *server) pinDefaultEngine() {
+	cur := s.defaultEngine()
+	if cur == "" {
+		return
+	}
+	if err := updateSettings(s.fjordRoot, func(st *savedSettings) { st.DefaultEngine = cur }); err != nil {
+		log.Printf("pinning default engine %s: %v", cur, err)
+	}
 }
 
 // handleEngine reports the engines this host can run and the default for new
@@ -140,6 +160,8 @@ func (s *server) handleEngineToggle(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "engine not available on this host: "+reason, http.StatusConflict)
 			return
 		}
+		// Enabling one is adding a choice, not making it the choice.
+		s.pinDefaultEngine()
 	} else {
 		// Refuse to strand stacks that run on this engine.
 		if bound := s.stacksOnEngine(req.Name); len(bound) > 0 {
@@ -160,11 +182,21 @@ func (s *server) handleEngineToggle(w http.ResponseWriter, r *http.Request) {
 
 	if err := updateSettings(s.fjordRoot, func(st *savedSettings) {
 		st.DisabledEngines = toggleInList(st.DisabledEngines, req.Name, !req.Enabled)
+		// Turning off the default leaves it naming an engine that is no longer
+		// there: every new stack is then bound to a runtime this host will not
+		// start, and the setup page reports a default it cannot use. Clearing
+		// it hands the choice back to whatever is still enabled.
+		if !req.Enabled && st.DefaultEngine == req.Name {
+			st.DefaultEngine = ""
+		}
 	}); err != nil {
 		http.Error(w, "persist: "+err.Error(), 500)
 		return
 	}
 	s.rebuildBackends()
+	// Re-pin so the remaining engine is the default, rather than leaving it to
+	// whichever the map happens to yield first.
+	s.pinDefaultEngine()
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{"status": "ok", "default": s.defaultEngine()})
 }
@@ -211,6 +243,9 @@ func (s *server) handleEngineInstall(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Minute)
 	defer cancel()
 	// Package may list several (appjail + its director); one pkg invocation.
+	// Before the new engine can be registered: whatever is default now stays
+	// default.
+	s.pinDefaultEngine()
 	cmd := exec.CommandContext(ctx, "pkg", append([]string{"install", "-y"}, strings.Fields(d.Package)...)...)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		http.Error(w, "pkg install "+d.Package+" failed: "+string(out), http.StatusInternalServerError)

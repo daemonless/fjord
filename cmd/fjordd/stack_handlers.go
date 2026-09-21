@@ -3,25 +3,41 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	composepkg "github.com/daemonless/fjord/pkg/compose"
 	"github.com/daemonless/fjord/pkg/engine"
+	"github.com/daemonless/fjord/pkg/hostnet"
 	"github.com/daemonless/fjord/pkg/registry"
 	"github.com/daemonless/fjord/pkg/stack"
 	"github.com/daemonless/fjord/pkg/updates"
+	"gopkg.in/yaml.v3"
 )
 
 // saveRequest is the /api/stacks/<n>/save payload: the editable stack fields
 // plus an optional macvlan attachment applied to the compose before writing.
 // Network/IP are only sent when a stack is first created/attached, not on
 // every edit.
+// attachments mirrors installRequest.attachments: the list when given, else
+// the single Network/IP/MAC triple.
+func (r saveRequest) attachments() []composepkg.Attachment {
+	if len(r.Networks) > 0 {
+		return r.Networks
+	}
+	if r.Network == "" || composepkg.BuiltIn(r.Network) {
+		return nil
+	}
+	return []composepkg.Attachment{{Network: r.Network, IP: r.IP, MAC: r.MAC}}
+}
+
 type saveRequest struct {
 	Compose string `json:"compose"`
 	Env     string `json:"env"`
@@ -37,6 +53,10 @@ type saveRequest struct {
 	DisplayName string `json:"displayName,omitempty"`
 	Network     string `json:"network,omitempty"` // attach the stack to this macvlan network
 	IP          string `json:"ip,omitempty"`      // optional predictable IP within it
+	MAC         string `json:"mac,omitempty"`     // optional pinned MAC, for a DHCP reservation
+	// Networks is the full list when a stack takes more than one interface;
+	// Network/IP/MAC above remain the single-network form.
+	Networks []composepkg.Attachment `json:"networks,omitempty"`
 	// One-shot volume attachment: mount the named volume at VolumePath.
 	Volume     string `json:"volume,omitempty"`
 	VolumePath string `json:"volumePath,omitempty"`
@@ -61,10 +81,96 @@ func (s *server) handleStacksList(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			status = engine.StackStatus{State: "unknown"}
 		}
-		enriched = append(enriched, stackWithStatus{Stack: st, Status: status})
+		// The list needs the networks too: without them its Open link cannot
+		// tell "publishes on the host" from "has its own address", and builds
+		// a host URL that times out.
+		atts := composepkg.AttachedNetworks(st.Compose)
+		if st.Director != "" {
+			atts = directorAttachments(st.Director)
+		} else {
+			nameIfaces(atts)
+		}
+		row := stackWithStatus{Stack: st, Status: status, Networks: atts, NetworkMode: composepkg.NetworkMode(st.Compose)}
+		if len(atts) > 0 {
+			row.Network, row.NetworkIP, row.NetworkMAC = atts[0].Network, atts[0].IP, atts[0].MAC
+			row.OwnAddress = ownAddress(atts[0].Network)
+		}
+		enriched = append(enriched, row)
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(enriched)
+}
+
+// ownAddress reports whether a network gives a container an address of its
+// own on a real segment, rather than one behind the host's NAT.
+//
+// The network's own definition says which: an epair puts the container on the
+// bridge's segment, any other driver is a bridge the runtime NATs. Guessing
+// from "is it attached" gets a private network wrong -- it is attached, and
+// its 10.x address is no more reachable from a browser than the default
+// bridge's is.
+func ownAddress(network string) bool {
+	def, ok := hostnet.Get(network)
+	return ok && def.Type == "epair"
+}
+
+// nameIfaces fills in what a container will call each interface. podman numbers
+// them from eth0 in attachment order; appjail names them after the option that
+// made them, which directorAttachments reports instead.
+func nameIfaces(atts []composepkg.Attachment) {
+	for i := range atts {
+		atts[i].Iface = fmt.Sprintf("eth%d", i)
+	}
+}
+
+// unsupportedModes lists the built-in network choices a stack cannot take.
+//
+// A director stack's networking is the director's -- appjail never reads its
+// compose for it -- and fjord has no way to PUT a director project on host:
+// that is a jail parameter rather than a director option.
+//
+// But a bundle can arrive already on it. dbuild writes `ip4_inherit` into the
+// director options and `ip4: inherit` into the jail template for a
+// host-networked app, which is exactly how immich's four services find each
+// other on 127.0.0.1. Calling host unsupported there told the operator their
+// stack was in a state it could not be in, and left the picker unable to show
+// the stack's own current mode -- every option greyed and the select holding a
+// value that was not among them.
+//
+// bridge is not in the list: for appjail that is its own NAT virtualnet, which
+// is what bridge means on every engine.
+func unsupportedModes(st *stack.Stack) []string {
+	if st.Director == "" {
+		return nil
+	}
+	if directorInheritsHost(st.Director) {
+		return nil
+	}
+	// none is NOT in the list: a director project takes it by having no
+	// network option at all, which is exactly what it means.
+	return []string{composepkg.Host}
+}
+
+// directorInheritsHost reports a director project whose options put its jails
+// on the host's stack (`ip4_inherit`, and `ip6_inherit` for the v6 half).
+func directorInheritsHost(directorYML string) bool {
+	var doc yaml.Node
+	if yaml.Unmarshal([]byte(directorYML), &doc) != nil || len(doc.Content) == 0 {
+		return false
+	}
+	opts := mapKey(doc.Content[0], "options")
+	if opts == nil || opts.Kind != yaml.SequenceNode {
+		return false
+	}
+	for _, item := range opts.Content {
+		if item.Kind == yaml.MappingNode && len(item.Content) >= 1 {
+			switch item.Content[0].Value {
+			case "ip4_inherit", "ip6_inherit":
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // handleStackRoutes dispatches /api/stacks/<name>[/<action>].
@@ -136,7 +242,33 @@ func (s *server) stackDetail(w http.ResponseWriter, r *http.Request, name string
 		status = engine.StackStatus{State: "unknown"}
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(stackWithStatus{Stack: st, Status: status})
+	// appjail never reads compose.yaml for networking, so for a director stack
+	// the compose's networks: block is a wish and the director is the fact.
+	// Reporting the wish showed four interfaces for a jail that had one.
+	atts := composepkg.AttachedNetworks(st.Compose)
+	if st.Director != "" {
+		atts = directorAttachments(st.Director)
+	} else {
+		nameIfaces(atts)
+	}
+	net, ip, mac := "", "", ""
+	own := false
+	if len(atts) > 0 {
+		net, ip, mac = atts[0].Network, atts[0].IP, atts[0].MAC
+		own = ownAddress(net)
+	}
+	json.NewEncoder(w).Encode(stackWithStatus{
+		Stack: st, Status: status, Network: net, NetworkIP: ip, NetworkMAC: mac,
+		Networks: atts, OwnAddress: own,
+		// A stack on a mode has no attachments, which on its own is
+		// indistinguishable from one on the bridge publishing ports.
+		NetworkMode:      composepkg.NetworkMode(st.Compose),
+		NoNamedNetworks:  composepkg.NoNamedNetworks(st.Compose),
+		UnsupportedModes: unsupportedModes(st),
+		// What it was on before the mode, so the picker can offer it back
+		// rather than making the user retype addresses that are still here.
+		StashedNetworks: composepkg.StashedNetworks(st.Compose),
+	})
 }
 
 // stackDelete stops the stack's containers, then removes its stack dir.
@@ -145,6 +277,12 @@ func (s *server) stackDetail(w http.ResponseWriter, r *http.Request, name string
 // is refused: removing the dir would orphan running containers that fjord
 // could no longer see or stop.
 func (s *server) stackDelete(w http.ResponseWriter, name string) {
+	unlock, ok := lockStack(name)
+	if !ok {
+		http.Error(w, "another operation is already running on this stack; wait for it to finish", http.StatusConflict)
+		return
+	}
+	defer unlock()
 	if st, err := s.manager.Get(name); err == nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		be := s.backendFor(st)
@@ -218,7 +356,7 @@ func (s *server) stackUpdateCheck(w http.ResponseWriter, name string) {
 	images := resolvedImages(st)
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	status, err := updates.Check(ctx, s.backendFor(st), images)
+	status, err := updates.Check(ctx, s.backendFor(st), images, s.schemeFor)
 	if err != nil {
 		http.Error(w, err.Error(), 502)
 		return
@@ -262,14 +400,84 @@ func (s *server) stackSave(w http.ResponseWriter, r *http.Request, name string) 
 	// instead of the stack id, hiding them from status/logs/delete -- the
 	// same strip the catalog install path applies.
 	composeYAML := composepkg.DropTopLevelKey(payload.Compose, "name")
-	if payload.Network != "" {
-		injected, err := composepkg.InjectNetwork(composeYAML, payload.Network, payload.IP)
+	// The built-ins are states, not networks to attach to: "bridge" is what a
+	// stack gets by asking for nothing, "none" is no network at all.
+	if payload.Network == composepkg.None {
+		disabled, err := composepkg.DisableNetwork(composeYAML)
+		if err != nil {
+			http.Error(w, "disable network: "+err.Error(), 400)
+			return
+		}
+		composeYAML = disabled
+	} else if payload.Network == composepkg.Host {
+		hosted, err := composepkg.HostNetwork(composeYAML)
+		if err != nil {
+			http.Error(w, "host network: "+err.Error(), 400)
+			return
+		}
+		composeYAML = hosted
+	} else if payload.Network == composepkg.Bridge ||
+		(payload.Networks != nil && len(payload.Networks) == 0) {
+		// An explicit empty list, or "bridge": back to publishing on the host.
+		detached, err := composepkg.DetachNetworks(composeYAML)
+		if err != nil {
+			http.Error(w, "network detach: "+err.Error(), 400)
+			return
+		}
+		composeYAML = detached
+	} else if atts := payload.attachments(); len(atts) > 0 {
+		eng := payload.Engine
+		if eng == "" {
+			if existing, err := s.manager.Get(name); err == nil {
+				eng = existing.EngineName()
+			}
+		}
+		for _, a := range atts {
+			if msg := s.networkUnusable(r.Context(), eng, a.Network); msg != "" {
+				http.Error(w, msg, 400)
+				return
+			}
+		}
+		if msg := attachmentsUnusable(atts, s.engineNetworks(r.Context(), eng)); msg != "" {
+			http.Error(w, msg, 400)
+			return
+		}
+		injected, err := composepkg.InjectNetworks(composeYAML, atts)
 		if err != nil {
 			http.Error(w, "network attach: "+err.Error(), 400)
 			return
 		}
 		composeYAML = injected
 	}
+	// A director stack's networking is the director's, and nothing was
+	// regenerating it on save: the Resources tab edited a compose appjail does
+	// not read, so four networks on screen stayed one epair in the jail. Only
+	// the install path ever called the generator.
+	directorYML := ""
+	if existing, err := s.manager.Get(name); err == nil && existing.Director != "" {
+		directorYML = existing.Director
+		if payload.Director != "" {
+			directorYML = payload.Director
+		}
+		switch {
+		case payload.Network == composepkg.None:
+			// Not a director option -- the absence of one.
+			directorYML, err = disableDirectorNetworks(directorYML)
+		case payload.Network == composepkg.Host:
+			http.Error(w, "an appjail stack cannot be put on host: that is a jail parameter "+
+				"rather than a director option, and fjord does not set it yet -- use none, or a network", 400)
+			return
+		case payload.Network == composepkg.Bridge || (payload.Networks != nil && len(payload.Networks) == 0):
+			directorYML, err = clearDirectorNetworks(directorYML)
+		case len(payload.attachments()) > 0:
+			directorYML, err = setDirectorNetworks(r.Context(), directorYML, name, payload.attachments())
+		}
+		if err != nil {
+			http.Error(w, "network attach: "+err.Error(), 400)
+			return
+		}
+	}
+
 	if payload.Volume != "" {
 		attached, err := composepkg.AttachVolume(composeYAML, payload.Volume, payload.VolumePath, payload.VolumeRO)
 		if err != nil {
@@ -285,7 +493,9 @@ func (s *server) stackSave(w http.ResponseWriter, r *http.Request, name string) 
 		existing.Compose = composeYAML
 		existing.Env = payload.Env
 		if existing.Director != "" {
-			if payload.Director != "" {
+			if directorYML != "" {
+				existing.Director = directorYML
+			} else if payload.Director != "" {
 				existing.Director = payload.Director
 			}
 			if payload.Makejail != "" {
@@ -438,6 +648,28 @@ func (s *server) handleReorder(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte(`{"status":"ok"}`))
 }
 
+// lifecycleLocks serializes the operations that change a stack's running
+// state, one lock per stack. Two compose runs in the same directory race on
+// container state and podman's storage lock, and the loser fails with a
+// cryptic error after the winner has already half-changed things -- which is
+// exactly what a double-click on Start, or Delete while an update is still
+// pulling, produces. AppJail stacks queue behind directorLock inside the
+// engine, but the overlap arrives here, at the HTTP layer, for both engines.
+//
+// Held with TryLock, not Lock: the caller is a browser waiting on a streamed
+// response, so the second click is refused immediately rather than parked
+// behind a ten-minute pull.
+var lifecycleLocks sync.Map
+
+func lockStack(name string) (unlock func(), ok bool) {
+	mu, _ := lifecycleLocks.LoadOrStore(name, &sync.Mutex{})
+	m := mu.(*sync.Mutex)
+	if !m.TryLock() {
+		return nil, false
+	}
+	return m.Unlock, true
+}
+
 // stackLifecycle runs up/down/update/restart, streaming the backend's output.
 func (s *server) stackLifecycle(w http.ResponseWriter, r *http.Request, name, action string) {
 	st, err := s.manager.Get(name)
@@ -445,6 +677,13 @@ func (s *server) stackLifecycle(w http.ResponseWriter, r *http.Request, name, ac
 		http.Error(w, "Stack not found", 404)
 		return
 	}
+
+	unlock, ok := lockStack(name)
+	if !ok {
+		http.Error(w, "another operation is already running on this stack; wait for it to finish", http.StatusConflict)
+		return
+	}
+	defer unlock()
 
 	// Generous timeout: update pulls images, which can be slow.
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
@@ -492,4 +731,14 @@ func (s *server) stackLifecycle(w http.ResponseWriter, r *http.Request, name, ac
 	}
 
 	streamOutput(w, stream)
+
+	// The fleet cache holds its verdict for half an hour, and it is what the
+	// badge reads. Without this, updating a stack that really was behind left
+	// "update available" on screen afterwards -- so the obvious move was to
+	// update again, and again, each one working and none of them changing
+	// what the page said. Only the two actions that pull: a registry check
+	// per stack is rate-limited, and down/restart cannot move an image.
+	if action == "up" || action == "update" {
+		s.fleet.forget(name)
+	}
 }

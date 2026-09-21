@@ -26,11 +26,16 @@ type Status struct {
 	Detail      string `json:"detail,omitempty"`      // why the state is "unknown", for the badge tooltip
 }
 
+// SchemeFor resolves an image repo to the tag scheme its catalog entry
+// declares, or nil when nothing declares one (an adopted stack on a
+// third-party image) -- in which case the scheme is inferred from the tags.
+type SchemeFor func(repo string) *registry.Scheme
+
 // Check evaluates every service image (Update pulls them all) and aggregates:
 // any image with a digest drift => "available"; else any with a newer version
 // => "upgrade"; else any not confirmable => "unknown"; else all frozen =>
-// "pinned"; else "current".
-func Check(ctx context.Context, backend engine.Backend, images []string) (Status, error) {
+// "pinned"; else "current". schemeFor may be nil.
+func Check(ctx context.Context, backend engine.Backend, images []string, schemeFor SchemeFor) (Status, error) {
 	if len(images) == 0 {
 		return Status{State: "unknown", Detail: "no images to check"}, nil
 	}
@@ -39,7 +44,7 @@ func Check(ctx context.Context, backend engine.Backend, images []string) (Status
 	unknownDetail := ""
 	var upgrade *Status
 	for _, image := range images {
-		es, err := evalImage(ctx, backend, image)
+		es, err := evalImage(ctx, backend, image, schemeFor)
 		if err != nil {
 			return Status{}, err
 		}
@@ -80,13 +85,13 @@ func Check(ctx context.Context, backend engine.Backend, images []string) (Status
 // tag (digit-leading, e.g. "2.16.0-pkg") is checked against its train for a
 // newer release first; otherwise (and for rolling tags) it falls back to a
 // digest-drift check against the registry.
-func evalImage(ctx context.Context, backend engine.Backend, image string) (Status, error) {
+func evalImage(ctx context.Context, backend engine.Backend, image string, schemeFor SchemeFor) (Status, error) {
 	tag := imageTag(image)
 	if strings.Contains(image, "@sha256:") {
 		return Status{State: "pinned", Tag: tag}, nil
 	}
 	if isVersionTag(tag) {
-		if up, ok := newerVersion(ctx, imageRepo(image), tag); ok {
+		if up, ok := newerVersion(ctx, registry.Repo(image), tag, schemeFor); ok {
 			return up, nil
 		}
 	}
@@ -115,8 +120,12 @@ func evalImage(ctx context.Context, backend engine.Backend, image string) (Statu
 // newerVersion reports whether the train containing currentTag has a newer
 // pinned version. registry.Trains returns each train newest-first, so a train
 // whose newest tag differs from currentTag is an available upgrade.
-func newerVersion(ctx context.Context, repo, currentTag string) (Status, bool) {
-	trains, err := registry.Trains(ctx, repo)
+func newerVersion(ctx context.Context, repo, currentTag string, schemeFor SchemeFor) (Status, bool) {
+	var sch *registry.Scheme
+	if schemeFor != nil {
+		sch = schemeFor(repo)
+	}
+	trains, err := registry.Trains(ctx, repo, sch)
 	if err != nil {
 		return Status{}, false
 	}
@@ -145,19 +154,6 @@ func newerVersion(ctx context.Context, repo, currentTag string) (Status, bool) {
 // registry.discoverTrains classifies pins vs channels.
 func isVersionTag(tag string) bool {
 	return tag != "" && tag[0] >= '0' && tag[0] <= '9'
-}
-
-// imageRepo returns an image ref's registry/repo, dropping any tag and @digest.
-func imageRepo(image string) string {
-	ref := image
-	if at := strings.LastIndex(ref, "@"); at >= 0 {
-		ref = ref[:at]
-	}
-	slash := strings.LastIndex(ref, "/")
-	if colon := strings.LastIndex(ref, ":"); colon > slash {
-		ref = ref[:colon]
-	}
-	return ref
 }
 
 // imageTag returns an image ref's tag (ignoring any @digest), defaulting to

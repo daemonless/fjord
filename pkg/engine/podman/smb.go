@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"os/user"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 )
@@ -30,6 +31,28 @@ func (b *Backend) StoreSMBCredentials(server, username, password string) error {
 	return ensureSMBCredentials(server, username, password)
 }
 
+// smbServerRe and smbUserRe bound what may reach a credential path or a config
+// file. Both values arrive from a request body and are then used as FILENAME
+// parts and as text in line-oriented files, so the two hazards are a "/" or
+// ".." steering a 0600 write out of SMBCredDir, and a newline or "]" forging a
+// line in the .cred file or a section in nsmb.conf. A hostname/IP and an SMB
+// account name need none of those characters. A backslash is allowed in the
+// user so DOMAIN\user still works.
+var (
+	smbServerRe = regexp.MustCompile(`^[A-Za-z0-9._-]{1,255}$`)
+	smbUserRe   = regexp.MustCompile(`^[A-Za-z0-9._@\\-]{1,128}$`)
+)
+
+func checkSMBIdentity(server, username string) error {
+	if !smbServerRe.MatchString(server) {
+		return fmt.Errorf("smb: invalid server %q: letters, digits, dot, dash and underscore only", server)
+	}
+	if !smbUserRe.MatchString(username) {
+		return fmt.Errorf("smb: invalid username %q: letters, digits, dot, dash, underscore, @ and backslash only", username)
+	}
+	return nil
+}
+
 // ensureSMBCredentials records the password mount_smbfs / mount.cifs will use
 // for user@server, where each platform's mounter reads it from: a managed
 // block in /etc/nsmb.conf on FreeBSD (obfuscated with smbutil crypt), a
@@ -37,6 +60,14 @@ func (b *Backend) StoreSMBCredentials(server, username, password string) error {
 // volume options. An empty password keeps whatever is already stored; "guest"
 // needs none.
 func ensureSMBCredentials(server, username, password string) error {
+	if err := checkSMBIdentity(server, username); err != nil {
+		return err
+	}
+	// A newline would end the "password=" line and let whatever follows be
+	// read as another directive (a cifs option, an nsmb.conf section).
+	if strings.ContainsAny(password, "\n\r") {
+		return fmt.Errorf("smb: password must not contain a newline")
+	}
 	if password == "" {
 		if strings.EqualFold(username, "guest") || hasSMBCredentials(server, username) {
 			return nil
@@ -58,6 +89,9 @@ func smbCredFile(server, username string) string {
 }
 
 func hasSMBCredentials(server, username string) bool {
+	if checkSMBIdentity(server, username) != nil {
+		return false
+	}
 	if runtime.GOOS == "freebsd" {
 		b, err := os.ReadFile(nsmbConf)
 		return err == nil && strings.Contains(string(b), "["+nsmbSection(server, username)+"]")

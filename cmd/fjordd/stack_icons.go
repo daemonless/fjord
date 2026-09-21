@@ -63,6 +63,11 @@ func (s *server) stackIcon(w http.ResponseWriter, r *http.Request, name string) 
 		http.NotFound(w, r)
 		return
 	}
+	// The same third-party SVG the catalog served, copied into the stack dir:
+	// sandbox it the same way (catalog_handlers.go does) or opening it runs
+	// its scripts in fjord's origin.
+	w.Header().Set("Content-Security-Policy", "sandbox")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Cache-Control", "public, max-age=86400")
 	http.ServeFile(w, r, filepath.Join(st.Dir, st.Icon))
 }

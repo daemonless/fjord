@@ -22,7 +22,11 @@ func (b *Backend) PruneCapabilities() engine.PruneCapabilities {
 // Capabilities: appjail has no remote-volume support -- FreeBSD's smbfs is
 // SMB1-only and the OCI path doesn't mount nfs:// / smb:// folders.
 func (b *Backend) Capabilities() engine.Capabilities {
-	return engine.Capabilities{RemoteVolumes: false}
+	return engine.Capabilities{
+		RemoteVolumes: false,
+		NetworkKinds:  networkKinds(),
+		NetworkRemove: true,
+	}
 }
 
 // StoreSMBCredentials is unsupported on appjail (see Capabilities).

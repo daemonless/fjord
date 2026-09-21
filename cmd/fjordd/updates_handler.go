@@ -75,7 +75,7 @@ func (s *server) refreshFleet() {
 			}
 			images := resolvedImages(full)
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-			status, err := updates.Check(ctx, s.backendFor(full), images)
+			status, err := updates.Check(ctx, s.backendFor(full), images, s.schemeFor)
 			cancel()
 			if err != nil {
 				status = updates.Status{State: "unknown"}

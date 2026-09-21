@@ -1,6 +1,7 @@
 package main
 
 import (
+	"compress/gzip"
 	"context"
 	"flag"
 	"fmt"
@@ -112,6 +113,51 @@ func cacheControl(next http.Handler) http.Handler {
 		next.ServeHTTP(w, r)
 	})
 }
+
+// compressible is the asset types worth gzipping: the bundle is over a
+// megabyte of JavaScript and was going out uncompressed, which costs nothing
+// on a LAN and a great deal over anything else. Images and fonts are already
+// compressed and only get bigger for the trouble.
+func compressible(path string) bool {
+	switch {
+	case strings.HasSuffix(path, ".js"), strings.HasSuffix(path, ".css"),
+		strings.HasSuffix(path, ".json"), strings.HasSuffix(path, ".svg"),
+		strings.HasSuffix(path, ".html"), path == "/":
+		return true
+	}
+	return false
+}
+
+// gzipAssets compresses the UI's own files. Deliberately not applied to the
+// API: a streaming endpoint (logs, exec output, install progress) must reach
+// the browser as it is written, and a compressor holding bytes back to fill a
+// window would stall exactly the things that have to be live.
+func gzipAssets(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !compressible(r.URL.Path) || !strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") {
+			next.ServeHTTP(w, r)
+			return
+		}
+		// Content-Length no longer describes the body, and the response now
+		// varies by request header -- a cache that missed either would serve
+		// gzip to a client that cannot read it.
+		w.Header().Del("Content-Length")
+		w.Header().Set("Content-Encoding", "gzip")
+		w.Header().Add("Vary", "Accept-Encoding")
+		gz := gzip.NewWriter(w)
+		defer gz.Close()
+		next.ServeHTTP(gzipWriter{ResponseWriter: w, w: gz}, r)
+	})
+}
+
+// gzipWriter sends the body through the compressor while leaving headers and
+// the status line on the real ResponseWriter.
+type gzipWriter struct {
+	http.ResponseWriter
+	w *gzip.Writer
+}
+
+func (g gzipWriter) Write(b []byte) (int, error) { return g.w.Write(b) }
 
 func main() {
 	// Config comes from FJORD_* env vars; each is also a flag that overrides
@@ -249,7 +295,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to sub-directory embedded dist: %v", err)
 	}
-	http.Handle("/", cacheControl(http.FileServer(http.FS(distFS))))
+	http.Handle("/", gzipAssets(cacheControl(http.FileServer(http.FS(distFS)))))
 	// Top-level liveness probe (root, not under /api/), unauthenticated so
 	// reverse proxies and healthchecks can reach it.
 	http.HandleFunc("/healthz", srv.handleHealthz)

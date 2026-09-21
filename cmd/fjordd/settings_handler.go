@@ -29,8 +29,21 @@ type savedSettings struct {
 	FolderSets      []FolderSet      `json:"folderSets,omitempty"`      // named host-folder sets offered at install
 	Libraries       []FolderSet      `json:"libraries,omitempty"`       // legacy name for FolderSets, migrated on load
 	WizardDetail    int              `json:"wizardDetail,omitempty"`    // install wizard disclosure: 1 essentials (default), 2 +Options, 3 +Advanced
-	CatalogRefresh  string           `json:"catalogRefresh,omitempty"`  // automatic catalog refresh: off | 1h | 6h (default) | 24h
-	SetupDone       bool             `json:"setupDone,omitempty"`       // first-run setup wizard finished (or skipped)
+	// DefaultNetwork is the old single default, read only to migrate it into
+	// DefaultNetworkFor and then cleared. Nothing writes it any more.
+	DefaultNetwork string `json:"defaultNetwork,omitempty"`
+	// DefaultNetworkFor is what new installs start on, per engine, and it is
+	// the only form there is.
+	//
+	// A network can belong to one engine -- appjail cannot attach to podman's
+	// private network and vice versa, and a LAN network may be filled in for
+	// one of them. A single shared default could not describe that: it named
+	// a network the other engine might not be able to use, and the page had
+	// to decide per row whether "Default" meant the shared one or this
+	// engine's, which is two meanings on one button.
+	DefaultNetworkFor map[string]string `json:"defaultNetworkFor,omitempty"`
+	CatalogRefresh    string            `json:"catalogRefresh,omitempty"` // automatic catalog refresh: off | 1h | 6h (default) | 24h
+	SetupDone         bool              `json:"setupDone,omitempty"`      // first-run setup wizard finished (or skipped)
 	// The default catalog was added once on first run. Never re-added after
 	// that, so removing it in Settings sticks across restarts.
 	CatalogBootstrapped bool `json:"catalogBootstrapped,omitempty"`

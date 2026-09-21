@@ -95,7 +95,15 @@ func (b *Backend) bringUp(ctx context.Context, pw *io.PipeWriter, s *stack.Stack
 		fmt.Fprintf(pw, "\n[error] recreate failed, the stack still runs its previous image: %v\n", err)
 		return
 	}
-	names := containerNames(listOrNil(b.listStackContainers(ctx, s.Name)))
+	cs, err := b.listStackContainers(ctx, s.Name)
+	if err != nil {
+		// Don't dress a dead socket up as "compose made nothing" -- that sends
+		// the operator to the compose file when the fix is `service podman
+		// restart`.
+		fmt.Fprintf(pw, "\n[error] cannot reach podman to list this stack's containers: %v\n", err)
+		return
+	}
+	names := containerNames(cs)
 	if len(names) == 0 {
 		fmt.Fprintf(pw, "\n[error] compose created no containers to start\n")
 		return
@@ -109,7 +117,12 @@ func (b *Backend) bringUp(ctx context.Context, pw *io.PipeWriter, s *stack.Stack
 // only to unwedge a refused recreate. Scoped to the stack's containers, so it
 // can never touch anything else on the host.
 func (b *Backend) forceRemoveStackContainers(ctx context.Context, pw *io.PipeWriter, s *stack.Stack) {
-	names := containerNames(listOrNil(b.listStackContainers(ctx, s.Name)))
+	cs, err := b.listStackContainers(ctx, s.Name)
+	if err != nil {
+		fmt.Fprintf(pw, "[warn] cannot reach podman to list this stack's containers: %v\n", err)
+		return
+	}
+	names := containerNames(cs)
 	if len(names) == 0 {
 		return
 	}
@@ -156,15 +169,6 @@ func (b *Backend) removeOrphanStorage(ctx context.Context, w io.Writer, project 
 	}
 }
 
-// listOrNil discards a listStackContainers error (unreachable socket) so bringUp
-// can still report "no containers" cleanly rather than crashing.
-func listOrNil(cs []libpodContainer, err error) []libpodContainer {
-	if err != nil {
-		return nil
-	}
-	return cs
-}
-
 // Down tears a stack down. `compose down` can refuse to remove a container
 // that has leaked exec sessions ("container state improper" -- interactive
 // shells leave these behind on FreeBSD) -- and podman-compose sometimes exits
@@ -181,8 +185,15 @@ func (b *Backend) Down(ctx context.Context, s *stack.Stack) (io.ReadCloser, erro
 		// ("has dependent containers ... already exists" for a container the
 		// same command just removed). Individually, dependents fall in pass 1
 		// and free their dependencies for pass 2.
+		listFailed := false
 		for pass := 0; pass < 3; pass++ {
-			names := containerNames(listOrNil(b.listStackContainers(ctx, s.Name)))
+			cs, err := b.listStackContainers(ctx, s.Name)
+			if err != nil {
+				fmt.Fprintf(pw, "\n[warn] cannot reach podman to check for surviving containers: %v\n", err)
+				listFailed = true
+				break
+			}
+			names := containerNames(cs)
 			if len(names) == 0 {
 				break
 			}
@@ -193,8 +204,19 @@ func (b *Backend) Down(ctx context.Context, s *stack.Stack) (io.ReadCloser, erro
 				_ = b.runStreaming(ctx, pw, s.Dir, "podman", "rm", "-f", n)
 			}
 		}
-		if names := containerNames(listOrNil(b.listStackContainers(ctx, s.Name))); len(names) == 0 {
-			_ = b.runStreaming(ctx, pw, s.Dir, "podman", "network", "rm", "-f", strings.ToLower(s.Name)+"_default")
+		// Only drop the compose network once the stack is CONFIRMED empty. A
+		// failed list is not an empty list: removing the network out from
+		// under containers that are still up is how a "down" turns into a
+		// half-torn-down stack with no connectivity.
+		if !listFailed {
+			cs, err := b.listStackContainers(ctx, s.Name)
+			switch {
+			case err != nil:
+				fmt.Fprintf(pw, "[warn] cannot confirm the stack is gone (%v); leaving %s_default in place\n",
+					err, strings.ToLower(s.Name))
+			case len(containerNames(cs)) == 0:
+				_ = b.runStreaming(ctx, pw, s.Dir, "podman", "network", "rm", "-f", strings.ToLower(s.Name)+"_default")
+			}
 		}
 		// A storage record podman's rm couldn't finish (wedged storage) would
 		// outlive the stack under its name; sweep it now, not at the next Up.
@@ -249,7 +271,8 @@ func (b *Backend) Update(ctx context.Context, s *stack.Stack) (io.ReadCloser, er
 // ("logs does not support multiple containers when run remotely"). With follow
 // it tails until ctx is cancelled (client disconnect kills the processes).
 func (b *Backend) Logs(ctx context.Context, s *stack.Stack, tail int, follow bool, containers []string) (io.ReadCloser, error) {
-	names := containerNames(listOrNil(b.listStackContainers(ctx, s.Name)))
+	cs, listErr := b.listStackContainers(ctx, s.Name)
+	names := containerNames(cs)
 	// Narrow to the requested subset -- membership-checked against the stack's
 	// own containers so the endpoint can't read arbitrary logs.
 	if len(containers) > 0 {
@@ -268,6 +291,10 @@ func (b *Backend) Logs(ctx context.Context, s *stack.Stack, tail int, follow boo
 	pr, pw := io.Pipe()
 	go func() {
 		defer pw.Close()
+		if listErr != nil {
+			fmt.Fprintf(pw, "[fjord] cannot reach podman to list this stack's containers: %v\n", listErr)
+			return
+		}
 		if len(names) == 0 {
 			fmt.Fprintf(pw, "[fjord] no containers for this stack\n")
 			return

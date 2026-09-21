@@ -20,7 +20,7 @@ func (s *server) handleSetup(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
-	report := doctor.Run(ctx, doctor.Config{Engine: s.defaultEngine(), FjordRoot: s.fjordRoot})
+	report := doctor.Run(ctx, doctor.Config{Engines: s.engineNames(), FjordRoot: s.fjordRoot})
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(report)
 }
@@ -31,7 +31,7 @@ func (s *server) handleSetup(w http.ResponseWriter, r *http.Request) {
 func logDoctor(fjordRoot, engineName string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	report := doctor.Run(ctx, doctor.Config{Engine: engineName, FjordRoot: fjordRoot})
+	report := doctor.Run(ctx, doctor.Config{Engines: []string{engineName}, FjordRoot: fjordRoot})
 	log.Printf("doctor: %s, %s mode, engine %s", report.OS, report.Mode, engineName)
 	for _, c := range report.Checks {
 		if c.Status == doctor.OK {

@@ -56,6 +56,11 @@
   let loading = true;
   let error: string | null = null;
   let installingApp: CatalogApp | null = null;
+  // The wizard stays mounted while the daemon decides. A refusal it can do
+  // something about -- a bad address, a name in use -- has to land back in the
+  // form that produced it, not after it has been thrown away.
+  let installBusy = false;
+  let installError = '';
   let detailApp: CatalogApp | null = null; // app-detail view (click a card)
   let search = '';
   let selectedCategory = 'All';
@@ -166,8 +171,10 @@
     img.src = FALLBACK_ICON;
   }
 
-  function handleDeploy(e: CustomEvent<{name: string, engine: string, manifest: string, values: Record<string,string>, paths: Record<string,string[]>, appData: string, tag: string, network: string, ip: string}>) {
+  function handleDeploy(e: CustomEvent<{name: string, engine: string, manifest: string, values: Record<string,string>, paths: Record<string,string[]>, appData: string, tag: string, network: string, ip: string, mac: string}>) {
     if (!installingApp) return;
+    installBusy = true;
+    installError = '';
     dispatch('install', {
         name: e.detail.name || installingApp.id,
         appId: installingApp.id,
@@ -179,8 +186,18 @@
         tag: e.detail.tag,
         network: e.detail.network,
         ip: e.detail.ip,
+        mac: e.detail.mac,
+        // Taken: there is a stack now, and the install streams on its page.
+        accepted: () => {
+          installBusy = false;
+          installingApp = null;
+        },
+        // Refused before anything was saved: keep the wizard and say why.
+        refused: (msg: string) => {
+          installBusy = false;
+          installError = msg;
+        },
     });
-    installingApp = null;
   }
 </script>
 
@@ -423,7 +440,9 @@
       appName={installingApp.name}
       appId={installingApp.id}
       appClass={installingApp.class}
-      on:close={() => installingApp = null}
+      busy={installBusy}
+      submitError={installError}
+      on:close={() => { installingApp = null; installBusy = false; installError = ''; }}
       on:deploy={handleDeploy}
     />
   {/if}

@@ -48,6 +48,13 @@ func (u unavailable) Status(context.Context, *stack.Stack) (StackStatus, error) 
 }
 func (u unavailable) Networks(context.Context) ([]Network, error) { return nil, u.err() }
 func (u unavailable) Volumes(context.Context) ([]Volume, error)   { return nil, u.err() }
+func (u unavailable) CreateNetwork(context.Context, NetworkSpec) (Network, error) {
+	return Network{}, u.err()
+}
+func (u unavailable) RemoveNetwork(context.Context, string, bool) error { return u.err() }
+func (u unavailable) NetworkParents(context.Context) ([]NetworkParent, error) {
+	return nil, u.err()
+}
 func (u unavailable) CreateVolume(context.Context, VolumeSpec) (Volume, error) {
 	return Volume{}, u.err()
 }
