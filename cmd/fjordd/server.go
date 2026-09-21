@@ -202,6 +202,15 @@ func (s *server) routes(mux *http.ServeMux) {
 type stackWithStatus struct {
 	*stack.Stack
 	Status engine.StackStatus `json:"status"`
+	// Services is the stack broken out: what each one runs, the networks and
+	// addresses it holds, and what is mounted into it. The fields below
+	// describe the STACK's networking, which cannot say which service is on
+	// what -- and a project whose app is on the LAN and whose database is on a
+	// private segment is exactly the thing worth saying.
+	Services []serviceView `json:"services,omitempty"`
+	// LinkHost is the address to open this stack at, when one of its services
+	// is on a network a browser can reach. Empty means "use this host".
+	LinkHost string `json:"linkHost,omitempty"`
 	// Network/NetworkIP are read back out of the compose so the Resources tab
 	// can show what the stack is actually attached to. Without them its picker
 	// defaults to "bridge", which is wrong for every stack on a network.

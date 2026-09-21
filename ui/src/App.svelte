@@ -18,6 +18,8 @@
   import DirPicker from './DirPicker.svelte';
   import Spinner from './Spinner.svelte';
   import Icon from './Icon.svelte';
+  import ServiceResources from './ServiceResources.svelte';
+  import { splitPlan } from './planSeed';
   import EngineMark from './EngineMark.svelte';
   import { appIcons, loadAppIcons, iconFor, tile, initial } from './appIcons';
   import Toasts from './Toasts.svelte';
@@ -36,7 +38,7 @@
   };
   type StackStatus = { state: string; containers: ContainerStatus[] };
   type StackState = { group?: string; desired_state?: string; engine?: string; order?: number; origin?: { app_id?: string } };
-  type Stack = { name: string; displayName?: string; icon?: string; dir: string; compose: string; env: string; director?: string; makejail?: string; engine?: string; status?: StackStatus; state?: StackState };
+  type Stack = { name: string; displayName?: string; icon?: string; dir: string; compose: string; env: string; director?: string; makejail?: string; engine?: string; status?: StackStatus; state?: StackState; services?: any[] };
   // What the UI shows for a stack: its label, falling back to the id.
   const label = (s: { name: string; displayName?: string } | null | undefined) => s?.displayName || s?.name || '';
 
@@ -440,139 +442,24 @@
   // offering an attachment Save would refuse.
   type Network = { name: string; driver: string; subnet: string; gateway: string; problem?: string; bridge?: string; addressSource?: string };
   let networks: Network[] = [];
-  // What the SAVED compose says, so revert() and post-save reset go back to it
-  // rather than blanking the picker.
-  // The stack's networks, in interface order: row 0 is eth0. The table is the
-  // whole truth -- what is listed here replaces what the compose declares.
-  type Attachment = { network: string; ip?: string; mac?: string; iface?: string };
-  let netRows: Attachment[] = [];
-  let savedRows = '';
-  $: netRowsDirty = JSON.stringify(netRows) !== savedRows;
+  type Attachment = { network: string; service?: string; ip?: string; mac?: string; iface?: string };
+  // Per-service interfaces, staged here so Save can post them and the dirty
+  // check can see them. Keyed by service name.
+  let svcNets: Record<string, Attachment[]> = {};
+  let savedSvcNets = '{}';
+  $: svcNetsDirty = JSON.stringify(svcNets) !== savedSvcNets;
 
-  // The states a stack can be in without a network of its own, in podman's
-  // own words so what fjord shows and what `podman inspect` reports match.
-  // NB this is not the Networks page's list: "host" is a per-stack choice,
-  // never an install-wide default, so it has no row over there to unset it.
-  // Just the name in the option: what each one means is the line under the
-  // table, which says it for the one actually chosen instead of making the
-  // reader carry three explanations past each other in a dropdown.
-  const MODES = [
-    { name: 'bridge', detail: 'publishes ports on this host' },
-    { name: 'host', detail: "binds this host's ports directly" },
-    { name: 'none', detail: 'no network at all' },
-  ];
-  const isMode = (name: string) => MODES.some((m) => m.name === name);
-  // Opposite ends of the same picker, and the daemon says which is out of
-  // reach: noNamedNetworks is several services sharing the host's stack and
-  // reaching each other over localhost; unsupportedModes is per-mode, because
-  // an appjail director stack can take bridge (that is its own NAT virtualnet)
-  // but not host or none, which are jail parameters rather than director
-  // options.
-  $: noNamedNetworks = !!(selectedStack as any)?.noNamedNetworks;
+  // Which built-ins this engine cannot give a service. An appjail director
+  // project takes bridge -- that is its own NAT virtualnet -- but not host or
+  // none, which are jail parameters rather than director options. The rows are
+  // where a mode is chosen now, so this goes to them.
   $: unsupportedModes = ((selectedStack as any)?.unsupportedModes ?? []) as string[];
 
-  // Two networks on one bridge are two names for one segment. appjail will not
-  // create the jail at all -- the director reports "FAIL!" and nothing else --
-  // and on any engine the second interface is pointless. Offered and then
-  // refused at Save is the worst of both, so the option goes out here, with
-  // the reason on hover.
-  // How a network hands out addresses, in the words the form uses. Read from
-  // what the daemon reports -- "no subnet means DHCP" was the old tell and
-  // stopped being true when DHCP networks began recording their segment.
-  const allocLabel = (n: { addressSource?: string; subnet?: string }) =>
-    n.addressSource === 'dhcp'
-      ? n.subnet ? `DHCP · ${n.subnet}` : 'DHCP'
-      : n.addressSource === 'static'
-        ? n.subnet ? `static · ${n.subnet}` : 'static'
-        : n.subnet || '';
-
-  // Why this row's address won't work on the network it names, or "". Checked
-  // as it is typed: the daemon refuses the same thing at Save, and finding out
-  // then means the compose edit above it went with the refusal.
-  // Reactive, not consts: both read `networks`, and the rows they are called
-  // from are keyed on netRows. A const closure hides that dependency, so a
-  // table rendered before /api/networks answered would keep saying nothing.
-  $: rowIPProblem = (row: Attachment) =>
-    isMode(row.network) ? '' : addressProblem(row.ip ?? '', networks.find((n) => n.name === row.network));
-  // What may be typed into this row, said forwards. The subnet in the picker
-  // doesn't answer it -- three of its addresses are spoken for.
-  $: rowRange = (row: Attachment) =>
-    isMode(row.network) ? '' : usableRange(networks.find((n) => n.name === row.network));
-  function segmentTaken(n: Network, row: number): string {
-    if (!n.bridge) return '';
-    const clash = netRows.find(
-      (r, j) => j !== row && r.network !== n.name && networks.find((x) => x.name === r.network)?.bridge === n.bridge,
-    );
-    return clash ? `${n.name} and ${clash.network} are the same segment (bridge ${n.bridge}) — one of them is enough` : '';
-  }
-  $: availableModes = MODES.filter((m) => !unsupportedModes.includes(m.name));
-  // What it was on before the mode. Putting a stack on bridge/host/none keeps
-  // its addresses the same way it keeps its published ports, so going back is
-  // one click rather than retyping an address set that is still on disk.
-  // Offered only while it is actually on a mode -- once attached, the table IS
-  // the truth and a stale "restore" would fight it.
-  $: stashedNets = (isMode(netRows[0]?.network ?? '')
-    ? ((selectedStack as any)?.stashedNetworks ?? [])
-    : []) as Attachment[];
-
-  // What Revert would go back to, named. "Not saved yet" says what happens if
-  // you go forward and left the way back unlabelled -- and the way back is the
-  // one someone wants when they have just realised they picked the wrong thing.
-  $: savedLabel = (() => {
-    let rows: Attachment[] = [];
-    try {
-      rows = JSON.parse(savedRows || '[]');
-    } catch {
-      return '';
-    }
-    if (!rows.length) return '';
-    if (rows.length === 1 && isMode(rows[0].network)) return rows[0].network;
-    return rows.map((r) => r.network).join(', ');
-  })();
-
-  function restoreStashed() {
-    netRows = stashedNets.map((a) => ({ ...a }));
-  }
-
-  // What the table shows for a stack: its attachments, or the one mode it
-  // sits on. Never empty -- "on the bridge" is a state, and an empty table
-  // reads as "nothing set" rather than "this is the setting".
-  // Load and save both derive from this: baselining savedRows off anything
-  // else leaves every stack permanently dirty.
-  function rowsFor(stack: any): Attachment[] {
-    const atts = (stack?.networks ?? []) as Attachment[];
-    if (atts.length) return atts.map((a) => ({ ...a }));
-    return [{ network: stack?.networkMode || 'bridge', ip: '', mac: '' }];
-  }
-
-  function addNetRow() {
-    const free = networks.find((n) => !netRows.some((r) => r.network === n.name));
-    netRows = [...netRows, { network: free?.name ?? '', ip: '', mac: '' }];
-  }
-  // Choosing a mode on the first row collapses the table: "none" with a second
-  // interface underneath it is not a state that exists, and leaving the rows
-  // there would send an attachment list the daemon then has to reconcile.
-  function pickNetwork(i: number) {
-    if (i === 0 && isMode(netRows[0].network)) netRows = [{ ...netRows[0], ip: '', mac: '' }];
-    else netRows = netRows;
-  }
-
-  function removeNetRow(i: number) {
-    const left = netRows.filter((_, j) => j !== i);
-    netRows = left.length ? left : [{ network: 'bridge', ip: '', mac: '' }];
-  }
-  function moveNetRow(i: number, to: number) {
-    if (to < 0 || to >= netRows.length) return;
-    const copy = [...netRows];
-    [copy[i], copy[to]] = [copy[to], copy[i]];
-    netRows = copy;
-  }
-
-  // netRowsDirty belongs here: the network table edits staged state rather than
-  // the compose, so without it removing a row showed no Unsaved badge at all --
-  // the change looked like it had already happened, or like nothing had.
+  // svcNetsDirty belongs here: the interface table edits staged state rather
+  // than the compose, so without it changing a row showed no Unsaved badge at
+  // all -- the change looked like it had already happened, or like nothing had.
   $: isDirty = selectedStack
-    ? selectedStack.compose !== originalCompose || selectedStack.env !== originalEnv || (selectedStack.director ?? '') !== originalDirector || (selectedStack.makejail ?? '') !== originalMakejail || netRowsDirty
+    ? selectedStack.compose !== originalCompose || selectedStack.env !== originalEnv || (selectedStack.director ?? '') !== originalDirector || (selectedStack.makejail ?? '') !== originalMakejail || svcNetsDirty
     : false;
   // A draft is a stack the server doesn't know about yet (New Stack). Detect it
   // by BOTH signals so neither one's timing can misfire: a real stack always has
@@ -667,12 +554,21 @@
     originalMakejail = stack!.makejail ?? '';
     // Show the network the stack is ACTUALLY on. The picker is otherwise
     // write-only and reads "bridge" for every attached stack.
-    netRows = rowsFor(stack);
-    savedRows = JSON.stringify(netRows);
+    // A service on a built-in gets that as its ROW, not as an absence of rows.
+    // The editor used to be replaced by a line of prose for a host-networked
+    // service, which left a host stack with nothing to change: switching to
+    // "per service" showed nothing and Save had nothing to save.
+    svcNets = Object.fromEntries(
+      ((stack as any)?.services ?? []).map((v: any) => {
+        const rows = (v.networks ?? []).map((n: any) => ({ ...n }));
+        if (rows.length) return [v.name, rows];
+        return [v.name, [{ network: v.hostNetwork ? 'host' : '', ip: '', mac: '' }]];
+      }),
+    );
+    savedSvcNets = JSON.stringify(svcNets);
     // Resources tab is engine-scoped to this stack (see loadNetworks/loadVolumes).
     loadNetworks(stack!.name);
     loadVolumes(stack!.name);
-    loadMounts();
     checkForUpdate(stack!.name); // fire-and-forget; badge fills in when it returns
     // The Logs tab persists across refreshes -- if it's the active view, start
     // streaming now instead of waiting for a tab click.
@@ -687,8 +583,15 @@
         const found = stacks.find((s) => s.name === selectedStack!.name);
         if (found) {
           // Refresh live status/state only -- never overwrite the editor's
-          // compose/env with the list's empty values.
-          selectedStack = { ...selectedStack, status: found.status, state: found.state };
+          // compose/env with the list's empty values. services goes with them:
+          // it is what each service is running right now, not something the
+          // editor holds an unsaved version of.
+          selectedStack = {
+            ...selectedStack,
+            status: found.status,
+            state: found.state,
+            services: found.services ?? selectedStack.services,
+          };
         }
       }
     }
@@ -697,11 +600,17 @@
   // Networks/volumes are engine-specific: when a stack is selected the Resources
   // tab must show ITS engine's resources (appjail virtualnets, not podman's), so
   // scope the query to that stack. Unscoped = the default engine's view.
+  // Two of these are in flight on load -- one unscoped from onMount, one for
+  // the stack the hash selected -- and they finish in no fixed order. The
+  // later request wins; without this the earlier one could land last and
+  // replace the list under the page.
+  let netsSeq = 0;
   async function loadNetworks(stackId?: string) {
+    const seq = ++netsSeq;
     try {
       const q = stackId ? '?stack=' + encodeURIComponent(stackId) : '';
       const res = await fetch('/api/networks' + q);
-      if (res.ok) networks = (await res.json()) || []; // null when none -> [] (guards networks.length)
+      if (res.ok && seq === netsSeq) networks = (await res.json()) || []; // null when none -> []
     } catch {}
   }
 
@@ -750,8 +659,6 @@
   // The backend (/api/compose/mounts) is stateless: it parses / transforms the
   // editor's in-memory compose text and hands it back, so adds/removes just edit
   // selectedStack.compose (marking it dirty) and Save persists + recreates.
-  type Mount = { source: string; dest: string; readOnly: boolean; kind: string; service: string };
-  let mounts: Mount[] = [];
   let addKind: 'bind' | 'volume' | 'remote' = 'bind';
   let addRemoteKind: RemoteKind = 'nfs';
   let addSource = '';
@@ -819,7 +726,7 @@
       addSource = '';
       addDest = '';
       addRO = false;
-      await loadMounts();
+      await refreshStackDetail();
     } catch (e: any) {
       toast(e.message || 'Add failed', { kind: 'error' });
     }
@@ -837,15 +744,6 @@
     if (!res.ok) throw new Error((await res.text()).trim() || `HTTP ${res.status}`);
     return res.json();
   }
-  async function loadMounts() {
-    if (!selectedStack) return;
-    try {
-      mounts = (await mountsAPI({ op: 'list' })).mounts || [];
-    } catch {
-      mounts = [];
-    }
-    if (!folderSets.length) loadFolderSets();
-  }
   async function addMount() {
     if (!selectedStack || !addSource.trim() || !addDest.trim()) return;
     try {
@@ -860,7 +758,7 @@
       addSource = '';
       addDest = '';
       addRO = false;
-      await loadMounts();
+      await refreshStackDetail();
     } catch (e: any) {
       toast(e.message || 'Add failed', { kind: 'error' });
     }
@@ -881,23 +779,31 @@
       addDest = '';
       addRO = false;
       addKind = 'bind';
-      await loadMounts();
+      await refreshStackDetail();
       loadVolumes(selectedStack.name);
     } catch (e: any) {
       toast(e.message || 'Add failed', { kind: 'error' });
     }
   }
+  // A mount change rewrites the compose on the server, and the per-service
+  // Storage list is derived THERE -- so the stack has to be re-read or the
+  // service keeps showing what it no longer holds.
+  async function refreshStackDetail() {
+    if (!selectedStack) return;
+    try {
+      const res = await fetch(`/api/stacks/${selectedStack.name}`);
+      if (res.ok) selectedStack = await res.json();
+    } catch {}
+  }
+
   // Removing a mount rewrites the compose straight away -- no Save, no revert --
-  // so it asks first, the same two-click confirm the Networks page uses. The
-  // data is untouched, but putting the source path back is the user's problem.
-  let confirmUnmount = '';
+  // so it asks first (in the row itself). The data is untouched, but putting
+  // the source path back is the user's problem.
   async function removeMount(dest: string) {
     if (!selectedStack) return;
-    confirmUnmount = '';
     try {
-      const { compose } = await mountsAPI({ op: 'remove', dest });
-      selectedStack = { ...selectedStack, compose };
-      await loadMounts();
+      await mountsAPI({ op: 'remove', dest });
+      await refreshStackDetail();
     } catch (e: any) {
       toast(e.message || 'Remove failed', { kind: 'error' });
     }
@@ -972,18 +878,12 @@
 
   // Discard unsaved edits (compose/env, incl. mount-table changes) back to the
   // last saved version. Also clears the network/volume pickers and re-reads the
-  // mounts table so it reflects the restored compose.
   function revert() {
     if (!selectedStack) return;
     selectedStack = { ...selectedStack, compose: originalCompose, env: originalEnv, ...(isDirector ? { director: originalDirector, makejail: originalMakejail } : {}) };
-    // Never empty: the markup reads netRows[0] directly, since "on the bridge"
-    // is a row rather than the absence of one.
-    const restored = JSON.parse(savedRows || '[]') as Attachment[];
-    netRows = restored.length ? restored : [{ network: 'bridge', ip: '', mac: '' }];
     addSource = '';
     addDest = '';
     addRO = false;
-    loadMounts();
     toast('Reverted to the last saved version', { kind: 'success' });
   }
 
@@ -1006,19 +906,13 @@
       // The network is only injected when it CHANGED: the picker now shows the
       // stack's current network, and re-injecting one the compose already
       // declares fails ("service already declares networks").
-      if (netRowsDirty) {
-        // A mode is a single choice, not a list of attachments -- the daemon
-        // takes it as `network` and writes network_mode. Anything else is the
-        // attachment list, and an empty one detaches: the table is the whole
-        // truth, so clearing it has to mean something rather than quietly
-        // doing nothing.
-        if (netRows.length === 1 && isMode(netRows[0].network)) {
-          body.network = netRows[0].network;
-        } else {
-          body.networks = netRows
-            .filter((r) => r.network && !isMode(r.network))
-            .map((r) => ({ network: r.network, ip: (r.ip || '').trim(), mac: (r.mac || '').trim() }));
-        }
+      if (svcNetsDirty) {
+        // Modes travel separately from attachments: a built-in is set ON a
+        // service, not joined, so posting "host" as a network name attached
+        // the service to a network called host and the mode never changed.
+        const { networks, modes } = splitPlan(svcNets as any);
+        body.networks = networks;
+        body.networkModes = modes;
       }
       if (volChoice && volPath.trim().startsWith('/')) {
         body.volume = volChoice;
@@ -1033,16 +927,12 @@
       if (res.ok) {
         // If we injected networks/a volume the on-disk compose changed;
         // re-fetch it so the editor shows the real (injected) compose.
-        // NB "networks", plural: the singular field is gone, and testing it
-        // here meant savedRows was never refreshed after a network save --
-        // leaving the Unsaved badge on forever.
+        // NB "networks", plural: the singular field is gone, and testing only
+        // the singular here left the Unsaved badge on forever after a network
+        // save.
         if (body.networks || body.network || body.volume) {
           const detail = await fetch(`/api/stacks/${selectedStack.name}`);
           if (detail.ok) selectedStack = await detail.json();
-          // Re-read the picker from what was just written, so it keeps showing
-          // the stack's network instead of snapping back to "bridge".
-          netRows = rowsFor(selectedStack);
-          savedRows = JSON.stringify(netRows);
           volChoice = '';
           volPath = '';
           volRO = false;
@@ -1352,10 +1242,19 @@
     network: string;
     ip: string;
     mac?: string;
+    /** service -> network spec ("default", "private", or a name); the
+     *  daemon resolves it, since "private" names a segment it creates. */
+    networkPlan?: Record<string, string>;
+    /** One entry per interface, each naming the service it belongs to. The
+     *  wizard's per-service editor sends these instead of networkPlan: the
+     *  operator has already answered, so nothing is left to re-derive. */
+    networks?: { network: string; service: string; ip: string; mac: string }[];
+    /** service -> built-in mode (host/bridge/none). */
+    networkModes?: Record<string, string>;
     accepted?: () => void;
     refused?: (msg: string) => void;
   }>) {
-    const { name, appId, engine, manifest, values, paths, appData, tag, network, ip, mac } = e.detail;
+    const { name, appId, engine, manifest, values, paths, appData, tag, network, ip, mac, networkPlan, networks: netList, networkModes } = e.detail;
 
     // Nothing is torn down or navigated to until the daemon has taken the
     // install. It refuses some of these outright -- an address that is a
@@ -1369,7 +1268,7 @@
       const res = await fetch('/api/apps/install', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, manifest, values, ...(paths ? { paths } : {}), ...(appData ? { appData } : {}), ...(appId ? { app_id: appId } : {}), ...(engine ? { engine } : {}), ...(tag ? { tag } : {}), ...(network ? { network, ip, ...(mac ? { mac } : {}) } : {}) }),
+        body: JSON.stringify({ name, manifest, values, ...(paths ? { paths } : {}), ...(appData ? { appData } : {}), ...(appId ? { app_id: appId } : {}), ...(engine ? { engine } : {}), ...(tag ? { tag } : {}), ...(network ? { network, ip, ...(mac ? { mac } : {}) } : {}), ...(networkPlan ? { networkPlan } : {}), ...(netList?.length ? { networks: netList } : {}), ...(networkModes ? { networkModes } : {}) }),
       });
       // The server sends the id as soon as the stack exists on disk -- also
       // when it then refuses to start it. So the header, not the status, says
@@ -2006,7 +1905,7 @@
               .env{#if selectedStack.env !== originalEnv}<span class="text-fjord-warning font-bold">*</span>{/if}
             </button>
             <button
-              on:click={() => { activeTab = 'net'; loadMounts(); }}
+              on:click={() => (activeTab = 'net')}
               class="px-4 py-2.5 border-r border-fjord-border {activeTab === 'net'
                 ? 'bg-fjord-card text-fjord-fg border-b-2 border-b-fjord-accent'
                 : 'text-fjord-fg-muted hover:text-fjord-fg-body'}">Resources</button
@@ -2052,253 +1951,28 @@
                     Still installing — this fills in as soon as the stack is written.
                   </div>
                 {:else}
-                <h3 class="text-lg font-bold text-fjord-fg mb-1">Networking</h3>
-                <p class="text-xs text-fjord-fg-muted mb-4 max-w-lg">
-                  {#if isMode(netRows[0].network)}
-                    How this stack reaches the network. <span class="font-mono">bridge</span> is what it gets by
-                    asking for nothing. Pick a network instead to give it an address of its own. Applied to the
-                    compose on <b>Save</b>.
-                  {:else}
-                    Each row is one interface, in order — the first is the one links are built from. Leave an address blank to let the network assign one. Applied to the
-                    compose on <b>Save</b>.
-                  {/if}
+                <h3 class="text-lg font-bold text-fjord-fg mb-1">Services</h3>
+                <p class="text-xs text-fjord-fg-dim mb-3">
+                  What each service holds, and where each one is on the network.
+                  Changes apply to the stack on <b>Save</b>.
                 </p>
+                <ServiceResources
+                  services={selectedStack.services ?? []}
+                  {networks}
+                  {unsupportedModes}
+                  stackName={selectedStack.name}
+                  bind:edits={svcNets}
+                  on:change={() => (svcNets = svcNets)}
+                  on:unmount={(e) => removeMount(e.detail)}
+                />
 
-                <table class="w-full max-w-3xl text-sm">
-                  <thead>
-                    <tr class="text-left text-xs text-fjord-fg-dim">
-                      <th class="font-medium pb-1 w-10"></th>
-                      <th class="font-medium pb-1">Network</th>
-                      <th class="font-medium pb-1">IP</th>
-                      <th class="font-medium pb-1">MAC</th>
-                      <th class="pb-1 w-20"></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {#each netRows as row, i}
-                      <tr class="border-t border-fjord-border">
-                        <td class="py-2 pr-2 font-mono text-xs text-fjord-fg-dim"
-                          ><!-- What the container will actually call it. podman
-                                 numbers from eth0; appjail names the jail side
-                                 of the epair after the option that made it, so
-                                 this reads sb_zensical there and `ifconfig
-                                 eth0` answers "interface eth0 does not
-                                 exist". -->{isMode(row.network)
-                            ? '—'
-                            : row.iface || `eth${i}`}</td
-                        >
-                        <td class="py-2 pr-2">
-                          <select
-                            bind:value={row.network}
-                            on:change={() => pickNetwork(i)}
-                            class="w-full bg-fjord-inset border border-fjord-border rounded px-2 py-1 text-sm text-fjord-fg-body focus:border-fjord-accent outline-none"
-                          >
-                            <!-- Modes only on the first row: they are states
-                                 the whole stack is in, not one interface among
-                                 several. -->
-                            {#if i === 0}
-                              {#each availableModes as m}
-                                <option value={m.name}>{m.name}</option>
-                              {/each}
-                            {/if}
-                            {#each networks as n}
-                              <option
-                                value={n.name}
-                                disabled={!!n.problem ||
-                                  !!segmentTaken(n, i) ||
-                                  netRows.some((r, j) => j !== i && r.network === n.name)}
-                                title={n.problem || segmentTaken(n, i)}
-                                >{n.name}{allocLabel(n) ? ` (${allocLabel(n)})` : ''}</option
-                              >
-                            {/each}
-                          </select>
-                        </td>
-                        <td class="py-2 pr-2">
-                          <input
-                            bind:value={row.ip}
-                            on:input={() => (netRows = netRows)}
-                            disabled={isMode(row.network)}
-                            placeholder={isMode(row.network) ? '—' : 'auto'}
-                            title={rowIPProblem(row)}
-                            class="w-full bg-fjord-inset border rounded px-2 py-1 text-sm font-mono text-fjord-fg-body focus:border-fjord-accent outline-none disabled:opacity-40 {rowIPProblem(
-                              row,
-                            )
-                              ? 'border-fjord-danger/60'
-                              : 'border-fjord-border'}"
-                          />
-                        </td>
-                        <td class="py-2 pr-2">
-                          <div class="flex gap-1">
-                            <input
-                              bind:value={row.mac}
-                              on:input={() => (netRows = netRows)}
-                              disabled={isMode(row.network)}
-                              placeholder={isMode(row.network) ? '—' : 'auto'}
-                              class="w-full bg-fjord-inset border border-fjord-border rounded px-2 py-1 text-sm font-mono text-fjord-fg-body focus:border-fjord-accent outline-none disabled:opacity-40"
-                            />
-                            <!-- Fills a blank field only. Changing a MAC breaks
-                                 the DHCP reservation keyed on it, so overwriting
-                                 one has to be deliberate: clear it first. -->
-                            <button
-                              type="button"
-                              on:click={() => { row.mac = randomMAC(); netRows = netRows; }}
-                              disabled={isMode(row.network) || !!(row.mac || '').trim()}
-                              title={(row.mac || '').trim()
-                                ? 'Clear the field first — changing a MAC breaks a DHCP reservation keyed on it'
-                                : 'Generate a locally-administered address'}
-                              class="shrink-0 px-2 rounded border border-fjord-border text-xs text-fjord-fg-secondary hover:bg-fjord-border disabled:opacity-30 disabled:hover:bg-transparent">Gen</button
-                            >
-                          </div>
-                        </td>
-                        <td class="py-2 text-right whitespace-nowrap">
-                          <button
-                            type="button"
-                            on:click={() => moveNetRow(i, i - 1)}
-                            disabled={i === 0}
-                            title="Move up (earlier interface)"
-                            class="px-1.5 text-fjord-fg-muted hover:text-fjord-fg disabled:opacity-30">↑</button
-                          >
-                          <button
-                            type="button"
-                            on:click={() => removeNetRow(i)}
-                            disabled={netRows.length === 1 && !availableModes.length}
-                            title={netRows.length === 1 && !availableModes.length
-                              ? 'This stack is always on a network — detaching the last one would leave it nowhere'
-                              : 'Detach from this network'}
-                            class="px-1.5 text-fjord-fg-muted hover:text-fjord-danger disabled:opacity-30">✕</button
-                          >
-                        </td>
-                      </tr>
-                      <!-- The reason and the range go on their own row, not in
-                           the IP cell: a message in the cell grows it, and the
-                           network, MAC and buttons beside it stop sharing a
-                           line with the field they belong to. -->
-                      {#if rowIPProblem(row) || rowRange(row)}
-                        <tr>
-                          <td></td>
-                          <td colspan="4" class="pb-2 text-xs">
-                            {#if rowIPProblem(row)}
-                              <span class="text-fjord-danger">{rowIPProblem(row)}.</span>
-                            {/if}
-                            {#if rowRange(row)}
-                              <span class="text-fjord-fg-dim"
-                                >Usable: <span class="font-mono text-fjord-fg-secondary">{rowRange(row)}</span></span
-                              >
-                            {/if}
-                          </td>
-                        </tr>
-                      {/if}
-                    {/each}
-                  </tbody>
-                </table>
 
-                <!-- Said here, not only as a title on the disabled <option>:
-                     browsers do not show a tooltip on a disabled option, so
-                     the rule was invisible and the greyed-out network just
-                     looked broken. -->
-                {#if noNamedNetworks}
-                  <p class="text-xs mt-2 max-w-lg text-fjord-warning">
-                    These services share the host's network stack and reach each other on
-                    <span class="font-mono">localhost</span>. Putting the stack on a network gives every service its
-                    own address, and those references stop resolving — they have to be changed to service names
-                    first. <b>bridge</b> and <b>none</b> keep them as they are.
-                  </p>
-                {/if}
-
-                {#if isMode(netRows[0].network)}
-                  <p class="text-xs mt-2 max-w-lg {netRowsDirty ? 'text-fjord-warning' : 'text-fjord-fg-dim'}">
-                    {#if netRowsDirty}
-                      Not saved yet — <b>Save</b>, then restart the stack for this to take effect{#if savedLabel}, or
-                        <b>Revert</b> to go back to <span class="font-mono">{savedLabel}</span>{/if}.
-                    {:else if netRows[0].network === 'none'}
-                      Loopback only: nothing reaches this stack and it reaches nothing. Its published ports are kept
-                      and come back when it is given a network again.
-                    {:else if netRows[0].network === 'host'}
-                      No address and no port mapping of its own — whatever it listens on, it listens on this host's
-                      address directly.
-                    {:else if networks.length}
-                      A private address behind NAT, reached on the ports it publishes on this host.
-                    {:else}
-                      A private address behind NAT, reached on the ports it publishes on this host. Create a network
-                      on the Networks page to give a stack an address of its own.
-                    {/if}
-                  </p>
-                  {#if stashedNets.length}
-                    <p class="text-xs mt-1 text-fjord-fg-dim max-w-lg">
-                      Previously on
-                      {#each stashedNets as a, i}<span class="font-mono text-fjord-fg-secondary">{a.network}</span
-                        >{#if a.ip || a.mac}<span class="font-mono"> ({a.ip || a.mac})</span>{/if}{#if i < stashedNets.length - 1}, {/if}{/each} —
-                      <button type="button" on:click={restoreStashed} class="text-fjord-accent hover:underline"
-                        >put it back</button
-                      >
-                    </p>
-                  {/if}
-                {:else}
-                  <!-- The eth numbers are what the NEXT container will get:
-                       interfaces are assigned at create time, so a running one
-                       keeps its layout until it is recreated. Saying so beats
-                       letting the table look like live state. -->
-                  <p class="text-xs mt-2 max-w-lg {netRowsDirty ? 'text-fjord-warning' : 'text-fjord-fg-dim'}">
-                    {#if netRowsDirty}
-                      Not saved yet — <b>Save</b>, then restart the stack for these to take effect{#if savedLabel}, or
-                        <b>Revert</b> to go back to <span class="font-mono">{savedLabel}</span>{/if}.
-                    {:else}
-                      Leave an address blank to let the network assign one. Interface names are assigned when a
-                      container is created, so a running stack keeps its current layout until it is restarted.
-                    {/if}
-                  </p>
-                  {#if networks.some((n) => !n.problem && !segmentTaken(n, -1) && !netRows.some((r) => r.network === n.name))}
-                    <button
-                      type="button"
-                      on:click={addNetRow}
-                      class="mt-3 text-sm px-3 py-1.5 rounded-lg border border-fjord-border text-fjord-fg-secondary hover:bg-fjord-border"
-                      >+ Add network</button
-                    >
-                  {/if}
-                {/if}
-
-                <h3 class="text-lg font-bold text-fjord-fg mb-1 mt-8">Storage</h3>
+                <h3 class="text-lg font-bold text-fjord-fg mb-1 mt-8">Add storage</h3>
                 <p class="text-xs text-fjord-fg-muted mb-4 max-w-lg">
-                  Folders and volumes mounted into this stack. Changes edit the compose — <b>Save</b> to apply
-                  (running containers pick it up on <b>Apply</b>/recreate).
+                  Mount a folder or volume into this stack. What is mounted already is listed on
+                  the service that holds it, above. Changes edit the compose — <b>Save</b> to
+                  apply (running containers pick it up on <b>Apply</b>/recreate).
                 </p>
-
-                <!-- current mounts, parsed from the compose -->
-                {#if mounts.length}
-                  <div class="border border-fjord-border rounded-lg divide-y divide-fjord-border max-w-2xl mb-4">
-                    {#each mounts as m}
-                      <div class="flex items-center gap-3 px-3 py-2 text-sm">
-                        <Icon name={m.kind === 'volume' ? 'drive' : 'folder'} size={15} class="text-fjord-fg-dim shrink-0" />
-                        <span class="font-mono text-fjord-fg-secondary truncate" title={m.source}>{m.source}</span>
-                        <Icon name="chevron-right" size={13} class="text-fjord-fg-faint shrink-0" />
-                        <span class="font-mono text-fjord-fg truncate shrink-0" title={m.dest}>{m.dest}</span>
-                        {#if m.readOnly}
-                          <span class="shrink-0 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-fjord-bg border border-fjord-border text-fjord-fg-muted">RO</span>
-                        {/if}
-                        <span class="shrink-0 ml-auto text-[10px] px-1.5 py-0.5 rounded bg-fjord-bg border border-fjord-border text-fjord-fg-dim">{m.kind}</span>
-                        {#if confirmUnmount === m.dest}
-                          <button
-                            on:click={() => removeMount(m.dest)}
-                            class="shrink-0 text-[10px] px-1.5 py-0.5 rounded bg-fjord-danger hover:bg-fjord-danger-hover text-white"
-                            >Confirm</button
-                          >
-                          <button
-                            on:click={() => (confirmUnmount = '')}
-                            class="shrink-0 text-[10px] px-1.5 py-0.5 rounded text-fjord-fg-muted hover:text-fjord-fg">Cancel</button
-                          >
-                        {:else}
-                          <button
-                            on:click={() => (confirmUnmount = m.dest)}
-                            title="Unmount this — the files stay, the stack stops seeing them"
-                            class="shrink-0 text-fjord-fg-dim hover:text-fjord-danger transition-colors"><Icon name="trash" size={14} /></button
-                          >
-                        {/if}
-                      </div>
-                    {/each}
-                  </div>
-                {:else}
-                  <p class="text-xs text-fjord-fg-faint mb-4">No storage mounted yet.</p>
-                {/if}
 
                 <!-- add a mount: host path (Browse) or, on podman, a named volume -->
                 <div class="flex flex-wrap items-end gap-3 max-w-2xl">

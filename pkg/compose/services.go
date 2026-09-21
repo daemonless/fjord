@@ -1,6 +1,7 @@
 package compose
 
 import (
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -28,9 +29,16 @@ type PortMap struct {
 	Proto     string // "tcp" | "udp"
 }
 
-// VolMount is one host-path bind mount of a service.
+// VolMount is one mount of a service: a host-path bind, or a named volume.
 type VolMount struct {
-	Source   string
+	// Source is the host path of a bind mount, empty for a named volume.
+	// Callers that need somewhere on this host -- the appjail bundle writer
+	// materialising nullfs mounts -- key on it being non-empty.
+	Source string
+	// Name is the volume's name, empty for a bind mount. Named volumes used to
+	// be dropped here entirely, which left a service whose only storage is one
+	// (immich's model cache, redis's data) reporting no storage at all.
+	Name     string
 	Dest     string
 	ReadOnly bool
 }
@@ -122,23 +130,38 @@ func ParseServices(composeYAML string, env map[string]string) []Service {
 			}
 		}
 
-		// volumes: "src:dst[:opts]" with an absolute source.
+		// volumes: "src:dst[:opts]" -- src an absolute host path (a bind) or a
+		// volume name. Both are storage the service holds; only the container
+		// side has to be absolute for either to mean anything.
 		if v := mapGet(svc, "volumes"); v != nil && v.Kind == yaml.SequenceNode {
 			for _, it := range v.Content {
 				parts := strings.Split(resolve(it.Value), ":")
-				if len(parts) >= 2 && strings.HasPrefix(parts[0], "/") {
-					vm := VolMount{Source: parts[0], Dest: parts[1]}
-					if len(parts) >= 3 && strings.Contains(parts[2], "ro") {
-						vm.ReadOnly = true
-					}
-					s.Volumes = append(s.Volumes, vm)
+				if len(parts) < 2 || !strings.HasPrefix(parts[1], "/") {
+					continue
 				}
+				var vm VolMount
+				switch {
+				case strings.HasPrefix(parts[0], "/"):
+					vm = VolMount{Source: parts[0], Dest: parts[1]}
+				case volumeNameRe.MatchString(parts[0]):
+					vm = VolMount{Name: parts[0], Dest: parts[1]}
+				default:
+					continue
+				}
+				if len(parts) >= 3 && strings.Contains(parts[2], "ro") {
+					vm.ReadOnly = true
+				}
+				s.Volumes = append(s.Volumes, vm)
 			}
 		}
 		out = append(out, s)
 	}
 	return out
 }
+
+// volumeNameRe is what compose allows a named volume to be called. Anchored so
+// a half-resolved "${VAR}" or a relative path is not mistaken for one.
+var volumeNameRe = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]*$`)
 
 // parsePort parses "[ip:]host:container[/proto]" (or a bare "port"); an IPv6
 // bind address is bracketed, "[::1]:8080:80".
