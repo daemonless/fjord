@@ -306,7 +306,7 @@ func main() {
 
 	// Startup diagnostics in the background (the socket probe can block a few
 	// seconds); logs every failed readiness check with its fix.
-	go logDoctor(fjordRoot, defEngine)
+	go logDoctor(fjordRoot, srv.engineNames())
 
 	// Restore stacks the operator left running before this restart. Runs in
 	// the background so the UI comes up immediately; each stack is brought up

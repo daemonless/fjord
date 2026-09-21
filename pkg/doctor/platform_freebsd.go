@@ -6,6 +6,7 @@ import (
 	"context"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"github.com/daemonless/fjord/pkg/engine"
@@ -61,6 +62,19 @@ func platform(cfg Config) platformInfo {
 			Probe: epairProbe,
 			Why:   "The CNI plugin that gives a container its own address on your LAN instead of a port published on the host. Optional: stacks run without it, but no podman network can hand out a LAN address. appjail does not use it -- it makes its own epair.",
 			Fix:   "# not in the ports tree yet:\nfetch -o /usr/local/libexec/cni/epair https://raw.githubusercontent.com/daemonless/cni-epair/main/epair\nchmod 755 /usr/local/libexec/cni/epair",
+		},
+		{
+			ID: "dnsname", Name: "container name resolution (dnsname plugin)", Engine: "podman", HostOnly: true,
+			Probe: dnsnameProbe,
+			Why:   "Without it, containers on the same network cannot resolve each other by name -- a stack's app looks up its database, gets nothing, and crash-loops with the networking apparently fine. Every multi-service app needs it unless its parts address each other by IP.",
+			Fix:   "pkg install -y cni-dnsname",
+			Pkg:   map[string]string{"freebsd": "cni-dnsname"},
+		},
+		{
+			ID: "appjail-dns", Name: "jail name resolution (appjail-dns)", Engine: "appjail", HostOnly: true,
+			Probe: appjailDNSProbe,
+			Why:   "The appjail side of the same thing: jails on one network reach each other by name only while appjail-dns is running. Without it a director project's services have to address each other by IP.",
+			Fix:   "sysrc appjail_dns_enable=YES\nservice appjail-dns start",
 		},
 		{
 			ID: "pf", Name: "pf firewall", Engine: "podman",
@@ -335,4 +349,31 @@ func pfProbe(ctx context.Context) (Status, string) {
 		return Warn, "pf is loaded but the container rdr anchors are not in the active ruleset -- published bridge ports will hang; reload pf.conf"
 	}
 	return OK, "pf loaded, container rdr anchors active"
+}
+
+// dnsnameProbe reports whether podman can resolve container names.
+//
+// The plugin is what writes a per-network dnsmasq and points the containers at
+// it. Without it they get the HOST's resolver, so "database" resolves to
+// whatever the LAN says -- usually nothing -- and a multi-service stack fails
+// in a way that looks like the app rather than the host.
+func dnsnameProbe(ctx context.Context) (Status, string) {
+	for _, dir := range []string{"/usr/local/libexec/cni", "/usr/libexec/cni"} {
+		if _, err := os.Stat(filepath.Join(dir, "dnsname")); err == nil {
+			return OK, "installed"
+		}
+	}
+	return Warn, "not installed -- services in a stack cannot find each other by name"
+}
+
+// appjailDNSProbe reports whether appjail's own name resolution is running.
+// Installed but stopped is the common case: the package ships it disabled.
+func appjailDNSProbe(ctx context.Context) (Status, string) {
+	if _, err := os.Stat("/usr/local/etc/rc.d/appjail-dns"); err != nil {
+		return Warn, "not installed -- jails cannot find each other by name"
+	}
+	if err := exec.CommandContext(ctx, "service", "appjail-dns", "status").Run(); err != nil {
+		return Warn, "installed but not running -- jails cannot find each other by name"
+	}
+	return OK, "running"
 }
