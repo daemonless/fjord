@@ -33,6 +33,14 @@ import (
 // it (both optional -- empty means "let the network decide").
 type Attachment struct {
 	Network string `json:"network"`
+	// Service names the one service this attachment is for. Empty means every
+	// service in the stack, which is what a single-service stack and every
+	// caller before per-service networking sends.
+	//
+	// It is what lets a stack publish the service people use and keep the rest
+	// on a private segment: immich-server on the LAN, its database and redis
+	// on a network only it can reach.
+	Service string `json:"service,omitempty"`
 	IP      string `json:"ip,omitempty"`
 	MAC     string `json:"mac,omitempty"`
 	// Iface is what the interface is called INSIDE the container, reported by
@@ -65,16 +73,34 @@ func InjectNetworks(composeYAML string, atts []Attachment) (string, error) {
 	if len(atts) == 0 {
 		return "", fmt.Errorf("at least one network is required")
 	}
+	// Per-service as soon as any attachment names a service. Four services on
+	// one private network is four attachments for the same network, which read
+	// as a stack listing it four times -- "network \"lan\" is listed twice",
+	// and nothing saved.
+	perService := false
+	for _, a := range atts {
+		if a.Service != "" {
+			perService = true
+			break
+		}
+	}
 	seen := map[string]bool{}
 	pinned := false
 	for _, a := range atts {
 		if a.Network == "" {
 			return "", fmt.Errorf("network name is required")
 		}
-		if seen[a.Network] {
+		key := a.Network
+		if perService {
+			key = a.Service + "\x00" + a.Network
+		}
+		if seen[key] {
+			if perService {
+				return "", fmt.Errorf("%s is on network %q twice", a.Service, a.Network)
+			}
 			return "", fmt.Errorf("network %q is listed twice", a.Network)
 		}
-		seen[a.Network] = true
+		seen[key] = true
 		if a.MAC != "" && !macRe.MatchString(a.MAC) {
 			return "", fmt.Errorf("invalid MAC address %q: want six hex pairs like 02:1a:2b:3c:4d:5e", a.MAC)
 		}
@@ -113,6 +139,9 @@ func InjectNetworks(composeYAML string, atts []Attachment) (string, error) {
 	// way reaches its own parts over localhost -- moving it onto a network
 	// gives every service a separate address and breaks all of it.
 	for _, sv := range svcs {
+		if perService && len(attachmentsForService(atts, sv.name)) == 0 {
+			continue // not named: left exactly as it is
+		}
 		m := mapGet(sv.node, "network_mode")
 		if sv.node.Kind != yaml.MappingNode || m == nil {
 			continue
@@ -153,7 +182,7 @@ func InjectNetworks(composeYAML string, atts []Attachment) (string, error) {
 	// A pinned address or MAC belongs to the service that serves: with several
 	// services it can only go on the published one.
 	target := svcs[0].name
-	if pinned && len(svcs) > 1 {
+	if pinned && !perService && len(svcs) > 1 {
 		var published []string
 		for _, sv := range svcs {
 			if sv.node.Kind == yaml.MappingNode && mapGet(sv.node, "ports") != nil {
@@ -179,7 +208,11 @@ func InjectNetworks(composeYAML string, atts []Attachment) (string, error) {
 			return "", fmt.Errorf("service %q is not a mapping", s.name)
 		}
 		use := atts
-		if s.name != target {
+		if perService {
+			if use = attachmentsForService(atts, s.name); len(use) == 0 {
+				continue // not named: left exactly as it is
+			}
+		} else if s.name != target {
 			// Only the target carries pins; the others just join.
 			use = make([]Attachment, len(atts))
 			for i, a := range atts {
@@ -832,4 +865,164 @@ func NetworkMode(composeYAML string) string {
 		}
 	}
 	return mode
+}
+
+// ServiceAttachments reports each service's networks by service name.
+//
+// AttachedNetworks answers for the stack and gives up the moment two services
+// disagree -- "the table cannot represent it" was true of a table with one row
+// per network. This makes the disagreement the answer instead: a stack whose
+// app is on the LAN and whose database is on a private segment is describable,
+// which is the whole point of putting them on different ones.
+func ServiceAttachments(composeYAML string) map[string][]Attachment {
+	out := map[string][]Attachment{}
+	var doc yaml.Node
+	if yaml.Unmarshal([]byte(composeYAML), &doc) != nil || len(doc.Content) == 0 {
+		return out
+	}
+	root := doc.Content[0]
+	if root.Kind != yaml.MappingNode {
+		return out
+	}
+	services := mapGet(root, "services")
+	if services == nil || services.Kind != yaml.MappingNode {
+		return out
+	}
+	for i := 0; i+1 < len(services.Content); i += 2 {
+		name, svc := services.Content[i].Value, services.Content[i+1]
+		if svc.Kind != yaml.MappingNode {
+			continue
+		}
+		atts := serviceAttachments(mapGet(svc, "networks"))
+		for j := range atts {
+			atts[j].Service = name
+		}
+		if len(atts) > 0 {
+			out[name] = atts
+		}
+	}
+	return out
+}
+
+// attachmentsForService is the attachments that apply to one service: those
+// naming it, plus any naming none at all, which mean every service.
+func attachmentsForService(atts []Attachment, service string) []Attachment {
+	var out []Attachment
+	for _, a := range atts {
+		if a.Service == "" || a.Service == service {
+			a.Service = ""
+			out = append(out, a)
+		}
+	}
+	return out
+}
+
+// SetServiceModes puts named services on a built-in mode, one service at a
+// time, leaving every other service exactly as it is.
+//
+// setMode answers for the whole stack, which is the right shape for a
+// single-service app and the wrong one for a stack whose parts differ: immich
+// wants its server on the host's stack and its database on a private segment,
+// and saying that needs a per-service answer.
+//
+// Bridge means "the engine's own default", which in compose is the absence of
+// both network_mode and networks -- so it clears rather than writes.
+func SetServiceModes(composeYAML string, modes map[string]string) (string, error) {
+	if len(modes) == 0 {
+		return composeYAML, nil
+	}
+	var doc yaml.Node
+	if err := yaml.Unmarshal([]byte(composeYAML), &doc); err != nil {
+		return "", fmt.Errorf("parse compose: %w", err)
+	}
+	if len(doc.Content) == 0 || doc.Content[0].Kind != yaml.MappingNode {
+		return "", fmt.Errorf("compose is not a YAML mapping")
+	}
+	root := doc.Content[0]
+	services := mapGet(root, "services")
+	if services == nil || services.Kind != yaml.MappingNode {
+		return "", fmt.Errorf("compose has no services")
+	}
+	for i := 0; i+1 < len(services.Content); i += 2 {
+		name, svc := services.Content[i].Value, services.Content[i+1]
+		mode, want := modes[name]
+		if !want || svc.Kind != yaml.MappingNode {
+			continue
+		}
+		// A mode and a network are mutually exclusive; the stash lets a trip
+		// through one come back to what it was on.
+		stashNetworks(svc)
+		mapDelete(svc, "networks")
+		clearMode(svc)
+		if mode != Bridge {
+			mapSet(svc, "network_mode", scalar(mode))
+		}
+	}
+	var buf bytes.Buffer
+	enc := yaml.NewEncoder(&buf)
+	enc.SetIndent(2)
+	if err := enc.Encode(root); err != nil {
+		return "", err
+	}
+	enc.Close()
+	return buf.String(), nil
+}
+
+// RepublishPorts gives back the published ports of the named services.
+//
+// Attaching stashes them because a container with its own address on a real
+// segment IS the endpoint -- publishing to the host as well is redundant, and
+// on several stacks it is a port conflict. That reasoning does not hold for a
+// segment nothing off this host can reach: there the container's address is
+// useless to a browser, and without its ports the stack answers nowhere at
+// all. immich on its own private segment came up healthy and could not be
+// opened from anywhere but the host itself.
+//
+// Which services those are is the caller's to decide -- only it knows which
+// networks are private -- and the stash is what makes giving them back exact
+// rather than a guess at what the ports used to be.
+func RepublishPorts(composeYAML string, services []string) (string, error) {
+	if len(services) == 0 {
+		return composeYAML, nil
+	}
+	want := map[string]bool{}
+	for _, s := range services {
+		want[s] = true
+	}
+	var doc yaml.Node
+	if err := yaml.Unmarshal([]byte(composeYAML), &doc); err != nil {
+		return "", fmt.Errorf("parse compose: %w", err)
+	}
+	if len(doc.Content) == 0 || doc.Content[0].Kind != yaml.MappingNode {
+		return "", fmt.Errorf("compose is not a YAML mapping")
+	}
+	svcs := mapGet(doc.Content[0], "services")
+	if svcs == nil || svcs.Kind != yaml.MappingNode {
+		return composeYAML, nil
+	}
+	changed := false
+	for i := 0; i+1 < len(svcs.Content); i += 2 {
+		name, svc := svcs.Content[i].Value, svcs.Content[i+1]
+		if !want[name] || svc.Kind != yaml.MappingNode {
+			continue
+		}
+		p := mapGet(svc, "x-fjord-published")
+		if p == nil {
+			continue
+		}
+		mapSet(svc, "ports", p)
+		mapDelete(svc, "x-fjord-published")
+		changed = true
+	}
+	if !changed {
+		return composeYAML, nil
+	}
+	var buf bytes.Buffer
+	enc := yaml.NewEncoder(&buf)
+	enc.SetIndent(2)
+	if err := enc.Encode(doc.Content[0]); err != nil {
+		return "", err
+	}
+	enc.Close()
+	return buf.String(), nil
 }

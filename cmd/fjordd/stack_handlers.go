@@ -57,6 +57,11 @@ type saveRequest struct {
 	// Networks is the full list when a stack takes more than one interface;
 	// Network/IP/MAC above remain the single-network form.
 	Networks []composepkg.Attachment `json:"networks,omitempty"`
+	// NetworkModes is service -> built-in (host/bridge/none). A mode is set ON
+	// the service rather than joined, so it cannot travel as an attachment --
+	// and without it there was no way to take one service off the host's stack
+	// while leaving the others, which is what the per-service editor is for.
+	NetworkModes map[string]string `json:"networkModes,omitempty"`
 	// One-shot volume attachment: mount the named volume at VolumePath.
 	Volume     string `json:"volume,omitempty"`
 	VolumePath string `json:"volumePath,omitempty"`
@@ -90,7 +95,15 @@ func (s *server) handleStacksList(w http.ResponseWriter, r *http.Request) {
 		} else {
 			nameIfaces(atts)
 		}
-		row := stackWithStatus{Stack: st, Status: status, Networks: atts, NetworkMode: composepkg.NetworkMode(st.Compose)}
+		svcs := stackServices(st, status)
+		row := stackWithStatus{Stack: st, Status: status, Networks: atts,
+			NetworkMode: composepkg.NetworkMode(st.Compose),
+			Services:    svcs,
+			LinkHost:    linkHost(svcs, ownAddress)}
+		// The legacy single-network fields. With per-service networking they
+		// are an arbitrary pick among several, so nothing new should read them
+		// -- Services carries the truth, and LinkHost the one answer the UI
+		// needs. Kept because older clients still ask for them.
 		if len(atts) > 0 {
 			row.Network, row.NetworkIP, row.NetworkMAC = atts[0].Network, atts[0].IP, atts[0].MAC
 			row.OwnAddress = ownAddress(atts[0].Network)
@@ -251,6 +264,7 @@ func (s *server) stackDetail(w http.ResponseWriter, r *http.Request, name string
 	} else {
 		nameIfaces(atts)
 	}
+	svcs := stackServices(st, status)
 	net, ip, mac := "", "", ""
 	own := false
 	if len(atts) > 0 {
@@ -259,7 +273,7 @@ func (s *server) stackDetail(w http.ResponseWriter, r *http.Request, name string
 	}
 	json.NewEncoder(w).Encode(stackWithStatus{
 		Stack: st, Status: status, Network: net, NetworkIP: ip, NetworkMAC: mac,
-		Networks: atts, OwnAddress: own,
+		Networks: atts, OwnAddress: own, Services: svcs, LinkHost: linkHost(svcs, ownAddress),
 		// A stack on a mode has no attachments, which on its own is
 		// indistinguishable from one on the bridge publishing ports.
 		NetworkMode:      composepkg.NetworkMode(st.Compose),
@@ -402,22 +416,27 @@ func (s *server) stackSave(w http.ResponseWriter, r *http.Request, name string) 
 	composeYAML := composepkg.DropTopLevelKey(payload.Compose, "name")
 	// The built-ins are states, not networks to attach to: "bridge" is what a
 	// stack gets by asking for nothing, "none" is no network at all.
-	if payload.Network == composepkg.None {
+	// A per-service answer is the whole answer and is read BEFORE the
+	// stack-wide built-ins. Read the other way, a stack sitting on "host" had
+	// HostNetwork() re-apply host to every service and throw the table away --
+	// the same trap the install path had, which is why the shape is the same.
+	perSvcSave := len(payload.Networks) > 0 || len(payload.NetworkModes) > 0
+	if !perSvcSave && payload.Network == composepkg.None {
 		disabled, err := composepkg.DisableNetwork(composeYAML)
 		if err != nil {
 			http.Error(w, "disable network: "+err.Error(), 400)
 			return
 		}
 		composeYAML = disabled
-	} else if payload.Network == composepkg.Host {
+	} else if !perSvcSave && payload.Network == composepkg.Host {
 		hosted, err := composepkg.HostNetwork(composeYAML)
 		if err != nil {
 			http.Error(w, "host network: "+err.Error(), 400)
 			return
 		}
 		composeYAML = hosted
-	} else if payload.Network == composepkg.Bridge ||
-		(payload.Networks != nil && len(payload.Networks) == 0) {
+	} else if !perSvcSave && (payload.Network == composepkg.Bridge ||
+		(payload.Networks != nil && len(payload.Networks) == 0)) {
 		// An explicit empty list, or "bridge": back to publishing on the host.
 		detached, err := composepkg.DetachNetworks(composeYAML)
 		if err != nil {
@@ -425,12 +444,29 @@ func (s *server) stackSave(w http.ResponseWriter, r *http.Request, name string) 
 			return
 		}
 		composeYAML = detached
-	} else if atts := payload.attachments(); len(atts) > 0 {
+	} else if atts := payload.attachments(); len(atts) > 0 || len(payload.NetworkModes) > 0 {
 		eng := payload.Engine
 		if eng == "" {
 			if existing, err := s.manager.Get(name); err == nil {
 				eng = existing.EngineName()
 			}
+		}
+		// "private" is a spec, not a name: it means this stack's own segment,
+		// which may not exist yet. Same resolution the install path does, so
+		// picking it here and picking it there mean the same thing.
+		var svcNames []string
+		for _, svc := range composepkg.ParseServices(composeYAML, envMap(payload.Env)) {
+			svcNames = append(svcNames, svc.Name)
+		}
+		resolved, modes, planErr := planServiceNetworks(r.Context(), nil, atts, svcNames,
+			func() (string, error) { return s.ensurePrivateNetwork(r.Context(), eng, name) })
+		if planErr != nil {
+			http.Error(w, "network: "+planErr.Error(), 400)
+			return
+		}
+		atts = resolved
+		for svc, m := range payload.NetworkModes {
+			modes[svc] = m
 		}
 		for _, a := range atts {
 			if msg := s.networkUnusable(r.Context(), eng, a.Network); msg != "" {
@@ -442,12 +478,37 @@ func (s *server) stackSave(w http.ResponseWriter, r *http.Request, name string) 
 			http.Error(w, msg, 400)
 			return
 		}
-		injected, err := composepkg.InjectNetworks(composeYAML, atts)
+		if len(atts) > 0 {
+			injected, err := composepkg.InjectNetworks(composeYAML, atts)
+			if err != nil {
+				http.Error(w, "network attach: "+err.Error(), 400)
+				return
+			}
+			composeYAML = injected
+		}
+		// Modes after: InjectNetworks clears the mode of anything it attaches,
+		// so setting them first would undo the ones meant to stay.
+		if len(modes) > 0 {
+			moded, err := composepkg.SetServiceModes(composeYAML, modes)
+			if err != nil {
+				http.Error(w, "network mode: "+err.Error(), 400)
+				return
+			}
+			composeYAML = moded
+		}
+		// A service left only on this stack's private segment is reachable
+		// from this host and nowhere else, so it keeps its published ports.
+		republished, err := composepkg.RepublishPorts(composeYAML, privateOnlyServices(atts, privateNetworkName(name)))
 		if err != nil {
-			http.Error(w, "network attach: "+err.Error(), 400)
+			http.Error(w, "network: "+err.Error(), 400)
 			return
 		}
-		composeYAML = injected
+		composeYAML = republished
+		// The parts can no longer find each other at localhost once they hold
+		// separate addresses. Install rewrites these; save did not, so moving
+		// a stack off the host's stack left DB_HOSTNAME=localhost and the app
+		// came up unable to reach its own database.
+		payload.Env = rewriteHostnames(payload.Env, s.appHostnames(r.Context(), name), atts, modes)
 	}
 	// A director stack's networking is the director's, and nothing was
 	// regenerating it on save: the Resources tab edited a compose appjail does
@@ -521,6 +582,16 @@ func (s *server) stackSave(w http.ResponseWriter, r *http.Request, name string) 
 	if err := s.manager.Save(st); err != nil {
 		http.Error(w, err.Error(), 500)
 		return
+	}
+	// Save has just written the director; the templates it references need
+	// their networked variants next to it. Done here rather than only at
+	// install so a stack installed before this existed gets them the first
+	// time it is saved -- which is the save that puts it on a network.
+	if st.Director != "" && st.Dir != "" {
+		if err := ensureNetTemplates(st.Dir, st.Director); err != nil {
+			http.Error(w, "jail templates: "+err.Error(), 500)
+			return
+		}
 	}
 	if created {
 		eng := payload.Engine
@@ -600,6 +671,16 @@ func (s *server) stackSetTag(w http.ResponseWriter, r *http.Request, name string
 		}
 	}
 	st.Compose = newCompose
+	// And where appjail will read it. Setting only the compose left the jail
+	// on whatever ${tag} defaults to, so the version on screen and the version
+	// running were different numbers.
+	if st.Director != "" {
+		st.Director, err = setDirectorTag(st.Director, body.Tag)
+		if err != nil {
+			http.Error(w, "director tag: "+err.Error(), 500)
+			return
+		}
+	}
 	if err := s.manager.Save(st); err != nil {
 		http.Error(w, err.Error(), 500)
 		return

@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -103,16 +104,16 @@ func TestEpairName(t *testing.T) {
 		"!!!":                      "fjord",
 	}
 	for in, want := range cases {
-		if got := epairName(in, "", 0); got != want {
+		if got := epairName(in, "", 0, 0); got != want {
 			t.Errorf("epairName(%q) = %q, want %q", in, got, want)
 		}
 	}
 	for in := range cases {
-		got := epairName(in, "", 0)
+		got := epairName(in, "", 0, 0)
 		if len("sb_"+got) > 15 {
 			t.Errorf("sb_%s exceeds IFNAMSIZ", got)
 		}
-		if got != epairName(in, "", 0) {
+		if got != epairName(in, "", 0, 0) {
 			t.Errorf("epairName(%q) is not deterministic", in)
 		}
 	}
@@ -151,14 +152,14 @@ func TestSetDirectorNetworksTwo(t *testing.T) {
 // Each network gets its own wire, and the first keeps the bare name so
 // existing stacks are unchanged.
 func TestEpairNameIndexed(t *testing.T) {
-	if got := epairName("zensical", "", 0); got != "zensical" {
+	if got := epairName("zensical", "", 0, 0); got != "zensical" {
 		t.Errorf("first epair should keep the bare name, got %q", got)
 	}
-	if got := epairName("zensical", "", 1); got != "zensical1" {
+	if got := epairName("zensical", "", 0, 1); got != "zensical1" {
 		t.Errorf("second epair should be suffixed, got %q", got)
 	}
 	// "sb_" + name must still fit IFNAMSIZ.
-	long := epairName("averylongstackname", "", 2)
+	long := epairName("averylongstackname", "", 0, 2)
 	if len(long) > ifaceMax || !strings.HasSuffix(long, "2") {
 		t.Errorf("long name not trimmed around its suffix: %q", long)
 	}
@@ -170,7 +171,7 @@ func TestEpairNameIndexed(t *testing.T) {
 func TestEpairNameNoCollisionOnLongNumericID(t *testing.T) {
 	seen := map[string]int{}
 	for i := 0; i < 3; i++ {
-		seen[epairName("101sonarrxyz", "", i)]++
+		seen[epairName("101sonarrxyz", "", 0, i)]++
 	}
 	if len(seen) != 3 {
 		t.Fatalf("names collided: %v", seen)
@@ -296,5 +297,36 @@ func TestSetDirectorNetworksPinNeedsOneService(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "address of its own") {
 		t.Errorf("error should say why: %v", err)
+	}
+}
+
+// immich's immich-server and immich-machine-learning differ only past the
+// twelfth character, which is where the name has to be cut to fit IFNAMSIZ.
+// Both trimmed to "immichimmich": the first jail took sb_immichimmich into its
+// vnet and the second failed to start with "interface sb_immichimmich does not
+// exist" -- the per-project epair bug again, one level down.
+func TestEpairNamePerServiceNoCollision(t *testing.T) {
+	services := []string{"immich-server", "immich-machine-learning", "redis", "database"}
+	seen := map[string]string{}
+	for i, svc := range services {
+		for n := 0; n < 2; n++ {
+			name := epairName("immich", svc, i, n)
+			if len(name) > ifaceMax {
+				t.Errorf("%q is longer than IFNAMSIZ allows (%d)", name, ifaceMax)
+			}
+			key := svc + "/" + strconv.Itoa(n)
+			if prev, dup := seen[name]; dup {
+				t.Errorf("%s and %s both got %q", prev, key, name)
+			}
+			seen[name] = key
+		}
+	}
+}
+
+// A one-service stack keeps the name it already has on disk and in its jail:
+// the service index is only added when there is something to tell apart.
+func TestEpairNameSingleServiceUnchanged(t *testing.T) {
+	if got := epairName("zensical", "", 0, 0); got != "zensical" {
+		t.Errorf("single-service epair changed name to %q", got)
 	}
 }

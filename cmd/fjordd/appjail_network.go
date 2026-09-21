@@ -32,7 +32,7 @@ const ifaceMax = 12
 // `epair:<stack>`, which works only while the project has one jail: with four,
 // the first takes sb_<stack> into its vnet and the rest fail to start with
 // "interface sb_<stack> does not exist". Each jail needs its own epair.
-func epairName(stackID, service string, n int) string {
+func epairName(stackID, service string, svcIdx, n int) string {
 	if service != "" {
 		stackID = stackID + service
 	}
@@ -53,11 +53,22 @@ func epairName(stackID, service string, n int) string {
 	if name[0] >= '0' && name[0] <= '9' {
 		name = "j" + name
 	}
-	// Each network needs its own epair, so the second and later ones carry a
-	// suffix. The first keeps the bare name: it is what existing stacks have.
+	// The suffix is what makes the name unique; the letters before it are only
+	// there to be recognisable. Both indices are in it, because both can
+	// collide once the name is trimmed to fit: immich's immich-server and
+	// immich-machine-learning are twenty-odd characters that differ late and
+	// both trim to "immichimmich", so the second jail started looking for an
+	// interface the first had already taken into its vnet -- "interface
+	// sb_immichimmich does not exist", with the app blamed for it.
+	//
+	// A single-service stack takes neither index: its bare name is what every
+	// existing stack has on disk and in its jail.
 	suffix := ""
+	if service != "" {
+		suffix = strconv.Itoa(svcIdx)
+	}
 	if n > 0 {
-		suffix = strconv.Itoa(n)
+		suffix += strconv.Itoa(n)
 	}
 	if len(name)+len(suffix) > ifaceMax {
 		name = name[:ifaceMax-len(suffix)]
@@ -95,7 +106,41 @@ func setDirectorNetworks(ctx context.Context, directorYML, stackID string, atts 
 	if len(names) == 0 {
 		return "", fmt.Errorf("director has no services to put on a network")
 	}
+	// Per-service mode as soon as any attachment names a service. The whole
+	// point is that services differ -- immich-server on the LAN, its database
+	// on a segment only it can reach -- so the "one address, N jails" rules
+	// below do not apply: each service names its own.
+	perService := false
+	for _, a := range atts {
+		if a.Service != "" {
+			perService = true
+			break
+		}
+	}
+	if perService {
+		if err := checkAttachmentServices(atts, names); err != nil {
+			return "", err
+		}
+	}
+	// A jail template is the third place host networking is expressed, after
+	// the project's options and the service's. Attaching a network makes the
+	// jail vnet, and a vnet jail may not have `ip4:`/`ip6:` set at all --
+	// "vnet jails cannot have IP address restrictions", which is immich's
+	// database jail not starting while its three templateless siblings do.
+	//
+	// A template named by the PROJECT applies to every jail, and once they no
+	// longer agree -- one on the host's stack, three on a network -- one file
+	// cannot serve both. Each service takes its own copy, which is the same
+	// thing said per jail, and each is then pointed at the right variant.
+	pushDownProjectTemplate(root, names)
 	for si, service := range names {
+		mine := attachmentsFor(atts, service)
+		// A service no attachment names is LEFT ALONE, not detached. A payload
+		// that mentions only immich-server would otherwise silently strip the
+		// other three off their network, which looks like the app breaking.
+		if len(mine) == 0 {
+			continue
+		}
 		// One service keeps the bare stack id, which is what every existing
 		// stack already has on disk and in its jail. Only a project with
 		// several needs them told apart.
@@ -103,12 +148,23 @@ func setDirectorNetworks(ctx context.Context, directorYML, stackID string, atts 
 		if len(names) > 1 {
 			qualifier = service
 		}
-		opts, err := attachOptions(ctx, stackID, qualifier, atts, si == 0, len(names))
+		// In per-service mode every service holds its own addresses, so each
+		// is "first" for its own list and shares them with nobody.
+		first, nsvc := si == 0, len(names)
+		if perService {
+			first, nsvc = true, 1
+		}
+		opts, err := attachOptions(ctx, stackID, qualifier, si, mine, first, nsvc)
 		if err != nil {
-			return "", err
+			return "", fmt.Errorf("%s: %w", service, err)
 		}
 		svc := directorService(root, service)
 		setServiceOptions(svc, mergeServiceOptions(svc, opts))
+		// This service is vnet now, so its template must be the variant with
+		// no ip4/ip6. Only THIS service: one left on the host's stack still
+		// needs the ip4 its template sets, and handing it the variant gives it
+		// ip4=disable and a jail that binds nothing.
+		retargetTemplates(svc, true)
 	}
 	// The project keeps none of it: a networking option here would override
 	// what each service just declared (appjail applies the project's `alias`
@@ -130,7 +186,7 @@ func setDirectorNetworks(ctx context.Context, directorYML, stackID string, atts 
 // service that carries a pinned address and the default route; nsvc is how
 // many services share these networks, which decides whether a pin is even
 // expressible.
-func attachOptions(ctx context.Context, stackID, service string, atts []composepkg.Attachment, first bool, nsvc int) (*yaml.Node, error) {
+func attachOptions(ctx context.Context, stackID, service string, svcIdx int, atts []composepkg.Attachment, first bool, nsvc int) (*yaml.Node, error) {
 	var kvs [][2]string
 	bpf := false
 	seen := map[string]bool{}
@@ -157,7 +213,7 @@ func attachOptions(ctx context.Context, stackID, service string, atts []composep
 			// appjail validates it against the network's CIDR and against
 			// every other jail's reservation, so there is nothing to check
 			// here that it does not check better.
-			vn := a.Network + ":" + epairName(stackID, service, i)
+			vn := a.Network + ":" + epairName(stackID, service, svcIdx, i)
 			if a.IP != "" && !first {
 				a.IP = "" // appjail allocates this jail's address from the network
 			}
@@ -222,7 +278,7 @@ func attachOptions(ctx context.Context, stackID, service string, atts []composep
 		}
 		onBridge[net.Bridge] = a.Network
 
-		iface := epairName(stackID, service, i)
+		iface := epairName(stackID, service, svcIdx, i)
 		kvs = append(kvs, [2]string{"bridge", fmt.Sprintf("epair:%s bridge:%s", iface, net.Bridge)})
 		// DHCP or a fixed address is a per-stack choice, not a property of the
 		// network: the wire is the same either way, and so is the mechanism --
@@ -268,6 +324,83 @@ func attachOptions(ctx context.Context, stackID, service string, atts []composep
 		})
 	}
 	return opts, nil
+}
+
+// pushDownProjectTemplate copies a project-level `template:` option into every
+// service that has none of its own and removes it from the project. appjail
+// applies a project template to every jail, so this says the same thing -- but
+// per service, which is what lets each be pointed at the variant it needs.
+func pushDownProjectTemplate(root *yaml.Node, names []string) {
+	opts := mapKey(root, "options")
+	if opts == nil || opts.Kind != yaml.SequenceNode {
+		return
+	}
+	var tmpl *yaml.Node
+	kept := &yaml.Node{Kind: yaml.SequenceNode}
+	for _, item := range opts.Content {
+		if item.Kind == yaml.MappingNode && len(item.Content) >= 2 && item.Content[0].Value == "template" {
+			tmpl = item
+			continue
+		}
+		kept.Content = append(kept.Content, item)
+	}
+	if tmpl == nil {
+		return
+	}
+	setDirectorOptions(root, kept)
+	for _, name := range names {
+		svc := directorService(root, name)
+		if svc == nil {
+			continue
+		}
+		has := false
+		forEachTemplateOption(svc, func(*yaml.Node) { has = true })
+		if has {
+			continue
+		}
+		copied := &yaml.Node{Kind: yaml.MappingNode, Content: []*yaml.Node{
+			{Kind: yaml.ScalarNode, Value: "template"},
+			{Kind: tmpl.Content[1].Kind, Tag: tmpl.Content[1].Tag,
+				Style: tmpl.Content[1].Style, Value: tmpl.Content[1].Value},
+		}}
+		cur := mapKey(svc, "options")
+		out := &yaml.Node{Kind: yaml.SequenceNode}
+		if cur != nil && cur.Kind == yaml.SequenceNode {
+			out.Content = append(out.Content, cur.Content...)
+		}
+		out.Content = append(out.Content, copied)
+		setServiceOptions(svc, out)
+	}
+}
+
+// attachmentsFor is the attachments that apply to one service: those naming it,
+// plus those naming no service at all (which mean "every service").
+func attachmentsFor(atts []composepkg.Attachment, service string) []composepkg.Attachment {
+	var out []composepkg.Attachment
+	for _, a := range atts {
+		if a.Service == "" || a.Service == service {
+			a.Service = ""
+			out = append(out, a)
+		}
+	}
+	return out
+}
+
+// checkAttachmentServices refuses an attachment for a service the director does
+// not have. Silently dropping it puts the jail on nothing and reads as the
+// network being broken, which is a long way from the typo that caused it.
+func checkAttachmentServices(atts []composepkg.Attachment, names []string) error {
+	have := make(map[string]bool, len(names))
+	for _, n := range names {
+		have[n] = true
+	}
+	for _, a := range atts {
+		if a.Service != "" && !have[a.Service] {
+			return fmt.Errorf("this stack has no service named %q -- it has %s",
+				a.Service, strings.Join(names, ", "))
+		}
+	}
+	return nil
 }
 
 // directorServiceNames lists a project's services in document order.
@@ -440,6 +573,19 @@ func clearDirectorNetworks(directorYML string) (string, error) {
 		})
 	}
 	setDirectorOptions(root, mergeDirectorOptions(root, def))
+	// And the services give theirs back. setDirectorNetworks writes an epair
+	// and an address into each one, and a project-level default cannot
+	// override an option a service still carries -- so a stack taken off its
+	// network kept trying to attach to it, on a bridge fjord no longer thinks
+	// it uses.
+	for _, name := range directorServiceNames(root) {
+		svc := directorService(root, name)
+		if mapKey(svc, "options") == nil {
+			continue
+		}
+		setServiceOptions(svc, mergeServiceOptions(svc, &yaml.Node{Kind: yaml.SequenceNode}))
+	}
+	retargetTemplates(root, false)
 
 	var sb strings.Builder
 	enc := yaml.NewEncoder(&sb)
@@ -462,14 +608,53 @@ func clearDirectorNetworks(directorYML string) (string, error) {
 // The link back to a network name is the bridge: the epair name encodes the
 // interface index, not which network it joined.
 func directorAttachments(directorYML string) []composepkg.Attachment {
+	project, perSvc, order := directorAttachmentsByService(directorYML)
+	// Every jail on a network has an epair of its own, so the same network
+	// appears once per service. This is a list of NETWORKS, and the first
+	// entry for one is the jail that carries the pinned address (the rest
+	// take a lease), so a repeat is dropped rather than shown as another
+	// network.
+	var out []composepkg.Attachment
+	seen := map[string]bool{}
+	for _, att := range project {
+		if att.Network == "" || !seen[att.Network] {
+			seen[att.Network] = true
+			out = append(out, att)
+		}
+	}
+	for _, name := range order {
+		for _, att := range perSvc[name] {
+			if att.Network != "" && seen[att.Network] {
+				continue
+			}
+			seen[att.Network] = true
+			att.Service = ""
+			out = append(out, att)
+		}
+	}
+	return out
+}
+
+// directorAttachmentsByService reads back the networks a director bundle puts
+// its jails on, keeping which service each belongs to.
+//
+// For a director stack the director IS the networking truth -- appjail never
+// reads compose.yaml for it -- so the UI has to be built from this rather than
+// from the compose, which otherwise shows four interfaces for a jail that has
+// one.
+//
+// Both levels are read. A stack attached before fjord wrote these per service
+// carries them on the project and has nothing under its services; one attached
+// since has it the other way round.
+func directorAttachmentsByService(directorYML string) (project []composepkg.Attachment, perSvc map[string][]composepkg.Attachment, order []string) {
+	perSvc = map[string][]composepkg.Attachment{}
 	var doc yaml.Node
 	if yaml.Unmarshal([]byte(directorYML), &doc) != nil || len(doc.Content) == 0 {
-		return nil
+		return nil, perSvc, nil
 	}
-	opts := mapKey(doc.Content[0], "options")
-	if opts == nil || opts.Kind != yaml.SequenceNode {
-		return nil
-	}
+	root := doc.Content[0]
+	// The link back to a network name is the bridge: the epair name encodes
+	// the interface index, not which network it joined.
 	byBridge := map[string]string{}
 	for _, d := range hostnet.List() {
 		if d.Bridge != "" {
@@ -477,6 +662,23 @@ func directorAttachments(directorYML string) []composepkg.Attachment {
 				byBridge[d.Bridge] = d.Name
 			}
 		}
+	}
+	project = parseNetOptions(mapKey(root, "options"), byBridge, "")
+	order = directorServiceNames(root)
+	for _, name := range order {
+		if atts := parseNetOptions(mapKey(directorService(root, name), "options"), byBridge, name); len(atts) > 0 {
+			perSvc[name] = atts
+		}
+	}
+	return project, perSvc, order
+}
+
+// parseNetOptions turns one director options list into the attachments it
+// describes. ifconfig and macaddr name an epair written by an earlier entry in
+// the same list, so they are matched by interface rather than by position.
+func parseNetOptions(opts *yaml.Node, byBridge map[string]string, service string) []composepkg.Attachment {
+	if opts == nil || opts.Kind != yaml.SequenceNode {
+		return nil
 	}
 	var out []composepkg.Attachment
 	byIface := map[string]int{}
@@ -500,19 +702,21 @@ func directorAttachments(directorYML string) []composepkg.Attachment {
 				continue
 			}
 			byIface[iface] = len(out)
-			out = append(out, composepkg.Attachment{Network: byBridge[br], Iface: "sb_" + iface})
+			out = append(out, composepkg.Attachment{
+				Network: byBridge[br], Service: service, Iface: "sb_" + iface})
 		case "virtualnet":
 			// `<network>:<iface> [default] [address:<ip>]`. An empty network
 			// name is appjail's own default NAT -- the bridge state, not a
-			// network anyone attached to -- so it is skipped. Without this
-			// case a stack on a named virtual network reported no networks at
-			// all and read as though it were on the default bridge.
+			// network anyone attached to -- so it is skipped. Without this a
+			// stack on a named virtual network reported no networks at all
+			// and read as though it were on the default bridge.
 			netName, rest, _ := strings.Cut(val, ":")
 			if netName == "" {
 				continue
 			}
 			iface, _, _ := strings.Cut(rest, " ")
-			att := composepkg.Attachment{Network: netName, Iface: "eb_" + iface}
+			att := composepkg.Attachment{
+				Network: netName, Service: service, Iface: "eb_" + iface}
 			for _, f := range strings.Fields(rest) {
 				if v, ok := strings.CutPrefix(f, "address:"); ok {
 					att.IP = v

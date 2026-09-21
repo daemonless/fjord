@@ -3,6 +3,8 @@ package main
 import (
 	"reflect"
 	"testing"
+
+	composepkg "github.com/daemonless/fjord/pkg/compose"
 )
 
 func TestApplyPathLists(t *testing.T) {
@@ -75,5 +77,58 @@ func TestUniqueSubfolders(t *testing.T) {
 	got = uniqueSubfolders([][]string{{"a"}, {"a"}, {"a"}})
 	if !reflect.DeepEqual(got, []string{"a", "a-2", "a-3"}) {
 		t.Fatalf("numeric fallback: %v", got)
+	}
+}
+
+// The wizard sends its chosen network AND the per-service rows. The rows win:
+// when the chosen one was a built-in, reading Network first put every service
+// on the host's stack, threw the plan away, and reported success.
+func TestInstallRequestNetworkAction(t *testing.T) {
+	perSvc := []composepkg.Attachment{
+		{Network: "lan", Service: "immich-server"},
+		{Network: "private", Service: "database"},
+	}
+	for name, tc := range map[string]struct {
+		req  installRequest
+		want string
+	}{
+		"nothing asked":         {installRequest{}, netActionNothing},
+		"stack-wide none":       {installRequest{Network: "none"}, netActionNone},
+		"stack-wide host":       {installRequest{Network: "host"}, netActionHost},
+		"stack-wide network":    {installRequest{Network: "lan"}, netActionAttach},
+		"per-service rows":      {installRequest{Networks: perSvc}, netActionAttach},
+		"modes with no rows":    {installRequest{NetworkModes: map[string]string{"web": "host"}}, netActionAttach},
+		"rows beat host":        {installRequest{Network: "host", Networks: perSvc}, netActionAttach},
+		"rows beat none":        {installRequest{Network: "none", Networks: perSvc}, netActionAttach},
+		"rows beat a named net": {installRequest{Network: "lan", Networks: perSvc}, netActionAttach},
+	} {
+		if got := tc.req.networkAction(); got != tc.want {
+			t.Errorf("%s: networkAction() = %q, want %q", name, got, tc.want)
+		}
+	}
+}
+
+// An install that lists its interfaces per service has already had the app's
+// declaration applied -- the wizard resolved it on screen and the operator
+// edited it. Re-applying it here dropped the service whose spec is "default":
+// that spec matches a stack-wide network, and there is none, so immich-server
+// kept `network_mode: host` while the rest of the stack moved to the private
+// segment. The install then failed pre-flight on a port it could not bind.
+func TestInstallNetworkPlan(t *testing.T) {
+	declared := map[string]string{"immich-server": "default", "*": "private"}
+	rows := []composepkg.Attachment{{Network: "private", Service: "immich-server"}}
+
+	if got := installNetworkPlan(installRequest{}, declared); len(got) != 2 {
+		t.Errorf("no answer in the request: got %v, want the app's own declaration", got)
+	}
+	if got := installNetworkPlan(installRequest{NetworkPlan: map[string]string{"web": "lan"}}, declared); got["web"] != "lan" {
+		t.Errorf("an explicit plan must win over the manifest's: got %v", got)
+	}
+	if got := installNetworkPlan(installRequest{Networks: rows}, declared); got != nil {
+		t.Errorf("a per-service list must apply no plan at all: got %v", got)
+	}
+	// Both: the list is the later, more specific answer.
+	if got := installNetworkPlan(installRequest{Networks: rows, NetworkPlan: declared}, declared); got != nil {
+		t.Errorf("a per-service list must win over a plan too: got %v", got)
 	}
 }
