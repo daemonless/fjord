@@ -147,3 +147,20 @@ func replaceTag(image, tag string) string {
 	}
 	return ref + ":" + tag
 }
+
+// ImageTag is the tag of an image reference, or "" when it names none.
+//
+// It parses the same way replaceTag writes: a digest is stripped first, and a
+// colon only introduces a tag when it comes after the last slash -- otherwise
+// the colon in "registry:5000/app" reads as one.
+func ImageTag(image string) string {
+	ref := image
+	if at := strings.LastIndex(ref, "@"); at >= 0 {
+		ref = ref[:at]
+	}
+	slash := strings.LastIndex(ref, "/")
+	if colon := strings.LastIndex(ref, ":"); colon > slash {
+		return ref[colon+1:]
+	}
+	return ""
+}
