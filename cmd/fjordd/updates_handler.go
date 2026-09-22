@@ -8,20 +8,37 @@ import (
 	"time"
 
 	composepkg "github.com/daemonless/fjord/pkg/compose"
+	"github.com/daemonless/fjord/pkg/engine"
 	"github.com/daemonless/fjord/pkg/stack"
 	"github.com/daemonless/fjord/pkg/updates"
 )
 
-// resolvedImages returns a stack's service images with ${VAR}s expanded
-// against its .env -- refs like "immich-server:${IMMICH_TAG:-latest}" are
-// unresolvable at the registry otherwise and reported update state "unknown".
-func resolvedImages(st *stack.Stack) []string {
-	images, _ := composepkg.ServiceImages(st.Compose)
+// updateServices is a stack's services as the update check needs them: each
+// image with its ${VAR}s expanded against the .env -- refs like
+// "immich-server:${IMMICH_TAG:-latest}" are unresolvable at the registry
+// otherwise -- and the digest its container is actually running.
+//
+// An engine that cannot report running images leaves Running empty, and the
+// check falls back to comparing the local tag.
+func (s *server) updateServices(ctx context.Context, st *stack.Stack) []updates.Service {
+	list, _ := composepkg.ServiceImageList(st.Compose)
 	env := st.EnvMap()
-	for i := range images {
-		images[i] = composepkg.ExpandEnv(images[i], env)
+	running := map[string]engine.RunningImage{}
+	if ris, err := s.backendFor(st).RunningImages(ctx, st); err == nil {
+		for _, ri := range ris {
+			running[ri.Service] = ri
+		}
 	}
-	return images
+	out := make([]updates.Service, 0, len(list))
+	for _, si := range list {
+		out = append(out, updates.Service{
+			Name:    si.Service,
+			Image:   composepkg.ExpandEnv(si.Image, env),
+			Running: running[si.Service].Digest,
+			Known:   running[si.Service].Digests,
+		})
+	}
+	return out
 }
 
 // fleetUpdates is a cached fleet-wide update check. Registry lookups are slow
@@ -73,14 +90,9 @@ func (s *server) refreshFleet() {
 			if err != nil {
 				continue
 			}
-			images := resolvedImages(full)
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-			status, err := updates.Check(ctx, s.backendFor(full), images, s.schemeFor)
+			results[st.Name] = updates.Check(ctx, s.backendFor(full), s.updateServices(ctx, full), s.schemeFor)
 			cancel()
-			if err != nil {
-				status = updates.Status{State: "unknown"}
-			}
-			results[st.Name] = status
 		}
 	}
 	s.fleet.mu.Lock()

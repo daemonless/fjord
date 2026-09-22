@@ -630,6 +630,13 @@ func (b *Backend) UsedPorts(ctx context.Context) (map[string]string, error) {
 	return map[string]string{}, nil
 }
 
+// RunningImages is not known for jails yet: whether a jail records the image
+// digest it was built from is unverified, so the update check keeps comparing
+// the local tag, as it did before.
+func (b *Backend) RunningImages(context.Context, *stack.Stack) ([]engine.RunningImage, error) {
+	return nil, nil
+}
+
 // ImageRepoDigests reads a local image's digest from `buildah images`, which
 // reports the digest the image was pulled by -- the index digest for a
 // multi-arch tag, i.e. what the registry reports for the tag and what the

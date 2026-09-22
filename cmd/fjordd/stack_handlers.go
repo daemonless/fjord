@@ -367,14 +367,9 @@ func (s *server) stackUpdateCheck(w http.ResponseWriter, name string) {
 		http.Error(w, "Stack not found", 404)
 		return
 	}
-	images := resolvedImages(st)
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	status, err := updates.Check(ctx, s.backendFor(st), images, s.schemeFor)
-	if err != nil {
-		http.Error(w, err.Error(), 502)
-		return
-	}
+	status := updates.Check(ctx, s.backendFor(st), s.updateServices(ctx, st), s.schemeFor)
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(status)
 }

@@ -65,6 +65,9 @@ func (u unavailable) PruneCapabilities() PruneCapabilities                 { ret
 func (u unavailable) Prune(context.Context, PruneOptions) (PruneReport, error) {
 	return PruneReport{}, u.err()
 }
-func (u unavailable) ImageRepoDigests(context.Context, string) ([]string, error)  { return nil, u.err() }
+func (u unavailable) ImageRepoDigests(context.Context, string) ([]string, error) { return nil, u.err() }
+func (u unavailable) RunningImages(context.Context, *stack.Stack) ([]RunningImage, error) {
+	return nil, u.err()
+}
 func (u unavailable) Capabilities() Capabilities                                  { return Capabilities{} }
 func (u unavailable) StoreSMBCredentials(server, username, password string) error { return u.err() }

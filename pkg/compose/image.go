@@ -51,6 +51,27 @@ func SetImageTag(composeYAML, tag string) (string, error) {
 // update detection, which must consider all of a stack's images (Update pulls
 // them all), not just the first.
 func ServiceImages(composeYAML string) ([]string, error) {
+	svcs, err := ServiceImageList(composeYAML)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]string, len(svcs))
+	for i, si := range svcs {
+		out[i] = si.Image
+	}
+	return out, nil
+}
+
+// ServiceImage is one service and the image it names.
+type ServiceImage struct {
+	Service string
+	Image   string
+}
+
+// ServiceImageList is ServiceImages with the service each image belongs to --
+// what an update check needs to say WHICH part of a stack is behind. Services
+// without an image (build-only) are left out.
+func ServiceImageList(composeYAML string) ([]ServiceImage, error) {
 	var doc yaml.Node
 	if err := yaml.Unmarshal([]byte(composeYAML), &doc); err != nil {
 		return nil, fmt.Errorf("parse compose: %w", err)
@@ -62,14 +83,14 @@ func ServiceImages(composeYAML string) ([]string, error) {
 	if services == nil || services.Kind != yaml.MappingNode {
 		return nil, nil
 	}
-	var out []string
+	var out []ServiceImage
 	for i := 1; i < len(services.Content); i += 2 {
 		svc := services.Content[i]
 		if svc.Kind != yaml.MappingNode {
 			continue
 		}
 		if img := mapGet(svc, "image"); img != nil && img.Kind == yaml.ScalarNode && img.Value != "" {
-			out = append(out, img.Value)
+			out = append(out, ServiceImage{Service: services.Content[i-1].Value, Image: img.Value})
 		}
 	}
 	return out, nil

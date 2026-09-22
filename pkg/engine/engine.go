@@ -487,6 +487,10 @@ type Backend interface {
 	// registry reports for the tag -- so it's the digest to compare against for
 	// update detection. Compare against RepoDigests, never the per-arch .Digest.
 	ImageRepoDigests(ctx context.Context, ref string) ([]string, error)
+	// RunningImages reports the image each of a stack's services was created
+	// from. nil when the engine cannot say, and update checks then fall back to
+	// the local tag -- which is right only until anything else pulls it.
+	RunningImages(ctx context.Context, s *stack.Stack) ([]RunningImage, error)
 	// Capabilities reports optional features (remote volumes, ...) so generic
 	// code branches on a capability, not an engine name.
 	Capabilities() Capabilities
@@ -494,6 +498,22 @@ type Backend interface {
 	// Meaningful only when Capabilities().RemoteVolumes; other engines return
 	// an error.
 	StoreSMBCredentials(server, username, password string) error
+}
+
+// RunningImage is the image one service's container was created from.
+type RunningImage struct {
+	Service string
+	ImageID string
+	// Digest is the registry digest the image was pulled as -- for a
+	// multi-arch image the index digest, which is what a registry reports for
+	// a tag. The container keeps it; the image does not: once a pull moves
+	// the tag, the old image's RepoDigests is empty.
+	Digest string
+	// Digests is every registry digest the running image is known by: Digest
+	// plus the image's RepoDigests while it still has them. One image gathers
+	// several -- a re-pull after an other-arch rebuild adds the new index
+	// digest to the image already here, since its bytes did not change.
+	Digests []string
 }
 
 // HumanBytes formats a byte count the way podman's df does ("35.0GB"), so

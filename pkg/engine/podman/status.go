@@ -16,10 +16,11 @@ import (
 
 // libpodContainer is the subset of the libpod /containers/json response we need.
 type libpodContainer struct {
-	ID       string   `json:"Id"`
-	Names    []string `json:"Names"`
-	State    string   `json:"State"`
-	Networks []string `json:"Networks"`
+	ID       string            `json:"Id"`
+	Names    []string          `json:"Names"`
+	State    string            `json:"State"`
+	Networks []string          `json:"Networks"`
+	Labels   map[string]string `json:"Labels"`
 	Ports    []struct {
 		HostPort      int    `json:"host_port"`
 		ContainerPort int    `json:"container_port"`
