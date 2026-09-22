@@ -417,9 +417,6 @@
     }
     await loadStacks(); // refresh so the sidebar regroups
   }
-  // Number of containers in the selected stack -- the Services list only shows
-  // when there's more than one (single-service stacks are just the header).
-  $: serviceCount = selectedStack?.status?.containers?.length ?? 0;
 
   // Inline confirmation for destructive stack actions (Stop / Delete): a
   // banner under the stack header, not a modal, so the rest of the app stays
@@ -548,9 +545,31 @@
       ? 'Up to date — nothing to pull'
       : updateInfo?.state === 'pinned'
         ? 'Pinned to an exact image — nothing to pull'
-        : updateInfo?.state === 'upgrade'
-          ? `A newer version is published (v${updateInfo.toVersion}) — use Change Version`
+        : updateInfo?.state === 'upgrade' && multiImage
+          ? `A newer version is published (v${updateInfo.toVersion}) — set it in the compose editor`
           : '';
+  // A single-image stack behind by a VERSION: Update takes it there. It used
+  // to be refused ("use Change Version"), so a downgraded stack showed an
+  // update next to a greyed-out Update button. Multi-image stacks cannot be
+  // retagged in one go (set-tag refuses them), so there it stays a note.
+  $: versionStep =
+    updateInfo?.state === 'upgrade' && !multiImage && updateInfo.newTag
+      ? { tag: updateInfo.newTag, from: updateInfo.fromVersion, to: updateInfo.toVersion }
+      : null;
+  async function upgradeTo(name: string, tag: string) {
+    updatePanel = '';
+    const res = await fetch(`/api/stacks/${name}/set-tag`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tag, pin: false }),
+    });
+    if (!res.ok) {
+      toast(`Version change failed: ${(await res.text()).trim()}`, { kind: 'error' });
+      return;
+    }
+    await selectStack({ name } as Stack); // the compose now names the new tag
+    await update(name);
+  }
   const shortDigest = (d?: string) => (d ?? '').replace('sha256:', '').slice(0, 12);
 
   // Whether the operator is still on the stack an action was started from.
@@ -1809,7 +1828,7 @@
                             {shortDigest(s.running) || 'local'} → {shortDigest(s.latest)}
                           {:else if s.state === 'upgrade'}
                             v{s.fromVersion} → v{s.toVersion}
-                            <span class="font-sans text-fjord-fg-dim">(Change Version)</span>
+                            {#if multiImage}<span class="font-sans text-fjord-fg-dim">(set in the compose)</span>{/if}
                           {:else if s.state === 'unknown'}
                             <span class="font-sans text-fjord-fg-dim">{s.detail ?? ''}</span>
                           {/if}
@@ -1821,7 +1840,9 @@
               </div>
               <div class="flex items-center gap-3 mt-3">
                 <span class="flex-1 text-xs text-fjord-fg-dim">
-                  {#if updatable.length && updateInfo.perService}
+                  {#if versionStep}
+                    Switches to {versionStep.tag} and recreates the container.
+                  {:else if updatable.length && updateInfo.perService}
                     Pulls and recreates only {updatable.map((s) => s.service).join(', ')}; the rest keep running.
                   {:else if updatable.length}
                     {updatable.length} of {updateInfo.services?.length ?? 0}
@@ -1838,12 +1859,16 @@
                 >
                 <button
                   on:click={() =>
-                    update(selectedStack!.name, updateInfo?.perService ? updatable.map((s) => s.service) : undefined)}
-                  disabled={!updatable.length || execStatus[selectedStack.name] === 'running'}
+                    versionStep
+                      ? upgradeTo(selectedStack!.name, versionStep.tag)
+                      : update(selectedStack!.name, updateInfo?.perService ? updatable.map((s) => s.service) : undefined)}
+                  disabled={(!updatable.length && !versionStep) || execStatus[selectedStack.name] === 'running'}
                   class="shrink-0 px-3 py-1.5 rounded-lg text-sm font-medium bg-fjord-accent text-white hover:bg-fjord-accent-hover transition-colors disabled:opacity-40"
-                  >{updateInfo.perService && updatable.length
-                    ? `Update ${updatable.length} service${updatable.length === 1 ? '' : 's'}`
-                    : 'Update'}</button
+                  >{versionStep
+                    ? `Update to v${versionStep.to}`
+                    : updateInfo.perService && updatable.length
+                      ? `Update ${updatable.length} service${updatable.length === 1 ? '' : 's'}`
+                      : 'Update'}</button
                 >
               </div>
             {/if}
@@ -2002,33 +2027,6 @@
         </div>
         {/if}
 
-        <!-- Services (only shown when the stack has more than one) -->
-        {#if serviceCount > 1}
-          <div class="mb-4 shrink-0 border border-fjord-border rounded-xl overflow-hidden">
-            <div class="bg-fjord-border/40 px-4 py-2 text-xs font-semibold text-fjord-fg-secondary">Services</div>
-            <div class="divide-y divide-fjord-border">
-              {#each selectedStack.status?.containers ?? [] as c}
-                <div class="flex items-center gap-3 px-4 py-2 text-sm">
-                  <span class="w-2 h-2 rounded-full shrink-0 {DOT[c.state === 'running' ? 'running' : 'stopped']}"></span>
-                  <span class="text-fjord-fg-body">{c.name}</span>
-                  <span class="text-fjord-fg-dim text-xs">{c.state}</span>
-                  {#if c.service && svcUpdates[c.service]}
-                    {@const u = svcUpdates[c.service]}
-                    <button
-                      on:click={() => openUpdatePanel(selectedStack!.name)}
-                      title="See what an update would change"
-                      class="ml-auto inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-fjord-warning/15 text-fjord-warning border border-fjord-warning/30 hover:bg-fjord-warning/25"
-                      ><Icon name="arrow-up" size={10} />{u.state === 'upgrade'
-                        ? `${u.fromVersion ? `v${u.fromVersion} → ` : ''}v${u.toVersion}`
-                        : 'update'}</button
-                    >
-                  {/if}
-                </div>
-              {/each}
-            </div>
-          </div>
-        {/if}
-
         <!-- Editor + tabs -->
         <div class="flex-1 flex flex-col bg-fjord-card border border-fjord-border rounded-xl shadow-xl overflow-hidden min-h-0">
           <div class="bg-fjord-border/50 flex border-b border-fjord-border text-xs font-semibold text-fjord-fg-secondary">
@@ -2062,7 +2060,7 @@
               on:click={() => (activeTab = 'net')}
               class="px-4 py-2.5 border-r border-fjord-border {activeTab === 'net'
                 ? 'bg-fjord-card text-fjord-fg border-b-2 border-b-fjord-accent'
-                : 'text-fjord-fg-muted hover:text-fjord-fg-body'}">Resources</button
+                : 'text-fjord-fg-muted hover:text-fjord-fg-body'}">Services</button
             >
           </div>
 
@@ -2113,6 +2111,7 @@
                 <ServiceResources
                   services={selectedStack.services ?? []}
                   updates={svcUpdates}
+                  on:openUpdate={() => openUpdatePanel(selectedStack!.name)}
                   {networks}
                   {unsupportedModes}
                   stackName={selectedStack.name}

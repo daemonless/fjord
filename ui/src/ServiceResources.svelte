@@ -87,6 +87,7 @@
     browse: void;
     openAdd: string;
     closeAdd: void;
+    openUpdate: void;
   }>();
   // Which row is asking to be removed. Two clicks, in place -- the same shape
   // the stack-level list used, kept because unmounting is not undoable from
@@ -217,37 +218,39 @@
   <div class="border border-fjord-border rounded-xl overflow-hidden divide-y divide-fjord-border">
     {#each services as s (s.name)}
       <div>
-        <button
-          on:click={() => toggle(s.name)}
-          class="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-fjord-inset/50 transition-colors"
-        >
-          <span class="text-fjord-fg-dim text-xs w-3">{open[s.name] ? '▼' : '▶'}</span>
-          {#if !planning}
-            <span class="w-2 h-2 rounded-full shrink-0 {dot(s.state)}"></span>
-          {/if}
-          <span class="font-medium text-fjord-fg-body min-w-[12rem]">{s.name}</span>
-          <span class="text-xs text-fjord-fg-muted font-mono flex-1 truncate">{summary(s, edits[s.name] ?? [])}</span>
-          {#if isolated.has(s.name)}
-            <span
-              title="Nothing else in this stack shares a network with {s.name}"
-              class="shrink-0 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-fjord-warning/15 text-fjord-warning border border-fjord-warning/30"
-              >cut off</span
-            >
-          {/if}
+        <!-- Toggle and update chip side by side: the chip is its own button,
+             and a button cannot sit inside the row's. -->
+        <div class="flex items-center hover:bg-fjord-inset/50 transition-colors">
+          <button on:click={() => toggle(s.name)} class="flex-1 min-w-0 flex items-center gap-3 pl-4 py-3 text-left">
+            <span class="text-fjord-fg-dim text-xs w-3">{open[s.name] ? '▼' : '▶'}</span>
+            {#if !planning}
+              <span class="w-2 h-2 rounded-full shrink-0 {dot(s.state)}"></span>
+            {/if}
+            <span class="font-medium text-fjord-fg-body min-w-[12rem]">{s.name}</span>
+            <span class="text-xs text-fjord-fg-muted font-mono flex-1 truncate">{summary(s, edits[s.name] ?? [])}</span>
+            {#if isolated.has(s.name)}
+              <span
+                title="Nothing else in this stack shares a network with {s.name}"
+                class="shrink-0 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-fjord-warning/15 text-fjord-warning border border-fjord-warning/30"
+                >cut off</span
+              >
+            {/if}
+          </button>
           {#if updates[s.name]}
             {@const u = updates[s.name]}
-            <span
+            <button
+              on:click={() => dispatch('openUpdate')}
               title={u.state === 'upgrade'
-                ? `A newer version of ${u.tag} is published — Change Version applies it`
-                : `A newer image is published for ${u.tag} — Update applies it`}
-              class="shrink-0 inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-fjord-warning/15 text-fjord-warning border border-fjord-warning/30"
+                ? `A newer version of ${u.tag} is published — see what an update would change`
+                : `A newer image is published for ${u.tag} — see what an update would change`}
+              class="shrink-0 ml-3 inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-fjord-warning/15 text-fjord-warning border border-fjord-warning/30 hover:bg-fjord-warning/25"
               ><Icon name="arrow-up" size={10} />{u.state === 'upgrade'
                 ? `${u.fromVersion ? `v${u.fromVersion} → ` : ''}v${u.toVersion}`
-                : 'update'}</span
+                : 'update'}</button
             >
           {/if}
-          {#if !planning}<span class="text-xs text-fjord-fg-dim">{s.state ?? ''}</span>{/if}
-        </button>
+          {#if !planning}<span class="shrink-0 text-xs text-fjord-fg-dim pl-3 pr-4">{s.state ?? ''}</span>{:else}<span class="pr-4"></span>{/if}
+        </div>
 
         {#if open[s.name]}
           <div class="px-10 pb-5 space-y-4">
