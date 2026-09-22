@@ -31,6 +31,7 @@
 
   type ContainerStatus = {
     name: string;
+    service?: string; // the compose service it runs
     state: string;
     ports?: { hostPort: number; containerPort: number; protocol?: string }[];
     detail?: string; // one-line reason for a non-running state (appjail: crash-looping app)
@@ -536,6 +537,10 @@
     if (!updateInfo || Date.now() - updateCheckedAt > UPDATE_FRESH_MS) checkForUpdate(name);
   }
   $: updatable = (updateInfo?.services ?? []).filter((s) => s.state === 'available');
+  // Service -> its pending update (new image or new version), for the rows.
+  $: svcUpdates = Object.fromEntries(
+    (updateInfo?.services ?? []).filter((s) => s.state === 'available' || s.state === 'upgrade').map((s) => [s.service, s]),
+  ) as Record<string, ServiceUpdate>;
   // Update applies a moved tag. A new VERSION needs the compose to name a
   // different tag -- Change Version -- and nothing is gained by recreating.
   $: updateButtonReason =
@@ -2007,6 +2012,17 @@
                   <span class="w-2 h-2 rounded-full shrink-0 {DOT[c.state === 'running' ? 'running' : 'stopped']}"></span>
                   <span class="text-fjord-fg-body">{c.name}</span>
                   <span class="text-fjord-fg-dim text-xs">{c.state}</span>
+                  {#if c.service && svcUpdates[c.service]}
+                    {@const u = svcUpdates[c.service]}
+                    <button
+                      on:click={() => openUpdatePanel(selectedStack!.name)}
+                      title="See what an update would change"
+                      class="ml-auto inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-fjord-warning/15 text-fjord-warning border border-fjord-warning/30 hover:bg-fjord-warning/25"
+                      ><Icon name="arrow-up" size={10} />{u.state === 'upgrade'
+                        ? `${u.fromVersion ? `v${u.fromVersion} → ` : ''}v${u.toVersion}`
+                        : 'update'}</button
+                    >
+                  {/if}
                 </div>
               {/each}
             </div>
@@ -2096,6 +2112,7 @@
                 </p>
                 <ServiceResources
                   services={selectedStack.services ?? []}
+                  updates={svcUpdates}
                   {networks}
                   {unsupportedModes}
                   stackName={selectedStack.name}

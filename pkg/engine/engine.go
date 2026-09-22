@@ -38,9 +38,13 @@ type Port struct {
 // of truth for "where is this app reachable", which the saved compose is not
 // (edits only apply on recreate).
 type ContainerStatus struct {
-	Name  string `json:"name"`
-	State string `json:"state"` // running | stopped | starting | crashed | ...
-	Ports []Port `json:"ports,omitempty"`
+	Name string `json:"name"`
+	// Service is the compose service this container runs, so per-service
+	// state (an update, say) lands on the right row without guessing it
+	// from the container name.
+	Service string `json:"service,omitempty"`
+	State   string `json:"state"` // running | stopped | starting | crashed | ...
+	Ports   []Port `json:"ports,omitempty"`
 	// Detail explains a non-running state in one line (e.g. "crash-looping:
 	// see Logs") -- shown as a hint, never parsed.
 	Detail string `json:"detail,omitempty"`

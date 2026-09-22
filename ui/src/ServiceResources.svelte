@@ -52,6 +52,9 @@
   };
 
   export let services: ServiceView[] = [];
+  // Service name -> its pending update, from the stack's update check. Shown on
+  // the row so a four-service stack says WHICH part is behind.
+  export let updates: Record<string, { state: string; tag?: string; fromVersion?: string; toVersion?: string }> = {};
   export let networks: Net[] = [];
   /** service name -> its interfaces, staged. The parent owns it so Save can
    *  post it and the dirty check can see it. */
@@ -229,6 +232,18 @@
               title="Nothing else in this stack shares a network with {s.name}"
               class="shrink-0 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-fjord-warning/15 text-fjord-warning border border-fjord-warning/30"
               >cut off</span
+            >
+          {/if}
+          {#if updates[s.name]}
+            {@const u = updates[s.name]}
+            <span
+              title={u.state === 'upgrade'
+                ? `A newer version of ${u.tag} is published — Change Version applies it`
+                : `A newer image is published for ${u.tag} — Update applies it`}
+              class="shrink-0 inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-fjord-warning/15 text-fjord-warning border border-fjord-warning/30"
+              ><Icon name="arrow-up" size={10} />{u.state === 'upgrade'
+                ? `${u.fromVersion ? `v${u.fromVersion} → ` : ''}v${u.toVersion}`
+                : 'update'}</span
             >
           {/if}
           {#if !planning}<span class="text-xs text-fjord-fg-dim">{s.state ?? ''}</span>{/if}

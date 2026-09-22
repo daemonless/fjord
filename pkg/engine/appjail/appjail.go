@@ -185,7 +185,7 @@ func (b *Backend) Status(ctx context.Context, s *stack.Stack) (engine.StackStatu
 	for _, sj := range svcs {
 		svc, name := sj.svc, sj.jail
 		jailUp := exec.CommandContext(ctx, "appjail", "status", "-q", name).Run() == nil
-		cs := engine.ContainerStatus{Name: name, State: "stopped"}
+		cs := engine.ContainerStatus{Name: name, Service: svc.Name, State: "stopped"}
 		if jailUp {
 			jailsUp++
 			// A jail being up says nothing about the app inside it: a .NET
