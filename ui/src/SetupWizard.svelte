@@ -216,6 +216,9 @@
       if (r.ok) catalogs = ((await r.json()) || []).filter((c: CatalogRow) => !c.builtin);
     } catch {}
   }
+  // Removing is a DELETE on the spot, so it takes the same two clicks as
+  // removing one under Settings → Catalogs.
+  let confirmRemove = '';
   async function removeCatalog(c: CatalogRow) {
     try {
       const r = await fetch(`/api/catalogs/${encodeURIComponent(c.id)}`, { method: 'DELETE' });
@@ -523,11 +526,16 @@
                   <div class="text-sm text-fjord-fg">{c.name} <span class="text-[11px] text-fjord-fg-dim">{c.apps} apps</span></div>
                   <div class="text-xs text-fjord-fg-dim font-mono truncate">{c.url}</div>
                 </div>
-                <button
-                  on:click={() => removeCatalog(c)}
-                  title="Remove this catalog"
-                  class="shrink-0 text-fjord-fg-dim hover:text-fjord-danger"><Icon name="close" size={14} /></button
-                >
+                {#if confirmRemove === c.id}
+                  <button on:click={() => { confirmRemove = ''; removeCatalog(c); }} class="shrink-0 text-xs px-2 py-1 rounded bg-fjord-danger hover:bg-fjord-danger-hover text-white">Remove</button>
+                  <button on:click={() => (confirmRemove = '')} class="shrink-0 text-xs px-2 py-1 rounded text-fjord-fg-muted hover:text-fjord-fg">Cancel</button>
+                {:else}
+                  <button
+                    on:click={() => (confirmRemove = c.id)}
+                    title="Remove this catalog"
+                    class="shrink-0 text-fjord-fg-dim hover:text-fjord-danger transition-colors"><Icon name="trash" size={14} /></button
+                  >
+                {/if}
               </div>
             {/each}
           </div>

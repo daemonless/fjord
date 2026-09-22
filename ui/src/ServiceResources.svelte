@@ -92,7 +92,12 @@
   // by several services (/etc/localtime is on four of immich's), and a single
   // key put every one of those rows into confirm at the same click.
   let confirmUnmount = '';
+  // The same two clicks for an interface. Keyed by row index, which shifts
+  // under any edit -- so every edit (touch) drops a pending confirm rather
+  // than leave it armed on whatever row slid into that slot.
+  let confirmRemove = '';
   const touch = () => {
+    confirmRemove = '';
     edits = { ...edits };
     dispatch('change');
   };
@@ -161,22 +166,15 @@
     touch();
   }
   function removeRow(svc: string, i: number) {
-    const next = rows(svc).filter((_, j) => j !== i);
-    // Asked BEFORE, not reported after: the interface that connects a service
-    // to the rest of its stack looks like any other row, and taking it off is
-    // a working stack turned into a broken one in one click.
-    if (!isolated.has(svc) && isolatedServices({ ...edits, [svc]: next }).includes(svc)) {
-      const gone = rows(svc)[i]?.network || 'that interface';
-      const ok = confirm(
-        `${svc} reaches the rest of this stack over ${gone}.\n\n` +
-          `Remove it and nothing else in the stack can talk to ${svc} — it will keep running and stop answering.\n\n` +
-          `Remove it anyway?`,
-      );
-      if (!ok) return;
-    }
-    edits[svc] = next;
+    edits[svc] = rows(svc).filter((_, j) => j !== i);
     touch();
   }
+  // Said in the confirm, not after: the interface that connects a service to
+  // the rest of its stack looks like any other row, and taking it off is a
+  // working stack turned into a broken one in one click.
+  const cutsOff = (svc: string, i: number) =>
+    !isolated.has(svc) &&
+    isolatedServices({ ...edits, [svc]: rows(svc).filter((_, j) => j !== i) }).includes(svc);
   // What picking a mode took away, so the row can say so instead of the other
   // interfaces just vanishing.
   let replacedBy: Record<string, string[]> = {};
@@ -365,14 +363,36 @@
                           >
                         </div>
                       </td>
-                      <td class="py-1.5 text-right">
-                        <button
-                          on:click={() => removeRow(s.name, i)}
-                          title="Remove this interface"
-                          class="text-fjord-fg-dim hover:text-fjord-danger px-1">✕</button
-                        >
+                      <td class="py-1.5 text-right whitespace-nowrap">
+                        {#if confirmRemove === `${s.name}:${i}`}
+                          <button
+                            on:click={() => removeRow(s.name, i)}
+                            class="ml-1 text-[10px] px-1.5 py-0.5 rounded bg-fjord-danger hover:bg-fjord-danger-hover text-white"
+                            >Remove</button
+                          >
+                          <button
+                            on:click={() => (confirmRemove = '')}
+                            class="ml-1 text-[10px] px-1.5 py-0.5 rounded text-fjord-fg-muted hover:text-fjord-fg">Cancel</button
+                          >
+                        {:else}
+                          <button
+                            on:click={() => (confirmRemove = `${s.name}:${i}`)}
+                            title="Remove this interface"
+                            class="ml-1 align-middle text-fjord-fg-dim hover:text-fjord-danger transition-colors"
+                            ><Icon name="trash" size={13} /></button
+                          >
+                        {/if}
                       </td>
                     </tr>
+                    {#if confirmRemove === `${s.name}:${i}` && cutsOff(s.name, i)}
+                      <tr>
+                        {#if !planning}<td></td>{/if}
+                        <td colspan="4" class="pb-1.5 text-fjord-warning">
+                          {s.name} reaches the rest of this stack over {r.network || 'this interface'}. Remove it
+                          and nothing else in the stack can talk to {s.name} — it will keep running and stop answering.
+                        </td>
+                      </tr>
+                    {/if}
                     {#if problem || net}
                       <tr>
                         {#if !planning}<td></td>{/if}
@@ -434,7 +454,7 @@
                           <button
                             on:click={() => { dispatch('unmount', { service: s.name, dest: v.dest ?? '' }); confirmUnmount = ''; }}
                             class="ml-1 text-[10px] px-1.5 py-0.5 rounded bg-fjord-danger hover:bg-fjord-danger-hover text-white"
-                            >Confirm</button
+                            >Unmount</button
                           >
                           <button
                             on:click={() => (confirmUnmount = '')}

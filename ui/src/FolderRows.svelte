@@ -44,7 +44,7 @@
       {:else}
         <button on:click={() => (pick = j)} title="Browse" class="shrink-0 px-2 py-1 rounded-md text-xs bg-fjord-inset border border-fjord-border text-fjord-fg-secondary hover:text-fjord-fg">Browse…</button>
       {/if}
-      <button on:click={() => removeFolder(j)} title="Remove folder" class="shrink-0 text-fjord-fg-dim hover:text-fjord-danger"><Icon name="close" size={13} /></button>
+      <button on:click={() => removeFolder(j)} title="Remove folder" class="shrink-0 text-fjord-fg-dim hover:text-fjord-danger transition-colors"><Icon name="trash" size={13} /></button>
     </div>
   {/each}
   {#if folders.length === 0}
