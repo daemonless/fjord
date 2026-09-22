@@ -669,6 +669,7 @@
     detail?: string;
   };
   type UpdateInfo = {
+    perService?: boolean;
     state: string;
     tag?: string;
     latest?: string;
@@ -994,7 +995,7 @@
 
   // Run a streamed lifecycle action (up/down/restart/update) and pipe its
   // output into the terminal drawer.
-  async function streamAction(name: string, action: string, msg: string) {
+  async function streamAction(name: string, action: string, msg: string, body?: unknown) {
     stopLogs(); // action output goes to the Output tab, not the Logs stream
     // Only steer the drawer for the stack being looked at. Started from the
     // list, or left running while the operator moved on, this forced the tab
@@ -1008,7 +1009,12 @@
     execMessage[name] = msg;
     if (watching) drawerOpen = true;
     try {
-      const res = await fetch(`/api/stacks/${name}/${action}`, { method: 'POST' });
+      const res = await fetch(
+        `/api/stacks/${name}/${action}`,
+        body === undefined
+          ? { method: 'POST' }
+          : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) },
+      );
       if (!res.ok) {
         execStatus[name] = 'error';
         execMessage[name] = `HTTP ${res.status}`;
@@ -1186,10 +1192,14 @@
   };
   const down = (name: string) => streamAction(name, 'down', 'Stopping…');
   const restart = (name: string) => streamAction(name, 'restart', 'Restarting…');
-  const update = async (name: string) => {
+  // services: pull and recreate only those; none = the whole stack.
+  const update = async (name: string, services?: string[]) => {
     if (updatePanel === name) updatePanel = '';
-    await streamAction(name, 'update', 'Updating…');
-    if (execStatus[name] !== 'error') needsApply[name] = false; // update recreates too
+    const some = !!services?.length;
+    await streamAction(name, 'update', some ? `Updating ${services!.join(', ')}…` : 'Updating…', some ? { services } : undefined);
+    // A whole-stack update recreates everything, so saved config is applied.
+    // Updating some services leaves the rest on what they were started with.
+    if (execStatus[name] !== 'error' && !some) needsApply[name] = false;
     if (selectedStack?.name === name) checkForUpdate(name); // refresh the badge
     loadFleetUpdates(true); // fleet badges should reflect the applied update
   };
@@ -1806,10 +1816,12 @@
               </div>
               <div class="flex items-center gap-3 mt-3">
                 <span class="flex-1 text-xs text-fjord-fg-dim">
-                  {#if updatable.length}
+                  {#if updatable.length && updateInfo.perService}
+                    Pulls and recreates only {updatable.map((s) => s.service).join(', ')}; the rest keep running.
+                  {:else if updatable.length}
                     {updatable.length} of {updateInfo.services?.length ?? 0}
-                    {updateInfo.services?.length === 1 ? 'service has' : 'services have'} an update. Update pulls the images
-                    and recreates the stack.
+                    {updateInfo.services?.length === 1 ? 'service has' : 'services have'} an update. This engine updates the
+                    whole stack: every image is pulled and every container recreated.
                   {:else}
                     Nothing here is pulled by Update.
                   {/if}
@@ -1820,10 +1832,13 @@
                   >Cancel</button
                 >
                 <button
-                  on:click={() => update(selectedStack!.name)}
+                  on:click={() =>
+                    update(selectedStack!.name, updateInfo?.perService ? updatable.map((s) => s.service) : undefined)}
                   disabled={!updatable.length || execStatus[selectedStack.name] === 'running'}
                   class="shrink-0 px-3 py-1.5 rounded-lg text-sm font-medium bg-fjord-accent text-white hover:bg-fjord-accent-hover transition-colors disabled:opacity-40"
-                  >Update</button
+                  >{updateInfo.perService && updatable.length
+                    ? `Update ${updatable.length} service${updatable.length === 1 ? '' : 's'}`
+                    : 'Update'}</button
                 >
               </div>
             {/if}

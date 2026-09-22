@@ -424,6 +424,9 @@ type Capabilities struct {
 	// NetworkNote says why NetworkKinds is empty, so the UI can explain the
 	// absence instead of silently hiding a button. Empty when creating works.
 	NetworkNote string `json:"networkNote,omitempty"`
+	// UpdateServices: Update can pull and recreate a subset of a stack's
+	// services, leaving the rest running untouched.
+	UpdateServices bool `json:"updateServices"`
 }
 
 // PruneReport summarizes a prune run: a human total and the raw command output.
@@ -439,8 +442,10 @@ type Backend interface {
 	Up(ctx context.Context, s *stack.Stack) (io.ReadCloser, error)
 	// Down tears down a stack and returns an io.ReadCloser streaming the terminal output.
 	Down(ctx context.Context, s *stack.Stack) (io.ReadCloser, error)
-	// Update pulls the latest images for a stack then recreates it, streaming both steps.
-	Update(ctx context.Context, s *stack.Stack) (io.ReadCloser, error)
+	// Update pulls the latest images for a stack then recreates it, streaming
+	// both steps. services limits both to those services (empty = all); an
+	// engine without Capabilities().UpdateServices refuses a non-empty list.
+	Update(ctx context.Context, s *stack.Stack, services []string) (io.ReadCloser, error)
 	// Restart restarts a stack's containers in place (no pull, no recreate).
 	Restart(ctx context.Context, s *stack.Stack) (io.ReadCloser, error)
 	// Logs streams container logs -- all of the stack's containers merged, or

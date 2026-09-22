@@ -161,8 +161,13 @@ func (b *Backend) Restart(ctx context.Context, s *stack.Stack) (io.ReadCloser, e
 	return directorRestart(ctx, s)
 }
 
-// Update destroys and rebuilds the jails with a fresh image pull.
-func (b *Backend) Update(ctx context.Context, s *stack.Stack) (io.ReadCloser, error) {
+// Update destroys and rebuilds the jails with a fresh image pull. Always the
+// whole project: director has no per-service rebuild that fjord has verified,
+// so a subset is refused rather than quietly widened to everything.
+func (b *Backend) Update(ctx context.Context, s *stack.Stack, services []string) (io.ReadCloser, error) {
+	if len(services) > 0 {
+		return nil, fmt.Errorf("appjail updates the whole stack; it cannot update only %s", strings.Join(services, ", "))
+	}
 	if directorFile(s) == "" {
 		return nil, errNoDirector(s)
 	}

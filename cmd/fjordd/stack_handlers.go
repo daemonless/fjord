@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -371,7 +372,12 @@ func (s *server) stackUpdateCheck(w http.ResponseWriter, name string) {
 	defer cancel()
 	status := updates.Check(ctx, s.backendFor(st), s.updateServices(ctx, st), s.schemeFor)
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(status)
+	// perService: whether Update can take just the services that changed, so
+	// the panel offers that rather than a whole-stack recreate.
+	json.NewEncoder(w).Encode(struct {
+		updates.Status
+		PerService bool `json:"perService"`
+	}{status, s.backendFor(st).Capabilities().UpdateServices})
 }
 
 // stackLogs streams container logs: GET .../logs?tail=200&follow=1. Uses the
@@ -746,6 +752,31 @@ func lockStack(name string) (unlock func(), ok bool) {
 	return m.Unlock, true
 }
 
+// requestedServices reads the optional {"services": [...]} body of an update:
+// which services to pull and recreate, none meaning all. Each must be one of
+// the stack's own -- compose would otherwise answer a typo with "no such
+// service" halfway through, after the pull.
+func requestedServices(r *http.Request, st *stack.Stack) ([]string, error) {
+	var req struct {
+		Services []string `json:"services"`
+	}
+	if r.Body != nil {
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err != io.EOF {
+			return nil, fmt.Errorf("invalid JSON payload: %v", err)
+		}
+	}
+	if len(req.Services) == 0 {
+		return nil, nil
+	}
+	known, _ := composepkg.ServiceImageList(st.Compose)
+	for _, want := range req.Services {
+		if !slices.ContainsFunc(known, func(si composepkg.ServiceImage) bool { return si.Service == want }) {
+			return nil, fmt.Errorf("%s has no service %q", st.Name, want)
+		}
+	}
+	return req.Services, nil
+}
+
 // stackLifecycle runs up/down/update/restart, streaming the backend's output.
 func (s *server) stackLifecycle(w http.ResponseWriter, r *http.Request, name, action string) {
 	st, err := s.manager.Get(name)
@@ -785,7 +816,12 @@ func (s *server) stackLifecycle(w http.ResponseWriter, r *http.Request, name, ac
 	case "down":
 		stream, err = s.backendFor(st).Down(ctx, st)
 	case "update":
-		stream, err = s.backendFor(st).Update(ctx, st)
+		var services []string
+		if services, err = requestedServices(r, st); err != nil {
+			http.Error(w, err.Error(), 400)
+			return
+		}
+		stream, err = s.backendFor(st).Update(ctx, st, services)
 	case "restart":
 		stream, err = s.backendFor(st).Restart(ctx, st)
 	default:

@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"os/exec"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -48,7 +49,7 @@ func (b *Backend) Up(ctx context.Context, s *stack.Stack) (io.ReadCloser, error)
 	pr, pw := io.Pipe()
 	go func() {
 		defer pw.Close()
-		b.bringUp(ctx, pw, s, false)
+		b.bringUp(ctx, pw, s, false, nil)
 	}()
 	return pr, nil
 }
@@ -62,18 +63,11 @@ func (b *Backend) Up(ctx context.Context, s *stack.Stack) (io.ReadCloser, error)
 // containers as a safety net (a no-op when compose already started them).
 // Single-service stacks -- fjord's whole catalog -- don't need a pod's shared
 // netns anyway.
-func (b *Backend) bringUp(ctx context.Context, pw *io.PipeWriter, s *stack.Stack, forceRecreate bool) {
+// only limits it to those services (empty = the whole stack): only they are
+// recreated, force-removed on a refused recreate, and started.
+func (b *Backend) bringUp(ctx context.Context, pw *io.PipeWriter, s *stack.Stack, forceRecreate bool, only []string) {
 	b.removeOrphanStorage(ctx, pw, s.Name)
-	args := []string{"--in-pod=false", "up", "-d", "--remove-orphans"}
-	if forceRecreate {
-		// podman-compose decides whether to recreate by comparing a hash of the
-		// compose FILE, not the image: `up -d` after a pull leaves the existing
-		// container in place and `podman start` then starts it on the old image.
-		// An update that changes the tag edits the compose and so recreates by
-		// itself; one that pulls a moved tag (:latest) does not, and silently
-		// keeps running the image it already had.
-		args = append(args, "--force-recreate")
-	}
+	args := upArgs(forceRecreate, only)
 	err := b.runStreaming(ctx, pw, s.Dir, "podman-compose", args...)
 	// A plain up tolerates a failure here: compose can leave a container in
 	// "created" and the explicit `podman start` below recovers it. A recreate
@@ -87,8 +81,8 @@ func (b *Backend) bringUp(ctx context.Context, pw *io.PipeWriter, s *stack.Stack
 		// libpod has no endpoint to drop it. Only a force-remove clears it.
 		// Safe to do here and nowhere else -- an update is replacing these
 		// containers anyway.
-		fmt.Fprintf(pw, "\n[warn] recreate refused (%v); force-removing the stack's containers and retrying\n", err)
-		b.forceRemoveStackContainers(ctx, pw, s)
+		fmt.Fprintf(pw, "\n[warn] recreate refused (%v); force-removing the containers being replaced and retrying\n", err)
+		b.forceRemoveStackContainers(ctx, pw, s, only)
 		err = b.runStreaming(ctx, pw, s.Dir, "podman-compose", args...)
 	}
 	if err != nil && forceRecreate {
@@ -103,7 +97,7 @@ func (b *Backend) bringUp(ctx context.Context, pw *io.PipeWriter, s *stack.Stack
 		fmt.Fprintf(pw, "\n[error] cannot reach podman to list this stack's containers: %v\n", err)
 		return
 	}
-	names := containerNames(cs)
+	names := containerNames(ofServices(cs, only))
 	if len(names) == 0 {
 		fmt.Fprintf(pw, "\n[error] compose created no containers to start\n")
 		return
@@ -116,13 +110,13 @@ func (b *Backend) bringUp(ctx context.Context, pw *io.PipeWriter, s *stack.Stack
 // forceRemoveStackContainers force-removes this stack's own containers, used
 // only to unwedge a refused recreate. Scoped to the stack's containers, so it
 // can never touch anything else on the host.
-func (b *Backend) forceRemoveStackContainers(ctx context.Context, pw *io.PipeWriter, s *stack.Stack) {
+func (b *Backend) forceRemoveStackContainers(ctx context.Context, pw *io.PipeWriter, s *stack.Stack, only []string) {
 	cs, err := b.listStackContainers(ctx, s.Name)
 	if err != nil {
 		fmt.Fprintf(pw, "[warn] cannot reach podman to list this stack's containers: %v\n", err)
 		return
 	}
-	names := containerNames(cs)
+	names := containerNames(ofServices(cs, only))
 	if len(names) == 0 {
 		return
 	}
@@ -241,7 +235,7 @@ func (b *Backend) Restart(ctx context.Context, s *stack.Stack) (io.ReadCloser, e
 			fmt.Fprintf(pw, "\n[error] stop: %v\n", err)
 			return
 		}
-		b.bringUp(ctx, pw, s, false)
+		b.bringUp(ctx, pw, s, false, nil)
 	}()
 	return pr, nil
 }
@@ -252,15 +246,19 @@ func (b *Backend) Restart(ctx context.Context, s *stack.Stack) (io.ReadCloser, e
 // The force matters: podman-compose only recreates when the compose file's hash
 // changes, so pulling a moved tag left the old container running on the old
 // image -- the pull succeeded, the UI said updated, and nothing had changed.
-func (b *Backend) Update(ctx context.Context, s *stack.Stack) (io.ReadCloser, error) {
+//
+// services narrows both steps to those services. --no-deps keeps compose from
+// recreating what they depend on, and it leaves what depends on THEM alone
+// too: updating immich's database does not restart its server.
+func (b *Backend) Update(ctx context.Context, s *stack.Stack, services []string) (io.ReadCloser, error) {
 	pr, pw := io.Pipe()
 	go func() {
 		defer pw.Close()
-		if err := b.runStreaming(ctx, pw, s.Dir, "podman", "compose", "pull"); err != nil {
+		if err := b.runStreaming(ctx, pw, s.Dir, "podman", append([]string{"compose", "pull"}, services...)...); err != nil {
 			fmt.Fprintf(pw, "\n[error] pull: %v\n", err)
 			return
 		}
-		b.bringUp(ctx, pw, s, true)
+		b.bringUp(ctx, pw, s, true, services)
 	}()
 	return pr, nil
 }
@@ -370,4 +368,44 @@ func (b *Backend) runStreaming(ctx context.Context, w io.Writer, dir, name strin
 	cmd.Stdout = w
 	cmd.Stderr = w
 	return cmd.Run()
+}
+
+// ofServices narrows a stack's containers to those services, by podman-compose's
+// service label. An empty list is the whole stack.
+func ofServices(cs []libpodContainer, services []string) []libpodContainer {
+	if len(services) == 0 {
+		return cs
+	}
+	var out []libpodContainer
+	for _, c := range cs {
+		if slices.Contains(services, c.Labels["io.podman.compose.service"]) {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+// upArgs is the podman-compose command line for bringUp.
+func upArgs(forceRecreate bool, only []string) []string {
+	args := []string{"--in-pod=false", "up", "-d"}
+	// Never with a service list: podman-compose 1.5 then counts every service
+	// NOT named as an orphan and deletes its container. Updating immich's
+	// database would have removed its server, ML and redis. A whole-stack up
+	// still clears services dropped from the compose.
+	if len(only) == 0 {
+		args = append(args, "--remove-orphans")
+	}
+	if forceRecreate {
+		// podman-compose decides whether to recreate by comparing a hash of the
+		// compose FILE, not the image: `up -d` after a pull leaves the existing
+		// container in place and `podman start` then starts it on the old image.
+		// An update that changes the tag edits the compose and so recreates by
+		// itself; one that pulls a moved tag (:latest) does not, and silently
+		// keeps running the image it already had.
+		args = append(args, "--force-recreate")
+	}
+	if len(only) > 0 {
+		args = append(append(args, "--no-deps"), only...)
+	}
+	return args
 }
