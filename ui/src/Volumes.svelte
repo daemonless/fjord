@@ -196,7 +196,7 @@
               <button on:click={() => del(v.name, true)} class="text-xs px-2 py-1 rounded bg-fjord-danger hover:bg-fjord-danger-hover text-white" title="Remove even though a container has it mounted">Force Remove</button>
               <button on:click={() => (forceDelete = '')} class="text-xs px-2 py-1 rounded text-fjord-fg-muted hover:text-fjord-fg">Cancel</button>
             {:else if confirmDelete === v.name}
-              <button on:click={() => del(v.name)} class="text-xs px-2 py-1 rounded bg-fjord-danger hover:bg-fjord-danger-hover text-white">Confirm Delete</button>
+              <button on:click={() => del(v.name)} class="text-xs px-2 py-1 rounded bg-fjord-danger hover:bg-fjord-danger-hover text-white">Delete</button>
               <button on:click={() => (confirmDelete = '')} class="text-xs px-2 py-1 rounded text-fjord-fg-muted hover:text-fjord-fg">Cancel</button>
             {:else}
               <button

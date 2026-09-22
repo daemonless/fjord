@@ -32,10 +32,15 @@
   // the run continues with the next container.
   let allBusy = false;
   let progress = '';
+  // Replacing removes a running container, so it takes two clicks in place --
+  // the same shape as every other destructive button, not the browser's
+  // confirm(), which was the last one left.
+  let confirmReplace = '';
+  let confirmAll = false;
   async function adoptAll() {
+    confirmAll = false;
     const todo = list.filter((c) => !c.error);
     if (!todo.length) return;
-    if (!confirm(`Adopt and replace ${todo.length} container${todo.length === 1 ? '' : 's'}?\n\nEach is removed and started again as a stack with the same mounts, network address and name. Data stays where it is.`)) return;
     allBusy = true;
     let failed = 0;
     for (const [i, c] of todo.entries()) {
@@ -56,7 +61,7 @@
   }
 
   async function adopt(c: Candidate, replace: boolean) {
-    if (replace && !confirm(`Remove the container "${c.name}" and start it as a fjord stack?\n\nIts data stays where it is; the stack uses the same mounts, network address and name.`)) return;
+    confirmReplace = '';
     busy = c.name;
     try {
       const id = await adoptContainer(c, replace);
@@ -82,12 +87,25 @@
     </div>
     <div class="flex items-center gap-3">
       {#if list.filter((c) => !c.error).length > 1}
-        <button
-          on:click={adoptAll}
-          disabled={allBusy}
-          class="flex items-center gap-2 whitespace-nowrap bg-fjord-accent hover:bg-fjord-accent-hover text-white font-medium py-2 px-4 rounded-lg text-sm disabled:opacity-50"
-          >{#if allBusy}<Spinner size={13} /> {progress}{:else}Adopt &amp; replace all ({list.filter((c) => !c.error).length}){/if}</button
-        >
+        {#if confirmAll}
+          <span class="text-xs text-fjord-fg-secondary max-w-xs">
+            Removes {list.filter((c) => !c.error).length} containers and starts each as a stack with the same mounts,
+            network address and name. Data stays where it is.
+          </span>
+          <button
+            on:click={adoptAll}
+            class="whitespace-nowrap bg-fjord-danger hover:bg-fjord-danger-hover text-white font-medium py-2 px-4 rounded-lg text-sm"
+            >Replace all</button
+          >
+          <button on:click={() => (confirmAll = false)} class="text-sm text-fjord-fg-muted hover:text-fjord-fg">Cancel</button>
+        {:else}
+          <button
+            on:click={() => (confirmAll = true)}
+            disabled={allBusy}
+            class="flex items-center gap-2 whitespace-nowrap bg-fjord-accent hover:bg-fjord-accent-hover text-white font-medium py-2 px-4 rounded-lg text-sm disabled:opacity-50"
+            >{#if allBusy}<Spinner size={13} /> {progress}{:else}Adopt &amp; replace all ({list.filter((c) => !c.error).length}){/if}</button
+          >
+        {/if}
       {/if}
       <button on:click={() => dispatch('back')} class="text-sm text-fjord-fg-muted hover:text-fjord-fg">← Stacks</button>
     </div>
@@ -121,13 +139,26 @@
                 disabled={!!c.error || busy === c.name}
                 title="Create the stack (stopped); the container keeps running"
                 class="text-sm px-3 py-1.5 rounded-lg bg-fjord-border hover:bg-fjord-accent hover:text-white disabled:opacity-40">Adopt</button>
-              <button
-                on:click={() => adopt(c, true)}
-                disabled={!!c.error || busy === c.name}
-                title="Remove the container and start it as a stack"
-                class="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg bg-fjord-accent hover:bg-fjord-accent-hover text-white disabled:opacity-40"
-                >{#if busy === c.name}<Spinner size={13} />{/if}Adopt &amp; replace</button>
+              {#if confirmReplace === c.name}
+                <button
+                  on:click={() => adopt(c, true)}
+                  class="text-sm px-3 py-1.5 rounded-lg bg-fjord-danger hover:bg-fjord-danger-hover text-white">Replace</button>
+                <button on:click={() => (confirmReplace = '')} class="text-sm px-2 py-1.5 text-fjord-fg-muted hover:text-fjord-fg">Cancel</button>
+              {:else}
+                <button
+                  on:click={() => (confirmReplace = c.name)}
+                  disabled={!!c.error || busy === c.name}
+                  title="Remove the container and start it as a stack"
+                  class="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg bg-fjord-accent hover:bg-fjord-accent-hover text-white disabled:opacity-40"
+                  >{#if busy === c.name}<Spinner size={13} />{/if}Adopt &amp; replace</button>
+              {/if}
             </div>
+            {#if confirmReplace === c.name}
+              <div class="text-xs text-fjord-fg-secondary mt-2">
+                Removes the container <b>{c.name}</b> and starts it as a stack with the same mounts, network address and name.
+                Data stays where it is.
+              </div>
+            {/if}
             {#if open[c.name] && c.compose}
               <pre class="mt-3 text-xs bg-fjord-inset border border-fjord-border rounded-lg p-3 overflow-x-auto text-fjord-fg-secondary">{#if c.director}# appjail-director.yml
 {c.director}

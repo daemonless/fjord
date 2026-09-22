@@ -637,7 +637,7 @@
               {#if appData.length > 1}
                 <button on:click={() => moveAppData(i, -1)} disabled={i === 0} title="Move up (the top one is the default)" class="shrink-0 text-fjord-fg-dim hover:text-fjord-fg disabled:opacity-30">↑</button>
                 <button on:click={() => moveAppData(i, 1)} disabled={i === appData.length - 1} title="Move down" class="shrink-0 text-fjord-fg-dim hover:text-fjord-fg disabled:opacity-30">↓</button>
-                <button on:click={() => (appData = appData.filter((_, x) => x !== i))} title="Remove location" class="shrink-0 text-fjord-fg-dim hover:text-fjord-danger"><Icon name="close" size={13} /></button>
+                <button on:click={() => (appData = appData.filter((_, x) => x !== i))} title="Remove location" class="shrink-0 text-fjord-fg-dim hover:text-fjord-danger transition-colors"><Icon name="trash" size={15} /></button>
               {/if}
             </div>
           {/each}
@@ -934,7 +934,7 @@
                   >
                 {/if}
                 {#if confirmDelete === c.id}
-                  <button on:click={() => removeCatalog(c.id)} class="text-xs px-2 py-1 rounded bg-fjord-danger hover:bg-fjord-danger-hover text-white">Confirm</button>
+                  <button on:click={() => removeCatalog(c.id)} class="text-xs px-2 py-1 rounded bg-fjord-danger hover:bg-fjord-danger-hover text-white">Remove</button>
                   <button on:click={() => (confirmDelete = '')} class="text-xs px-2 py-1 rounded text-fjord-fg-muted hover:text-fjord-fg">Cancel</button>
                 {:else}
                   <button

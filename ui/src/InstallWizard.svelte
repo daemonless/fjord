@@ -724,7 +724,7 @@
                         >
                       {/if}
                       {#if (paths[v.name] || []).length > 1}
-                        <button type="button" on:click={() => removeFolder(v.name, i)} title="Remove folder" class="shrink-0 text-fjord-fg-dim hover:text-fjord-danger"><Icon name="close" size={13} /></button>
+                        <button type="button" on:click={() => removeFolder(v.name, i)} title="Remove folder" class="shrink-0 text-fjord-fg-dim hover:text-fjord-danger transition-colors"><Icon name="trash" size={13} /></button>
                       {/if}
                     </div>
                     {#if isTemplated(paths[v.name][i])}

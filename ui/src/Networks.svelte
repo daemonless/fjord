@@ -550,6 +550,10 @@
   /** The network whose IPv6 panel is open, '' for none. */
   let editing6 = '';
   let edit6 = { subnet6: '', gateway6: '' };
+  // Removing the segment rewrites the conflist on the spot, and a stack pinned
+  // to a v6 address on it is refused at its next start (preflight) -- so it
+  // asks first, like every other delete on this page.
+  let confirmRemove6 = false;
 
   /** Only a pool or static network can carry an IPv6 segment: a DHCP one's
    *  addresses come from the CNI dhcp plugin, which is IPv4-only. */
@@ -558,6 +562,7 @@
 
   function openEdit6(n: Network) {
     editing6 = n.name;
+    confirmRemove6 = false;
     edit6 = { subnet6: n.subnet6 ?? '', gateway6: n.gateway6 ?? '' };
   }
 
@@ -735,10 +740,16 @@
                       <button on:click={() => saveSegment6(n.name)} disabled={!edit6.subnet6.trim()}
                         class="px-2.5 py-1 rounded-lg text-xs font-medium bg-fjord-border hover:bg-fjord-accent hover:text-white transition-colors disabled:opacity-40">Save</button>
                       {#if n.subnet6}
-                        <button on:click={() => saveSegment6(n.name, true)}
-                          class="px-2 py-1 rounded-lg text-xs text-fjord-fg-muted hover:text-fjord-danger">Remove</button>
+                        {#if confirmRemove6}
+                          <button on:click={() => saveSegment6(n.name, true)}
+                            class="px-2 py-1 rounded-lg text-xs bg-fjord-danger hover:bg-fjord-danger-hover text-white">Remove IPv6</button>
+                        {:else}
+                          <button on:click={() => (confirmRemove6 = true)}
+                            title="Take the IPv6 segment off this network"
+                            class="px-2 py-1 rounded-lg text-xs text-fjord-fg-muted hover:text-fjord-danger">Remove</button>
+                        {/if}
                       {/if}
-                      <button on:click={() => (editing6 = '')}
+                      <button on:click={() => { editing6 = ''; confirmRemove6 = false; }}
                         class="px-2 py-1 rounded-lg text-xs text-fjord-fg-muted hover:text-fjord-fg">Cancel</button>
                     </div>
                     {#if n.usedBy?.length}
@@ -795,7 +806,7 @@
                 title="In use by {n.usedBy.join(', ')} — detach those first">Delete</span
               >
             {:else if confirmDelete === n.name}
-              <button on:click={() => del(n.name)} class="text-xs px-2 py-1 rounded bg-fjord-danger hover:bg-fjord-danger-hover text-white">Confirm Delete</button>
+              <button on:click={() => del(n.name)} class="text-xs px-2 py-1 rounded bg-fjord-danger hover:bg-fjord-danger-hover text-white">Delete</button>
               <button on:click={() => (confirmDelete = '')} class="text-xs px-2 py-1 rounded text-fjord-fg-muted hover:text-fjord-fg">Cancel</button>
             {:else}
               <button
