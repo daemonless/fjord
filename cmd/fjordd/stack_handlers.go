@@ -540,7 +540,7 @@ func (s *server) stackSave(w http.ResponseWriter, r *http.Request, name string) 
 	}
 
 	if payload.Volume != "" {
-		attached, err := composepkg.AttachVolume(composeYAML, payload.Volume, payload.VolumePath, payload.VolumeRO)
+		attached, err := composepkg.AttachVolume(composeYAML, composepkg.FirstService, payload.Volume, payload.VolumePath, payload.VolumeRO)
 		if err != nil {
 			http.Error(w, "volume attach: "+err.Error(), 400)
 			return

@@ -659,11 +659,11 @@
   // The backend (/api/compose/mounts) is stateless: it parses / transforms the
   // editor's in-memory compose text and hands it back, so adds/removes just edit
   // selectedStack.compose (marking it dirty) and Save persists + recreates.
-  let addKind: 'bind' | 'volume' | 'remote' = 'bind';
-  let addRemoteKind: RemoteKind = 'nfs';
+  // The add form lives on the service row and owns its own fields. What stays
+  // here is the host path the DirPicker fills in (it is a page-level modal) and
+  // which service's form is open.
   let addSource = '';
-  let addDest = '';
-  let addRO = false;
+  let addingTo = '';
   let pickingMount = false; // host-path DirPicker open
   // Folder sets (Settings) for "Add folder set…": N folders become N binds under
   // the container path. Placeholders resolve against THIS stack's folder name and
@@ -685,12 +685,12 @@
       folderSets = [];
     }
   }
-  async function addFolderSet(setId: string) {
+  async function addFolderSet(service: string, setId: string, at: string, readOnly: boolean) {
     const set = folderSets.find((s) => s.id === setId);
     if (!selectedStack || !set) return;
     // No container path typed: mount the set at /<set-name> ("Movies" ->
     // /movies), which is what the set is for; type a path first to override.
-    let dest = addDest.trim().replace(/\/+$/, '');
+    let dest = at.trim().replace(/\/+$/, '');
     if (!dest) {
       dest = '/' + (slugOfName(set.name) || set.id);
       toast(`Mounting "${set.name}" at ${dest} — type a container path first to choose another`, { kind: 'info' });
@@ -720,20 +720,16 @@
           source = await ensureRemoteVolume(f, { stack: selectedStack.name });
           kind = 'volume';
         }
-        const { compose } = await mountsAPI({ op: 'add', kind, source, dest: at, readOnly: addRO });
-        selectedStack = { ...selectedStack, compose };
+        adopt(await mountsAPI({ op: 'add', kind, service, source, dest: at, readOnly: readOnly }));
       }
       addSource = '';
-      addDest = '';
-      addRO = false;
-      await refreshStackDetail();
+      addingTo = '';
     } catch (e: any) {
       toast(e.message || 'Add failed', { kind: 'error' });
     }
   }
   // appjail binds host paths via fstab and has no podman named volumes.
   $: canUseVolumes = !selectedStack?.state?.engine || selectedStack.state.engine === 'podman';
-  $: if (!canUseVolumes && addKind !== 'bind') addKind = 'bind';
 
   async function mountsAPI(body: Record<string, unknown>) {
     const res = await fetch('/api/compose/mounts', {
@@ -744,66 +740,53 @@
     if (!res.ok) throw new Error((await res.text()).trim() || `HTTP ${res.status}`);
     return res.json();
   }
-  async function addMount() {
-    if (!selectedStack || !addSource.trim() || !addDest.trim()) return;
+  async function addMount(d: { service: string; kind: string; source: string; dest: string; readOnly: boolean }) {
+    if (!selectedStack || !d.source.trim() || !d.dest.trim()) return;
     try {
-      const { compose } = await mountsAPI({
-        op: 'add',
-        kind: addKind,
-        source: addSource.trim(),
-        dest: addDest.trim(),
-        readOnly: addRO,
-      });
-      selectedStack = { ...selectedStack, compose };
+      adopt(await mountsAPI({ op: 'add', ...d }));
       addSource = '';
-      addDest = '';
-      addRO = false;
-      await refreshStackDetail();
+      addingTo = '';
     } catch (e: any) {
       toast(e.message || 'Add failed', { kind: 'error' });
     }
   }
   // NFS/SMB from the Resources tab: same row format + credential store as the
   // folder-set editor (remote.ts), then mounted as its named volume.
-  async function addRemoteMount(row: string) {
+  async function addRemoteMount(d: { service: string; row: string; dest: string; readOnly: boolean }) {
     if (!selectedStack) return;
-    const dest = addDest.trim();
-    if (!dest) {
+    if (!d.dest) {
       toast('Enter the container path to mount it at', { kind: 'error' });
       return;
     }
     try {
-      const source = await ensureRemoteVolume(row, { stack: selectedStack.name });
-      const { compose } = await mountsAPI({ op: 'add', kind: 'volume', source, dest, readOnly: addRO });
-      selectedStack = { ...selectedStack, compose };
-      addDest = '';
-      addRO = false;
-      addKind = 'bind';
-      await refreshStackDetail();
+      const source = await ensureRemoteVolume(d.row, { stack: selectedStack.name });
+      adopt(await mountsAPI({ op: 'add', kind: 'volume', service: d.service, source, dest: d.dest, readOnly: d.readOnly }));
+      addingTo = '';
       loadVolumes(selectedStack.name);
     } catch (e: any) {
       toast(e.message || 'Add failed', { kind: 'error' });
     }
   }
-  // A mount change rewrites the compose on the server, and the per-service
-  // Storage list is derived THERE -- so the stack has to be re-read or the
-  // service keeps showing what it no longer holds.
-  async function refreshStackDetail() {
+  // A mount change is an EDIT, not a save: the daemon transforms the compose
+  // text it was sent and hands it back for the editor to hold until Save. It
+  // returns the per-service view of that new compose alongside it, because the
+  // Storage list under each service is derived on that side.
+  //
+  // Both are adopted together. Re-reading the stack instead returns what is on
+  // disk, which threw the edit away -- adding a bind mount looked like it did
+  // nothing at all.
+  function adopt(res: { compose: string; services?: unknown[] }) {
     if (!selectedStack) return;
-    try {
-      const res = await fetch(`/api/stacks/${selectedStack.name}`);
-      if (res.ok) selectedStack = await res.json();
-    } catch {}
+    selectedStack = { ...selectedStack, compose: res.compose, services: res.services ?? selectedStack.services };
   }
 
   // Removing a mount rewrites the compose straight away -- no Save, no revert --
   // so it asks first (in the row itself). The data is untouched, but putting
   // the source path back is the user's problem.
-  async function removeMount(dest: string) {
+  async function removeMount(d: { service: string; dest: string }) {
     if (!selectedStack) return;
     try {
-      await mountsAPI({ op: 'remove', dest });
-      await refreshStackDetail();
+      adopt(await mountsAPI({ op: 'remove', service: d.service, dest: d.dest }));
     } catch (e: any) {
       toast(e.message || 'Remove failed', { kind: 'error' });
     }
@@ -882,8 +865,7 @@
     if (!selectedStack) return;
     selectedStack = { ...selectedStack, compose: originalCompose, env: originalEnv, ...(isDirector ? { director: originalDirector, makejail: originalMakejail } : {}) };
     addSource = '';
-    addDest = '';
-    addRO = false;
+    addingTo = '';
     toast('Reverted to the last saved version', { kind: 'success' });
   }
 
@@ -1962,102 +1944,22 @@
                   {unsupportedModes}
                   stackName={selectedStack.name}
                   bind:edits={svcNets}
+                  {canUseVolumes}
+                  {namedVolumes}
+                  {folderSets}
+                  bind:addSource
+                  {addingTo}
                   on:change={() => (svcNets = svcNets)}
                   on:unmount={(e) => removeMount(e.detail)}
+                  on:add={(e) => addMount(e.detail)}
+                  on:remote={(e) => addRemoteMount(e.detail)}
+                  on:folderset={(e) => addFolderSet(e.detail.service, e.detail.id, e.detail.dest, e.detail.readOnly)}
+                  on:browse={() => (pickingMount = true)}
+                  on:openAdd={(e) => { addingTo = e.detail; addSource = ''; }}
+                  on:closeAdd={() => { addingTo = ''; addSource = ''; }}
                 />
 
 
-                <h3 class="text-lg font-bold text-fjord-fg mb-1 mt-8">Add storage</h3>
-                <p class="text-xs text-fjord-fg-muted mb-4 max-w-lg">
-                  Mount a folder or volume into this stack. What is mounted already is listed on
-                  the service that holds it, above. Changes edit the compose — <b>Save</b> to
-                  apply (running containers pick it up on <b>Apply</b>/recreate).
-                </p>
-
-                <!-- add a mount: host path (Browse) or, on podman, a named volume -->
-                <div class="flex flex-wrap items-end gap-3 max-w-2xl">
-                  {#if canUseVolumes}
-                    <div class="flex rounded-lg overflow-hidden border border-fjord-border shrink-0">
-                      <button
-                        on:click={() => { addKind = 'bind'; addSource = ''; }}
-                        class="px-3 py-2 text-xs font-medium {addKind === 'bind' ? 'bg-fjord-accent text-white' : 'bg-fjord-inset text-fjord-fg-muted hover:text-fjord-fg'}">Host path</button
-                      >
-                      <button
-                        on:click={() => { addKind = 'volume'; addSource = ''; }}
-                        class="px-3 py-2 text-xs font-medium border-l border-fjord-border {addKind === 'volume' ? 'bg-fjord-accent text-white' : 'bg-fjord-inset text-fjord-fg-muted hover:text-fjord-fg'}">Volume</button
-                      >
-                      <button
-                        on:click={() => { addKind = 'remote'; addSource = ''; }}
-                        class="px-3 py-2 text-xs font-medium border-l border-fjord-border {addKind === 'remote' ? 'bg-fjord-accent text-white' : 'bg-fjord-inset text-fjord-fg-muted hover:text-fjord-fg'}">NFS / SMB</button
-                      >
-                    </div>
-                  {/if}
-                  {#if addKind === 'remote'}
-                    <!-- Remote folder: same form as the folder-set editor; mounted at the container path on the right. -->
-                    <div class="flex items-center gap-2">
-                      <select bind:value={addRemoteKind} class="bg-fjord-inset border border-fjord-border rounded-lg px-2 py-2 text-xs text-fjord-fg-secondary focus:border-fjord-accent outline-none">
-                        <option value="nfs">NFS</option>
-                        <option value="smb">SMB</option>
-                      </select>
-                      {#key addRemoteKind}
-                        <RemoteFolderForm kind={addRemoteKind} on:add={(e) => addRemoteMount(e.detail)} on:cancel={() => (addKind = 'bind')} />
-                      {/key}
-                    </div>
-                  {:else if addKind === 'volume'}
-                    <select
-                      bind:value={addSource}
-                      class="bg-fjord-inset border border-fjord-border rounded-lg px-3 py-2 text-sm text-fjord-fg-body focus:border-fjord-accent outline-none"
-                    >
-                      <option value="">Volume…</option>
-                      {#each namedVolumes as v}
-                        <option value={v.name}>{v.name}{v.kind && v.kind !== 'local' ? ` (${v.kind.toUpperCase()})` : ''}</option>
-                      {/each}
-                    </select>
-                  {:else}
-                    <div class="flex items-center gap-1.5">
-                      <input
-                        bind:value={addSource}
-                        placeholder="/host/path"
-                        class="w-52 bg-fjord-inset border border-fjord-border rounded-lg px-3 py-2 text-sm text-fjord-fg-body font-mono focus:border-fjord-accent outline-none"
-                      />
-                      <button
-                        on:click={() => (pickingMount = true)}
-                        title="Browse the host filesystem"
-                        class="shrink-0 px-2.5 py-2 rounded-lg text-xs font-medium bg-fjord-inset border border-fjord-border text-fjord-fg-secondary hover:text-fjord-fg hover:border-fjord-accent/40 transition-colors">Browse…</button
-                      >
-                      {#if folderSets.length}
-                        <select
-                          aria-label="Add a folder set"
-                          title="Mounts the set's folders under the container path on the right"
-                          class="shrink-0 bg-fjord-inset border border-fjord-border rounded-lg px-2 py-2 text-xs text-fjord-fg-secondary focus:border-fjord-accent outline-none"
-                          on:change={(e) => { addFolderSet(e.currentTarget.value); e.currentTarget.value = ''; }}
-                        >
-                          <option value="">Add folder set…</option>
-                          {#each folderSets as fs}<option value={fs.id}>{fs.name}</option>{/each}
-                        </select>
-                      {/if}
-                    </div>
-                  {/if}
-                  <Icon name="chevron-right" size={14} class="text-fjord-fg-faint shrink-0 mb-2.5" />
-                  <input
-                    bind:value={addDest}
-                    placeholder="/container/path"
-                    class="w-48 bg-fjord-inset border border-fjord-border rounded-lg px-3 py-2 text-sm text-fjord-fg-body font-mono focus:border-fjord-accent outline-none"
-                  />
-                  <label class="flex items-center gap-1.5 text-sm text-fjord-fg-secondary cursor-pointer select-none mb-2">
-                    <input type="checkbox" bind:checked={addRO} class="accent-fjord-accent" /> RO
-                  </label>
-                  {#if addKind !== 'remote'}
-                    <button
-                      on:click={addMount}
-                      disabled={!addSource.trim() || !addDest.trim()}
-                      class="px-4 py-2 rounded-lg text-sm font-medium bg-fjord-border hover:bg-fjord-accent hover:text-white transition-colors disabled:opacity-40">Add</button
-                    >
-                  {/if}
-                </div>
-                {#if addKind === 'volume' && namedVolumes.length === 0}
-                  <p class="text-xs text-fjord-fg-faint mt-2">No named volumes yet — create one on the Volumes page.</p>
-                {/if}
                 {/if}
               </div>
             {/if}

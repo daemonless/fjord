@@ -31,11 +31,45 @@ func NamedVolumes(composeYAML string) []string {
 	return out
 }
 
-// AttachVolume mounts an existing named volume into the first service at
-// containerPath: adds "<name>:<path>[:ro]" to the service's volumes and
-// declares the volume external at the top level (fjord volumes are created via
-// the engine, not by compose).
-func AttachVolume(composeYAML, volName, containerPath string, readOnly bool) (string, error) {
+// FirstService is the service to edit for a caller that has none to name:
+// whichever the compose lists first.
+//
+// It is a named constant rather than an empty string so that choosing it is a
+// decision a reader can see. Every mount used to go here, which is right for a
+// one-service stack and arbitrary for any other -- adding storage to immich put
+// it on immich-server only because that is what the file happens to list first.
+const FirstService = ""
+
+// serviceNode is the service mapping to edit, by name, or the first one for
+// FirstService.
+func serviceNode(root *yaml.Node, service string) (*yaml.Node, error) {
+	services := mapGet(root, "services")
+	if services == nil || services.Kind != yaml.MappingNode || len(services.Content) < 2 {
+		return nil, fmt.Errorf("compose has no services")
+	}
+	if service == FirstService {
+		if services.Content[1].Kind != yaml.MappingNode {
+			return nil, fmt.Errorf("first service is not a mapping")
+		}
+		return services.Content[1], nil
+	}
+	for i := 0; i+1 < len(services.Content); i += 2 {
+		if services.Content[i].Value != service {
+			continue
+		}
+		if services.Content[i+1].Kind != yaml.MappingNode {
+			return nil, fmt.Errorf("service %q is not a mapping", service)
+		}
+		return services.Content[i+1], nil
+	}
+	return nil, fmt.Errorf("no service named %q", service)
+}
+
+// AttachVolume mounts an existing named volume into service at containerPath:
+// adds "<name>:<path>[:ro]" to that service's volumes and declares the volume
+// external at the top level (fjord volumes are created via the engine, not by
+// compose). Pass FirstService when there is no service to name.
+func AttachVolume(composeYAML, service, volName, containerPath string, readOnly bool) (string, error) {
 	if volName == "" || !strings.HasPrefix(containerPath, "/") {
 		return "", fmt.Errorf("volume name and an absolute container path are required")
 	}
@@ -47,13 +81,9 @@ func AttachVolume(composeYAML, volName, containerPath string, readOnly bool) (st
 		return "", fmt.Errorf("compose is not a YAML mapping")
 	}
 	root := doc.Content[0]
-	services := mapGet(root, "services")
-	if services == nil || services.Kind != yaml.MappingNode || len(services.Content) < 2 {
-		return "", fmt.Errorf("compose has no services")
-	}
-	svc := services.Content[1]
-	if svc.Kind != yaml.MappingNode {
-		return "", fmt.Errorf("first service is not a mapping")
+	svc, err := serviceNode(root, service)
+	if err != nil {
+		return "", err
 	}
 
 	entry := volName + ":" + containerPath
@@ -103,10 +133,10 @@ func AttachVolume(composeYAML, volName, containerPath string, readOnly bool) (st
 	return buf.String(), nil
 }
 
-// AttachBindMount mounts a host path into the first service at containerPath as
+// AttachBindMount mounts a host path into service at containerPath as
 // a short-form "host:container[:ro]" entry. Unlike AttachVolume it declares no
 // top-level volume -- a bind references the host path directly.
-func AttachBindMount(composeYAML, hostPath, containerPath string, readOnly bool) (string, error) {
+func AttachBindMount(composeYAML, service, hostPath, containerPath string, readOnly bool) (string, error) {
 	if !strings.HasPrefix(hostPath, "/") || !strings.HasPrefix(containerPath, "/") {
 		return "", fmt.Errorf("both host and container paths must be absolute")
 	}
@@ -118,13 +148,9 @@ func AttachBindMount(composeYAML, hostPath, containerPath string, readOnly bool)
 		return "", fmt.Errorf("compose is not a YAML mapping")
 	}
 	root := doc.Content[0]
-	services := mapGet(root, "services")
-	if services == nil || services.Kind != yaml.MappingNode || len(services.Content) < 2 {
-		return "", fmt.Errorf("compose has no services")
-	}
-	svc := services.Content[1]
-	if svc.Kind != yaml.MappingNode {
-		return "", fmt.Errorf("first service is not a mapping")
+	svc, err := serviceNode(root, service)
+	if err != nil {
+		return "", err
 	}
 	svcVols := mapGet(svc, "volumes")
 	if svcVols == nil {
@@ -147,10 +173,15 @@ func AttachBindMount(composeYAML, hostPath, containerPath string, readOnly bool)
 	return encodeRoot(root)
 }
 
-// RemoveMount drops every short-form service mount whose container path equals
-// containerPath (across all services). The top-level named-volume declaration,
-// if any, is left in place -- harmless when unreferenced.
-func RemoveMount(composeYAML, containerPath string) (string, error) {
+// RemoveMount drops service's short-form mounts whose container path equals
+// containerPath. The top-level named-volume declaration, if any, is left in
+// place -- harmless when unreferenced.
+//
+// One service, not every service holding that path. Sweeping them all meant
+// unmounting /data from the app also unmounted whatever a sibling had at /data,
+// and the paths stacks share are exactly the ordinary ones: /etc/localtime is
+// on four of immich's services. Pass FirstService for a stack with one.
+func RemoveMount(composeYAML, service, containerPath string) (string, error) {
 	var doc yaml.Node
 	if err := yaml.Unmarshal([]byte(composeYAML), &doc); err != nil {
 		return "", fmt.Errorf("parse compose: %w", err)
@@ -159,16 +190,11 @@ func RemoveMount(composeYAML, containerPath string) (string, error) {
 		return "", fmt.Errorf("compose is not a YAML mapping")
 	}
 	root := doc.Content[0]
-	services := mapGet(root, "services")
-	if services == nil || services.Kind != yaml.MappingNode {
-		return "", fmt.Errorf("compose has no services")
+	svc, err := serviceNode(root, service)
+	if err != nil {
+		return "", err
 	}
-	for i := 1; i < len(services.Content); i += 2 {
-		svc := services.Content[i]
-		vols := mapGet(svc, "volumes")
-		if vols == nil || vols.Kind != yaml.SequenceNode {
-			continue
-		}
+	if vols := mapGet(svc, "volumes"); vols != nil && vols.Kind == yaml.SequenceNode {
 		kept := vols.Content[:0]
 		for _, it := range vols.Content {
 			if it.Kind == yaml.ScalarNode && mountDest(it.Value) == containerPath {
