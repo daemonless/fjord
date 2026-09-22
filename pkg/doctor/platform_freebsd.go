@@ -4,10 +4,13 @@ package doctor
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/daemonless/fjord/pkg/engine"
 	"github.com/daemonless/fjord/pkg/engine/appjail"
@@ -35,6 +38,12 @@ func platform(cfg Config) platformInfo {
 			Probe: socketProbe,
 			Why:   "fjord talks to podman over its API socket for status, logs and shells. Without it the podman engine is blind, even with podman installed.",
 			Fix:   "sysrc podman_service_enable=YES\nservice podman_service onerestart",
+		},
+		{
+			ID: "podman-stale", Name: "podman API service is current", Engine: "podman", HostOnly: true,
+			Probe: podmanServiceStaleProbe,
+			Why:   "`pkg upgrade` replaces podman and its runtime under a service that keeps running, and the old process cannot spawn an exec with binaries that moved. Everything keeps working except the shell, which fails with \"no such file or directory\" -- on a host where the CLI works perfectly, so it reads as a fjord bug. Nothing else notices, because starting and stopping stacks is unaffected.",
+			Fix:   "service podman_service restart",
 		},
 		{
 			ID: "compose", Name: "podman-compose", Engine: "podman",
@@ -376,4 +385,72 @@ func appjailDNSProbe(ctx context.Context) (Status, string) {
 		return Warn, "installed but not running -- jails cannot find each other by name"
 	}
 	return OK, "running"
+}
+
+// podmanServiceStaleProbe reports a podman API service older than the podman
+// packages it runs on.
+//
+// Measured on jupiter 2026-09-22: `pkg upgrade` replaced podman, conmon and
+// ocijail at 18:28 under a service that had been up since Sep 6. `podman exec`
+// on the command line worked -- that is the new binary -- while the identical
+// call through the API returned 500 "no such file or directory", so every
+// stack's shell was dead and nothing else was. Restarting the service fixed
+// it instantly.
+//
+// Compared by TIME, not by version: that upgrade was almost certainly a port
+// revision bump (5.8.6 -> 5.8.6_1), so Client.Version and Server.Version read
+// identical and a version check sees nothing wrong.
+func podmanServiceStaleProbe(ctx context.Context) (Status, string) {
+	pid := strings.TrimSpace(firstLine(run(ctx, "pgrep", "-f", "podman.*system service")))
+	if pid == "" {
+		return OK, "" // not running: the socket check is the one that says so
+	}
+	// etimes is elapsed SECONDS, which needs no date parsing and no locale.
+	etimes, err := strconv.Atoi(strings.TrimSpace(firstLine(run(ctx, "ps", "-o", "etimes=", "-p", pid))))
+	if err != nil {
+		return OK, ""
+	}
+	started := time.Now().Add(-time.Duration(etimes) * time.Second)
+
+	var newest time.Time
+	var newestPkg string
+	for _, name := range []string{"podman", "conmon", "ocijail"} {
+		out := strings.TrimSpace(firstLine(run(ctx, "pkg", "query", "%t", name)))
+		secs, err := strconv.ParseInt(out, 10, 64)
+		if err != nil {
+			continue
+		}
+		if t := time.Unix(secs, 0); t.After(newest) {
+			newest, newestPkg = t, name
+		}
+	}
+	return serviceStale(started, newest, newestPkg)
+}
+
+// serviceStale is the comparison on its own, so the rule can be tested without
+// a host in the broken state.
+func serviceStale(started, installed time.Time, pkg string) (Status, string) {
+	if pkg == "" || !installed.After(started) {
+		return OK, "running on the installed version"
+	}
+	return Warn, fmt.Sprintf(
+		"running since %s but %s was installed %s -- shells will fail until it is restarted",
+		started.Format("Jan 2 15:04"), pkg, installed.Format("Jan 2 15:04"))
+}
+
+// run is the output of a command, or "" if it fails at all. Every caller here
+// treats "cannot tell" as "nothing to report".
+func run(ctx context.Context, name string, args ...string) string {
+	out, err := exec.CommandContext(ctx, name, args...).Output()
+	if err != nil {
+		return ""
+	}
+	return string(out)
+}
+
+func firstLine(s string) string {
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		return s[:i]
+	}
+	return s
 }
