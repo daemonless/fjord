@@ -181,3 +181,52 @@ function step(a: ipaddr.IPv4, by: number): ipaddr.IPv4 {
   const n = a.octets.reduce((acc, o) => acc * 256 + o, 0) + by;
   return new ipaddr.IPv4([(n >>> 24) & 255, (n >>> 16) & 255, (n >>> 8) & 255, n & 255]);
 }
+
+/**
+ * address6Problem is addressProblem for the other family.
+ *
+ * Its own function, not a flag on the first one. The v4 rules that matter --
+ * network address, broadcast address -- do not transfer: IPv6 has no broadcast
+ * at all, and the all-zeros address of a prefix is the subnet-router anycast
+ * address rather than something a host must avoid. Sharing the code would mean
+ * sharing rules that are wrong here.
+ *
+ * Kept in step with address6Unusable in the daemon, so the form refuses what
+ * the save would refuse instead of finding out afterwards.
+ */
+export function address6Problem(
+  addr: string,
+  net: { subnet6?: string; gateway6?: string; addressSource?: string } | undefined,
+): string {
+  const a = (addr || '').trim();
+  if (!a) return '';
+  if (!ipaddr.IPv6.isValid(a)) {
+    // Naming the other field is the useful half: two address boxes side by
+    // side is exactly the shape that invites putting one in the wrong one.
+    if (ipaddr.IPv4.isValidFourPartDecimal(a)) return `${a} is an IPv4 address; it belongs in the IPv4 field`;
+    return `${a} is not an IPv6 address`;
+  }
+  const ip = ipaddr.IPv6.parse(a);
+  if (ip.toNormalizedString() === '0:0:0:0:0:0:0:0') return ':: is the unspecified address, not a host';
+  if (ip.range() === 'multicast') return `${a} is a multicast address, not a host`;
+  const subnet6 = net?.subnet6 || '';
+  if (!subnet6 || !ipaddr.IPv6.isValidCIDR?.(subnet6)) {
+    // No segment recorded, or a form this parser will not take: nothing to
+    // check against, which is not the same as a problem.
+    if (!subnet6) return '';
+  }
+  try {
+    if (!ip.match(ipaddr.IPv6.parseCIDR(subnet6))) return `${a} is not in ${subnet6}`;
+  } catch {
+    return '';
+  }
+  if (
+    net?.addressSource !== 'engine' &&
+    net?.gateway6 &&
+    ipaddr.IPv6.isValid(net.gateway6) &&
+    ipaddr.IPv6.parse(net.gateway6).toNormalizedString() === ip.toNormalizedString()
+  ) {
+    return `${a} is the gateway for ${subnet6}`;
+  }
+  return '';
+}

@@ -69,9 +69,9 @@ describe('splitPlan', () => {
       redis: [{ network: 'host' }],
     });
     expect(networks).toEqual([
-      { network: 'lan', service: 'immich-server', ip: '192.168.4.90', mac: '' },
-      { network: 'private', service: 'immich-server', ip: '', mac: '' },
-      { network: 'private', service: 'database', ip: '', mac: '' },
+      { network: 'lan', service: 'immich-server', ip: '192.168.4.90', ip6: '', mac: '' },
+      { network: 'private', service: 'immich-server', ip: '', ip6: '', mac: '' },
+      { network: 'private', service: 'database', ip: '', ip6: '', mac: '' },
     ]);
     expect(modes).toEqual({ redis: 'host' });
   });

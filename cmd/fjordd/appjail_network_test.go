@@ -330,3 +330,56 @@ func TestEpairNameSingleServiceUnchanged(t *testing.T) {
 		t.Errorf("single-service epair changed name to %q", got)
 	}
 }
+
+// A dual-stack network seeds both families the way a conflist carries them:
+// a second range, which is how host-local already understands IPv6.
+func seedDualStackNetwork(t *testing.T) {
+	t.Helper()
+	dir := t.TempDir()
+	conf := `{"cniVersion":"0.4.0","name":"vlan5","plugins":[{"type":"epair","master":"vlan5bridge",
+	  "ipam":{"type":"host-local","ranges":[
+	    [{"subnet":"192.168.5.0/24","gateway":"192.168.5.1"}],
+	    [{"subnet":"fd00:4:105::/64","gateway":"fd00:4:105::1"}]]}}]}`
+	if err := os.WriteFile(filepath.Join(dir, "vlan5.conflist"), []byte(conf), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	old := hostnet.ConfDir
+	hostnet.ConfDir = dir
+	t.Cleanup(func() { hostnet.ConfDir = old })
+}
+
+// The v6 half is a SECOND ifconfig on the same epair, not a replacement: a
+// dual-stack jail holds both. appjail splits ifconfig= on the first colon, so
+// the colons in the address itself are safely in the options half.
+func TestSetDirectorNetworksDualStack(t *testing.T) {
+	seedDualStackNetwork(t)
+	out, err := setDirectorNetworks(context.Background(), natDirector, "zensical",
+		[]composepkg.Attachment{{Network: "vlan5", IP: "192.168.5.222", IP6: "fd00:4:105::222"}})
+	if err != nil {
+		t.Fatalf("setDirectorNetworks: %v", err)
+	}
+	for _, want := range []string{
+		"ifconfig: 'sb_zensical:192.168.5.222/24'",
+		"ifconfig: 'sb_zensical:inet6 fd00:4:105::222/64'",
+		"defaultrouter: '192.168.5.1'",
+		"defaultrouter6: 'fd00:4:105::1'",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q in:\n%s", want, out)
+		}
+	}
+}
+
+// Without an IPv6 subnet fjord has no prefix length, and appjail configures
+// the interface itself -- guessing /64 would put the jail on the wrong mask.
+func TestSetDirectorNetworksIPv6NeedsASegment(t *testing.T) {
+	seedNetwork(t) // v4 only
+	_, err := setDirectorNetworks(context.Background(), natDirector, "zensical",
+		[]composepkg.Attachment{{Network: "vlan5", IP: "192.168.5.222", IP6: "fd00:4:105::222"}})
+	if err == nil {
+		t.Fatal("accepted an IPv6 address on a network with no IPv6 segment")
+	}
+	if !strings.Contains(err.Error(), "IPv6") {
+		t.Errorf("error should name the problem, got: %v", err)
+	}
+}

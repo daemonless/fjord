@@ -9,7 +9,7 @@
   import { createEventDispatcher } from 'svelte';
   import Icon from './Icon.svelte';
   import AddMount from './AddMount.svelte';
-  import { addressProblem, usableRange, randomMAC } from './network';
+  import { addressProblem, address6Problem, usableRange, randomMAC } from './network';
   import { setInterface, perServiceModes, isolatedServices } from './planSeed';
 
   type Net = {
@@ -23,11 +23,15 @@
     driver?: string;
     subnet?: string;
     gateway?: string;
+    /** The IPv6 half of the segment, when the network has one. Its presence is
+     *  what decides whether a v6 address field is shown at all. */
+    subnet6?: string;
+    gateway6?: string;
     bridge?: string;
     addressSource?: string;
     problem?: string;
   };
-  type Attachment = { network: string; ip?: string; mac?: string; iface?: string };
+  type Attachment = { network: string; ip?: string; ip6?: string; mac?: string; iface?: string };
   type ServiceVolume = {
     source?: string;
     dest?: string;
@@ -176,7 +180,7 @@
   // What picking a mode took away, so the row can say so instead of the other
   // interfaces just vanishing.
   let replacedBy: Record<string, string[]> = {};
-  function setField(svc: string, i: number, field: 'network' | 'ip' | 'mac', value: string) {
+  function setField(svc: string, i: number, field: 'network' | 'ip' | 'ip6' | 'mac', value: string) {
     const { rows: next, replaced } = setInterface(rows(svc), i, field, value);
     edits[svc] = next;
     replacedBy = { ...replacedBy, [svc]: replaced.map((r) => r.network) };
@@ -274,7 +278,7 @@
                     {@const net = byName(r.network)}
                     {@const problem = duplicate(edits[s.name] ?? [], i)
                       ? `${r.network} is already on this service`
-                      : addressProblem(r.ip ?? '', net)}
+                      : addressProblem(r.ip ?? '', net) || address6Problem(r.ip6 ?? '', net)}
                     <tr class="border-t border-fjord-border/60 align-top">
                       {#if !planning}
                         <td class="py-1.5 pr-2 font-mono text-fjord-fg-dim">{r.iface ?? 'on create'}</td>
@@ -286,8 +290,13 @@
                           class="w-full bg-fjord-inset border border-fjord-border rounded-lg px-2 py-1.5 text-fjord-fg-body"
                         >
                           {#each pickable(networks, r.network) as n}
+                            <!-- Say when a network carries IPv6. Showing only
+                                 the v4 subnet made a dual-stack network read
+                                 exactly like a v4-only one, so the second
+                                 address box appeared with no warning and its
+                                 absence looked like a missing feature. -->
                             <option value={n.name}>
-                              {n.name}{n.subnet ? ` (${n.subnet})` : ''}
+                              {n.name}{n.subnet ? ` (${n.subnet}${n.subnet6 ? ' + IPv6' : ''})` : n.subnet6 ? ' (IPv6)' : ''}
                             </option>
                           {/each}
                           {#if offerPrivateSpec}
@@ -320,6 +329,25 @@
                             ? 'border-fjord-danger'
                             : 'border-fjord-border'}"
                         />
+                        <!-- Only where the network has a v6 segment: a box you
+                             cannot put anything in is worse than no box. -->
+                        {#if net && !net.subnet6 && r.network && !isBuiltIn(r.network)}
+                          <!-- The absence, stated. A row with no second box
+                               was indistinguishable from fjord not doing
+                               IPv6 -- the segment is what decides, and it is
+                               changed on the Networks page. -->
+                          <div class="mt-1 text-[10px] text-fjord-fg-faint">IPv4 only — add an IPv6 segment on Networks</div>
+                        {/if}
+                        {#if net?.subnet6}
+                          <input
+                            value={r.ip6 ?? ''}
+                            on:input={(e) => setField(s.name, i, 'ip6', e.currentTarget.value)}
+                            placeholder="IPv6 — from the network"
+                            class="mt-1 w-full bg-fjord-inset border rounded-lg px-2 py-1.5 font-mono text-fjord-fg-body {problem
+                              ? 'border-fjord-danger'
+                              : 'border-fjord-border'}"
+                          />
+                        {/if}
                       </td>
                       <td class="py-1.5 pr-2">
                         <div class="flex gap-1">

@@ -364,14 +364,62 @@ func (s *server) handleNetworkParents(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleNetworkDelete removes a network: DELETE /api/networks/<name>[?force=true].
-func (s *server) handleNetworkDelete(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodDelete {
-		http.Error(w, "method not allowed", 405)
+// editNetwork changes a network that already exists, in place.
+//
+// Only the IPv6 segment, deliberately. Everything else about a network is a
+// property its running containers already hold: change the IPv4 subnet and
+// they keep addresses outside it, while the reservations under
+// /var/run/cni/networks/<net>/ still name them -- the state that leaves a
+// container unable to start at all. Adding a family takes nothing away from
+// what is already running, so it is the one edit that is safe before there is
+// a story for recreating stacks.
+//
+// Without this the only way to give an existing network IPv6 was to delete it,
+// which detaches every stack on it.
+func (s *server) editNetwork(w http.ResponseWriter, r *http.Request, name string) {
+	var req struct {
+		Subnet6  *string `json:"subnet6"`
+		Gateway6 *string `json:"gateway6"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid JSON payload", 400)
 		return
 	}
+	if req.Subnet6 == nil {
+		http.Error(w, "nothing to change: send subnet6 (empty to remove the IPv6 segment)", 400)
+		return
+	}
+	gw := ""
+	if req.Gateway6 != nil {
+		gw = strings.TrimSpace(*req.Gateway6)
+	}
+	if err := lannet.SetSegment6(name, strings.TrimSpace(*req.Subnet6), gw); err != nil {
+		http.Error(w, err.Error(), 400)
+		return
+	}
+	log.Printf("network %s: ipv6 segment %s", name, map[bool]string{
+		true: "removed", false: strings.TrimSpace(*req.Subnet6)}[strings.TrimSpace(*req.Subnet6) == ""])
+	n, ok := hostnet.Get(name)
+	if !ok {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(n)
+}
+
+func (s *server) handleNetworkDelete(w http.ResponseWriter, r *http.Request) {
 	name := strings.TrimPrefix(r.URL.Path, "/api/networks/")
 	if name == "" || name == "parents" || name == "kinds" {
 		http.Error(w, "name required", 400)
+		return
+	}
+	if r.Method == http.MethodPut {
+		s.editNetwork(w, r, name)
+		return
+	}
+	if r.Method != http.MethodDelete {
+		http.Error(w, "method not allowed", 405)
 		return
 	}
 	force := r.URL.Query().Get("force") == "true"
@@ -481,8 +529,20 @@ func attachmentsUnusable(atts []composepkg.Attachment, engineNets []engine.Netwo
 		if !ok {
 			continue
 		}
+		// A v6 address is checked whether or not a v4 one came with it: a
+		// dual-stack attachment carries both, and a v6-only one carries only
+		// the second. Asking for v6 on a network that has no v6 segment is
+		// worth saying so, rather than writing an address nothing routes.
+		if a.IP6 != "" {
+			if n.Subnet6 == "" && !n.Static {
+				return a.Network + " has no IPv6 segment, so " + a.IP6 + " cannot be reached on it"
+			}
+			if msg := address6Unusable(a.IP6, n); msg != "" {
+				return msg + " (" + a.Network + ")"
+			}
+		}
 		if a.IP == "" {
-			if n.Static {
+			if n.Static && a.IP6 == "" {
 				return "an address is required to attach to " + a.Network +
 					": nothing allocates on that network -- every stack brings its own address"
 			}
@@ -504,8 +564,11 @@ func attachmentsUnusable(atts []composepkg.Attachment, engineNets []engine.Netwo
 // networks and says so well; on a host bridge nobody was checking at all.
 func addressUnusable(addr string, n hostnet.Network) string {
 	ip := net.ParseIP(addr)
-	if ip == nil || ip.To4() == nil {
+	if ip == nil {
 		return addr + " is not an IPv4 address"
+	}
+	if ip.To4() == nil {
+		return addr + " is an IPv6 address; it belongs in the IPv6 field"
 	}
 	if n.Subnet == "" {
 		return "" // segment unknown; nothing to check it against
@@ -535,6 +598,43 @@ func addressUnusable(addr string, n hostnet.Network) string {
 	}
 	if n.Gateway != "" && n.Gateway == ip.String() {
 		return addr + " is the gateway for " + n.Subnet
+	}
+	return ""
+}
+
+// address6Unusable is addressUnusable for the other family.
+//
+// Deliberately not the same function with a flag. The v4 checks that matter --
+// network address, broadcast address -- do not transfer: IPv6 has no broadcast
+// at all, and the all-zeros address of a prefix is the subnet-router anycast
+// address rather than something a host must avoid. Sharing the code would have
+// meant sharing rules that are wrong here.
+func address6Unusable(addr string, n hostnet.Network) string {
+	ip := net.ParseIP(addr)
+	if ip == nil {
+		return addr + " is not an IPv6 address"
+	}
+	if ip.To4() != nil {
+		return addr + " is an IPv4 address; it belongs in the IPv4 field"
+	}
+	if ip.IsUnspecified() {
+		return ":: is the unspecified address, not a host"
+	}
+	if ip.IsMulticast() {
+		return addr + " is a multicast address, not a host"
+	}
+	if n.Subnet6 == "" {
+		return "" // no v6 segment recorded; nothing to check it against
+	}
+	_, cidr, err := net.ParseCIDR(n.Subnet6)
+	if err != nil {
+		return ""
+	}
+	if !cidr.Contains(ip) {
+		return addr + " is not in " + n.Subnet6
+	}
+	if n.Gateway6 != "" && n.Gateway6 == ip.String() {
+		return addr + " is the gateway for " + n.Subnet6
 	}
 	return ""
 }
