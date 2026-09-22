@@ -423,7 +423,7 @@
   // Inline confirmation for destructive stack actions (Stop / Delete): a
   // banner under the stack header, not a modal, so the rest of the app stays
   // usable and the question stays visible. Cleared when the selection changes.
-  let pendingAction: { kind: 'stop' | 'delete'; stack: string } | null = null;
+  let pendingAction: { kind: 'stop' | 'delete' | 'recreate'; stack: string } | null = null;
   let pendingConfirmBtn: HTMLButtonElement | null = null;
   $: if (pendingAction && selectedStack?.name !== pendingAction.stack) pendingAction = null;
   // Focus the confirm button so Enter confirms and Escape cancels from the keyboard.
@@ -433,6 +433,7 @@
     pendingAction = null;
     if (!a) return;
     if (a.kind === 'stop') down(a.stack);
+    else if (a.kind === 'recreate') update(a.stack);
     else deleteStack(a.stack);
   }
 
@@ -500,7 +501,8 @@
   }
 
   // Update-availability for the selected stack (digest drift vs the registry).
-  let updateInfo: { state: string; tag?: string; latest?: string; newTag?: string; toVersion?: string } | null = null;
+  let updateInfo: UpdateInfo | null = null;
+  let updateCheckedAt = 0;
   let checkingUpdate = false;
 
   async function checkForUpdate(name: string) {
@@ -508,13 +510,43 @@
     updateInfo = null;
     try {
       const res = await fetch(`/api/stacks/${name}/update-check`);
-      if (res.ok) updateInfo = await res.json();
+      // A slow registry can answer after the operator has moved on; the
+      // result belongs to the stack it was asked about, not the one on screen.
+      if (res.ok && selectedStack?.name === name) {
+        updateInfo = await res.json();
+        updateCheckedAt = Date.now();
+      }
     } catch {
       // registry/socket unreachable -> leave it unknown, no badge
     } finally {
       checkingUpdate = false;
     }
   }
+
+  // The Update panel. Update used to act on click -- pull everything and
+  // recreate every container whether or not anything had changed, with no
+  // word about which part of the stack was behind. Now the button opens this
+  // list first, and acting on it is a second, deliberate click.
+  let updatePanel = '';
+  $: if (updatePanel && selectedStack?.name !== updatePanel) updatePanel = '';
+  // Older than this and the panel asks again before offering to act on it.
+  const UPDATE_FRESH_MS = 2 * 60 * 1000;
+  function openUpdatePanel(name: string) {
+    updatePanel = name;
+    if (!updateInfo || Date.now() - updateCheckedAt > UPDATE_FRESH_MS) checkForUpdate(name);
+  }
+  $: updatable = (updateInfo?.services ?? []).filter((s) => s.state === 'available');
+  // Update applies a moved tag. A new VERSION needs the compose to name a
+  // different tag -- Change Version -- and nothing is gained by recreating.
+  $: updateButtonReason =
+    updateInfo?.state === 'current'
+      ? 'Up to date — nothing to pull'
+      : updateInfo?.state === 'pinned'
+        ? 'Pinned to an exact image — nothing to pull'
+        : updateInfo?.state === 'upgrade'
+          ? `A newer version is published (v${updateInfo.toVersion}) — use Change Version`
+          : '';
+  const shortDigest = (d?: string) => (d ?? '').replace('sha256:', '').slice(0, 12);
 
   // Whether the operator is still on the stack an action was started from.
   // Anything that finishes long after it was started has to check this before
@@ -624,7 +656,28 @@
   }
 
   // Fleet-wide update state (server-side cached; refreshed in the background).
-  type UpdateInfo = { state: string; tag?: string; latest?: string; newTag?: string; toVersion?: string };
+  type ServiceUpdate = {
+    service: string;
+    image: string;
+    state: string;
+    tag?: string;
+    running?: string;
+    latest?: string;
+    newTag?: string;
+    fromVersion?: string;
+    toVersion?: string;
+    detail?: string;
+  };
+  type UpdateInfo = {
+    state: string;
+    tag?: string;
+    latest?: string;
+    newTag?: string;
+    fromVersion?: string;
+    toVersion?: string;
+    detail?: string;
+    services?: ServiceUpdate[];
+  };
   let fleet: Record<string, UpdateInfo> = {};
   let fleetRefreshing = false;
   const behind = (u?: UpdateInfo) => u?.state === 'available' || u?.state === 'upgrade';
@@ -1134,6 +1187,7 @@
   const down = (name: string) => streamAction(name, 'down', 'Stopping…');
   const restart = (name: string) => streamAction(name, 'restart', 'Restarting…');
   const update = async (name: string) => {
+    if (updatePanel === name) updatePanel = '';
     await streamAction(name, 'update', 'Updating…');
     if (execStatus[name] !== 'error') needsApply[name] = false; // update recreates too
     if (selectedStack?.name === name) checkForUpdate(name); // refresh the badge
@@ -1471,7 +1525,7 @@
                   <span
                     class="ml-auto shrink-0 text-fjord-warning"
                     title={fleet[stack.name].state === 'upgrade'
-                      ? `v${fleet[stack.name].toVersion} available`
+                      ? `${fleet[stack.name].fromVersion ? `v${fleet[stack.name].fromVersion} → ` : ''}v${fleet[stack.name].toVersion} available`
                       : 'Update available'}><Icon name="arrow-up" size={12} /></span
                   >
                 {/if}
@@ -1684,6 +1738,9 @@
             <span class="flex-1">
               {#if pendingAction.kind === 'delete'}
                 <b>Delete {label(selectedStack)}?</b> Stops the stack and removes it from fjord. Bind-mounted data stays on disk.
+              {:else if pendingAction.kind === 'recreate'}
+                <b>Pull &amp; recreate {label(selectedStack)}?</b> Pulls every image and recreates every container, including
+                ones already up to date.
               {:else}
                 <b>Stop {label(selectedStack)}?</b> Stops and removes the containers. Your data is preserved.
               {/if}
@@ -1699,8 +1756,77 @@
               on:keydown={(e) => e.key === 'Escape' && (pendingAction = null)}
               disabled={execStatus[selectedStack.name] === 'running'}
               class="shrink-0 px-3 py-1.5 rounded-lg text-sm font-medium bg-fjord-danger text-white hover:bg-fjord-danger-hover transition-colors disabled:opacity-40"
-              >{pendingAction.kind === 'delete' ? 'Delete' : 'Stop'}</button
+              >{pendingAction.kind === 'delete' ? 'Delete' : pendingAction.kind === 'recreate' ? 'Recreate' : 'Stop'}</button
             >
+          </div>
+        {/if}
+
+        <!-- Update panel: what an update would change, per service, before it runs -->
+        {#if updatePanel === selectedStack.name}
+          <div class="mb-4 shrink-0 px-4 py-3 rounded-lg bg-fjord-card border border-fjord-border text-sm text-fjord-fg-body">
+            {#if checkingUpdate || !updateInfo}
+              <div class="flex items-center gap-2 text-fjord-fg-dim"><Spinner size={14} /> Checking the registry…</div>
+            {:else}
+              <div class="overflow-x-auto">
+                <table class="w-full text-xs">
+                  <thead class="text-fjord-fg-dim">
+                    <tr>
+                      <th class="text-left font-medium pb-1.5">Service</th>
+                      <th class="text-left font-medium pb-1.5">Tag</th>
+                      <th class="text-left font-medium pb-1.5">State</th>
+                      <th class="text-left font-medium pb-1.5">Change</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {#each updateInfo.services ?? [] as s}
+                      <tr class="border-t border-fjord-border/60 align-top">
+                        <td class="py-1.5 pr-3 font-medium text-fjord-fg">{s.service}</td>
+                        <td class="py-1.5 pr-3 font-mono text-fjord-fg-secondary">{s.tag ?? ''}</td>
+                        <td class="py-1.5 pr-3 whitespace-nowrap">
+                          {#if s.state === 'available'}<span class="text-fjord-warning">update</span>
+                          {:else if s.state === 'upgrade'}<span class="text-fjord-warning">new version</span>
+                          {:else if s.state === 'current'}<span class="text-fjord-success">up to date</span>
+                          {:else if s.state === 'pinned'}<span class="text-fjord-accent">pinned</span>
+                          {:else}<span class="text-fjord-fg-dim">unknown</span>{/if}
+                        </td>
+                        <td class="py-1.5 font-mono text-fjord-fg-secondary">
+                          {#if s.state === 'available'}
+                            {shortDigest(s.running) || 'local'} → {shortDigest(s.latest)}
+                          {:else if s.state === 'upgrade'}
+                            v{s.fromVersion} → v{s.toVersion}
+                            <span class="font-sans text-fjord-fg-dim">(Change Version)</span>
+                          {:else if s.state === 'unknown'}
+                            <span class="font-sans text-fjord-fg-dim">{s.detail ?? ''}</span>
+                          {/if}
+                        </td>
+                      </tr>
+                    {/each}
+                  </tbody>
+                </table>
+              </div>
+              <div class="flex items-center gap-3 mt-3">
+                <span class="flex-1 text-xs text-fjord-fg-dim">
+                  {#if updatable.length}
+                    {updatable.length} of {updateInfo.services?.length ?? 0}
+                    {updateInfo.services?.length === 1 ? 'service has' : 'services have'} an update. Update pulls the images
+                    and recreates the stack.
+                  {:else}
+                    Nothing here is pulled by Update.
+                  {/if}
+                </span>
+                <button
+                  on:click={() => (updatePanel = '')}
+                  class="shrink-0 px-3 py-1.5 rounded-lg text-sm font-medium text-fjord-fg-muted hover:text-fjord-fg transition-colors"
+                  >Cancel</button
+                >
+                <button
+                  on:click={() => update(selectedStack!.name)}
+                  disabled={!updatable.length || execStatus[selectedStack.name] === 'running'}
+                  class="shrink-0 px-3 py-1.5 rounded-lg text-sm font-medium bg-fjord-accent text-white hover:bg-fjord-accent-hover transition-colors disabled:opacity-40"
+                  >Update</button
+                >
+              </div>
+            {/if}
           </div>
         {/if}
 
@@ -1745,11 +1871,12 @@
             ><Icon name="stop" size={14} /> Stop…</button
           >
           <button
-            on:click={() => update(selectedStack!.name)}
-            disabled={execStatus[selectedStack.name] === 'running'}
-            title={updateInfo?.state === 'available'
-              ? `Update available — ${updateInfo.tag} moved to ${(updateInfo.latest ?? '').replace('sha256:', '').slice(0, 12)}…`
-              : 'Pull the latest images and recreate'}
+            on:click={() => (updatePanel === selectedStack!.name ? (updatePanel = '') : openUpdatePanel(selectedStack!.name))}
+            disabled={execStatus[selectedStack.name] === 'running' || !!updateButtonReason}
+            title={updateButtonReason ||
+              (updateInfo?.state === 'available'
+                ? `${updatable.map((s) => s.service).join(', ')} ${updatable.length === 1 ? 'has' : 'have'} an update`
+                : 'Check for updates')}
             class="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-40 {updateInfo?.state ===
             'available'
               ? 'bg-fjord-warning/15 text-fjord-warning border border-fjord-warning/40 hover:bg-fjord-warning/25'
@@ -1773,11 +1900,16 @@
                 })}
               class="text-xs text-fjord-warning self-center underline decoration-dotted hover:text-fjord-warning/80"
               title="A newer version is published — switch to it via Change Version"
-              >v{updateInfo!.toVersion} available</button
+              >{updateInfo!.fromVersion ? `v${updateInfo!.fromVersion} → ` : ''}v{updateInfo!.toVersion} available</button
             >
           {:else if updateInfo?.state === 'current'}
-            <span class="flex items-center gap-1 text-xs text-fjord-success self-center"
-              ><Icon name="check" size={12} /> Up to date</span
+            <!-- The button is off when there is nothing to pull, so asking
+                 again lives here, on the claim it would refresh. -->
+            <button
+              on:click={() => checkForUpdate(selectedStack!.name)}
+              title="Check again"
+              class="flex items-center gap-1 text-xs text-fjord-success self-center hover:underline decoration-dotted"
+              ><Icon name="check" size={12} /> Up to date</button
             >
           {:else if updateInfo?.state === 'pinned'}
             <span class="flex items-center gap-1 text-xs text-fjord-accent self-center"
@@ -1806,6 +1938,15 @@
                   }}
                   class="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-fjord-fg-body hover:bg-fjord-border transition-colors"
                   ><Icon name="restart" size={14} class="text-fjord-fg-muted" /> Restart</button
+                >
+                <button
+                  on:click={() => {
+                    actionsMenuOpen = false;
+                    pendingAction = { kind: 'recreate', stack: selectedStack!.name };
+                  }}
+                  title="Pull every image and recreate every container, even ones already up to date"
+                  class="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-fjord-fg-body hover:bg-fjord-border transition-colors"
+                  ><Icon name="update" size={14} class="text-fjord-fg-muted" /> Pull &amp; recreate all…</button
                 >
                 {#if !multiImage}
                   <button
