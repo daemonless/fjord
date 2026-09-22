@@ -6,7 +6,7 @@
   import { toast } from './toast';
   import FixSnippet from './FixSnippet.svelte';
 
-  type Network = { name: string; driver: string; subnet?: string; gateway?: string; usedBy?: string[]; problem?: string; engines?: string[]; addressSource?: string; bridge?: string; private?: boolean; ownedBy?: string };
+  type Network = { name: string; driver: string; subnet?: string; gateway?: string; subnet6?: string; gateway6?: string; usedBy?: string[]; problem?: string; engines?: string[]; addressSource?: string; bridge?: string; private?: boolean; ownedBy?: string };
   // A kind is the engine's own declaration of what it can create and which
   // fields that shape uses -- the form is built from this rather than from
   // anything the UI knows about a specific runtime.
@@ -118,7 +118,7 @@
   let submitting = false;
   let createError = '';
   let kindID = '';
-  let form = { name: '', parent: '', subnet: '', gateway: '', mtu: '', rangeStart: '', rangeEnd: '', description: '' };
+  let form = { name: '', parent: '', subnet: '', gateway: '', subnet6: '', gateway6: '', mtu: '', rangeStart: '', rangeEnd: '', description: '' };
   // "dhcp" = the segment's own DHCP server allocates; "pool" = a range set
   // aside in the conflist, which podman's host-local IPAM allocates from and
   // appjail cannot draw from at all. Not fjord: it writes the range and never
@@ -225,6 +225,8 @@
   // How a network hands out addresses, in the words the form uses. Read from
   // what the daemon reports -- "no subnet means DHCP" was the old tell and
   // stopped being true when DHCP networks began recording their segment.
+  /** The v6 segment, said next to the v4 one rather than instead of it. */
+  const segment6 = (n: { subnet6?: string }) => n.subnet6 || '';
   const allocLabel = (n: { addressSource?: string; subnet?: string }) =>
     n.addressSource === 'dhcp'
       ? n.subnet ? `DHCP · ${n.subnet}` : 'DHCP'
@@ -366,7 +368,7 @@
   $: netsOn = (bridge: string) => networks.filter((n) => n.bridge === bridge).length;
 
   async function openCreate() {
-    form = { name: '', parent: '', subnet: '', gateway: '', mtu: '', rangeStart: '', rangeEnd: '', description: '' };
+    form = { name: '', parent: '', subnet: '', gateway: '', subnet6: '', gateway6: '', mtu: '', rangeStart: '', rangeEnd: '', description: '' };
     filled = { subnet: '', gateway: '' };
     forEngine = '';
     advanced = false;
@@ -508,6 +510,15 @@
       if (form.subnet.trim()) body.subnet = form.subnet.trim();
       if (form.gateway.trim()) body.gateway = form.gateway.trim();
     }
+    // The v6 half is independent of the v4 one and belongs only to a network
+    // that allocates: a DHCP network's addresses come from the CNI dhcp
+    // plugin, which is IPv4-only, so its v6 would have to be SLAAC and the
+    // epair plugin does not do that. The daemon refuses it; the form does not
+    // offer it.
+    if (addressSource === 'pool' || addressSource === 'static') {
+      if (form.subnet6.trim()) body.subnet6 = form.subnet6.trim();
+      if (form.gateway6.trim()) body.gateway6 = form.gateway6.trim();
+    }
     if (kind?.supportsMtu && form.mtu.trim()) body.mtu = parseInt(form.mtu, 10);
     if (addressSource === 'pool' && form.rangeStart.trim()) body.rangeStart = form.rangeStart.trim();
     if (addressSource === 'pool' && form.rangeEnd.trim()) body.rangeEnd = form.rangeEnd.trim();
@@ -536,6 +547,37 @@
   // network out from under running containers strands them on an address
   // nothing can route or clean up. Force remains on the API for stale state.
   let confirmDelete = '';
+  /** The network whose IPv6 panel is open, '' for none. */
+  let editing6 = '';
+  let edit6 = { subnet6: '', gateway6: '' };
+
+  /** Only a pool or static network can carry an IPv6 segment: a DHCP one's
+   *  addresses come from the CNI dhcp plugin, which is IPv4-only. */
+  const canHaveV6 = (n: Network) =>
+    !isPrivateNet(n) && (n.addressSource === 'pool' || n.addressSource === 'static');
+
+  function openEdit6(n: Network) {
+    editing6 = n.name;
+    edit6 = { subnet6: n.subnet6 ?? '', gateway6: n.gateway6 ?? '' };
+  }
+
+  async function saveSegment6(name: string, remove = false) {
+    try {
+      const res = await fetch('/api/networks/' + encodeURIComponent(name), {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(
+          remove ? { subnet6: '' } : { subnet6: edit6.subnet6.trim(), gateway6: edit6.gateway6.trim() },
+        ),
+      });
+      if (!res.ok) throw new Error((await res.text()).trim() || `HTTP ${res.status}`);
+      editing6 = '';
+      toast(remove ? 'IPv6 segment removed' : 'IPv6 segment saved — stacks pick it up when they next start', { kind: 'success' });
+      await load();
+    } catch (e: any) {
+      toast(e.message || 'Could not change the IPv6 segment', { kind: 'error' });
+    }
+  }
   async function del(name: string) {
     try {
       const res = await fetch(`/api/networks/${encodeURIComponent(name)}?engine=${encodeURIComponent(engineOf(name))}`, { method: 'DELETE' });
@@ -658,8 +700,61 @@
                 <span class="text-[11px] font-medium bg-fjord-accent/20 text-fjord-accent px-1.5 py-0.5 rounded">{n.driver}</span>
               </div>
               <div class="text-xs text-fjord-fg-dim font-mono truncate">
-                {allocLabel(n)}{n.gateway && n.addressSource !== 'dhcp' ? ` · gw ${n.gateway}` : ''}
+                {allocLabel(n)}{n.gateway && n.addressSource !== 'dhcp' ? ` · gw ${n.gateway}` : ''}{segment6(n)
+                  ? ` · ${segment6(n)}${n.gateway6 ? ` gw ${n.gateway6}` : ''}`
+                  : ''}
               </div>
+              <!-- IPv6 is stated whether or not the network has it. Showing
+                   the line only when a segment exists made the absence
+                   indistinguishable from fjord not doing IPv6 at all, and the
+                   only way to add one was to delete the network every stack
+                   was on. -->
+              {#if !canHaveV6(n) && !isPrivateNet(n) && n.addressSource === 'dhcp'}
+                <!-- Stated, not omitted. A DHCP network showed no IPv6 line at
+                     all, which is the same silent absence this block exists to
+                     end: the answer "it cannot" is information, and without it
+                     the only way to find out is to ask. -->
+                <div class="text-xs text-fjord-fg-faint">
+                  IPv6 — not on a DHCP network{#if n.bridge} · a pool network on {n.bridge} can carry one{/if}
+                </div>
+              {/if}
+              {#if canHaveV6(n)}
+                {#if editing6 === n.name}
+                  <div class="mt-1.5 p-2 rounded-lg bg-fjord-inset/40 border border-fjord-border">
+                    <div class="flex flex-wrap items-end gap-2">
+                      <div class="flex flex-col gap-1">
+                        <label class="text-[10px] font-semibold text-fjord-fg-muted" for="e6-{n.name}">IPv6 subnet</label>
+                        <input id="e6-{n.name}" bind:value={edit6.subnet6} placeholder="fd00:4:103::/64"
+                          class="w-48 bg-fjord-inset border border-fjord-border rounded-lg px-2 py-1 text-xs font-mono text-fjord-fg-body" />
+                      </div>
+                      <div class="flex flex-col gap-1">
+                        <label class="text-[10px] font-semibold text-fjord-fg-muted" for="e6gw-{n.name}">IPv6 gateway</label>
+                        <input id="e6gw-{n.name}" bind:value={edit6.gateway6} placeholder="fd00:4:103::1"
+                          class="w-44 bg-fjord-inset border border-fjord-border rounded-lg px-2 py-1 text-xs font-mono text-fjord-fg-body" />
+                      </div>
+                      <button on:click={() => saveSegment6(n.name)} disabled={!edit6.subnet6.trim()}
+                        class="px-2.5 py-1 rounded-lg text-xs font-medium bg-fjord-border hover:bg-fjord-accent hover:text-white transition-colors disabled:opacity-40">Save</button>
+                      {#if n.subnet6}
+                        <button on:click={() => saveSegment6(n.name, true)}
+                          class="px-2 py-1 rounded-lg text-xs text-fjord-fg-muted hover:text-fjord-danger">Remove</button>
+                      {/if}
+                      <button on:click={() => (editing6 = '')}
+                        class="px-2 py-1 rounded-lg text-xs text-fjord-fg-muted hover:text-fjord-fg">Cancel</button>
+                    </div>
+                    {#if n.usedBy?.length}
+                      <p class="text-[11px] text-fjord-fg-faint mt-1.5">
+                        {n.usedBy.length} attached — they keep their current addresses until each is restarted.
+                      </p>
+                    {/if}
+                  </div>
+                {:else}
+                  <div class="text-xs text-fjord-fg-faint">
+                    IPv6 {n.subnet6 ? '' : '— none'}
+                    <button on:click={() => openEdit6(n)}
+                      class="ml-1 text-fjord-accent hover:underline">{n.subnet6 ? 'change' : '+ add'}</button>
+                  </div>
+                {/if}
+              {/if}
               {#if isPrivateNet(n)}
                 <!-- Whose it is, on the row itself: the disclosure above can
                      only give a count, and "made by a stack" over all of them
@@ -1056,6 +1151,25 @@
                   </div>
                 {/if}
               </div>
+
+              <!-- IPv6, optional and independent: a network may be v4-only,
+                   dual-stack, or v6-only. Offered only where something
+                   allocates from a subnet, because that is the only place a
+                   v6 range can come from. -->
+              {#if addressSource === 'pool' || addressSource === 'static'}
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div class="flex flex-col gap-1">
+                    <label class="text-xs font-semibold text-fjord-fg-muted" for="n-subnet6">IPv6 subnet <span class="font-normal text-fjord-fg-faint">— optional</span></label>
+                    <input id="n-subnet6" bind:value={form.subnet6} placeholder="fd00:4:103::/64" class={inputCls} />
+                  </div>
+                  {#if kind?.needsGateway}
+                    <div class="flex flex-col gap-1">
+                      <label class="text-xs font-semibold text-fjord-fg-muted" for="n-gw6">IPv6 gateway</label>
+                      <input id="n-gw6" bind:value={form.gateway6} placeholder="fd00:4:103::1" class={inputCls} />
+                    </div>
+                  {/if}
+                </div>
+              {/if}
 
               <!-- A range belongs to the pool only: on a static network
                    nothing allocates, so there is nothing to allocate FROM.

@@ -213,6 +213,13 @@ func attachOptions(ctx context.Context, stackID, service string, svcIdx int, att
 			// appjail validates it against the network's CIDR and against
 			// every other jail's reservation, so there is nothing to check
 			// here that it does not check better.
+			// appjail's own IPAM is IPv4-only -- `virtualnet` takes
+			// "address:ipv4-address" and has nowhere to put a v6 one. Saying so
+			// beats accepting the address, dropping it, and leaving a jail the
+			// UI claims has a v6 address that nothing on the segment can reach.
+			if a.IP6 != "" {
+				return nil, fmt.Errorf("%q is an appjail network and appjail allocates IPv4 only, so it cannot place %s: use a network fjord defines (a bridge with an IPv6 segment) for IPv6", a.Network, a.IP6)
+			}
 			vn := a.Network + ":" + epairName(stackID, service, svcIdx, i)
 			if a.IP != "" && !first {
 				a.IP = "" // appjail allocates this jail's address from the network
@@ -237,6 +244,10 @@ func attachOptions(ctx context.Context, stackID, service string, svcIdx int, att
 		if _, p, found := strings.Cut(net.Subnet, "/"); found {
 			prefix = p
 		}
+		prefix6 := ""
+		if _, p, found := strings.Cut(net.Subnet6, "/"); found {
+			prefix6 = p
+		}
 		// Guessing /24 onto a segment fjord has never seen would put the jail
 		// on the wrong mask and break it in a way nobody would look for here.
 		// An address identifies ONE interface. With several services on the
@@ -249,6 +260,12 @@ func attachOptions(ctx context.Context, stackID, service string, svcIdx int, att
 				return nil, fmt.Errorf("%q is a %s network, so every jail needs an address of its own -- this stack has %d services and one address to give. Use a DHCP network, or an appjail network that allocates", a.Network, map[bool]string{true: "static", false: "range"}[net.Static], nsvc)
 			}
 			a.IP = "" // this jail takes a lease instead
+		}
+		if a.IP6 != "" && !first {
+			return nil, fmt.Errorf("%q gives each jail one IPv6 address, and this stack has %d services -- only the first can hold %s", a.Network, nsvc, a.IP6)
+		}
+		if a.IP6 != "" && prefix6 == "" {
+			return nil, fmt.Errorf("fjord does not know the IPv6 segment of %q, so it cannot place %s there: appjail configures the interface itself and needs the prefix length. Give the network an IPv6 subnet", a.Network, a.IP6)
 		}
 		if a.IP != "" && prefix == "" {
 			return nil, fmt.Errorf("fjord does not know which segment %q is on, so it cannot place %s there: appjail configures the interface itself and needs the prefix length. Give the network a subnet, or leave the address blank and let the jail take a lease", a.Network, a.IP)
@@ -297,6 +314,16 @@ func attachOptions(ctx context.Context, stackID, service string, svcIdx int, att
 			if i == 0 {
 				// One default route per jail, on its primary network.
 				kvs = append(kvs, [2]string{"defaultrouter", net.Gateway})
+			}
+		}
+		// The v6 half is a SECOND ifconfig on the same epair, not a
+		// replacement: a dual-stack jail holds both, and appjail splits
+		// `ifconfig=` on the first colon, so the colons in a v6 address are
+		// safely in the options half.
+		if a.IP6 != "" {
+			kvs = append(kvs, [2]string{"ifconfig", fmt.Sprintf("sb_%s:inet6 %s/%s", iface, a.IP6, prefix6)})
+			if i == 0 && net.Gateway6 != "" {
+				kvs = append(kvs, [2]string{"defaultrouter6", net.Gateway6})
 			}
 		}
 		// appjail sets the MAC on the jail side of the epair, which is the end
@@ -523,7 +550,8 @@ func setMapKey(n *yaml.Node, key string, val *yaml.Node) {
 // than a jail on that network.
 var directorNetOptions = map[string]bool{
 	"bridge": true, "dhcp": true, "ifconfig": true, "defaultrouter": true,
-	"macaddr": true, "device": true, "virtualnet": true, "nat": true,
+	"defaultrouter6": true,
+	"macaddr":        true, "device": true, "virtualnet": true, "nat": true,
 	"alias": true, "ip4_inherit": true, "ip6_inherit": true,
 }
 

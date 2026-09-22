@@ -564,3 +564,52 @@ func serviceBlock(composeYAML, name string) string {
 	}
 	return rest
 }
+
+// A dual-stack attachment carries both families, and both have to survive the
+// round trip: writing ipv6_address but never reading it back meant the next
+// save dropped the address the user had just pinned.
+func TestInjectNetworksDualStackRoundTrip(t *testing.T) {
+	const base = `services:
+  app:
+    image: nginx
+`
+	out, err := InjectNetworks(base, []Attachment{{Network: "lan", IP: "192.168.4.10", IP6: "fd00:4:103::10"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"ipv4_address: 192.168.4.10", "ipv6_address: fd00:4:103::10"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("missing %q in:\n%s", want, out)
+		}
+	}
+	got := AttachedNetworks(out)
+	if len(got) != 1 {
+		t.Fatalf("want 1 attachment, got %d: %+v", len(got), got)
+	}
+	if got[0].IP != "192.168.4.10" || got[0].IP6 != "fd00:4:103::10" {
+		t.Errorf("round trip lost an address: %+v", got[0])
+	}
+}
+
+// A v6-only attachment is pinned too. Keying "pinned" off the v4 address alone
+// would send it down the unpinned path and write no address at all.
+func TestInjectNetworksIPv6Only(t *testing.T) {
+	const base = `services:
+  app:
+    image: nginx
+`
+	out, err := InjectNetworks(base, []Attachment{{Network: "lan", IP6: "fd00:4:103::10"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "ipv6_address: fd00:4:103::10") {
+		t.Fatalf("v6-only attachment wrote no address:\n%s", out)
+	}
+	if strings.Contains(out, "ipv4_address") {
+		t.Errorf("invented an IPv4 address:\n%s", out)
+	}
+	got := AttachedNetworks(out)
+	if len(got) != 1 || got[0].IP6 != "fd00:4:103::10" || got[0].IP != "" {
+		t.Errorf("round trip: %+v", got)
+	}
+}

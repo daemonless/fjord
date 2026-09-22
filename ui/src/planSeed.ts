@@ -9,7 +9,7 @@ export const PRIVATE = 'private';
 /** Modes a service is put ON, as opposed to networks it joins. */
 export const MODES = ['host', 'bridge', 'none'];
 
-export type Iface = { network: string; ip?: string; mac?: string };
+export type Iface = { network: string; ip?: string; ip6?: string; mac?: string };
 
 /** A network as the daemon reports it. */
 export type Net = { name: string; private?: boolean; addressSource?: string };
@@ -131,10 +131,10 @@ export function seedInterfaces(
  * emptied on screen.
  */
 export function splitPlan(edits: Record<string, Iface[]>): {
-  networks: { network: string; service: string; ip: string; mac: string }[];
+  networks: { network: string; service: string; ip: string; ip6: string; mac: string }[];
   modes: Record<string, string>;
 } {
-  const networks: { network: string; service: string; ip: string; mac: string }[] = [];
+  const networks: { network: string; service: string; ip: string; ip6: string; mac: string }[] = [];
   const modes: Record<string, string> = {};
   for (const [svc, rows] of Object.entries(edits)) {
     let placed = false;
@@ -149,6 +149,7 @@ export function splitPlan(edits: Record<string, Iface[]>): {
         network: r.network,
         service: svc,
         ip: (r.ip ?? '').trim(),
+        ip6: (r.ip6 ?? '').trim(),
         mac: (r.mac ?? '').trim(),
       });
     }
@@ -168,7 +169,7 @@ export function splitPlan(edits: Record<string, Iface[]>): {
 export function setInterface(
   rows: Iface[],
   i: number,
-  field: 'network' | 'ip' | 'mac',
+  field: 'network' | 'ip' | 'ip6' | 'mac',
   value: string,
 ): { rows: Iface[]; replaced: Iface[] } {
   if (field === 'network' && isMode(value)) {
@@ -176,8 +177,9 @@ export function setInterface(
     return { rows: [{ network: value }], replaced };
   }
   const out = rows.map((r, j) => (j === i ? { ...r, [field]: value } : r));
-  // A different network invalidates an address from the old one.
-  if (field === 'network') out[i] = { ...out[i], ip: '' };
+  // A different network invalidates the addresses from the old one -- both
+  // families, since each belonged to a segment this row has just left.
+  if (field === 'network') out[i] = { ...out[i], ip: '', ip6: '' };
   return { rows: out, replaced: [] };
 }
 

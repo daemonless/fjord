@@ -16,6 +16,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -783,3 +784,141 @@ func Parents(ctx context.Context) ([]engine.NetworkParent, error) {
 
 // ParentSetup re-renders the setup commands with the user's choices.
 func ParentSetup(nic, vlan string) []engine.ParentSetup { return parentSetups(nic, vlan) }
+
+// SetSegment6 adds, replaces or removes a network's IPv6 segment in place.
+//
+// It MERGES into the conflist on disk rather than regenerating it from a spec.
+// The spec carries fields the read path does not -- MTU, the pool range,
+// description -- so rebuilding the file from what a caller can see would
+// silently erase whatever it could not send. Editing the JSON touches only the
+// v6 range and route and leaves every other key, including ones added after
+// this was written, exactly as they were.
+//
+// Additive by design: it will not change the IPv4 segment. Containers already
+// running hold addresses from the old one, and `/var/run/cni/networks/<net>/`
+// still holds their reservations -- the state that leaves a container unable
+// to start at all.
+//
+// An empty subnet6 removes the segment.
+func SetSegment6(name, subnet6, gateway6 string) error {
+	if !hostnet.NameRe.MatchString(name) {
+		return fmt.Errorf("invalid network name %q", name)
+	}
+	if subnet6 != "" {
+		ip, cidr, err := net.ParseCIDR(subnet6)
+		if err != nil || ip.To4() != nil {
+			return fmt.Errorf("%q is not an IPv6 subnet like fd00:4:103::/64", subnet6)
+		}
+		if gateway6 != "" {
+			gw := net.ParseIP(gateway6)
+			if gw == nil || gw.To4() != nil {
+				return fmt.Errorf("%q is not an IPv6 address", gateway6)
+			}
+			if !cidr.Contains(gw) {
+				return fmt.Errorf("gateway %s is not in %s", gateway6, subnet6)
+			}
+		}
+	}
+	path := hostnet.Path(name)
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("no network %q at %s", name, path)
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		return fmt.Errorf("parse %s: %w", path, err)
+	}
+	plugins, _ := doc["plugins"].([]any)
+	if len(plugins) == 0 {
+		return fmt.Errorf("%s defines no plugins", path)
+	}
+	plugin, _ := plugins[0].(map[string]any)
+	ipam, _ := plugin["ipam"].(map[string]any)
+	if ipam == nil {
+		return fmt.Errorf("%s has no ipam block to put a segment in", path)
+	}
+	// Only host-local allocates from ranges. A DHCP network's addresses come
+	// from the CNI dhcp plugin, which is IPv4-only, and one plugin cannot run
+	// two IPAMs -- its v6 would have to be SLAAC, which the epair plugin does
+	// not do. Refused here as well as in the form, or edit becomes the way
+	// around the rule.
+	if t, _ := ipam["type"].(string); t != "host-local" {
+		return fmt.Errorf("%q allocates with %q, which has no IPv6 to give -- only a pool or static network can carry an IPv6 segment", name, t)
+	}
+
+	ranges, _ := ipam["ranges"].([]any)
+	if len(ranges) == 0 {
+		return fmt.Errorf("%q has no IPv4 range to add an IPv6 one beside", name)
+	}
+	routes, _ := ipam["routes"].([]any)
+	// Rebuild both lists keeping only the v4 entries, then append the v6 ones.
+	// Order matters to nothing, but a stable shape keeps the file readable and
+	// makes the diff of an edit obvious.
+	v4ranges := ranges[:0:0]
+	for _, r := range ranges {
+		if !rangeIsV6(r) {
+			v4ranges = append(v4ranges, r)
+		}
+	}
+	v4routes := routes[:0:0]
+	for _, r := range routes {
+		if m, ok := r.(map[string]any); ok {
+			if dst, _ := m["dst"].(string); strings.Contains(dst, ":") {
+				continue
+			}
+		}
+		v4routes = append(v4routes, r)
+	}
+	if subnet6 != "" {
+		rng6 := map[string]any{"subnet": subnet6}
+		if gateway6 != "" {
+			rng6["gateway"] = gateway6
+		}
+		v4ranges = append(v4ranges, []any{rng6})
+		// host-local needs a ROUTE per family as well as a range. Without
+		// ::/0 the container gets a v6 address and no way off the segment.
+		v4routes = append(v4routes, map[string]any{"dst": "::/0"})
+	}
+	ipam["ranges"] = v4ranges
+	ipam["routes"] = v4routes
+
+	out, err := json.MarshalIndent(doc, "", "  ")
+	if err != nil {
+		return err
+	}
+	return writeConflist(path, append(out, '\n'))
+}
+
+// rangeIsV6 reports whether a conflist range set is the IPv6 one.
+func rangeIsV6(r any) bool {
+	set, _ := r.([]any)
+	for _, e := range set {
+		m, _ := e.(map[string]any)
+		if s, _ := m["subnet"].(string); strings.Contains(s, ":") {
+			return true
+		}
+	}
+	return false
+}
+
+// writeConflist replaces a definition atomically. podman reads this directory
+// continuously, and a half-written conflist is a broken network rather than an
+// absent one.
+func writeConflist(path string, data []byte) error {
+	tmp, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".*.tmp")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmp.Name())
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Chmod(tmp.Name(), 0o644); err != nil {
+		return err
+	}
+	return os.Rename(tmp.Name(), path)
+}

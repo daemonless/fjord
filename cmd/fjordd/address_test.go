@@ -68,3 +68,54 @@ func TestAttachmentsUnusableEngineNetwork(t *testing.T) {
 		t.Errorf("unknown network should not be judged, got %q", got)
 	}
 }
+
+// The v6 rules are their own: no broadcast address to avoid, the all-zeros
+// address of a prefix is legal, and an address of the wrong family is the
+// mistake most worth naming clearly.
+func TestAddress6Unusable(t *testing.T) {
+	lan := hostnet.Network{
+		Subnet: "192.168.4.0/24", Gateway: "192.168.4.1",
+		Subnet6: "fd00:4:103::/64", Gateway6: "fd00:4:103::1",
+	}
+	for _, tc := range []struct{ addr, want string }{
+		{"fd00:4:103::33", ""},
+		{"fd00:4:103::", ""}, // subnet-router anycast: legal, unlike a v4 network address
+		{"banana", "not an IPv6 address"},
+		{"", "not an IPv6 address"},
+		{"192.168.4.33", "is an IPv4 address"},
+		{"::", "unspecified address"},
+		{"ff02::1", "multicast"},
+		{"fd00:9:9::1", "is not in fd00:4:103::/64"},
+		{"fd00:4:103::1", "is the gateway"},
+	} {
+		got := address6Unusable(tc.addr, lan)
+		if tc.want == "" && got != "" {
+			t.Errorf("%q should be fine, got %q", tc.addr, got)
+		}
+		if tc.want != "" && !strings.Contains(got, tc.want) {
+			t.Errorf("%q: got %q, want it to mention %q", tc.addr, got, tc.want)
+		}
+	}
+}
+
+// A v4 address in the v6 field and the other way round are the two mistakes a
+// two-field form invites, so each says which field it belongs in.
+func TestAddressFamilyMismatchNamesTheField(t *testing.T) {
+	lan := hostnet.Network{Subnet: "192.168.4.0/24", Subnet6: "fd00:4:103::/64"}
+	if got := addressUnusable("fd00:4:103::5", lan); !strings.Contains(got, "IPv6 field") {
+		t.Errorf("v6 in the v4 field: got %q", got)
+	}
+	if got := address6Unusable("192.168.4.5", lan); !strings.Contains(got, "IPv4 field") {
+		t.Errorf("v4 in the v6 field: got %q", got)
+	}
+}
+
+// A network with no v6 segment cannot carry a v6 address, and saying so beats
+// writing one that nothing routes.
+func TestAttachmentsUnusableRejectsIPv6OnIPv4OnlyNetwork(t *testing.T) {
+	v4only := []engine.Network{{Name: "lan", Subnet: "192.168.4.0/24"}}
+	atts := []compose.Attachment{{Network: "lan", IP: "192.168.4.10", IP6: "fd00::10"}}
+	if got := attachmentsUnusable(atts, v4only); got != "" && !strings.Contains(got, "no IPv6 segment") {
+		t.Errorf("got %q, want it to say the network has no IPv6 segment", got)
+	}
+}

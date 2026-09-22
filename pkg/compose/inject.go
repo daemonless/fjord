@@ -42,7 +42,12 @@ type Attachment struct {
 	// on a network only it can reach.
 	Service string `json:"service,omitempty"`
 	IP      string `json:"ip,omitempty"`
-	MAC     string `json:"mac,omitempty"`
+	// IP6 is the IPv6 address for this attachment, on a network that has a v6
+	// segment. Separate from IP rather than one field holding either: a
+	// dual-stack attachment carries BOTH, and which family an address belongs
+	// to is not something the network can be asked after the fact.
+	IP6 string `json:"ip6,omitempty"`
+	MAC string `json:"mac,omitempty"`
 	// Iface is what the interface is called INSIDE the container, reported by
 	// the daemon and never written to the compose. podman names them eth0,
 	// eth1, ...; appjail names the jail side of the epair after the option
@@ -104,7 +109,7 @@ func InjectNetworks(composeYAML string, atts []Attachment) (string, error) {
 		if a.MAC != "" && !macRe.MatchString(a.MAC) {
 			return "", fmt.Errorf("invalid MAC address %q: want six hex pairs like 02:1a:2b:3c:4d:5e", a.MAC)
 		}
-		if a.IP != "" || a.MAC != "" {
+		if a.IP != "" || a.IP6 != "" || a.MAC != "" {
 			pinned = true
 		}
 	}
@@ -190,7 +195,7 @@ func InjectNetworks(composeYAML string, atts []Attachment) (string, error) {
 			}
 		}
 		if len(published) != 1 {
-			return "", fmt.Errorf("this stack has %d services and %d of them publish ports, so there is no single service to pin an address or MAC to -- attach without pinning either, or set ipv4_address/mac_address yourself", len(svcs), len(published))
+			return "", fmt.Errorf("this stack has %d services and %d of them publish ports, so there is no single service to pin an address or MAC to -- attach without pinning either, or set ipv4_address/ipv6_address/mac_address yourself", len(svcs), len(published))
 		}
 		target = published[0]
 	}
@@ -330,6 +335,9 @@ func stashNetworks(svc *yaml.Node) {
 		if a.IP != "" {
 			pins.Content = append(pins.Content, scalar("ipv4_address"), scalar(a.IP))
 		}
+		if a.IP6 != "" {
+			pins.Content = append(pins.Content, scalar("ipv6_address"), scalar(a.IP6))
+		}
 		if a.MAC != "" {
 			pins.Content = append(pins.Content, scalar("mac_address"), scalar(a.MAC))
 		}
@@ -400,7 +408,7 @@ func nameSelf(svc *yaml.Node, name string) {
 func serviceNetworksNode(atts []Attachment) *yaml.Node {
 	plain := true
 	for _, a := range atts {
-		if a.IP != "" || a.MAC != "" {
+		if a.IP != "" || a.IP6 != "" || a.MAC != "" {
 			plain = false
 		}
 	}
@@ -416,6 +424,9 @@ func serviceNetworksNode(atts []Attachment) *yaml.Node {
 		inner := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
 		if a.IP != "" {
 			inner.Content = append(inner.Content, scalar("ipv4_address"), scalar(a.IP))
+		}
+		if a.IP6 != "" {
+			inner.Content = append(inner.Content, scalar("ipv6_address"), scalar(a.IP6))
 		}
 		if a.MAC != "" {
 			inner.Content = append(inner.Content, scalar("mac_address"), scalar(a.MAC))
@@ -624,7 +635,7 @@ func sameOrder(a, b []string) bool {
 func pinCount(atts []Attachment) int {
 	n := 0
 	for _, a := range atts {
-		if a.IP != "" || a.MAC != "" {
+		if a.IP != "" || a.IP6 != "" || a.MAC != "" {
 			n++
 		}
 	}
@@ -650,6 +661,9 @@ func serviceAttachments(n *yaml.Node) []Attachment {
 			if opts := n.Content[i+1]; opts != nil && opts.Kind == yaml.MappingNode {
 				if v := mapGet(opts, "ipv4_address"); v != nil {
 					a.IP = v.Value
+				}
+				if v := mapGet(opts, "ipv6_address"); v != nil {
+					a.IP6 = v.Value
 				}
 				if v := mapGet(opts, "mac_address"); v != nil {
 					a.MAC = v.Value
