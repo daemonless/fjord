@@ -5,10 +5,12 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"os/user"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -70,9 +72,56 @@ func runDirector(ctx context.Context, w io.Writer, dir string, tolerateMissing b
 		return nil
 	}
 	if err != nil {
-		fmt.Fprintf(w, "[fjord] appjail-director %s: %v\n", args[0], err)
+		// [error], not [fjord]: the UI reads an action as failed only from an
+		// [error] line, so this used to report a failed `up` as a success.
+		fmt.Fprintf(w, "[error] appjail-director %s failed: %v\n", args[0], err)
+		showDirectorLog(ctx, w, dir)
 	}
 	return err
+}
+
+// ansiColor matches the colour codes appjail writes into its logs.
+var ansiColor = regexp.MustCompile(`\x1b\[[0-9;]*m`)
+
+// showDirectorLog prints the end of each log from the project's last run.
+//
+// Director writes why a service failed to its own log directory, not to
+// stdout: on netlab `up` failed with nothing in the Output panel but a
+// stream of "Creating ..." lines, and the reason -- "git(1) is not
+// installed", from building a gh+ makejail -- was only in
+// /root/.director/logs/<run>/<service>/makejail.log.
+func showDirectorLog(ctx context.Context, w io.Writer, dir string) {
+	cmd := exec.CommandContext(ctx, "appjail-director", "info")
+	cmd.Dir = dir
+	cmd.Env = directorEnv(dir)
+	out, _ := cmd.CombinedOutput()
+	logDir := ""
+	for _, line := range strings.Split(string(out), "\n") {
+		if l := strings.TrimSpace(line); strings.HasPrefix(l, "last log:") {
+			logDir = strings.TrimSpace(strings.TrimPrefix(l, "last log:"))
+		}
+	}
+	if logDir == "" {
+		return
+	}
+	_ = filepath.WalkDir(logDir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return nil
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return nil
+		}
+		lines := strings.Split(strings.TrimRight(ansiColor.ReplaceAllString(string(data), ""), "\n"), "\n")
+		if len(lines) > 12 {
+			lines = lines[len(lines)-12:]
+		}
+		fmt.Fprintf(w, "\n[fjord] %s:\n", path)
+		for _, l := range lines {
+			fmt.Fprintf(w, "  %s\n", l)
+		}
+		return nil
+	})
 }
 
 // directorEnv is the environment director runs with: the daemon's, with HOME
