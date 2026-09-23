@@ -57,6 +57,23 @@ type State struct {
 	AppVersion    string            `json:"app_version,omitempty"`
 	InstalledAt   string            `json:"installed_at"`
 	UpdatedAt     string            `json:"updated_at"`
+	// Rollback is, per service, the image the last update replaced -- what
+	// "Roll back" returns to, and what "Unpin" restores the compose from.
+	Rollback map[string]RollbackImage `json:"rollback,omitempty"`
+}
+
+// RollbackImage is one service's image before an update.
+type RollbackImage struct {
+	// Compose is the service's image: value as the compose had it, ${VAR}s
+	// and all, so an unpin puts back what the operator wrote.
+	Compose string `json:"compose"`
+	// Ref and Digest are what the container actually ran: the resolved
+	// "repo:tag" and the registry digest it was pulled as. Rollback pins to
+	// Ref@Digest, fetched from the registry -- the old image itself does not
+	// survive `podman image prune -af`, which maintenance runs.
+	Ref    string `json:"ref"`
+	Digest string `json:"digest"`
+	At     string `json:"at"`
 }
 
 // Stack represents a parsed directory containing a compose file.

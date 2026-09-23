@@ -101,7 +101,7 @@ func (b *Backend) RunningImages(ctx context.Context, s *stack.Stack) ([]engine.R
 		if svc == "" || seen[svc] {
 			continue // one container per service answers for it
 		}
-		id, digest, err := b.containerImage(ctx, c.ID)
+		id, ref, digest, err := b.containerImage(ctx, c.ID)
 		if err != nil {
 			return nil, err
 		}
@@ -117,35 +117,37 @@ func (b *Backend) RunningImages(ctx context.Context, s *stack.Stack) ([]engine.R
 				}
 			}
 		}
-		out = append(out, engine.RunningImage{Service: svc, ImageID: id, Digest: digest, Digests: digests})
+		out = append(out, engine.RunningImage{Service: svc, ImageID: id, Ref: ref, Digest: digest, Digests: digests})
 	}
 	return out, nil
 }
 
-// containerImage is a container's image ID and the digest it was pulled as.
-func (b *Backend) containerImage(ctx context.Context, id string) (imageID, digest string, err error) {
+// containerImage is a container's image ID, the ref it was created from, and
+// the digest that ref was pulled as.
+func (b *Backend) containerImage(ctx context.Context, id string) (imageID, ref, digest string, err error) {
 	u := "http://d/v4.0.0/libpod/containers/" + url.PathEscape(id) + "/json"
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
 	resp, err := b.http.Do(req)
 	if err != nil {
-		return "", "", fmt.Errorf("libpod containers inspect: %w", err)
+		return "", "", "", fmt.Errorf("libpod containers inspect: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode == http.StatusNotFound {
-		return "", "", nil // removed between list and inspect
+		return "", "", "", nil // removed between list and inspect
 	}
 	if resp.StatusCode != http.StatusOK {
-		return "", "", fmt.Errorf("libpod containers inspect: unexpected status %s", resp.Status)
+		return "", "", "", fmt.Errorf("libpod containers inspect: unexpected status %s", resp.Status)
 	}
 	var out struct {
 		Image       string `json:"Image"`
+		ImageName   string `json:"ImageName"`
 		ImageDigest string `json:"ImageDigest"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
-		return "", "", fmt.Errorf("decode container inspect: %w", err)
+		return "", "", "", fmt.Errorf("decode container inspect: %w", err)
 	}
-	return out.Image, out.ImageDigest, nil
+	return out.Image, out.ImageName, out.ImageDigest, nil
 }

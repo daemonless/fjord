@@ -513,6 +513,10 @@ type Backend interface {
 type RunningImage struct {
 	Service string
 	ImageID string
+	// Ref is the image reference the container was created from
+	// ("repo:tag"), before any ${VAR} in the compose moved on or a version
+	// change retagged it.
+	Ref string
 	// Digest is the registry digest the image was pulled as -- for a
 	// multi-arch image the index digest, which is what a registry reports for
 	// a tag. The container keeps it; the image does not: once a pull moves

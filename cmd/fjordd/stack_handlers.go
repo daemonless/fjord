@@ -241,6 +241,10 @@ func (s *server) handleStackRoutes(w http.ResponseWriter, r *http.Request) {
 		s.stackGroup(w, r, name)
 	case "rename":
 		s.stackRename(w, r, name)
+	case "rollback":
+		s.stackRollback(w, r, name)
+	case "unpin":
+		s.stackUnpin(w, r, name)
 	default:
 		s.stackLifecycle(w, r, name, action)
 	}
@@ -387,11 +391,26 @@ func (s *server) stackUpdateCheck(w http.ResponseWriter, name string) {
 			restarts[sv.Service] = slices.DeleteFunc(more, func(n string) bool { return n == sv.Service })
 		}
 	}
+	// rollback: services whose last update can be undone -- a recorded
+	// earlier image that is not what the service runs now.
+	type rollbackTo struct {
+		Ref string `json:"ref"`
+		At  string `json:"at"`
+	}
+	rollback := map[string]rollbackTo{}
+	if state, _ := s.manager.LoadState(name); state != nil {
+		for _, sv := range status.Services {
+			if rb, ok := state.Rollback[sv.Service]; ok && sv.Running != "" && sv.Running != rb.Digest {
+				rollback[sv.Service] = rollbackTo{rb.Ref, rb.At}
+			}
+		}
+	}
 	json.NewEncoder(w).Encode(struct {
 		updates.Status
-		PerService   bool                `json:"perService"`
-		RestartsWith map[string][]string `json:"restartsWith,omitempty"`
-	}{status, s.backendFor(st).Capabilities().UpdateServices, restarts})
+		PerService   bool                  `json:"perService"`
+		RestartsWith map[string][]string   `json:"restartsWith,omitempty"`
+		Rollback     map[string]rollbackTo `json:"rollback,omitempty"`
+	}{status, s.backendFor(st).Capabilities().UpdateServices, restarts, rollback})
 }
 
 // stackChanges says what updating one service would change:
@@ -892,6 +911,9 @@ func (s *server) stackLifecycle(w http.ResponseWriter, r *http.Request, name, ac
 		if services, err = requestedServices(r, st); err != nil {
 			http.Error(w, err.Error(), 400)
 			return
+		}
+		if r.Context().Value(isRollbackKey{}) == nil {
+			s.recordRollback(ctx, st, services)
 		}
 		stream, err = s.backendFor(st).Update(ctx, st, services)
 	case "restart":

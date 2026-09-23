@@ -534,6 +534,36 @@
     if (!updateInfo || Date.now() - updateCheckedAt > UPDATE_FRESH_MS) checkForUpdate(name);
   }
   $: updatable = (updateInfo?.services ?? []).filter((s) => s.state === 'available');
+  $: svcPinned = Object.fromEntries(
+    (updateInfo?.services ?? []).filter((s) => s.state === 'pinned').map((s) => [s.service, true]),
+  ) as Record<string, boolean>;
+  // Back to the image a service ran before its last update. Runs as an update,
+  // so the recreate check and the health watch apply to it too.
+  async function rollback(name: string, service: string) {
+    await streamAction(name, 'rollback', `Rolling back ${service}…`, { services: [service] });
+    if (selectedStack?.name === name) {
+      await selectStack({ name } as Stack);
+      checkForUpdate(name);
+    }
+    loadFleetUpdates(true);
+  }
+  async function unpin(name: string, service: string) {
+    const res = await fetch(`/api/stacks/${name}/unpin`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ service }),
+    });
+    if (!res.ok) {
+      toast(`Unpin failed: ${(await res.text()).trim()}`, { kind: 'error' });
+      return;
+    }
+    toast(`${service} follows its tag again`, { kind: 'success' });
+    if (selectedStack?.name === name) {
+      await selectStack({ name } as Stack);
+      checkForUpdate(name);
+    }
+    loadFleetUpdates(true);
+  }
   // Service -> its pending update (new image or new version), for the rows.
   $: svcUpdates = Object.fromEntries(
     (updateInfo?.services ?? []).filter((s) => s.state === 'available' || s.state === 'upgrade').map((s) => [s.service, s]),
@@ -751,6 +781,7 @@
   };
   type UpdateInfo = {
     perService?: boolean;
+    rollback?: Record<string, { ref: string; at: string }>;
     restartsWith?: Record<string, string[]>;
     state: string;
     tag?: string;
@@ -2210,7 +2241,11 @@
                 <ServiceResources
                   services={selectedStack.services ?? []}
                   updates={svcUpdates}
+                  rollbacks={updateInfo?.rollback ?? {}}
+                  pinned={svcPinned}
                   on:openUpdate={() => openUpdatePanel(selectedStack!.name)}
+                  on:rollback={(e) => rollback(selectedStack!.name, e.detail)}
+                  on:unpin={(e) => unpin(selectedStack!.name, e.detail)}
                   {networks}
                   {unsupportedModes}
                   stackName={selectedStack.name}

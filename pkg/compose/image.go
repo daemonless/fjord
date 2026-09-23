@@ -99,6 +99,29 @@ func ServiceImageList(composeYAML string) ([]ServiceImage, error) {
 // eachServiceImage walks the compose and calls fn on every service's image
 // scalar node, replacing it with fn's return value. Returns the re-encoded YAML.
 func eachServiceImage(composeYAML string, fn func(image string) (string, error)) (string, error) {
+	return eachNamedImage(composeYAML, func(_, image string) (string, error) { return fn(image) })
+}
+
+// SetServiceImage replaces one service's image, leaving every other service
+// as it is -- what a per-service rollback or unpin needs, where SetImageTag
+// would retag a whole multi-image stack.
+func SetServiceImage(composeYAML, service, image string) (string, error) {
+	found := false
+	out, err := eachNamedImage(composeYAML, func(name, cur string) (string, error) {
+		if name != service {
+			return cur, nil
+		}
+		found = true
+		return image, nil
+	})
+	if err == nil && !found {
+		return "", fmt.Errorf("no service %q with an image", service)
+	}
+	return out, err
+}
+
+// eachNamedImage is eachServiceImage with the service's name.
+func eachNamedImage(composeYAML string, fn func(service, image string) (string, error)) (string, error) {
 	var doc yaml.Node
 	if err := yaml.Unmarshal([]byte(composeYAML), &doc); err != nil {
 		return "", fmt.Errorf("parse compose: %w", err)
@@ -119,12 +142,14 @@ func eachServiceImage(composeYAML string, fn func(image string) (string, error))
 		if img == nil || img.Kind != yaml.ScalarNode {
 			continue
 		}
-		nv, err := fn(img.Value)
+		nv, err := fn(services.Content[i-1].Value, img.Value)
 		if err != nil {
 			return "", err
 		}
-		img.Value = nv
-		img.Style = 0
+		if nv != img.Value {
+			img.Value = nv
+			img.Style = 0
+		}
 	}
 	var buf bytes.Buffer
 	enc := yaml.NewEncoder(&buf)
