@@ -635,11 +635,37 @@ func (b *Backend) UsedPorts(ctx context.Context) (map[string]string, error) {
 	return map[string]string{}, nil
 }
 
-// RunningImages is not known for jails yet: whether a jail records the image
-// digest it was built from is unverified, so the update check keeps comparing
-// the local tag, as it did before.
-func (b *Backend) RunningImages(context.Context, *stack.Stack) ([]engine.RunningImage, error) {
-	return nil, nil
+// RunningImages reads the image each service's jail was built from.
+//
+// An OCI jail's root filesystem is a buildah container named
+// "appjail-<jail>" (see jailBacked), and buildah records what it was created
+// from: the ref, the image ID and the digest it was pulled as. That is the
+// same thing podman keeps on a container, so the update check judges jails
+// by what they run too. It is also the only place a director stack names its
+// image at all -- the director spec names a makejail, and the makejail's
+// OPTION from= is fetched from GitHub at build time.
+func (b *Backend) RunningImages(ctx context.Context, s *stack.Stack) ([]engine.RunningImage, error) {
+	var out []engine.RunningImage
+	for _, sj := range b.serviceJails(s) {
+		raw, err := exec.CommandContext(ctx, "buildah", "inspect", "--type", "container", "appjail-"+sj.jail).Output()
+		if err != nil {
+			continue // not an OCI jail, or not created yet
+		}
+		var c struct {
+			FromImage       string `json:"FromImage"`
+			FromImageID     string `json:"FromImageID"`
+			FromImageDigest string `json:"FromImageDigest"`
+		}
+		if json.Unmarshal(raw, &c) != nil || c.FromImage == "" {
+			continue
+		}
+		ri := engine.RunningImage{Service: sj.svc.Name, ImageID: c.FromImageID, Ref: c.FromImage, Digest: c.FromImageDigest}
+		if c.FromImageDigest != "" {
+			ri.Digests = []string{c.FromImageDigest}
+		}
+		out = append(out, ri)
+	}
+	return out, nil
 }
 
 // ImageRepoDigests reads a local image's digest from `buildah images`, which
