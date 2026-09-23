@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	composepkg "github.com/daemonless/fjord/pkg/compose"
@@ -177,4 +178,29 @@ func setDirectorModes(directorYML string, modes map[string]string) (string, erro
 	}
 	enc.Close()
 	return sb.String(), nil
+}
+
+// servicesWithoutMakejail lists the director services that build from the
+// project's own Makejail: those that name no makejail: of their own (director
+// then uses "Makejail" next to the spec) or that name that file. A spec where
+// every service names its own -- gh+AppJail-makejails/documentserver -- needs
+// no local Makejail at all, and demanding one made people save a "#".
+func servicesWithoutMakejail(director string) []string {
+	var doc struct {
+		Services map[string]struct {
+			Makejail string `yaml:"makejail"`
+		} `yaml:"services"`
+	}
+	if yaml.Unmarshal([]byte(director), &doc) != nil {
+		return nil
+	}
+	var out []string
+	for name, svc := range doc.Services {
+		switch strings.TrimPrefix(strings.TrimSpace(svc.Makejail), "./") {
+		case "", "Makejail":
+			out = append(out, name)
+		}
+	}
+	sort.Strings(out)
+	return out
 }

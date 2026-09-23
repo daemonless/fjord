@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"sort"
 	"sync"
 	"time"
 
@@ -30,7 +31,9 @@ func (s *server) updateServices(ctx context.Context, st *stack.Stack) []updates.
 		}
 	}
 	out := make([]updates.Service, 0, len(list))
+	seen := map[string]bool{}
 	for _, si := range list {
+		seen[si.Service] = true
 		out = append(out, updates.Service{
 			Name:    si.Service,
 			Image:   composepkg.ExpandEnv(si.Image, env),
@@ -38,6 +41,16 @@ func (s *server) updateServices(ctx context.Context, st *stack.Stack) []updates.
 			Known:   running[si.Service].Digests,
 		})
 	}
+	// A service the compose names no image for, but whose engine knows what
+	// it runs: an appjail director stack names makejails, not images, so the
+	// ref the jail was built from is the only image there is to check.
+	for _, ri := range running {
+		if !seen[ri.Service] && ri.Ref != "" {
+			out = append(out, updates.Service{Name: ri.Service, Image: ri.Ref, Running: ri.Digest, Known: ri.Digests})
+		}
+	}
+	extra := out[len(list):] // map order is random; keep the panel's rows stable
+	sort.Slice(extra, func(i, j int) bool { return extra[i].Name < extra[j].Name })
 	return out
 }
 

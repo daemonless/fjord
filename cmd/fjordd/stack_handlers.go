@@ -403,7 +403,7 @@ func (s *server) stackUpdateCheck(w http.ResponseWriter, name string) {
 		At  string `json:"at"`
 	}
 	rollback := map[string]rollbackTo{}
-	if state, _ := s.manager.LoadState(name); state != nil {
+	if state, _ := s.manager.LoadState(name); state != nil && s.backendFor(st).Capabilities().UpdateServices {
 		for _, sv := range status.Services {
 			if rb, ok := state.Rollback[sv.Service]; ok && sv.Running != "" && sv.Running != rb.Digest {
 				rollback[sv.Service] = rollbackTo{rb.Ref, rb.At}
@@ -681,8 +681,9 @@ func (s *server) stackSave(w http.ResponseWriter, r *http.Request, name string) 
 				http.Error(w, "the appjail engine is not available on this host", 400)
 				return
 			}
-			if strings.TrimSpace(payload.Makejail) == "" {
-				http.Error(w, "an appjail stack needs a Makejail (image source for its jails)", 400)
+			if need := servicesWithoutMakejail(payload.Director); strings.TrimSpace(payload.Makejail) == "" && len(need) > 0 {
+				http.Error(w, strings.Join(need, ", ")+" names no makejail: of its own, so it builds from this stack's "+
+					"Makejail -- write one, or give each service a makejail: (e.g. gh+AppJail-makejails/<app>)", 400)
 				return
 			}
 			st.Director, st.Makejail = payload.Director, payload.Makejail
