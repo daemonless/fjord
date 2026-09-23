@@ -21,6 +21,7 @@ type libpodContainer struct {
 	State    string            `json:"State"`
 	Networks []string          `json:"Networks"`
 	Labels   map[string]string `json:"Labels"`
+	Created  time.Time         `json:"Created"`
 	Ports    []struct {
 		HostPort      int    `json:"host_port"`
 		ContainerPort int    `json:"container_port"`

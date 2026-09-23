@@ -572,6 +572,61 @@
   }
   const shortDigest = (d?: string) => (d ?? '').replace('sha256:', '').slice(0, 12);
 
+  // What each pending update changes, from what the two images say about
+  // themselves in the registry (SBOM, else version labels). Fetched when the
+  // panel shows a service as behind; keyed by stack:service:target so a new
+  // check result asks again.
+  type Changes = {
+    versionFrom?: string;
+    versionTo?: string;
+    createdFrom?: string;
+    createdTo?: string;
+    packages: boolean;
+    changed?: { name: string; from: string; to: string }[];
+    added?: { name: string; version: string }[];
+    removed?: { name: string; version: string }[];
+  };
+  let changes: Record<string, Changes | 'loading' | 'none'> = {};
+  let changesOpen: Record<string, boolean> = {};
+  const changesKey = (stack: string, s: ServiceUpdate) => `${stack}:${s.service}:${s.latest ?? s.newTag ?? ''}`;
+  $: if (updatePanel && updateInfo && !checkingUpdate) {
+    for (const s of updateInfo.services ?? []) {
+      if (s.state !== 'available' && s.state !== 'upgrade') continue;
+      const k = changesKey(updatePanel, s);
+      if (changes[k]) continue;
+      changes[k] = 'loading';
+      fetch(`/api/stacks/${updatePanel}/changes?service=${encodeURIComponent(s.service)}`)
+        .then((r) => (r.ok ? r.json() : 'none'))
+        .catch(() => 'none')
+        .then((d) => (changes = { ...changes, [k]: d }));
+    }
+  }
+  const day = (iso?: string) => (iso ? new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : '');
+  // One line: the version move (or "same version"), then what the SBOMs say.
+  function changesLine(c: Changes): string {
+    const parts: string[] = [];
+    if (c.versionFrom && c.versionTo) {
+      parts.push(c.versionFrom === c.versionTo ? `same version (${c.versionTo})` : `${c.versionFrom} → ${c.versionTo}`);
+    } else if (c.versionTo) {
+      parts.push(c.versionTo);
+    }
+    if (c.createdFrom && c.createdTo && day(c.createdFrom) !== day(c.createdTo)) {
+      parts.push(`built ${day(c.createdFrom)} → ${day(c.createdTo)}`);
+    }
+    if (c.packages) {
+      const n = (c.changed?.length ?? 0) + (c.added?.length ?? 0) + (c.removed?.length ?? 0);
+      if (!n) parts.push('no package changes');
+      else {
+        const bits = [];
+        if (c.changed?.length) bits.push(`${c.changed.length} changed`);
+        if (c.added?.length) bits.push(`${c.added.length} added`);
+        if (c.removed?.length) bits.push(`${c.removed.length} removed`);
+        parts.push(`packages: ${bits.join(', ')}`);
+      }
+    }
+    return parts.join(' · ');
+  }
+
   // Whether the operator is still on the stack an action was started from.
   // Anything that finishes long after it was started has to check this before
   // navigating: the page they are on now is the one they chose.
@@ -583,7 +638,9 @@
     // when the deploy finishes, which yanked the user off whichever tab they
     // had opened while waiting. It read as the tab refusing to be clicked for
     // the first few seconds after a create.
-    if (stack?.name !== selectedStack?.name) activeTab = 'compose';
+    // Services first: what runs, where it answers, what is behind. A draft
+    // has no services yet -- it is a compose being written.
+    if (stack?.name !== selectedStack?.name) activeTab = stack?.dir ? 'net' : 'compose';
     updateInfo = null;
     stopLogs(); // don't keep tailing a stack we're navigating away from
     logsSel = {}; // logs scope is per-stack
@@ -694,6 +751,7 @@
   };
   type UpdateInfo = {
     perService?: boolean;
+    restartsWith?: Record<string, string[]>;
     state: string;
     tag?: string;
     latest?: string;
@@ -1054,8 +1112,17 @@
           logs[name] += decoder.decode(value);
         }
       }
-      execStatus[name] = 'idle';
-      execMessage[name] = '';
+      // A streamed action answers 200 before it knows how it ends, so its
+      // outcome is in the output: the daemon marks every failure "[error]".
+      // Reading only the status made a failed update look like a success.
+      if (/^\[error\]/m.test(logs[name])) {
+        execStatus[name] = 'error';
+        execMessage[name] = 'Failed — see Output';
+        if (watching) drawerOpen = true;
+      } else {
+        execStatus[name] = 'idle';
+        execMessage[name] = '';
+      }
       await loadStacks();
       // The stack may still be "partial" (yellow) the instant an action
       // returns. The SSE stream (subscribeEvents) pushes the settle to
@@ -1834,6 +1901,34 @@
                           {/if}
                         </td>
                       </tr>
+                      {#if s.state === 'available' || s.state === 'upgrade'}
+                        {@const k = changesKey(selectedStack.name, s)}
+                        {@const c = changes[k]}
+                        {#if c === 'loading'}
+                          <tr><td></td><td colspan="3" class="pb-1.5 text-fjord-fg-dim">Reading what changed…</td></tr>
+                        {:else if c && c !== 'none' && changesLine(c)}
+                          {@const n = (c.changed?.length ?? 0) + (c.added?.length ?? 0) + (c.removed?.length ?? 0)}
+                          <tr>
+                            <td></td>
+                            <td colspan="3" class="pb-1.5 text-fjord-fg-secondary">
+                              {changesLine(c)}
+                              {#if c.packages && n}
+                                <button
+                                  on:click={() => (changesOpen = { ...changesOpen, [k]: !changesOpen[k] })}
+                                  class="ml-1 text-fjord-accent hover:underline">{changesOpen[k] ? 'hide' : 'show'}</button
+                                >
+                              {/if}
+                              {#if changesOpen[k]}
+                                <div class="mt-1 font-mono text-[11px] leading-5 max-h-48 overflow-y-auto">
+                                  {#each c.changed ?? [] as p}<div>{p.name} <span class="text-fjord-fg-dim">{p.from} →</span> {p.to}</div>{/each}
+                                  {#each c.added ?? [] as p}<div class="text-fjord-success">+ {p.name} {p.version}</div>{/each}
+                                  {#each c.removed ?? [] as p}<div class="text-fjord-danger">− {p.name} {p.version}</div>{/each}
+                                </div>
+                              {/if}
+                            </td>
+                          </tr>
+                        {/if}
+                      {/if}
                     {/each}
                   </tbody>
                 </table>
@@ -1843,7 +1938,11 @@
                   {#if versionStep}
                     Switches to {versionStep.tag} and recreates the container.
                   {:else if updatable.length && updateInfo.perService}
-                    Pulls and recreates only {updatable.map((s) => s.service).join(', ')}; the rest keep running.
+                    {@const also = [...new Set(updatable.flatMap((s) => updateInfo?.restartsWith?.[s.service] ?? []))].filter(
+                      (n) => !updatable.some((s) => s.service === n),
+                    )}
+                    Pulls and recreates only {updatable.map((s) => s.service).join(', ')}{#if also.length}; {also.join(', ')}
+                      {also.length === 1 ? 'restarts' : 'restart'} with it (depends on it){/if}. The rest keep running.
                   {:else if updatable.length}
                     {updatable.length} of {updateInfo.services?.length ?? 0}
                     {updateInfo.services?.length === 1 ? 'service has' : 'services have'} an update. This engine updates the
@@ -2031,6 +2130,20 @@
         <div class="flex-1 flex flex-col bg-fjord-card border border-fjord-border rounded-xl shadow-xl overflow-hidden min-h-0">
           <div class="bg-fjord-border/50 flex border-b border-fjord-border text-xs font-semibold text-fjord-fg-secondary">
             <button
+              on:click={() => (activeTab = 'net')}
+              class="px-4 py-2.5 border-r border-fjord-border {activeTab === 'net'
+                ? 'bg-fjord-card text-fjord-fg border-b-2 border-b-fjord-accent'
+                : 'text-fjord-fg-muted hover:text-fjord-fg-body'}">Services</button
+            >
+            <button
+              on:click={() => (activeTab = 'env')}
+              class="px-4 py-2.5 border-r border-fjord-border flex items-center gap-2 {activeTab === 'env'
+                ? 'bg-fjord-card text-fjord-fg border-b-2 border-b-fjord-accent'
+                : 'text-fjord-fg-muted hover:text-fjord-fg-body'}"
+            >
+              .env{#if selectedStack.env !== originalEnv}<span class="text-fjord-warning font-bold">*</span>{/if}
+            </button>
+            <button
               on:click={() => (activeTab = 'compose')}
               class="px-4 py-2.5 border-r border-fjord-border flex items-center gap-2 {activeTab === 'compose'
                 ? 'bg-fjord-card text-fjord-fg border-b-2 border-b-fjord-accent'
@@ -2048,20 +2161,6 @@
                 Makejail{#if (selectedStack.makejail ?? '') !== originalMakejail}<span class="text-fjord-warning font-bold">*</span>{/if}
               </button>
             {/if}
-            <button
-              on:click={() => (activeTab = 'env')}
-              class="px-4 py-2.5 border-r border-fjord-border flex items-center gap-2 {activeTab === 'env'
-                ? 'bg-fjord-card text-fjord-fg border-b-2 border-b-fjord-accent'
-                : 'text-fjord-fg-muted hover:text-fjord-fg-body'}"
-            >
-              .env{#if selectedStack.env !== originalEnv}<span class="text-fjord-warning font-bold">*</span>{/if}
-            </button>
-            <button
-              on:click={() => (activeTab = 'net')}
-              class="px-4 py-2.5 border-r border-fjord-border {activeTab === 'net'
-                ? 'bg-fjord-card text-fjord-fg border-b-2 border-b-fjord-accent'
-                : 'text-fjord-fg-muted hover:text-fjord-fg-body'}">Services</button
-            >
           </div>
 
           <div class="flex-1 relative min-h-0">

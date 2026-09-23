@@ -18,6 +18,7 @@ import (
 	"github.com/daemonless/fjord/pkg/engine"
 	"github.com/daemonless/fjord/pkg/hostnet"
 	"github.com/daemonless/fjord/pkg/registry"
+	"github.com/daemonless/fjord/pkg/sbom"
 	"github.com/daemonless/fjord/pkg/stack"
 	"github.com/daemonless/fjord/pkg/updates"
 	"gopkg.in/yaml.v3"
@@ -212,6 +213,9 @@ func (s *server) handleStackRoutes(w http.ResponseWriter, r *http.Request) {
 		case "update-check":
 			s.stackUpdateCheck(w, parts[0])
 			return
+		case "changes":
+			s.stackChanges(w, r, parts[0])
+			return
 		case "icon":
 			s.stackIcon(w, r, parts[0])
 			return
@@ -374,10 +378,78 @@ func (s *server) stackUpdateCheck(w http.ResponseWriter, name string) {
 	w.Header().Set("Content-Type", "application/json")
 	// perService: whether Update can take just the services that changed, so
 	// the panel offers that rather than a whole-stack recreate.
+	// restartsWith: what depends on each service, so the panel can say an
+	// update of the database restarts the server too (it has to; see
+	// composepkg.WithDependents).
+	restarts := map[string][]string{}
+	for _, sv := range status.Services {
+		if more := composepkg.WithDependents(st.Compose, []string{sv.Service}); len(more) > 1 {
+			restarts[sv.Service] = slices.DeleteFunc(more, func(n string) bool { return n == sv.Service })
+		}
+	}
 	json.NewEncoder(w).Encode(struct {
 		updates.Status
-		PerService bool `json:"perService"`
-	}{status, s.backendFor(st).Capabilities().UpdateServices})
+		PerService   bool                `json:"perService"`
+		RestartsWith map[string][]string `json:"restartsWith,omitempty"`
+	}{status, s.backendFor(st).Capabilities().UpdateServices, restarts})
+}
+
+// stackChanges says what updating one service would change:
+// GET .../changes?service=<name>. The running image is compared with what the
+// update would install -- the tag's current image, or the newer version's
+// when the service is behind by one -- using what each image says about
+// itself in the registry. Nothing is pulled.
+func (s *server) stackChanges(w http.ResponseWriter, r *http.Request, name string) {
+	st, err := s.manager.Get(name)
+	if err != nil {
+		http.Error(w, "Stack not found", 404)
+		return
+	}
+	want := r.URL.Query().Get("service")
+	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
+	defer cancel()
+	var sv *updates.Service
+	for _, c := range s.updateServices(ctx, st) {
+		if c.Name == want {
+			sv = &c
+			break
+		}
+	}
+	if sv == nil {
+		http.Error(w, fmt.Sprintf("%s has no service %q", name, want), 400)
+		return
+	}
+	target := sv.Image
+	if up := updates.Check(ctx, s.backendFor(st), []updates.Service{*sv}, s.schemeFor); up.State == "upgrade" && up.NewTag != "" {
+		target = registry.Repo(sv.Image) + ":" + up.NewTag
+	}
+	newIndex, err := registry.Digest(ctx, target)
+	if err != nil {
+		http.Error(w, err.Error(), 502)
+		return
+	}
+	newDoc, err := sbom.For(ctx, target, newIndex, platformOf(ctx, target, newIndex))
+	if err != nil {
+		http.Error(w, err.Error(), 502)
+		return
+	}
+	// The running side is best effort: an old image can be gone from the
+	// registry, and the answer is then the new side on its own.
+	var oldDoc *sbom.Doc
+	if sv.Running != "" {
+		oldDoc, _ = sbom.For(ctx, sv.Image, sv.Running, platformOf(ctx, sv.Image, sv.Running))
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(sbom.Compare(oldDoc, newDoc))
+}
+
+// platformOf is this host's manifest inside an index, or the digest itself
+// when it names a single manifest.
+func platformOf(ctx context.Context, image, digest string) string {
+	if p, err := registry.PlatformDigest(ctx, image, digest); err == nil && p != "" {
+		return p
+	}
+	return digest
 }
 
 // stackLogs streams container logs: GET .../logs?tail=200&follow=1. Uses the

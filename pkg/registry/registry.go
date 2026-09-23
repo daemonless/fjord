@@ -6,6 +6,7 @@ package registry
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -109,13 +110,7 @@ func Digest(ctx context.Context, image string) (string, error) {
 // A GET, so it counts against Docker Hub's anonymous pull quota; callers ask
 // only when the index digest has not already matched.
 func PlatformDigest(ctx context.Context, image, indexDigest string) (string, error) {
-	host, repo := splitImage(image)
-	if at := strings.LastIndex(repo, "@"); at >= 0 {
-		repo = repo[:at]
-	}
-	if colon := strings.LastIndex(repo, ":"); colon > strings.LastIndex(repo, "/") {
-		repo = repo[:colon]
-	}
+	host, repo := imageRepo(image)
 	u := "https://" + host + "/v2/" + repo + "/manifests/" + indexDigest
 	resp, err := doMethod(ctx, http.MethodGet, u, "", manifestAccept)
 	if err != nil {
@@ -143,6 +138,73 @@ func PlatformDigest(ctx context.Context, image, indexDigest string) (string, err
 		return "", fmt.Errorf("decode index: %w", err)
 	}
 	return pickPlatform(idx.Manifests, runtime.GOOS, runtime.GOARCH), nil
+}
+
+// ErrNotFound is a manifest or blob the registry does not have -- for an
+// attestation, the ordinary answer: most images carry none.
+var ErrNotFound = errors.New("not found in registry")
+
+// imageRepo is an image ref's registry host and repository, without tag or
+// digest.
+func imageRepo(image string) (host, repo string) {
+	host, repo = splitImage(image)
+	if at := strings.LastIndex(repo, "@"); at >= 0 {
+		repo = repo[:at]
+	}
+	if colon := strings.LastIndex(repo, ":"); colon > strings.LastIndex(repo, "/") {
+		repo = repo[:colon]
+	}
+	return host, repo
+}
+
+// Manifest fetches the manifest at ref (a tag or a digest) in image's
+// repository, returning its body and media type.
+func Manifest(ctx context.Context, image, ref, accept string) ([]byte, string, error) {
+	host, repo := imageRepo(image)
+	body, hdr, err := fetch(ctx, "https://"+host+"/v2/"+repo+"/manifests/"+ref, repo, accept, 4<<20)
+	if err != nil {
+		return nil, "", err
+	}
+	return body, hdr.Get("Content-Type"), nil
+}
+
+// Blob fetches a blob by digest, reading at most limit bytes.
+func Blob(ctx context.Context, image, digest string, limit int64) ([]byte, error) {
+	host, repo := imageRepo(image)
+	body, _, err := fetch(ctx, "https://"+host+"/v2/"+repo+"/blobs/"+digest, repo, "", limit)
+	return body, err
+}
+
+// fetch is a GET that follows a 401 token challenge. A 404 is ErrNotFound.
+func fetch(ctx context.Context, u, repo, accept string, limit int64) ([]byte, http.Header, error) {
+	var hdrs []string
+	if accept != "" {
+		hdrs = []string{accept}
+	}
+	resp, err := doMethod(ctx, http.MethodGet, u, "", hdrs...)
+	if err != nil {
+		return nil, nil, err
+	}
+	if resp.StatusCode == http.StatusUnauthorized {
+		challenge := resp.Header.Get("WWW-Authenticate")
+		resp.Body.Close()
+		tok, err := token(ctx, challenge, repo)
+		if err != nil {
+			return nil, nil, err
+		}
+		if resp, err = doMethod(ctx, http.MethodGet, u, tok, hdrs...); err != nil {
+			return nil, nil, err
+		}
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, nil, ErrNotFound
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, nil, fmt.Errorf("registry %s: %s", u, resp.Status)
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, limit))
+	return body, resp.Header, err
 }
 
 // indexEntry is one platform's manifest in an image index.

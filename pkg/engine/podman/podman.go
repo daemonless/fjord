@@ -12,7 +12,9 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
+	composepkg "github.com/daemonless/fjord/pkg/compose"
 	"github.com/daemonless/fjord/pkg/engine"
 	"github.com/daemonless/fjord/pkg/stack"
 )
@@ -68,22 +70,35 @@ func (b *Backend) Up(ctx context.Context, s *stack.Stack) (io.ReadCloser, error)
 func (b *Backend) bringUp(ctx context.Context, pw *io.PipeWriter, s *stack.Stack, forceRecreate bool, only []string) {
 	b.removeOrphanStorage(ctx, pw, s.Name)
 	args := upArgs(forceRecreate, only)
+	started := time.Now()
 	err := b.runStreaming(ctx, pw, s.Dir, "podman-compose", args...)
 	// A plain up tolerates a failure here: compose can leave a container in
 	// "created" and the explicit `podman start` below recovers it. A recreate
 	// cannot -- if the teardown was refused the OLD container is still there,
 	// and starting it would report a successful update while running the image
 	// the stack already had. That is the failure this whole path exists to stop.
-	if err != nil && forceRecreate {
-		// The usual reason a teardown is refused is a lingering exec session:
-		// podman keeps the record even after the process is gone, `stop`, `rm`
-		// and `container cleanup` all refuse ("container state improper"), and
-		// libpod has no endpoint to drop it. Only a force-remove clears it.
-		// Safe to do here and nowhere else -- an update is replacing these
-		// containers anyway.
-		fmt.Fprintf(pw, "\n[warn] recreate refused (%v); force-removing the containers being replaced and retrying\n", err)
-		b.forceRemoveStackContainers(ctx, pw, s, only)
-		err = b.runStreaming(ctx, pw, s.Dir, "podman-compose", args...)
+	//
+	// A refusal does not always fail the command: podman-compose prints
+	// "active exec sessions ... name already in use", starts the old container
+	// again and exits 0. So the retry is decided by the containers, not the
+	// exit code -- any that predate this recreate were not replaced.
+	if forceRecreate {
+		stale := b.notRecreated(ctx, s, only, started)
+		if err != nil || len(stale) > 0 {
+			// The usual reason a teardown is refused is a lingering exec
+			// session: podman keeps the record even after the process is gone,
+			// `stop`, `rm` and `container cleanup` all refuse ("container state
+			// improper"), and libpod has no endpoint to drop it. Only a
+			// force-remove clears it. Safe to do here and nowhere else -- an
+			// update is replacing these containers anyway.
+			targets, why := only, fmt.Sprint(err)
+			if err == nil {
+				targets, why = stale, "left "+strings.Join(stale, ", ")+" in place"
+			}
+			fmt.Fprintf(pw, "\n[warn] recreate refused (%s); force-removing the containers being replaced and retrying\n", why)
+			b.forceRemoveStackContainers(ctx, pw, s, targets)
+			err = b.runStreaming(ctx, pw, s.Dir, "podman-compose", args...)
+		}
 	}
 	if err != nil && forceRecreate {
 		fmt.Fprintf(pw, "\n[error] recreate failed, the stack still runs its previous image: %v\n", err)
@@ -250,17 +265,96 @@ func (b *Backend) Restart(ctx context.Context, s *stack.Stack) (io.ReadCloser, e
 // services narrows both steps to those services. --no-deps keeps compose from
 // recreating what they depend on, and it leaves what depends on THEM alone
 // too: updating immich's database does not restart its server.
+//
+// Only the named services are pulled. What depends on them is recreated with
+// them (see composepkg.WithDependents) but keeps the image it has -- updating
+// the database must not quietly update the server too.
 func (b *Backend) Update(ctx context.Context, s *stack.Stack, services []string) (io.ReadCloser, error) {
+	recreate := services
+	if len(services) > 0 {
+		recreate = composepkg.WithDependents(s.Compose, services)
+	}
 	pr, pw := io.Pipe()
 	go func() {
 		defer pw.Close()
+		if more := extra(recreate, services); len(more) > 0 {
+			fmt.Fprintf(pw, "[fjord] also recreating %s: it depends on %s\n", strings.Join(more, ", "), strings.Join(services, ", "))
+		}
 		if err := b.runStreaming(ctx, pw, s.Dir, "podman", append([]string{"compose", "pull"}, services...)...); err != nil {
 			fmt.Fprintf(pw, "\n[error] pull: %v\n", err)
 			return
 		}
-		b.bringUp(ctx, pw, s, true, services)
+		started := time.Now()
+		b.bringUp(ctx, pw, s, true, recreate)
+		b.verifyRecreated(ctx, pw, s, recreate, started)
 	}()
 	return pr, nil
+}
+
+// extra is what all has that some does not.
+func extra(all, some []string) []string {
+	var out []string
+	for _, a := range all {
+		if !slices.Contains(some, a) {
+			out = append(out, a)
+		}
+	}
+	return out
+}
+
+// notRecreated lists the services (all of them when services is empty) whose
+// container is older than since -- ones a recreate did not replace.
+func (b *Backend) notRecreated(ctx context.Context, s *stack.Stack, services []string, since time.Time) []string {
+	cs, err := b.listStackContainers(ctx, s.Name)
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for _, c := range ofServices(cs, services) {
+		svc := c.Labels["io.podman.compose.service"]
+		// A second of slack: podman's timestamp and ours round differently.
+		if svc != "" && c.Created.Before(since.Add(-time.Second)) && !slices.Contains(out, svc) {
+			out = append(out, svc)
+		}
+	}
+	return out
+}
+
+// verifyRecreated checks that every service an update meant to replace now
+// runs a container created after the update began.
+//
+// podman-compose exits 0 when a recreate fails: it prints "has dependent
+// containers" and "name already in use", starts the OLD container again, and
+// reports success. The exit code cannot say whether an update happened, so
+// the containers are asked instead. services empty = the whole stack.
+func (b *Backend) verifyRecreated(ctx context.Context, pw *io.PipeWriter, s *stack.Stack, services []string, since time.Time) {
+	cs, err := b.listStackContainers(ctx, s.Name)
+	if err != nil {
+		fmt.Fprintf(pw, "\n[error] cannot confirm the update: %v\n", err)
+		return
+	}
+	if len(services) == 0 {
+		for _, c := range cs {
+			if svc := c.Labels["io.podman.compose.service"]; svc != "" && !slices.Contains(services, svc) {
+				services = append(services, svc)
+			}
+		}
+	}
+	for _, svc := range services {
+		found := false
+		for _, c := range ofServices(cs, []string{svc}) {
+			found = true
+			// A second of slack: podman's timestamp and ours come from
+			// different clocks' roundings, never from different hosts.
+			if c.Created.Before(since.Add(-time.Second)) {
+				fmt.Fprintf(pw, "\n[error] %s was not updated: it still runs the container from %s, on the image it had\n",
+					svc, c.Created.Local().Format("Jan 2 15:04"))
+			}
+		}
+		if !found {
+			fmt.Fprintf(pw, "\n[error] %s has no container after the update\n", svc)
+		}
+	}
 }
 
 // Logs streams the stack's container logs, one `podman logs` per container
