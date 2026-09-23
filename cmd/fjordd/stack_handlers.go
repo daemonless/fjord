@@ -444,7 +444,8 @@ func (s *server) stackChanges(w http.ResponseWriter, r *http.Request, name strin
 		return
 	}
 	target := sv.Image
-	if up := updates.Check(ctx, s.backendFor(st), []updates.Service{*sv}, s.schemeFor); up.State == "upgrade" && up.NewTag != "" {
+	up := updates.Check(ctx, s.backendFor(st), []updates.Service{*sv}, s.schemeFor)
+	if up.State == "upgrade" && up.NewTag != "" {
 		target = registry.Repo(sv.Image) + ":" + up.NewTag
 	}
 	newIndex, err := registry.Digest(ctx, target)
@@ -463,8 +464,25 @@ func (s *server) stackChanges(w http.ResponseWriter, r *http.Request, name strin
 	if sv.Running != "" {
 		oldDoc, _ = sbom.For(ctx, sv.Image, sv.Running, platformOf(ctx, sv.Image, sv.Running))
 	}
+	diff := sbom.Compare(oldDoc, newDoc)
+	// The versions the class is judged by: labels, else the SBOM's entry for
+	// the app, else the tags a version bump moves between.
+	repo := registry.Repo(sv.Image)
+	from, to := oldDoc.AppVersion(repo), newDoc.AppVersion(repo)
+	if from == "" && to == "" && up.State == "upgrade" {
+		from, to = up.FromVersion, up.ToVersion
+	}
+	if diff.VersionFrom == "" {
+		diff.VersionFrom = from
+	}
+	if diff.VersionTo == "" {
+		diff.VersionTo = to
+	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(sbom.Compare(oldDoc, newDoc))
+	json.NewEncoder(w).Encode(struct {
+		sbom.Diff
+		Class updates.Class `json:"class"`
+	}{diff, updates.Classify(from, to)})
 }
 
 // platformOf is this host's manifest inside an index, or the digest itself
