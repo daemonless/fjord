@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os/exec"
 	"slices"
 	"strconv"
@@ -286,7 +287,9 @@ func (b *Backend) Update(ctx context.Context, s *stack.Stack, services []string)
 		}
 		started := time.Now()
 		b.bringUp(ctx, pw, s, true, recreate)
-		b.verifyRecreated(ctx, pw, s, recreate, started)
+		if b.verifyRecreated(ctx, pw, s, recreate, started) {
+			b.watchHealthy(ctx, pw, s, recreate, healthWindow)
+		}
 	}()
 	return pr, nil
 }
@@ -327,12 +330,13 @@ func (b *Backend) notRecreated(ctx context.Context, s *stack.Stack, services []s
 // containers" and "name already in use", starts the OLD container again, and
 // reports success. The exit code cannot say whether an update happened, so
 // the containers are asked instead. services empty = the whole stack.
-func (b *Backend) verifyRecreated(ctx context.Context, pw *io.PipeWriter, s *stack.Stack, services []string, since time.Time) {
+func (b *Backend) verifyRecreated(ctx context.Context, pw *io.PipeWriter, s *stack.Stack, services []string, since time.Time) bool {
 	cs, err := b.listStackContainers(ctx, s.Name)
 	if err != nil {
 		fmt.Fprintf(pw, "\n[error] cannot confirm the update: %v\n", err)
-		return
+		return false
 	}
+	ok := true
 	if len(services) == 0 {
 		for _, c := range cs {
 			if svc := c.Labels["io.podman.compose.service"]; svc != "" && !slices.Contains(services, svc) {
@@ -349,10 +353,126 @@ func (b *Backend) verifyRecreated(ctx context.Context, pw *io.PipeWriter, s *sta
 			if c.Created.Before(since.Add(-time.Second)) {
 				fmt.Fprintf(pw, "\n[error] %s was not updated: it still runs the container from %s, on the image it had\n",
 					svc, c.Created.Local().Format("Jan 2 15:04"))
+				ok = false
 			}
 		}
 		if !found {
 			fmt.Fprintf(pw, "\n[error] %s has no container after the update\n", svc)
+			ok = false
+		}
+	}
+	return ok
+}
+
+// healthWindow is how long an updated container must stay up to count as
+// working. Long enough for an app that dies on a bad config or a failed
+// migration to show it; short enough to wait through in the Output pane.
+var healthWindow = 30 * time.Second
+
+// containerHealth is the part of a container's inspect the health watch reads.
+type containerHealth struct {
+	RestartCount int `json:"RestartCount"`
+	State        struct {
+		Running   bool      `json:"Running"`
+		ExitCode  int       `json:"ExitCode"`
+		StartedAt time.Time `json:"StartedAt"`
+		Health    *struct {
+			Status string `json:"Status"`
+		} `json:"Health"` // absent without a HEALTHCHECK -- true of most images
+	} `json:"State"`
+}
+
+func (b *Backend) inspectHealth(ctx context.Context, id string) (containerHealth, error) {
+	var h containerHealth
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://d/v4.0.0/libpod/containers/"+url.PathEscape(id)+"/json", nil)
+	if err != nil {
+		return h, err
+	}
+	resp, err := b.http.Do(req)
+	if err != nil {
+		return h, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return h, fmt.Errorf("inspect %s: %s", id, resp.Status)
+	}
+	return h, json.NewDecoder(resp.Body).Decode(&h)
+}
+
+// watchHealthy says whether updated containers stay up.
+//
+// "The update ran" is not "the app works": a new image that dies on its
+// config, or on a migration, still recreates cleanly, and with restart:
+// always it even reads "running" between crashes. So each recreated
+// container is watched for a window: it fails if it stops, if it restarts
+// (RestartCount or StartedAt moves), or if a HEALTHCHECK says unhealthy. The
+// failure is an [error] line, which the UI reads as a failed update.
+func (b *Backend) watchHealthy(ctx context.Context, pw *io.PipeWriter, s *stack.Stack, services []string, window time.Duration) {
+	cs, err := b.listStackContainers(ctx, s.Name)
+	if err != nil {
+		fmt.Fprintf(pw, "\n[error] cannot watch the updated containers: %v\n", err)
+		return
+	}
+	type watched struct {
+		svc, id string
+		first   containerHealth
+		failed  bool
+	}
+	var ws []*watched
+	for _, c := range ofServices(cs, services) {
+		h, err := b.inspectHealth(ctx, c.ID)
+		if err != nil {
+			continue
+		}
+		ws = append(ws, &watched{svc: c.Labels["io.podman.compose.service"], id: c.ID, first: h})
+	}
+	if len(ws) == 0 {
+		return
+	}
+	names := make([]string, len(ws))
+	for i, w := range ws {
+		names[i] = w.svc
+	}
+	fmt.Fprintf(pw, "\n[fjord] checking %s stay%s up for %s\n", strings.Join(names, ", "),
+		map[bool]string{true: "s", false: ""}[len(ws) == 1], window)
+
+	deadline := time.Now().Add(window)
+	for {
+		live := 0
+		for _, w := range ws {
+			if w.failed {
+				continue
+			}
+			h, err := b.inspectHealth(ctx, w.id)
+			switch {
+			case err != nil:
+				fmt.Fprintf(pw, "[error] %s is gone since the update: %v\n", w.svc, err)
+				w.failed = true
+			case !h.State.Running:
+				fmt.Fprintf(pw, "[error] %s stopped after the update (exit code %d) -- see its logs\n", w.svc, h.State.ExitCode)
+				w.failed = true
+			case h.RestartCount > w.first.RestartCount || !h.State.StartedAt.Equal(w.first.State.StartedAt):
+				fmt.Fprintf(pw, "[error] %s restarted since the update -- it is crash-looping; see its logs\n", w.svc)
+				w.failed = true
+			case h.State.Health != nil && h.State.Health.Status == "unhealthy":
+				fmt.Fprintf(pw, "[error] %s reports unhealthy since the update\n", w.svc)
+				w.failed = true
+			default:
+				live++
+			}
+		}
+		if live == 0 || !time.Now().Before(deadline) {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(2 * time.Second):
+		}
+	}
+	for _, w := range ws {
+		if !w.failed {
+			fmt.Fprintf(pw, "[fjord] %s has stayed up for %s\n", w.svc, window)
 		}
 	}
 }
