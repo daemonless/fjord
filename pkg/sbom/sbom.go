@@ -32,6 +32,24 @@ type Doc struct {
 	Packages map[string]string `json:"-"` // name -> version; nil without an SBOM
 }
 
+// AppVersion is the version of the app itself: the image's version label,
+// else the SBOM's own entry for it -- the component named like the image's
+// repository (Docker Hub's redis carries no label, but its SBOM lists
+// "redis 8.2.1"). "" when neither says.
+func (d *Doc) AppVersion(repo string) string {
+	if d == nil {
+		return ""
+	}
+	if d.Version != "" {
+		return d.Version
+	}
+	name := repo
+	if i := strings.LastIndex(name, "/"); i >= 0 {
+		name = name[i+1:]
+	}
+	return d.Packages[name]
+}
+
 // Change is one package whose version moved.
 type Change struct {
 	Name string `json:"name"`

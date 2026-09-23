@@ -610,6 +610,7 @@
   // panel shows a service as behind; keyed by stack:service:target so a new
   // check result asks again.
   type Changes = {
+    class?: string; // rebuild | patch | minor | major | unknown
     versionFrom?: string;
     versionTo?: string;
     createdFrom?: string;
@@ -637,7 +638,9 @@
   const day = (iso?: string) => (iso ? new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : '');
   // One line: the version move (or "same version"), then what the SBOMs say.
   function changesLine(c: Changes): string {
-    const parts: string[] = [];
+    // The class first: it is what an update policy acts on, and "rebuild"
+    // says more at a glance than the version pair that follows it.
+    const parts: string[] = c.class && c.class !== 'unknown' ? [c.class] : [];
     if (c.versionFrom && c.versionTo) {
       parts.push(c.versionFrom === c.versionTo ? `same version (${c.versionTo})` : `${c.versionFrom} → ${c.versionTo}`);
     } else if (c.versionTo) {
