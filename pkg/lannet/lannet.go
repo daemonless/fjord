@@ -257,6 +257,15 @@ func parentSetups(nic, vlan string) []engine.ParentSetup {
 		VLAN:      vlan,
 	}
 	if vlan == "" {
+		// A NIC can be in one bridge only. Suggesting `addm re0` to a new
+		// bridge when re0 already carries lanbridge fails ("Device busy") and
+		// leaves an empty bridge in rc.conf. Nothing to set up: networks can
+		// share the bridge that exists, and a separate segment is a VLAN.
+		if have := bridgeOf(nic); have != "" {
+			ps.Note = nic + " is already in " + have + ", and an interface can be in only one bridge. " +
+				"Networks can share it -- pick " + have + " above. For a separate segment, add a VLAN."
+			return []engine.ParentSetup{ps}
+		}
 		ps.Snippet, ps.Note = untaggedSnippet(up, nic, unit, br, uplink)
 		return []engine.ParentSetup{ps}
 	}
@@ -921,4 +930,24 @@ func writeConflist(path string, data []byte) error {
 		return err
 	}
 	return os.Rename(tmp.Name(), path)
+}
+
+// bridgeOf is the bridge nic is a member of, or "".
+func bridgeOf(nic string) string {
+	out, err := exec.Command("ifconfig", "-g", "bridge").Output()
+	if err != nil {
+		return ""
+	}
+	for _, br := range strings.Fields(string(out)) {
+		info, err := exec.Command("ifconfig", br).Output()
+		if err != nil {
+			continue
+		}
+		for _, ln := range strings.Split(string(info), "\n") {
+			if f := strings.Fields(ln); len(f) >= 2 && f[0] == "member:" && f[1] == nic {
+				return br
+			}
+		}
+	}
+	return ""
 }

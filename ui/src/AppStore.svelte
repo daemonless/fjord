@@ -357,7 +357,7 @@
   {#if detailApp}
     <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
     <div
-      class="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-40 p-4"
+      class="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center-safe justify-center overflow-y-auto z-40 p-4"
       on:click|self={() => (detailApp = null)}
     >
       <div class="bg-fjord-card border border-fjord-border rounded-xl shadow-2xl w-full max-w-xl p-7">
