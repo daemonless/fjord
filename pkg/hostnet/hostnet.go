@@ -19,6 +19,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 )
 
 // ConfDir is where podman reads network definitions from. Every file here is
@@ -200,6 +201,55 @@ func AddressOf(network, containerID string) string {
 
 // ipamStateDir is where host-local records its allocations.
 var ipamStateDir = "/var/run/cni/networks"
+
+// ReleaseOrphans removes host-local reservations on network whose container
+// no longer exists (live says whether an ID does), returning the addresses it
+// freed.
+//
+// A reservation outlives its container two ways: cni-epair before 10ab333
+// never released on DEL, so every recreate leaked one (saturn's tautulli moved
+// .200 -> .201 on an update and .200 stayed held by a gone container), and an
+// unclean shutdown skips DEL entirely. Either way the address is lost to the
+// pool, and a container whose own orphan it is can never start.
+//
+// Files younger than minAge are left alone: a container another stack is
+// creating right now can have its reservation before the caller's list of
+// live containers includes it.
+func ReleaseOrphans(network string, live func(id string) bool, minAge time.Duration) []string {
+	if !NameRe.MatchString(network) {
+		return nil
+	}
+	dir := filepath.Join(ipamStateDir, network)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+	var freed []string
+	for _, e := range entries {
+		addr := e.Name()
+		if net.ParseIP(addr) == nil {
+			continue // lock, last_reserved_ip.N
+		}
+		info, err := e.Info()
+		if err != nil || time.Since(info.ModTime()) < minAge {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(dir, addr))
+		if err != nil {
+			continue
+		}
+		// "<container id>\r\n<ifname>"
+		id, _, _ := strings.Cut(strings.TrimSpace(string(data)), "\n")
+		id = strings.TrimSpace(id)
+		if id == "" || live(id) {
+			continue
+		}
+		if os.Remove(filepath.Join(dir, addr)) == nil {
+			freed = append(freed, addr)
+		}
+	}
+	return freed
+}
 
 // JailAddress reports the address a jail holds, read from inside it.
 //
