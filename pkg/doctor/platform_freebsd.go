@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -84,6 +85,18 @@ func platform(cfg Config) platformInfo {
 			Probe: appjailDNSProbe,
 			Why:   "The appjail side of the same thing: jails on one network reach each other by name only while appjail-dns is running. Without it a director project's services have to address each other by IP.",
 			Fix:   "sysrc appjail_dns_enable=YES\nservice appjail-dns start",
+		},
+		{
+			ID: "appjail-git", Name: "git, for makejails on GitHub", Engine: "appjail", HostOnly: true,
+			Probe: appjailGitProbe(stacksDir(cfg)),
+			Why:   "A director service with makejail: gh+Owner/repo (every AppJail-makejails README) is cloned from GitHub when it builds. Without git the build fails with \"git(1) is not installed\" and the jail is never created.",
+			Fix:   "pkg install -y git",
+		},
+		{
+			ID: "appjail-secrets", Name: "rage-encryption, for AppJail secrets", Engine: "appjail", HostOnly: true,
+			Probe: appjailSecretsProbe(stacksDir(cfg)),
+			Why:   "A director service with secret: mounts AppJail secrets, which are encrypted with rage. The package is rage-encryption: `pkg install rage` installs an unrelated video player.",
+			Fix:   "pkg install -y rage-encryption\nappjail secrets init",
 		},
 		{
 			ID: "pf", Name: "pf firewall", Engine: "podman",
@@ -453,4 +466,64 @@ func firstLine(s string) string {
 		return s[:i]
 	}
 	return s
+}
+
+// stacksDir is where fjord keeps its stacks, for checks that only matter when
+// a stack uses something.
+func stacksDir(cfg Config) string {
+	if d := os.Getenv("FJORD_STACKS_DIR"); d != "" {
+		return d
+	}
+	return filepath.Join(cfg.FjordRoot, "stacks")
+}
+
+// directorSpecsMatching names the stacks whose appjail-director.yml matches re.
+func directorSpecsMatching(dir string, re *regexp.Regexp) []string {
+	var out []string
+	specs, _ := filepath.Glob(filepath.Join(dir, "*", "appjail-director.yml"))
+	for _, f := range specs {
+		if b, err := os.ReadFile(f); err == nil && re.Match(b) {
+			out = append(out, filepath.Base(filepath.Dir(f)))
+		}
+	}
+	return out
+}
+
+var (
+	gitMakejail = regexp.MustCompile(`(?m)^\s*makejail:\s*['"]?(gh|git|gitlab)\+`)
+	usesSecret  = regexp.MustCompile(`(?m)^\s*-\s*secret:`)
+)
+
+// appjailGitProbe warns only when a stack needs git and it is missing -- a
+// host that never builds from GitHub has no reason to install it.
+func appjailGitProbe(dir string) func(context.Context) (Status, string) {
+	return func(context.Context) (Status, string) {
+		if p, err := exec.LookPath("git"); err == nil {
+			return OK, p
+		}
+		if need := directorSpecsMatching(dir, gitMakejail); len(need) > 0 {
+			return Warn, strings.Join(need, ", ") + " builds from a makejail on GitHub, and git is not installed"
+		}
+		return OK, "not installed; only needed for gh+/git+ makejails, and no stack uses one"
+	}
+}
+
+// appjailSecretsProbe warns only when a stack mounts secrets and rage-keygen
+// (rage-encryption) is missing, and says so when the rage that IS installed
+// is the video player.
+func appjailSecretsProbe(dir string) func(context.Context) (Status, string) {
+	return func(context.Context) (Status, string) {
+		if p, err := exec.LookPath("rage-keygen"); err == nil {
+			return OK, p
+		}
+		need := directorSpecsMatching(dir, usesSecret)
+		if len(need) == 0 {
+			return OK, "not installed; only needed for AppJail secrets, and no stack uses them"
+		}
+		msg := strings.Join(need, ", ") + " uses AppJail secrets, and rage-encryption is not installed"
+		if _, err := exec.LookPath("rage"); err == nil {
+			msg += " (the rage that is installed is the EFL video player)"
+		}
+		return Warn, msg
+	}
 }

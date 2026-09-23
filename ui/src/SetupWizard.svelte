@@ -353,8 +353,11 @@
   };
 </script>
 
-<div class="h-screen flex items-center justify-center bg-fjord-bg text-fjord-fg-body p-6 overflow-y-auto">
-  <div class="w-full max-w-2xl">
+<!-- Centred by m-auto, not items-center: flex centring pushes content taller
+     than the screen off the TOP, where overflow-y cannot scroll to it -- the
+     doctor list outgrew the viewport and its first checks were unreachable. -->
+<div class="h-screen flex bg-fjord-bg text-fjord-fg-body p-6 overflow-y-auto">
+  <div class="w-full max-w-2xl m-auto">
     <!-- step indicator -->
     <div class="flex items-center gap-2 mb-6">
       {#each visibleSteps as s, n}
