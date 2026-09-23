@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -43,6 +45,9 @@ func (r saveRequest) attachments() []composepkg.Attachment {
 type saveRequest struct {
 	Compose string `json:"compose"`
 	Env     string `json:"env"`
+	// BaseHash is the composeHash the editor loaded. A save whose base no
+	// longer matches the file is refused -- see stackSave.
+	BaseHash string `json:"baseHash,omitempty"`
 	// Director/Makejail are the appjail-director.yml and Makejail: accepted on
 	// create when Engine is appjail (a native appjail stack, no compose), and on
 	// edit only for a stack that already runs via director (a compose stack
@@ -281,7 +286,7 @@ func (s *server) stackDetail(w http.ResponseWriter, r *http.Request, name string
 		own = ownAddress(net)
 	}
 	json.NewEncoder(w).Encode(stackWithStatus{
-		Stack: st, Status: status, Network: net, NetworkIP: ip, NetworkMAC: mac,
+		Stack: st, Status: status, ComposeHash: composeHash(st), Network: net, NetworkIP: ip, NetworkMAC: mac,
 		Networks: atts, OwnAddress: own, Services: svcs, LinkHost: linkHost(svcs, ownAddress),
 		// A stack on a mode has no attachments, which on its own is
 		// indistinguishable from one on the bridge publishing ports.
@@ -502,6 +507,18 @@ func (s *server) stackSave(w http.ResponseWriter, r *http.Request, name string) 
 		http.Error(w, "Invalid JSON payload", 400)
 		return
 	}
+	// fjord writes the compose itself -- a rollback pins an image, a version
+	// change retags one, unpin restores one -- while the editor may still hold
+	// the copy it loaded. Saving that copy put the old image straight back:
+	// a rollback of zensical was undone by two Saves during its health watch.
+	// So a save must say which version it edited, and a stale one is refused.
+	if payload.BaseHash != "" {
+		if existing, err := s.manager.Get(name); err == nil && composeHash(existing) != payload.BaseHash {
+			http.Error(w, name+"'s compose changed on the server since you opened it (a rollback, version change or "+
+				"another tab). Reload to see it -- copy your edits first, reloading replaces them.", http.StatusConflict)
+			return
+		}
+	}
 	// A top-level `name:` would make podman-compose label containers with it
 	// instead of the stack id, hiding them from status/logs/delete -- the
 	// same strip the catalog install path applies.
@@ -715,8 +732,19 @@ func (s *server) stackSave(w http.ResponseWriter, r *http.Request, name string) 
 			log.Printf("save %s: set display name: %v", name, err)
 		}
 	}
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(`{"status":"saved"}`))
+	hash := ""
+	if saved, err := s.manager.Get(name); err == nil {
+		hash = composeHash(saved)
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "saved", "composeHash": hash})
+}
+
+// composeHash identifies what a stack's runtime spec says: the compose, and
+// the director spec when there is one (a rollback can rewrite either).
+func composeHash(st *stack.Stack) string {
+	sum := sha256.Sum256([]byte(st.Compose + "\x00" + st.Director))
+	return hex.EncodeToString(sum[:8])
 }
 
 // stackSetTag rewrites the stack's image ref -- change train/version and/or

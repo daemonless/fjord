@@ -39,7 +39,7 @@
   };
   type StackStatus = { state: string; containers: ContainerStatus[] };
   type StackState = { group?: string; desired_state?: string; engine?: string; order?: number; origin?: { app_id?: string } };
-  type Stack = { name: string; displayName?: string; icon?: string; dir: string; compose: string; env: string; director?: string; makejail?: string; engine?: string; status?: StackStatus; state?: StackState; services?: any[] };
+  type Stack = { name: string; displayName?: string; icon?: string; dir: string; compose: string; env: string; director?: string; makejail?: string; engine?: string; status?: StackStatus; state?: StackState; services?: any[]; composeHash?: string };
   // What the UI shows for a stack: its label, falling back to the id.
   const label = (s: { name: string; displayName?: string } | null | undefined) => s?.displayName || s?.name || '';
 
@@ -540,7 +540,10 @@
   // Back to the image a service ran before its last update. Runs as an update,
   // so the recreate check and the health watch apply to it too.
   async function rollback(name: string, service: string) {
-    await streamAction(name, 'rollback', `Rolling back ${service}…`, { services: [service] });
+    // The daemon pins the compose before it starts the update, and the update
+    // then runs for 30s+. Reload the editor right away: left on its old copy,
+    // a Save during the health watch wrote the old image straight back.
+    await streamAction(name, 'rollback', `Rolling back ${service}…`, { services: [service] }, () => reloadStack(name));
     if (selectedStack?.name === name) {
       await selectStack({ name } as Stack);
       checkForUpdate(name);
@@ -1036,6 +1039,16 @@
     toast('Reverted to the last saved version', { kind: 'success' });
   }
 
+  // Set when a save was refused because fjord changed the compose on the
+  // server (rollback, version change, unpin) after the editor loaded it.
+  let saveConflict = '';
+  $: if (saveConflict && selectedStack?.name !== saveConflict) saveConflict = '';
+  // Re-read the stack from the server into the editor. Used when fjord
+  // rewrote the compose itself, and by the conflict banner's Reload.
+  async function reloadStack(name: string) {
+    saveConflict = '';
+    if (selectedStack?.name === name) await selectStack({ name } as Stack);
+  }
   async function save() {
     if (!selectedStack) return;
     saving = true;
@@ -1043,6 +1056,9 @@
       const body: Record<string, unknown> = {
         compose: selectedStack.compose,
         env: selectedStack.env,
+        // Which version of the compose these edits were made to; the daemon
+        // refuses the save if fjord has rewritten it since.
+        baseHash: selectedStack.composeHash ?? '',
       };
       if (isDirector) {
         body.director = selectedStack.director;
@@ -1074,6 +1090,9 @@
         body: JSON.stringify(body),
       });
       if (res.ok) {
+        saveConflict = '';
+        const saved = await res.json().catch(() => ({}));
+        if (saved.composeHash) selectedStack!.composeHash = saved.composeHash;
         // If we injected networks/a volume the on-disk compose changed;
         // re-fetch it so the editor shows the real (injected) compose.
         // NB "networks", plural: the singular field is gone, and testing only
@@ -1098,6 +1117,8 @@
           needsApply[selectedStack!.name] = true;
         }
         await loadStacks();
+      } else if (res.status === 409) {
+        saveConflict = selectedStack.name;
       } else {
         toast((await res.text()).trim() || `HTTP ${res.status}`, { kind: 'error' });
       }
@@ -1108,7 +1129,9 @@
 
   // Run a streamed lifecycle action (up/down/restart/update) and pipe its
   // output into the terminal drawer.
-  async function streamAction(name: string, action: string, msg: string, body?: unknown) {
+  // onStart runs once the daemon has accepted the action and begun streaming --
+  // for a rollback, the moment its compose is written.
+  async function streamAction(name: string, action: string, msg: string, body?: unknown, onStart?: () => void) {
     stopLogs(); // action output goes to the Output tab, not the Logs stream
     // Only steer the drawer for the stack being looked at. Started from the
     // list, or left running while the operator moved on, this forced the tab
@@ -1128,6 +1151,7 @@
           ? { method: 'POST' }
           : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) },
       );
+      if (res.ok) onStart?.();
       if (!res.ok) {
         execStatus[name] = 'error';
         execMessage[name] = `HTTP ${res.status}`;
@@ -2005,8 +2029,32 @@
           </div>
         {/if}
 
-        <!-- HIG banner: persistent saved-but-unapplied state, with its action -->
-        {#if needsApply[selectedStack.name]}
+        <!-- A save refused because fjord rewrote the compose after it was opened -->
+        {#if saveConflict === selectedStack.name}
+          <div
+            class="flex items-center gap-3 mb-4 shrink-0 px-4 py-2.5 rounded-lg bg-fjord-danger/10 border border-fjord-danger/30 text-sm text-fjord-fg-body"
+          >
+            <span class="flex-1"
+              ><b>Not saved.</b> The compose changed on the server after you opened it — a rollback, version change or
+              unpin, or another tab. Reload to see it; copy your edits first, reloading replaces them.</span
+            >
+            <button
+              on:click={() => (saveConflict = '')}
+              class="shrink-0 px-3 py-1.5 rounded-lg text-sm font-medium text-fjord-fg-muted hover:text-fjord-fg transition-colors"
+              >Dismiss</button
+            >
+            <button
+              on:click={() => reloadStack(selectedStack!.name)}
+              class="shrink-0 px-3 py-1.5 rounded-lg text-sm font-medium bg-fjord-danger text-white hover:bg-fjord-danger-hover transition-colors"
+              >Reload</button
+            >
+          </div>
+        {/if}
+
+        <!-- HIG banner: persistent saved-but-unapplied state, with its action.
+             Hidden while an action runs: that action applies the config, and a
+             greyed-out Apply next to "Updating…" only read as broken. -->
+        {#if needsApply[selectedStack.name] && execStatus[selectedStack.name] !== 'running'}
           <div
             class="flex items-center gap-3 mb-4 shrink-0 px-4 py-2.5 rounded-lg bg-fjord-warning/10 border border-fjord-warning/25 text-sm text-fjord-fg-body"
           >

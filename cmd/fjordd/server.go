@@ -202,6 +202,9 @@ func (s *server) routes(mux *http.ServeMux) {
 type stackWithStatus struct {
 	*stack.Stack
 	Status engine.StackStatus `json:"status"`
+	// ComposeHash identifies the compose (and director spec) this answer was
+	// read from; a save sends it back as baseHash. See composeHash.
+	ComposeHash string `json:"composeHash,omitempty"`
 	// Services is the stack broken out: what each one runs, the networks and
 	// addresses it holds, and what is mounted into it. The fields below
 	// describe the STACK's networking, which cannot say which service is on
