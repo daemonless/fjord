@@ -318,6 +318,7 @@ func main() {
 
 	// Default binds all interfaces so container port publishing reaches it; a
 	// host daemon can narrow it to loopback via FJORD_LISTEN.
+	closeShellsOnExit()
 	fmt.Printf("Web UI listening on %s\n", addr)
 	log.Fatal(http.ListenAndServe(addr, nil))
 }

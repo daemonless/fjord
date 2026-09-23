@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/daemonless/fjord/pkg/engine"
 )
@@ -41,9 +42,15 @@ func (s *apiExecSession) Write(p []byte) (int, error) { return s.conn.Write(p) }
 // hijacked conn alone does NOT end the process on FreeBSD -- it lingers,
 // podman keeps the exec session "active", and container removal is refused
 // ("container state improper") until something force-removes it.
+//
+// The reap is waited for (bounded): fjordd closes its shells on SIGTERM and
+// exits right after, and a reap left running in the background never
+// finished -- the shell outlived fjordd and blocked the next update.
 func (s *apiExecSession) Close() error {
 	err := s.conn.Close()
-	go s.reap()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	s.reap(ctx)
 	return err
 }
 
@@ -51,8 +58,12 @@ func (s *apiExecSession) Close() error {
 // endpoint, but exec-inspect exposes the Pid -- which IS the in-container PID
 // on FreeBSD (jails share PID numbering) -- so a one-shot detached `kill -9`
 // exec in the same container ends the session.
-func (s *apiExecSession) reap() {
-	resp, err := s.http.Get("http://d/v4.0.0/libpod/exec/" + url.PathEscape(s.execID) + "/json")
+func (s *apiExecSession) reap(ctx context.Context) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://d/v4.0.0/libpod/exec/"+url.PathEscape(s.execID)+"/json", nil)
+	if err != nil {
+		return
+	}
+	resp, err := s.http.Do(req)
 	if err != nil {
 		return
 	}
@@ -85,9 +96,7 @@ func (s *apiExecSession) reap() {
 	body, _ := json.Marshal(map[string]any{
 		"Cmd": []string{"kill", "-9", strconv.Itoa(st.Pid)},
 	})
-	resp, err = s.http.Post(
-		"http://d/v4.0.0/libpod/containers/"+url.PathEscape(s.container)+"/exec",
-		"application/json", bytes.NewReader(body))
+	resp, err = s.post(ctx, "http://d/v4.0.0/libpod/containers/"+url.PathEscape(s.container)+"/exec", bytes.NewReader(body))
 	if err != nil {
 		return
 	}
@@ -97,12 +106,20 @@ func (s *apiExecSession) reap() {
 	if json.Unmarshal(data, &created) != nil || created.Id == "" {
 		return
 	}
-	resp, err = s.http.Post(
-		"http://d/v4.0.0/libpod/exec/"+url.PathEscape(created.Id)+"/start",
-		"application/json", strings.NewReader(`{"Detach":true}`))
+	resp, err = s.post(ctx, "http://d/v4.0.0/libpod/exec/"+url.PathEscape(created.Id)+"/start", strings.NewReader(`{"Detach":true}`))
 	if err == nil {
 		resp.Body.Close()
 	}
+}
+
+// post is a JSON POST bounded by ctx.
+func (s *apiExecSession) post(ctx context.Context, u string, body io.Reader) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u, body)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	return s.http.Do(req)
 }
 
 // runsArgv0 reports whether pid is currently running a command whose name is
