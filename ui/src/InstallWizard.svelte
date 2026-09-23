@@ -923,9 +923,15 @@
                 {:else}
                   <p class="text-xs text-fjord-fg-dim mb-2">How this app reaches the network.</p>
                 {/if}
+                <!-- Shows bridge while nothing is chosen, without choosing it:
+                     netChoice stays "" so the operator's default network can
+                     still land once the list loads (applyDefaultNetwork only
+                     fills an empty choice). Bound directly, "" matched no
+                     option and the box was blank above text describing bridge. -->
                 <select
                   id="net"
-                  bind:value={netChoice}
+                  value={netChoice || 'bridge'}
+                  on:change={(e) => (netChoice = e.currentTarget.value)}
                   class="w-full bg-fjord-inset border border-fjord-border rounded-md px-3 py-2 text-fjord-fg-body focus:outline-none focus:border-fjord-accent"
                 >
                   <!-- The built-ins by name, the same three words the Networks
