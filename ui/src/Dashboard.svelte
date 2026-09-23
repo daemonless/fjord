@@ -168,7 +168,7 @@
               {:else if u?.state === 'upgrade'}
                 <span
                   class="inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full text-fjord-warning bg-fjord-warning/10 border border-fjord-warning/30"
-                  ><Icon name="arrow-up" size={11} /> v{u.toVersion}</span
+                  ><Icon name="arrow-up" size={11} /> {u.fromVersion ? `v${u.fromVersion} → ` : ''}v{u.toVersion}</span
                 >
               {:else if u?.state === 'pinned'}
                 <span

@@ -31,6 +31,7 @@
 
   type ContainerStatus = {
     name: string;
+    service?: string; // the compose service it runs
     state: string;
     ports?: { hostPort: number; containerPort: number; protocol?: string }[];
     detail?: string; // one-line reason for a non-running state (appjail: crash-looping app)
@@ -38,7 +39,7 @@
   };
   type StackStatus = { state: string; containers: ContainerStatus[] };
   type StackState = { group?: string; desired_state?: string; engine?: string; order?: number; origin?: { app_id?: string } };
-  type Stack = { name: string; displayName?: string; icon?: string; dir: string; compose: string; env: string; director?: string; makejail?: string; engine?: string; status?: StackStatus; state?: StackState; services?: any[] };
+  type Stack = { name: string; displayName?: string; icon?: string; dir: string; compose: string; env: string; director?: string; makejail?: string; engine?: string; status?: StackStatus; state?: StackState; services?: any[]; composeHash?: string };
   // What the UI shows for a stack: its label, falling back to the id.
   const label = (s: { name: string; displayName?: string } | null | undefined) => s?.displayName || s?.name || '';
 
@@ -416,14 +417,11 @@
     }
     await loadStacks(); // refresh so the sidebar regroups
   }
-  // Number of containers in the selected stack -- the Services list only shows
-  // when there's more than one (single-service stacks are just the header).
-  $: serviceCount = selectedStack?.status?.containers?.length ?? 0;
 
   // Inline confirmation for destructive stack actions (Stop / Delete): a
   // banner under the stack header, not a modal, so the rest of the app stays
   // usable and the question stays visible. Cleared when the selection changes.
-  let pendingAction: { kind: 'stop' | 'delete'; stack: string } | null = null;
+  let pendingAction: { kind: 'stop' | 'delete' | 'recreate'; stack: string } | null = null;
   let pendingConfirmBtn: HTMLButtonElement | null = null;
   $: if (pendingAction && selectedStack?.name !== pendingAction.stack) pendingAction = null;
   // Focus the confirm button so Enter confirms and Escape cancels from the keyboard.
@@ -433,6 +431,7 @@
     pendingAction = null;
     if (!a) return;
     if (a.kind === 'stop') down(a.stack);
+    else if (a.kind === 'recreate') update(a.stack);
     else deleteStack(a.stack);
   }
 
@@ -500,7 +499,8 @@
   }
 
   // Update-availability for the selected stack (digest drift vs the registry).
-  let updateInfo: { state: string; tag?: string; latest?: string; newTag?: string; toVersion?: string } | null = null;
+  let updateInfo: UpdateInfo | null = null;
+  let updateCheckedAt = 0;
   let checkingUpdate = false;
 
   async function checkForUpdate(name: string) {
@@ -508,12 +508,156 @@
     updateInfo = null;
     try {
       const res = await fetch(`/api/stacks/${name}/update-check`);
-      if (res.ok) updateInfo = await res.json();
+      // A slow registry can answer after the operator has moved on; the
+      // result belongs to the stack it was asked about, not the one on screen.
+      if (res.ok && selectedStack?.name === name) {
+        updateInfo = await res.json();
+        updateCheckedAt = Date.now();
+      }
     } catch {
       // registry/socket unreachable -> leave it unknown, no badge
     } finally {
       checkingUpdate = false;
     }
+  }
+
+  // The Update panel. Update used to act on click -- pull everything and
+  // recreate every container whether or not anything had changed, with no
+  // word about which part of the stack was behind. Now the button opens this
+  // list first, and acting on it is a second, deliberate click.
+  let updatePanel = '';
+  $: if (updatePanel && selectedStack?.name !== updatePanel) updatePanel = '';
+  // Older than this and the panel asks again before offering to act on it.
+  const UPDATE_FRESH_MS = 2 * 60 * 1000;
+  function openUpdatePanel(name: string) {
+    updatePanel = name;
+    if (!updateInfo || Date.now() - updateCheckedAt > UPDATE_FRESH_MS) checkForUpdate(name);
+  }
+  $: updatable = (updateInfo?.services ?? []).filter((s) => s.state === 'available');
+  $: svcPinned = Object.fromEntries(
+    (updateInfo?.services ?? []).filter((s) => s.state === 'pinned').map((s) => [s.service, true]),
+  ) as Record<string, boolean>;
+  // Back to the image a service ran before its last update. Runs as an update,
+  // so the recreate check and the health watch apply to it too.
+  async function rollback(name: string, service: string) {
+    // The daemon pins the compose before it starts the update, and the update
+    // then runs for 30s+. Reload the editor right away: left on its old copy,
+    // a Save during the health watch wrote the old image straight back.
+    await streamAction(name, 'rollback', `Rolling back ${service}…`, { services: [service] }, () => reloadStack(name));
+    if (selectedStack?.name === name) {
+      await selectStack({ name } as Stack);
+      checkForUpdate(name);
+    }
+    loadFleetUpdates(true);
+  }
+  async function unpin(name: string, service: string) {
+    const res = await fetch(`/api/stacks/${name}/unpin`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ service }),
+    });
+    if (!res.ok) {
+      toast(`Unpin failed: ${(await res.text()).trim()}`, { kind: 'error' });
+      return;
+    }
+    toast(`${service} follows its tag again`, { kind: 'success' });
+    if (selectedStack?.name === name) {
+      await selectStack({ name } as Stack);
+      checkForUpdate(name);
+    }
+    loadFleetUpdates(true);
+  }
+  // Service -> its pending update (new image or new version), for the rows.
+  $: svcUpdates = Object.fromEntries(
+    (updateInfo?.services ?? []).filter((s) => s.state === 'available' || s.state === 'upgrade').map((s) => [s.service, s]),
+  ) as Record<string, ServiceUpdate>;
+  // Update applies a moved tag. A new VERSION needs the compose to name a
+  // different tag -- Change Version -- and nothing is gained by recreating.
+  $: updateButtonReason =
+    updateInfo?.state === 'current'
+      ? 'Up to date — nothing to pull'
+      : updateInfo?.state === 'pinned'
+        ? 'Pinned to an exact image — nothing to pull'
+        : updateInfo?.state === 'upgrade' && multiImage
+          ? `A newer version is published (v${updateInfo.toVersion}) — set it in the compose editor`
+          : '';
+  // A single-image stack behind by a VERSION: Update takes it there. It used
+  // to be refused ("use Change Version"), so a downgraded stack showed an
+  // update next to a greyed-out Update button. Multi-image stacks cannot be
+  // retagged in one go (set-tag refuses them), so there it stays a note.
+  $: versionStep =
+    updateInfo?.state === 'upgrade' && !multiImage && updateInfo.newTag
+      ? { tag: updateInfo.newTag, from: updateInfo.fromVersion, to: updateInfo.toVersion }
+      : null;
+  async function upgradeTo(name: string, tag: string) {
+    updatePanel = '';
+    const res = await fetch(`/api/stacks/${name}/set-tag`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tag, pin: false }),
+    });
+    if (!res.ok) {
+      toast(`Version change failed: ${(await res.text()).trim()}`, { kind: 'error' });
+      return;
+    }
+    await selectStack({ name } as Stack); // the compose now names the new tag
+    await update(name);
+  }
+  const shortDigest = (d?: string) => (d ?? '').replace('sha256:', '').slice(0, 12);
+
+  // What each pending update changes, from what the two images say about
+  // themselves in the registry (SBOM, else version labels). Fetched when the
+  // panel shows a service as behind; keyed by stack:service:target so a new
+  // check result asks again.
+  type Changes = {
+    versionFrom?: string;
+    versionTo?: string;
+    createdFrom?: string;
+    createdTo?: string;
+    packages: boolean;
+    changed?: { name: string; from: string; to: string }[];
+    added?: { name: string; version: string }[];
+    removed?: { name: string; version: string }[];
+  };
+  let changes: Record<string, Changes | 'loading' | 'none'> = {};
+  let changesOpen: Record<string, boolean> = {};
+  const changesKey = (stack: string, s: ServiceUpdate) => `${stack}:${s.service}:${s.latest ?? s.newTag ?? ''}`;
+  $: if (updatePanel && updateInfo && !checkingUpdate) {
+    for (const s of updateInfo.services ?? []) {
+      if (s.state !== 'available' && s.state !== 'upgrade') continue;
+      const k = changesKey(updatePanel, s);
+      if (changes[k]) continue;
+      changes[k] = 'loading';
+      fetch(`/api/stacks/${updatePanel}/changes?service=${encodeURIComponent(s.service)}`)
+        .then((r) => (r.ok ? r.json() : 'none'))
+        .catch(() => 'none')
+        .then((d) => (changes = { ...changes, [k]: d }));
+    }
+  }
+  const day = (iso?: string) => (iso ? new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : '');
+  // One line: the version move (or "same version"), then what the SBOMs say.
+  function changesLine(c: Changes): string {
+    const parts: string[] = [];
+    if (c.versionFrom && c.versionTo) {
+      parts.push(c.versionFrom === c.versionTo ? `same version (${c.versionTo})` : `${c.versionFrom} → ${c.versionTo}`);
+    } else if (c.versionTo) {
+      parts.push(c.versionTo);
+    }
+    if (c.createdFrom && c.createdTo && day(c.createdFrom) !== day(c.createdTo)) {
+      parts.push(`built ${day(c.createdFrom)} → ${day(c.createdTo)}`);
+    }
+    if (c.packages) {
+      const n = (c.changed?.length ?? 0) + (c.added?.length ?? 0) + (c.removed?.length ?? 0);
+      if (!n) parts.push('no package changes');
+      else {
+        const bits = [];
+        if (c.changed?.length) bits.push(`${c.changed.length} changed`);
+        if (c.added?.length) bits.push(`${c.added.length} added`);
+        if (c.removed?.length) bits.push(`${c.removed.length} removed`);
+        parts.push(`packages: ${bits.join(', ')}`);
+      }
+    }
+    return parts.join(' · ');
   }
 
   // Whether the operator is still on the stack an action was started from.
@@ -527,7 +671,9 @@
     // when the deploy finishes, which yanked the user off whichever tab they
     // had opened while waiting. It read as the tab refusing to be clicked for
     // the first few seconds after a create.
-    if (stack?.name !== selectedStack?.name) activeTab = 'compose';
+    // Services first: what runs, where it answers, what is behind. A draft
+    // has no services yet -- it is a compose being written.
+    if (stack?.name !== selectedStack?.name) activeTab = stack?.dir ? 'net' : 'compose';
     updateInfo = null;
     stopLogs(); // don't keep tailing a stack we're navigating away from
     logsSel = {}; // logs scope is per-stack
@@ -624,7 +770,31 @@
   }
 
   // Fleet-wide update state (server-side cached; refreshed in the background).
-  type UpdateInfo = { state: string; tag?: string; latest?: string; newTag?: string; toVersion?: string };
+  type ServiceUpdate = {
+    service: string;
+    image: string;
+    state: string;
+    tag?: string;
+    running?: string;
+    latest?: string;
+    newTag?: string;
+    fromVersion?: string;
+    toVersion?: string;
+    detail?: string;
+  };
+  type UpdateInfo = {
+    perService?: boolean;
+    rollback?: Record<string, { ref: string; at: string }>;
+    restartsWith?: Record<string, string[]>;
+    state: string;
+    tag?: string;
+    latest?: string;
+    newTag?: string;
+    fromVersion?: string;
+    toVersion?: string;
+    detail?: string;
+    services?: ServiceUpdate[];
+  };
   let fleet: Record<string, UpdateInfo> = {};
   let fleetRefreshing = false;
   const behind = (u?: UpdateInfo) => u?.state === 'available' || u?.state === 'upgrade';
@@ -869,6 +1039,16 @@
     toast('Reverted to the last saved version', { kind: 'success' });
   }
 
+  // Set when a save was refused because fjord changed the compose on the
+  // server (rollback, version change, unpin) after the editor loaded it.
+  let saveConflict = '';
+  $: if (saveConflict && selectedStack?.name !== saveConflict) saveConflict = '';
+  // Re-read the stack from the server into the editor. Used when fjord
+  // rewrote the compose itself, and by the conflict banner's Reload.
+  async function reloadStack(name: string) {
+    saveConflict = '';
+    if (selectedStack?.name === name) await selectStack({ name } as Stack);
+  }
   async function save() {
     if (!selectedStack) return;
     saving = true;
@@ -876,6 +1056,9 @@
       const body: Record<string, unknown> = {
         compose: selectedStack.compose,
         env: selectedStack.env,
+        // Which version of the compose these edits were made to; the daemon
+        // refuses the save if fjord has rewritten it since.
+        baseHash: selectedStack.composeHash ?? '',
       };
       if (isDirector) {
         body.director = selectedStack.director;
@@ -907,6 +1090,9 @@
         body: JSON.stringify(body),
       });
       if (res.ok) {
+        saveConflict = '';
+        const saved = await res.json().catch(() => ({}));
+        if (saved.composeHash) selectedStack!.composeHash = saved.composeHash;
         // If we injected networks/a volume the on-disk compose changed;
         // re-fetch it so the editor shows the real (injected) compose.
         // NB "networks", plural: the singular field is gone, and testing only
@@ -931,6 +1117,8 @@
           needsApply[selectedStack!.name] = true;
         }
         await loadStacks();
+      } else if (res.status === 409) {
+        saveConflict = selectedStack.name;
       } else {
         toast((await res.text()).trim() || `HTTP ${res.status}`, { kind: 'error' });
       }
@@ -941,7 +1129,9 @@
 
   // Run a streamed lifecycle action (up/down/restart/update) and pipe its
   // output into the terminal drawer.
-  async function streamAction(name: string, action: string, msg: string) {
+  // onStart runs once the daemon has accepted the action and begun streaming --
+  // for a rollback, the moment its compose is written.
+  async function streamAction(name: string, action: string, msg: string, body?: unknown, onStart?: () => void) {
     stopLogs(); // action output goes to the Output tab, not the Logs stream
     // Only steer the drawer for the stack being looked at. Started from the
     // list, or left running while the operator moved on, this forced the tab
@@ -955,7 +1145,13 @@
     execMessage[name] = msg;
     if (watching) drawerOpen = true;
     try {
-      const res = await fetch(`/api/stacks/${name}/${action}`, { method: 'POST' });
+      const res = await fetch(
+        `/api/stacks/${name}/${action}`,
+        body === undefined
+          ? { method: 'POST' }
+          : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) },
+      );
+      if (res.ok) onStart?.();
       if (!res.ok) {
         execStatus[name] = 'error';
         execMessage[name] = `HTTP ${res.status}`;
@@ -971,8 +1167,17 @@
           logs[name] += decoder.decode(value);
         }
       }
-      execStatus[name] = 'idle';
-      execMessage[name] = '';
+      // A streamed action answers 200 before it knows how it ends, so its
+      // outcome is in the output: the daemon marks every failure "[error]".
+      // Reading only the status made a failed update look like a success.
+      if (/^\[error\]/m.test(logs[name])) {
+        execStatus[name] = 'error';
+        execMessage[name] = 'Failed — see Output';
+        if (watching) drawerOpen = true;
+      } else {
+        execStatus[name] = 'idle';
+        execMessage[name] = '';
+      }
       await loadStacks();
       // The stack may still be "partial" (yellow) the instant an action
       // returns. The SSE stream (subscribeEvents) pushes the settle to
@@ -1133,9 +1338,14 @@
   };
   const down = (name: string) => streamAction(name, 'down', 'Stopping…');
   const restart = (name: string) => streamAction(name, 'restart', 'Restarting…');
-  const update = async (name: string) => {
-    await streamAction(name, 'update', 'Updating…');
-    if (execStatus[name] !== 'error') needsApply[name] = false; // update recreates too
+  // services: pull and recreate only those; none = the whole stack.
+  const update = async (name: string, services?: string[]) => {
+    if (updatePanel === name) updatePanel = '';
+    const some = !!services?.length;
+    await streamAction(name, 'update', some ? `Updating ${services!.join(', ')}…` : 'Updating…', some ? { services } : undefined);
+    // A whole-stack update recreates everything, so saved config is applied.
+    // Updating some services leaves the rest on what they were started with.
+    if (execStatus[name] !== 'error' && !some) needsApply[name] = false;
     if (selectedStack?.name === name) checkForUpdate(name); // refresh the badge
     loadFleetUpdates(true); // fleet badges should reflect the applied update
   };
@@ -1471,7 +1681,7 @@
                   <span
                     class="ml-auto shrink-0 text-fjord-warning"
                     title={fleet[stack.name].state === 'upgrade'
-                      ? `v${fleet[stack.name].toVersion} available`
+                      ? `${fleet[stack.name].fromVersion ? `v${fleet[stack.name].fromVersion} → ` : ''}v${fleet[stack.name].toVersion} available`
                       : 'Update available'}><Icon name="arrow-up" size={12} /></span
                   >
                 {/if}
@@ -1684,6 +1894,9 @@
             <span class="flex-1">
               {#if pendingAction.kind === 'delete'}
                 <b>Delete {label(selectedStack)}?</b> Stops the stack and removes it from fjord. Bind-mounted data stays on disk.
+              {:else if pendingAction.kind === 'recreate'}
+                <b>Pull &amp; recreate {label(selectedStack)}?</b> Pulls every image and recreates every container, including
+                ones already up to date.
               {:else}
                 <b>Stop {label(selectedStack)}?</b> Stops and removes the containers. Your data is preserved.
               {/if}
@@ -1699,13 +1912,149 @@
               on:keydown={(e) => e.key === 'Escape' && (pendingAction = null)}
               disabled={execStatus[selectedStack.name] === 'running'}
               class="shrink-0 px-3 py-1.5 rounded-lg text-sm font-medium bg-fjord-danger text-white hover:bg-fjord-danger-hover transition-colors disabled:opacity-40"
-              >{pendingAction.kind === 'delete' ? 'Delete' : 'Stop'}</button
+              >{pendingAction.kind === 'delete' ? 'Delete' : pendingAction.kind === 'recreate' ? 'Recreate' : 'Stop'}</button
             >
           </div>
         {/if}
 
-        <!-- HIG banner: persistent saved-but-unapplied state, with its action -->
-        {#if needsApply[selectedStack.name]}
+        <!-- Update panel: what an update would change, per service, before it runs -->
+        {#if updatePanel === selectedStack.name}
+          <div class="mb-4 shrink-0 px-4 py-3 rounded-lg bg-fjord-card border border-fjord-border text-sm text-fjord-fg-body">
+            {#if checkingUpdate || !updateInfo}
+              <div class="flex items-center gap-2 text-fjord-fg-dim"><Spinner size={14} /> Checking the registry…</div>
+            {:else}
+              <div class="overflow-x-auto">
+                <table class="w-full text-xs">
+                  <thead class="text-fjord-fg-dim">
+                    <tr>
+                      <th class="text-left font-medium pb-1.5">Service</th>
+                      <th class="text-left font-medium pb-1.5">Tag</th>
+                      <th class="text-left font-medium pb-1.5">State</th>
+                      <th class="text-left font-medium pb-1.5">Change</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {#each updateInfo.services ?? [] as s}
+                      <tr class="border-t border-fjord-border/60 align-top">
+                        <td class="py-1.5 pr-3 font-medium text-fjord-fg">{s.service}</td>
+                        <td class="py-1.5 pr-3 font-mono text-fjord-fg-secondary">{s.tag ?? ''}</td>
+                        <td class="py-1.5 pr-3 whitespace-nowrap">
+                          {#if s.state === 'available'}<span class="text-fjord-warning">update</span>
+                          {:else if s.state === 'upgrade'}<span class="text-fjord-warning">new version</span>
+                          {:else if s.state === 'current'}<span class="text-fjord-success">up to date</span>
+                          {:else if s.state === 'pinned'}<span class="text-fjord-accent">pinned</span>
+                          {:else}<span class="text-fjord-fg-dim">unknown</span>{/if}
+                        </td>
+                        <td class="py-1.5 font-mono text-fjord-fg-secondary">
+                          {#if s.state === 'available'}
+                            {shortDigest(s.running) || 'local'} → {shortDigest(s.latest)}
+                          {:else if s.state === 'upgrade'}
+                            v{s.fromVersion} → v{s.toVersion}
+                            {#if multiImage}<span class="font-sans text-fjord-fg-dim">(set in the compose)</span>{/if}
+                          {:else if s.state === 'unknown'}
+                            <span class="font-sans text-fjord-fg-dim">{s.detail ?? ''}</span>
+                          {/if}
+                        </td>
+                      </tr>
+                      {#if s.state === 'available' || s.state === 'upgrade'}
+                        {@const k = changesKey(selectedStack.name, s)}
+                        {@const c = changes[k]}
+                        {#if c === 'loading'}
+                          <tr><td></td><td colspan="3" class="pb-1.5 text-fjord-fg-dim">Reading what changed…</td></tr>
+                        {:else if c && c !== 'none' && changesLine(c)}
+                          {@const n = (c.changed?.length ?? 0) + (c.added?.length ?? 0) + (c.removed?.length ?? 0)}
+                          <tr>
+                            <td></td>
+                            <td colspan="3" class="pb-1.5 text-fjord-fg-secondary">
+                              {changesLine(c)}
+                              {#if c.packages && n}
+                                <button
+                                  on:click={() => (changesOpen = { ...changesOpen, [k]: !changesOpen[k] })}
+                                  class="ml-1 text-fjord-accent hover:underline">{changesOpen[k] ? 'hide' : 'show'}</button
+                                >
+                              {/if}
+                              {#if changesOpen[k]}
+                                <div class="mt-1 font-mono text-[11px] leading-5 max-h-48 overflow-y-auto">
+                                  {#each c.changed ?? [] as p}<div>{p.name} <span class="text-fjord-fg-dim">{p.from} →</span> {p.to}</div>{/each}
+                                  {#each c.added ?? [] as p}<div class="text-fjord-success">+ {p.name} {p.version}</div>{/each}
+                                  {#each c.removed ?? [] as p}<div class="text-fjord-danger">− {p.name} {p.version}</div>{/each}
+                                </div>
+                              {/if}
+                            </td>
+                          </tr>
+                        {/if}
+                      {/if}
+                    {/each}
+                  </tbody>
+                </table>
+              </div>
+              <div class="flex items-center gap-3 mt-3">
+                <span class="flex-1 text-xs text-fjord-fg-dim">
+                  {#if versionStep}
+                    Switches to {versionStep.tag} and recreates the container.
+                  {:else if updatable.length && updateInfo.perService}
+                    {@const also = [...new Set(updatable.flatMap((s) => updateInfo?.restartsWith?.[s.service] ?? []))].filter(
+                      (n) => !updatable.some((s) => s.service === n),
+                    )}
+                    Pulls and recreates only {updatable.map((s) => s.service).join(', ')}{#if also.length}; {also.join(', ')}
+                      {also.length === 1 ? 'restarts' : 'restart'} with it (depends on it){/if}. The rest keep running.
+                  {:else if updatable.length}
+                    {updatable.length} of {updateInfo.services?.length ?? 0}
+                    {updateInfo.services?.length === 1 ? 'service has' : 'services have'} an update. This engine updates the
+                    whole stack: every image is pulled and every container recreated.
+                  {:else}
+                    Nothing here is pulled by Update.
+                  {/if}
+                </span>
+                <button
+                  on:click={() => (updatePanel = '')}
+                  class="shrink-0 px-3 py-1.5 rounded-lg text-sm font-medium text-fjord-fg-muted hover:text-fjord-fg transition-colors"
+                  >Cancel</button
+                >
+                <button
+                  on:click={() =>
+                    versionStep
+                      ? upgradeTo(selectedStack!.name, versionStep.tag)
+                      : update(selectedStack!.name, updateInfo?.perService ? updatable.map((s) => s.service) : undefined)}
+                  disabled={(!updatable.length && !versionStep) || execStatus[selectedStack.name] === 'running'}
+                  class="shrink-0 px-3 py-1.5 rounded-lg text-sm font-medium bg-fjord-accent text-white hover:bg-fjord-accent-hover transition-colors disabled:opacity-40"
+                  >{versionStep
+                    ? `Update to v${versionStep.to}`
+                    : updateInfo.perService && updatable.length
+                      ? `Update ${updatable.length} service${updatable.length === 1 ? '' : 's'}`
+                      : 'Update'}</button
+                >
+              </div>
+            {/if}
+          </div>
+        {/if}
+
+        <!-- A save refused because fjord rewrote the compose after it was opened -->
+        {#if saveConflict === selectedStack.name}
+          <div
+            class="flex items-center gap-3 mb-4 shrink-0 px-4 py-2.5 rounded-lg bg-fjord-danger/10 border border-fjord-danger/30 text-sm text-fjord-fg-body"
+          >
+            <span class="flex-1"
+              ><b>Not saved.</b> The compose changed on the server after you opened it — a rollback, version change or
+              unpin, or another tab. Reload to see it; copy your edits first, reloading replaces them.</span
+            >
+            <button
+              on:click={() => (saveConflict = '')}
+              class="shrink-0 px-3 py-1.5 rounded-lg text-sm font-medium text-fjord-fg-muted hover:text-fjord-fg transition-colors"
+              >Dismiss</button
+            >
+            <button
+              on:click={() => reloadStack(selectedStack!.name)}
+              class="shrink-0 px-3 py-1.5 rounded-lg text-sm font-medium bg-fjord-danger text-white hover:bg-fjord-danger-hover transition-colors"
+              >Reload</button
+            >
+          </div>
+        {/if}
+
+        <!-- HIG banner: persistent saved-but-unapplied state, with its action.
+             Hidden while an action runs: that action applies the config, and a
+             greyed-out Apply next to "Updating…" only read as broken. -->
+        {#if needsApply[selectedStack.name] && execStatus[selectedStack.name] !== 'running'}
           <div
             class="flex items-center gap-3 mb-4 shrink-0 px-4 py-2.5 rounded-lg bg-fjord-warning/10 border border-fjord-warning/25 text-sm text-fjord-fg-body"
           >
@@ -1745,11 +2094,12 @@
             ><Icon name="stop" size={14} /> Stop…</button
           >
           <button
-            on:click={() => update(selectedStack!.name)}
-            disabled={execStatus[selectedStack.name] === 'running'}
-            title={updateInfo?.state === 'available'
-              ? `Update available — ${updateInfo.tag} moved to ${(updateInfo.latest ?? '').replace('sha256:', '').slice(0, 12)}…`
-              : 'Pull the latest images and recreate'}
+            on:click={() => (updatePanel === selectedStack!.name ? (updatePanel = '') : openUpdatePanel(selectedStack!.name))}
+            disabled={execStatus[selectedStack.name] === 'running' || !!updateButtonReason}
+            title={updateButtonReason ||
+              (updateInfo?.state === 'available'
+                ? `${updatable.map((s) => s.service).join(', ')} ${updatable.length === 1 ? 'has' : 'have'} an update`
+                : 'Check for updates')}
             class="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-40 {updateInfo?.state ===
             'available'
               ? 'bg-fjord-warning/15 text-fjord-warning border border-fjord-warning/40 hover:bg-fjord-warning/25'
@@ -1773,11 +2123,16 @@
                 })}
               class="text-xs text-fjord-warning self-center underline decoration-dotted hover:text-fjord-warning/80"
               title="A newer version is published — switch to it via Change Version"
-              >v{updateInfo!.toVersion} available</button
+              >{updateInfo!.fromVersion ? `v${updateInfo!.fromVersion} → ` : ''}v{updateInfo!.toVersion} available</button
             >
           {:else if updateInfo?.state === 'current'}
-            <span class="flex items-center gap-1 text-xs text-fjord-success self-center"
-              ><Icon name="check" size={12} /> Up to date</span
+            <!-- The button is off when there is nothing to pull, so asking
+                 again lives here, on the claim it would refresh. -->
+            <button
+              on:click={() => checkForUpdate(selectedStack!.name)}
+              title="Check again"
+              class="flex items-center gap-1 text-xs text-fjord-success self-center hover:underline decoration-dotted"
+              ><Icon name="check" size={12} /> Up to date</button
             >
           {:else if updateInfo?.state === 'pinned'}
             <span class="flex items-center gap-1 text-xs text-fjord-accent self-center"
@@ -1806,6 +2161,15 @@
                   }}
                   class="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-fjord-fg-body hover:bg-fjord-border transition-colors"
                   ><Icon name="restart" size={14} class="text-fjord-fg-muted" /> Restart</button
+                >
+                <button
+                  on:click={() => {
+                    actionsMenuOpen = false;
+                    pendingAction = { kind: 'recreate', stack: selectedStack!.name };
+                  }}
+                  title="Pull every image and recreate every container, even ones already up to date"
+                  class="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-fjord-fg-body hover:bg-fjord-border transition-colors"
+                  ><Icon name="update" size={14} class="text-fjord-fg-muted" /> Pull &amp; recreate all…</button
                 >
                 {#if !multiImage}
                   <button
@@ -1841,25 +2205,23 @@
         </div>
         {/if}
 
-        <!-- Services (only shown when the stack has more than one) -->
-        {#if serviceCount > 1}
-          <div class="mb-4 shrink-0 border border-fjord-border rounded-xl overflow-hidden">
-            <div class="bg-fjord-border/40 px-4 py-2 text-xs font-semibold text-fjord-fg-secondary">Services</div>
-            <div class="divide-y divide-fjord-border">
-              {#each selectedStack.status?.containers ?? [] as c}
-                <div class="flex items-center gap-3 px-4 py-2 text-sm">
-                  <span class="w-2 h-2 rounded-full shrink-0 {DOT[c.state === 'running' ? 'running' : 'stopped']}"></span>
-                  <span class="text-fjord-fg-body">{c.name}</span>
-                  <span class="text-fjord-fg-dim text-xs">{c.state}</span>
-                </div>
-              {/each}
-            </div>
-          </div>
-        {/if}
-
         <!-- Editor + tabs -->
         <div class="flex-1 flex flex-col bg-fjord-card border border-fjord-border rounded-xl shadow-xl overflow-hidden min-h-0">
           <div class="bg-fjord-border/50 flex border-b border-fjord-border text-xs font-semibold text-fjord-fg-secondary">
+            <button
+              on:click={() => (activeTab = 'net')}
+              class="px-4 py-2.5 border-r border-fjord-border {activeTab === 'net'
+                ? 'bg-fjord-card text-fjord-fg border-b-2 border-b-fjord-accent'
+                : 'text-fjord-fg-muted hover:text-fjord-fg-body'}">Services</button
+            >
+            <button
+              on:click={() => (activeTab = 'env')}
+              class="px-4 py-2.5 border-r border-fjord-border flex items-center gap-2 {activeTab === 'env'
+                ? 'bg-fjord-card text-fjord-fg border-b-2 border-b-fjord-accent'
+                : 'text-fjord-fg-muted hover:text-fjord-fg-body'}"
+            >
+              .env{#if selectedStack.env !== originalEnv}<span class="text-fjord-warning font-bold">*</span>{/if}
+            </button>
             <button
               on:click={() => (activeTab = 'compose')}
               class="px-4 py-2.5 border-r border-fjord-border flex items-center gap-2 {activeTab === 'compose'
@@ -1878,20 +2240,6 @@
                 Makejail{#if (selectedStack.makejail ?? '') !== originalMakejail}<span class="text-fjord-warning font-bold">*</span>{/if}
               </button>
             {/if}
-            <button
-              on:click={() => (activeTab = 'env')}
-              class="px-4 py-2.5 border-r border-fjord-border flex items-center gap-2 {activeTab === 'env'
-                ? 'bg-fjord-card text-fjord-fg border-b-2 border-b-fjord-accent'
-                : 'text-fjord-fg-muted hover:text-fjord-fg-body'}"
-            >
-              .env{#if selectedStack.env !== originalEnv}<span class="text-fjord-warning font-bold">*</span>{/if}
-            </button>
-            <button
-              on:click={() => (activeTab = 'net')}
-              class="px-4 py-2.5 border-r border-fjord-border {activeTab === 'net'
-                ? 'bg-fjord-card text-fjord-fg border-b-2 border-b-fjord-accent'
-                : 'text-fjord-fg-muted hover:text-fjord-fg-body'}">Resources</button
-            >
           </div>
 
           <div class="flex-1 relative min-h-0">
@@ -1940,6 +2288,12 @@
                 </p>
                 <ServiceResources
                   services={selectedStack.services ?? []}
+                  updates={svcUpdates}
+                  rollbacks={updateInfo?.rollback ?? {}}
+                  pinned={svcPinned}
+                  on:openUpdate={() => openUpdatePanel(selectedStack!.name)}
+                  on:rollback={(e) => rollback(selectedStack!.name, e.detail)}
+                  on:unpin={(e) => unpin(selectedStack!.name, e.detail)}
                   {networks}
                   {unsupportedModes}
                   stackName={selectedStack.name}

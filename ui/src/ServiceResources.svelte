@@ -52,6 +52,15 @@
   };
 
   export let services: ServiceView[] = [];
+  // Service name -> its pending update, from the stack's update check. Shown on
+  // the row so a four-service stack says WHICH part is behind.
+  export let updates: Record<string, { state: string; tag?: string; fromVersion?: string; toVersion?: string }> = {};
+  // Service -> the image its last update replaced, when it can go back to it.
+  export let rollbacks: Record<string, { ref: string; at: string }> = {};
+  // Services pinned to an exact image (a rollback pins; so can the operator).
+  export let pinned: Record<string, boolean> = {};
+  let confirmRollback = '';
+  const day = (iso: string) => (iso ? new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : '');
   export let networks: Net[] = [];
   /** service name -> its interfaces, staged. The parent owns it so Save can
    *  post it and the dirty check can see it. */
@@ -84,6 +93,9 @@
     browse: void;
     openAdd: string;
     closeAdd: void;
+    openUpdate: void;
+    rollback: string;
+    unpin: string;
   }>();
   // Which row is asking to be removed. Two clicks, in place -- the same shape
   // the stack-level list used, kept because unmounting is not undoable from
@@ -214,25 +226,72 @@
   <div class="border border-fjord-border rounded-xl overflow-hidden divide-y divide-fjord-border">
     {#each services as s (s.name)}
       <div>
-        <button
-          on:click={() => toggle(s.name)}
-          class="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-fjord-inset/50 transition-colors"
-        >
-          <span class="text-fjord-fg-dim text-xs w-3">{open[s.name] ? '▼' : '▶'}</span>
-          {#if !planning}
-            <span class="w-2 h-2 rounded-full shrink-0 {dot(s.state)}"></span>
-          {/if}
-          <span class="font-medium text-fjord-fg-body min-w-[12rem]">{s.name}</span>
-          <span class="text-xs text-fjord-fg-muted font-mono flex-1 truncate">{summary(s, edits[s.name] ?? [])}</span>
-          {#if isolated.has(s.name)}
-            <span
-              title="Nothing else in this stack shares a network with {s.name}"
-              class="shrink-0 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-fjord-warning/15 text-fjord-warning border border-fjord-warning/30"
-              >cut off</span
+        <!-- Toggle and update chip side by side: the chip is its own button,
+             and a button cannot sit inside the row's. -->
+        <div class="flex items-center hover:bg-fjord-inset/50 transition-colors">
+          <button on:click={() => toggle(s.name)} class="flex-1 min-w-0 flex items-center gap-3 pl-4 py-3 text-left">
+            <span class="text-fjord-fg-dim text-xs w-3">{open[s.name] ? '▼' : '▶'}</span>
+            {#if !planning}
+              <span class="w-2 h-2 rounded-full shrink-0 {dot(s.state)}"></span>
+            {/if}
+            <span class="font-medium text-fjord-fg-body min-w-[12rem]">{s.name}</span>
+            <span class="text-xs text-fjord-fg-muted font-mono flex-1 truncate">{summary(s, edits[s.name] ?? [])}</span>
+            {#if isolated.has(s.name)}
+              <span
+                title="Nothing else in this stack shares a network with {s.name}"
+                class="shrink-0 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-fjord-warning/15 text-fjord-warning border border-fjord-warning/30"
+                >cut off</span
+              >
+            {/if}
+          </button>
+          {#if updates[s.name]}
+            {@const u = updates[s.name]}
+            <button
+              on:click={() => dispatch('openUpdate')}
+              title={u.state === 'upgrade'
+                ? `A newer version of ${u.tag} is published — see what an update would change`
+                : `A newer image is published for ${u.tag} — see what an update would change`}
+              class="shrink-0 ml-3 inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-fjord-warning/15 text-fjord-warning border border-fjord-warning/30 hover:bg-fjord-warning/25"
+              ><Icon name="arrow-up" size={10} />{u.state === 'upgrade'
+                ? `${u.fromVersion ? `v${u.fromVersion} → ` : ''}v${u.toVersion}`
+                : 'update'}</button
             >
           {/if}
-          {#if !planning}<span class="text-xs text-fjord-fg-dim">{s.state ?? ''}</span>{/if}
-        </button>
+          {#if pinned[s.name]}
+            <button
+              on:click={() => dispatch('unpin', s.name)}
+              title="Pinned to an exact image, so it takes no updates. Unpin to follow its tag again."
+              class="shrink-0 ml-3 inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-fjord-accent/15 text-fjord-accent border border-fjord-accent/30 hover:bg-fjord-accent/25"
+              ><Icon name="pin" size={10} />pinned · unpin</button
+            >
+          {/if}
+          {#if rollbacks[s.name] && !planning}
+            <button
+              on:click={() => (confirmRollback = confirmRollback === s.name ? '' : s.name)}
+              title="Go back to the image {s.name} ran before its last update"
+              class="shrink-0 ml-3 text-[10px] font-semibold px-1.5 py-0.5 rounded border border-fjord-border text-fjord-fg-muted hover:text-fjord-fg hover:bg-fjord-border"
+              >↶ roll back</button
+            >
+          {/if}
+          {#if !planning}<span class="shrink-0 text-xs text-fjord-fg-dim pl-3 pr-4">{s.state ?? ''}</span>{:else}<span class="pr-4"></span>{/if}
+        </div>
+        {#if confirmRollback === s.name && rollbacks[s.name]}
+          <div class="flex items-center gap-3 mx-4 mb-3 px-3 py-2 rounded-lg bg-fjord-warning/10 border border-fjord-warning/30 text-xs text-fjord-fg-body">
+            <span class="flex-1">
+              Roll <b>{s.name}</b> back to <span class="font-mono">{rollbacks[s.name].ref}</span>, which it ran until
+              {day(rollbacks[s.name].at)}? It is pinned there until you unpin it. This does not undo changes the new
+              version made to its data — an app that migrated its database keeps the new schema.
+            </span>
+            <button on:click={() => (confirmRollback = '')} class="shrink-0 px-2 py-1 rounded text-fjord-fg-muted hover:text-fjord-fg">Cancel</button>
+            <button
+              on:click={() => {
+                confirmRollback = '';
+                dispatch('rollback', s.name);
+              }}
+              class="shrink-0 px-2 py-1 rounded bg-fjord-danger hover:bg-fjord-danger-hover text-white">Roll back</button
+            >
+          </div>
+        {/if}
 
         {#if open[s.name]}
           <div class="px-10 pb-5 space-y-4">

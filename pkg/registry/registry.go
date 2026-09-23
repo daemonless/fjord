@@ -6,6 +6,7 @@ package registry
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -94,6 +95,141 @@ func Digest(ctx context.Context, image string) (string, error) {
 		return "", fmt.Errorf("registry returned no digest for %s", image)
 	}
 	return dg, nil
+}
+
+// PlatformDigest is the manifest digest THIS host would run from the index at
+// indexDigest: the entry for runtime.GOOS/GOARCH, else the first for GOARCH.
+// "" with no error when the digest names a plain manifest, not an index.
+//
+// It exists because an index digest changes when ANY of its platforms is
+// rebuilt. An arm64-only rebuild gives the tag a new index while the amd64
+// bytes stay the same, and podman records the new index on the image it
+// already has -- so comparing index digests alone reports an update that
+// pulls nothing new.
+//
+// A GET, so it counts against Docker Hub's anonymous pull quota; callers ask
+// only when the index digest has not already matched.
+func PlatformDigest(ctx context.Context, image, indexDigest string) (string, error) {
+	host, repo := imageRepo(image)
+	u := "https://" + host + "/v2/" + repo + "/manifests/" + indexDigest
+	resp, err := doMethod(ctx, http.MethodGet, u, "", manifestAccept)
+	if err != nil {
+		return "", err
+	}
+	if resp.StatusCode == http.StatusUnauthorized {
+		challenge := resp.Header.Get("WWW-Authenticate")
+		resp.Body.Close()
+		tok, err := token(ctx, challenge, repo)
+		if err != nil {
+			return "", err
+		}
+		if resp, err = doMethod(ctx, http.MethodGet, u, tok, manifestAccept); err != nil {
+			return "", err
+		}
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("registry %s: %s", u, resp.Status)
+	}
+	var idx struct {
+		Manifests []indexEntry `json:"manifests"`
+	}
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 4<<20)).Decode(&idx); err != nil {
+		return "", fmt.Errorf("decode index: %w", err)
+	}
+	return pickPlatform(idx.Manifests, runtime.GOOS, runtime.GOARCH), nil
+}
+
+// ErrNotFound is a manifest or blob the registry does not have -- for an
+// attestation, the ordinary answer: most images carry none.
+var ErrNotFound = errors.New("not found in registry")
+
+// imageRepo is an image ref's registry host and repository, without tag or
+// digest.
+func imageRepo(image string) (host, repo string) {
+	host, repo = splitImage(image)
+	if at := strings.LastIndex(repo, "@"); at >= 0 {
+		repo = repo[:at]
+	}
+	if colon := strings.LastIndex(repo, ":"); colon > strings.LastIndex(repo, "/") {
+		repo = repo[:colon]
+	}
+	return host, repo
+}
+
+// Manifest fetches the manifest at ref (a tag or a digest) in image's
+// repository, returning its body and media type.
+func Manifest(ctx context.Context, image, ref, accept string) ([]byte, string, error) {
+	host, repo := imageRepo(image)
+	body, hdr, err := fetch(ctx, "https://"+host+"/v2/"+repo+"/manifests/"+ref, repo, accept, 4<<20)
+	if err != nil {
+		return nil, "", err
+	}
+	return body, hdr.Get("Content-Type"), nil
+}
+
+// Blob fetches a blob by digest, reading at most limit bytes.
+func Blob(ctx context.Context, image, digest string, limit int64) ([]byte, error) {
+	host, repo := imageRepo(image)
+	body, _, err := fetch(ctx, "https://"+host+"/v2/"+repo+"/blobs/"+digest, repo, "", limit)
+	return body, err
+}
+
+// fetch is a GET that follows a 401 token challenge. A 404 is ErrNotFound.
+func fetch(ctx context.Context, u, repo, accept string, limit int64) ([]byte, http.Header, error) {
+	var hdrs []string
+	if accept != "" {
+		hdrs = []string{accept}
+	}
+	resp, err := doMethod(ctx, http.MethodGet, u, "", hdrs...)
+	if err != nil {
+		return nil, nil, err
+	}
+	if resp.StatusCode == http.StatusUnauthorized {
+		challenge := resp.Header.Get("WWW-Authenticate")
+		resp.Body.Close()
+		tok, err := token(ctx, challenge, repo)
+		if err != nil {
+			return nil, nil, err
+		}
+		if resp, err = doMethod(ctx, http.MethodGet, u, tok, hdrs...); err != nil {
+			return nil, nil, err
+		}
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, nil, ErrNotFound
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, nil, fmt.Errorf("registry %s: %s", u, resp.Status)
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, limit))
+	return body, resp.Header, err
+}
+
+// indexEntry is one platform's manifest in an image index.
+type indexEntry struct {
+	Digest   string `json:"digest"`
+	Platform struct {
+		OS           string `json:"os"`
+		Architecture string `json:"architecture"`
+	} `json:"platform"`
+}
+
+// pickPlatform chooses the host's entry: exact os/arch first, then arch
+// alone (an index that names no OS, or a Linux image on the Linuxulator).
+func pickPlatform(ms []indexEntry, goos, goarch string) string {
+	for _, m := range ms {
+		if m.Platform.OS == goos && m.Platform.Architecture == goarch {
+			return m.Digest
+		}
+	}
+	for _, m := range ms {
+		if m.Platform.Architecture == goarch {
+			return m.Digest
+		}
+	}
+	return ""
 }
 
 // manifestDigest resolves a tag to its Docker-Content-Digest with a HEAD

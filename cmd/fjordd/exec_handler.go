@@ -67,6 +67,7 @@ func (s *server) stackExec(w http.ResponseWriter, r *http.Request, name string) 
 		return
 	}
 	defer sess.Close()
+	defer trackShell(sess)()
 
 	// container output -> browser, decoupled through a bounded queue. The
 	// podman exec stream EOFs after ~256KB if its reader stalls (no patience

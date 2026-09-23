@@ -2,12 +2,15 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -17,6 +20,7 @@ import (
 	"github.com/daemonless/fjord/pkg/engine"
 	"github.com/daemonless/fjord/pkg/hostnet"
 	"github.com/daemonless/fjord/pkg/registry"
+	"github.com/daemonless/fjord/pkg/sbom"
 	"github.com/daemonless/fjord/pkg/stack"
 	"github.com/daemonless/fjord/pkg/updates"
 	"gopkg.in/yaml.v3"
@@ -41,6 +45,9 @@ func (r saveRequest) attachments() []composepkg.Attachment {
 type saveRequest struct {
 	Compose string `json:"compose"`
 	Env     string `json:"env"`
+	// BaseHash is the composeHash the editor loaded. A save whose base no
+	// longer matches the file is refused -- see stackSave.
+	BaseHash string `json:"baseHash,omitempty"`
 	// Director/Makejail are the appjail-director.yml and Makejail: accepted on
 	// create when Engine is appjail (a native appjail stack, no compose), and on
 	// edit only for a stack that already runs via director (a compose stack
@@ -211,6 +218,9 @@ func (s *server) handleStackRoutes(w http.ResponseWriter, r *http.Request) {
 		case "update-check":
 			s.stackUpdateCheck(w, parts[0])
 			return
+		case "changes":
+			s.stackChanges(w, r, parts[0])
+			return
 		case "icon":
 			s.stackIcon(w, r, parts[0])
 			return
@@ -236,6 +246,10 @@ func (s *server) handleStackRoutes(w http.ResponseWriter, r *http.Request) {
 		s.stackGroup(w, r, name)
 	case "rename":
 		s.stackRename(w, r, name)
+	case "rollback":
+		s.stackRollback(w, r, name)
+	case "unpin":
+		s.stackUnpin(w, r, name)
 	default:
 		s.stackLifecycle(w, r, name, action)
 	}
@@ -272,7 +286,7 @@ func (s *server) stackDetail(w http.ResponseWriter, r *http.Request, name string
 		own = ownAddress(net)
 	}
 	json.NewEncoder(w).Encode(stackWithStatus{
-		Stack: st, Status: status, Network: net, NetworkIP: ip, NetworkMAC: mac,
+		Stack: st, Status: status, ComposeHash: composeHash(st), Network: net, NetworkIP: ip, NetworkMAC: mac,
 		Networks: atts, OwnAddress: own, Services: svcs, LinkHost: linkHost(svcs, ownAddress),
 		// A stack on a mode has no attachments, which on its own is
 		// indistinguishable from one on the bridge publishing ports.
@@ -367,16 +381,99 @@ func (s *server) stackUpdateCheck(w http.ResponseWriter, name string) {
 		http.Error(w, "Stack not found", 404)
 		return
 	}
-	images := resolvedImages(st)
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	status, err := updates.Check(ctx, s.backendFor(st), images, s.schemeFor)
+	status := updates.Check(ctx, s.backendFor(st), s.updateServices(ctx, st), s.schemeFor)
+	w.Header().Set("Content-Type", "application/json")
+	// perService: whether Update can take just the services that changed, so
+	// the panel offers that rather than a whole-stack recreate.
+	// restartsWith: what depends on each service, so the panel can say an
+	// update of the database restarts the server too (it has to; see
+	// composepkg.WithDependents).
+	restarts := map[string][]string{}
+	for _, sv := range status.Services {
+		if more := composepkg.WithDependents(st.Compose, []string{sv.Service}); len(more) > 1 {
+			restarts[sv.Service] = slices.DeleteFunc(more, func(n string) bool { return n == sv.Service })
+		}
+	}
+	// rollback: services whose last update can be undone -- a recorded
+	// earlier image that is not what the service runs now.
+	type rollbackTo struct {
+		Ref string `json:"ref"`
+		At  string `json:"at"`
+	}
+	rollback := map[string]rollbackTo{}
+	if state, _ := s.manager.LoadState(name); state != nil {
+		for _, sv := range status.Services {
+			if rb, ok := state.Rollback[sv.Service]; ok && sv.Running != "" && sv.Running != rb.Digest {
+				rollback[sv.Service] = rollbackTo{rb.Ref, rb.At}
+			}
+		}
+	}
+	json.NewEncoder(w).Encode(struct {
+		updates.Status
+		PerService   bool                  `json:"perService"`
+		RestartsWith map[string][]string   `json:"restartsWith,omitempty"`
+		Rollback     map[string]rollbackTo `json:"rollback,omitempty"`
+	}{status, s.backendFor(st).Capabilities().UpdateServices, restarts, rollback})
+}
+
+// stackChanges says what updating one service would change:
+// GET .../changes?service=<name>. The running image is compared with what the
+// update would install -- the tag's current image, or the newer version's
+// when the service is behind by one -- using what each image says about
+// itself in the registry. Nothing is pulled.
+func (s *server) stackChanges(w http.ResponseWriter, r *http.Request, name string) {
+	st, err := s.manager.Get(name)
+	if err != nil {
+		http.Error(w, "Stack not found", 404)
+		return
+	}
+	want := r.URL.Query().Get("service")
+	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
+	defer cancel()
+	var sv *updates.Service
+	for _, c := range s.updateServices(ctx, st) {
+		if c.Name == want {
+			sv = &c
+			break
+		}
+	}
+	if sv == nil {
+		http.Error(w, fmt.Sprintf("%s has no service %q", name, want), 400)
+		return
+	}
+	target := sv.Image
+	if up := updates.Check(ctx, s.backendFor(st), []updates.Service{*sv}, s.schemeFor); up.State == "upgrade" && up.NewTag != "" {
+		target = registry.Repo(sv.Image) + ":" + up.NewTag
+	}
+	newIndex, err := registry.Digest(ctx, target)
 	if err != nil {
 		http.Error(w, err.Error(), 502)
 		return
 	}
+	newDoc, err := sbom.For(ctx, target, newIndex, platformOf(ctx, target, newIndex))
+	if err != nil {
+		http.Error(w, err.Error(), 502)
+		return
+	}
+	// The running side is best effort: an old image can be gone from the
+	// registry, and the answer is then the new side on its own.
+	var oldDoc *sbom.Doc
+	if sv.Running != "" {
+		oldDoc, _ = sbom.For(ctx, sv.Image, sv.Running, platformOf(ctx, sv.Image, sv.Running))
+	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(status)
+	json.NewEncoder(w).Encode(sbom.Compare(oldDoc, newDoc))
+}
+
+// platformOf is this host's manifest inside an index, or the digest itself
+// when it names a single manifest.
+func platformOf(ctx context.Context, image, digest string) string {
+	if p, err := registry.PlatformDigest(ctx, image, digest); err == nil && p != "" {
+		return p
+	}
+	return digest
 }
 
 // stackLogs streams container logs: GET .../logs?tail=200&follow=1. Uses the
@@ -409,6 +506,18 @@ func (s *server) stackSave(w http.ResponseWriter, r *http.Request, name string) 
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 		http.Error(w, "Invalid JSON payload", 400)
 		return
+	}
+	// fjord writes the compose itself -- a rollback pins an image, a version
+	// change retags one, unpin restores one -- while the editor may still hold
+	// the copy it loaded. Saving that copy put the old image straight back:
+	// a rollback of zensical was undone by two Saves during its health watch.
+	// So a save must say which version it edited, and a stale one is refused.
+	if payload.BaseHash != "" {
+		if existing, err := s.manager.Get(name); err == nil && composeHash(existing) != payload.BaseHash {
+			http.Error(w, name+"'s compose changed on the server since you opened it (a rollback, version change or "+
+				"another tab). Reload to see it -- copy your edits first, reloading replaces them.", http.StatusConflict)
+			return
+		}
 	}
 	// A top-level `name:` would make podman-compose label containers with it
 	// instead of the stack id, hiding them from status/logs/delete -- the
@@ -623,8 +732,19 @@ func (s *server) stackSave(w http.ResponseWriter, r *http.Request, name string) 
 			log.Printf("save %s: set display name: %v", name, err)
 		}
 	}
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(`{"status":"saved"}`))
+	hash := ""
+	if saved, err := s.manager.Get(name); err == nil {
+		hash = composeHash(saved)
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "saved", "composeHash": hash})
+}
+
+// composeHash identifies what a stack's runtime spec says: the compose, and
+// the director spec when there is one (a rollback can rewrite either).
+func composeHash(st *stack.Stack) string {
+	sum := sha256.Sum256([]byte(st.Compose + "\x00" + st.Director))
+	return hex.EncodeToString(sum[:8])
 }
 
 // stackSetTag rewrites the stack's image ref -- change train/version and/or
@@ -751,6 +871,31 @@ func lockStack(name string) (unlock func(), ok bool) {
 	return m.Unlock, true
 }
 
+// requestedServices reads the optional {"services": [...]} body of an update:
+// which services to pull and recreate, none meaning all. Each must be one of
+// the stack's own -- compose would otherwise answer a typo with "no such
+// service" halfway through, after the pull.
+func requestedServices(r *http.Request, st *stack.Stack) ([]string, error) {
+	var req struct {
+		Services []string `json:"services"`
+	}
+	if r.Body != nil {
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err != io.EOF {
+			return nil, fmt.Errorf("invalid JSON payload: %v", err)
+		}
+	}
+	if len(req.Services) == 0 {
+		return nil, nil
+	}
+	known, _ := composepkg.ServiceImageList(st.Compose)
+	for _, want := range req.Services {
+		if !slices.ContainsFunc(known, func(si composepkg.ServiceImage) bool { return si.Service == want }) {
+			return nil, fmt.Errorf("%s has no service %q", st.Name, want)
+		}
+	}
+	return req.Services, nil
+}
+
 // stackLifecycle runs up/down/update/restart, streaming the backend's output.
 func (s *server) stackLifecycle(w http.ResponseWriter, r *http.Request, name, action string) {
 	st, err := s.manager.Get(name)
@@ -790,7 +935,15 @@ func (s *server) stackLifecycle(w http.ResponseWriter, r *http.Request, name, ac
 	case "down":
 		stream, err = s.backendFor(st).Down(ctx, st)
 	case "update":
-		stream, err = s.backendFor(st).Update(ctx, st)
+		var services []string
+		if services, err = requestedServices(r, st); err != nil {
+			http.Error(w, err.Error(), 400)
+			return
+		}
+		if r.Context().Value(isRollbackKey{}) == nil {
+			s.recordRollback(ctx, st, services)
+		}
+		stream, err = s.backendFor(st).Update(ctx, st, services)
 	case "restart":
 		stream, err = s.backendFor(st).Restart(ctx, st)
 	default:

@@ -199,3 +199,40 @@ func SplitPortSpec(spec string) (host, cont string) {
 		return parts[len(parts)-2], parts[len(parts)-1]
 	}
 }
+
+// WithDependents is services plus every service that depends on one of them,
+// directly or through another, in compose order.
+//
+// podman-compose records depends_on as a podman dependency, and podman will
+// not remove a container something else requires: recreating immich's
+// database on its own fails with "has dependent containers", leaving the old
+// one running. So a service is only ever recreated together with what needs
+// it -- which restarts those anyway, since they lose it for the duration.
+func WithDependents(composeYAML string, services []string) []string {
+	all := ParseServices(composeYAML, nil)
+	in := map[string]bool{}
+	for _, s := range services {
+		in[s] = true
+	}
+	for grew := true; grew; {
+		grew = false
+		for _, s := range all {
+			if in[s.Name] {
+				continue
+			}
+			for _, d := range s.DependsOn {
+				if in[d] {
+					in[s.Name], grew = true, true
+					break
+				}
+			}
+		}
+	}
+	out := make([]string, 0, len(in))
+	for _, s := range all {
+		if in[s.Name] {
+			out = append(out, s.Name)
+		}
+	}
+	return out
+}

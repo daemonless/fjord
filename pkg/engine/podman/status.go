@@ -16,10 +16,12 @@ import (
 
 // libpodContainer is the subset of the libpod /containers/json response we need.
 type libpodContainer struct {
-	ID       string   `json:"Id"`
-	Names    []string `json:"Names"`
-	State    string   `json:"State"`
-	Networks []string `json:"Networks"`
+	ID       string            `json:"Id"`
+	Names    []string          `json:"Names"`
+	State    string            `json:"State"`
+	Networks []string          `json:"Networks"`
+	Labels   map[string]string `json:"Labels"`
+	Created  time.Time         `json:"Created"`
 	Ports    []struct {
 		HostPort      int    `json:"host_port"`
 		ContainerPort int    `json:"container_port"`
@@ -152,7 +154,7 @@ func aggregateStatus(containers []libpodContainer) engine.StackStatus {
 				ports = append(ports, engine.Port{HostPort: p.HostPort, ContainerPort: p.ContainerPort, Protocol: p.Protocol})
 			}
 		}
-		cs := engine.ContainerStatus{Name: name, State: c.State, Ports: ports,
+		cs := engine.ContainerStatus{Name: name, Service: c.Labels["io.podman.compose.service"], State: c.State, Ports: ports,
 			Address: containerAddress(c), Addresses: containerAddresses(c)}
 		// Attached but address-less: the CNI plugin failed and podman started
 		// the container anyway, so it is "running" with no interface at all.

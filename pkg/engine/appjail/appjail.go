@@ -161,8 +161,13 @@ func (b *Backend) Restart(ctx context.Context, s *stack.Stack) (io.ReadCloser, e
 	return directorRestart(ctx, s)
 }
 
-// Update destroys and rebuilds the jails with a fresh image pull.
-func (b *Backend) Update(ctx context.Context, s *stack.Stack) (io.ReadCloser, error) {
+// Update destroys and rebuilds the jails with a fresh image pull. Always the
+// whole project: director has no per-service rebuild that fjord has verified,
+// so a subset is refused rather than quietly widened to everything.
+func (b *Backend) Update(ctx context.Context, s *stack.Stack, services []string) (io.ReadCloser, error) {
+	if len(services) > 0 {
+		return nil, fmt.Errorf("appjail updates the whole stack; it cannot update only %s", strings.Join(services, ", "))
+	}
 	if directorFile(s) == "" {
 		return nil, errNoDirector(s)
 	}
@@ -180,7 +185,7 @@ func (b *Backend) Status(ctx context.Context, s *stack.Stack) (engine.StackStatu
 	for _, sj := range svcs {
 		svc, name := sj.svc, sj.jail
 		jailUp := exec.CommandContext(ctx, "appjail", "status", "-q", name).Run() == nil
-		cs := engine.ContainerStatus{Name: name, State: "stopped"}
+		cs := engine.ContainerStatus{Name: name, Service: svc.Name, State: "stopped"}
 		if jailUp {
 			jailsUp++
 			// A jail being up says nothing about the app inside it: a .NET
@@ -628,6 +633,13 @@ func (b *Backend) RemoveVolume(ctx context.Context, name string, force bool) err
 // UsedPorts: appjail publishings aren't easily enumerable yet -- best-effort empty.
 func (b *Backend) UsedPorts(ctx context.Context) (map[string]string, error) {
 	return map[string]string{}, nil
+}
+
+// RunningImages is not known for jails yet: whether a jail records the image
+// digest it was built from is unverified, so the update check keeps comparing
+// the local tag, as it did before.
+func (b *Backend) RunningImages(context.Context, *stack.Stack) ([]engine.RunningImage, error) {
+	return nil, nil
 }
 
 // ImageRepoDigests reads a local image's digest from `buildah images`, which

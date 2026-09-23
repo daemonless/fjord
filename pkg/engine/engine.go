@@ -38,9 +38,13 @@ type Port struct {
 // of truth for "where is this app reachable", which the saved compose is not
 // (edits only apply on recreate).
 type ContainerStatus struct {
-	Name  string `json:"name"`
-	State string `json:"state"` // running | stopped | starting | crashed | ...
-	Ports []Port `json:"ports,omitempty"`
+	Name string `json:"name"`
+	// Service is the compose service this container runs, so per-service
+	// state (an update, say) lands on the right row without guessing it
+	// from the container name.
+	Service string `json:"service,omitempty"`
+	State   string `json:"state"` // running | stopped | starting | crashed | ...
+	Ports   []Port `json:"ports,omitempty"`
 	// Detail explains a non-running state in one line (e.g. "crash-looping:
 	// see Logs") -- shown as a hint, never parsed.
 	Detail string `json:"detail,omitempty"`
@@ -424,6 +428,9 @@ type Capabilities struct {
 	// NetworkNote says why NetworkKinds is empty, so the UI can explain the
 	// absence instead of silently hiding a button. Empty when creating works.
 	NetworkNote string `json:"networkNote,omitempty"`
+	// UpdateServices: Update can pull and recreate a subset of a stack's
+	// services, leaving the rest running untouched.
+	UpdateServices bool `json:"updateServices"`
 }
 
 // PruneReport summarizes a prune run: a human total and the raw command output.
@@ -439,8 +446,10 @@ type Backend interface {
 	Up(ctx context.Context, s *stack.Stack) (io.ReadCloser, error)
 	// Down tears down a stack and returns an io.ReadCloser streaming the terminal output.
 	Down(ctx context.Context, s *stack.Stack) (io.ReadCloser, error)
-	// Update pulls the latest images for a stack then recreates it, streaming both steps.
-	Update(ctx context.Context, s *stack.Stack) (io.ReadCloser, error)
+	// Update pulls the latest images for a stack then recreates it, streaming
+	// both steps. services limits both to those services (empty = all); an
+	// engine without Capabilities().UpdateServices refuses a non-empty list.
+	Update(ctx context.Context, s *stack.Stack, services []string) (io.ReadCloser, error)
 	// Restart restarts a stack's containers in place (no pull, no recreate).
 	Restart(ctx context.Context, s *stack.Stack) (io.ReadCloser, error)
 	// Logs streams container logs -- all of the stack's containers merged, or
@@ -487,6 +496,10 @@ type Backend interface {
 	// registry reports for the tag -- so it's the digest to compare against for
 	// update detection. Compare against RepoDigests, never the per-arch .Digest.
 	ImageRepoDigests(ctx context.Context, ref string) ([]string, error)
+	// RunningImages reports the image each of a stack's services was created
+	// from. nil when the engine cannot say, and update checks then fall back to
+	// the local tag -- which is right only until anything else pulls it.
+	RunningImages(ctx context.Context, s *stack.Stack) ([]RunningImage, error)
 	// Capabilities reports optional features (remote volumes, ...) so generic
 	// code branches on a capability, not an engine name.
 	Capabilities() Capabilities
@@ -494,6 +507,26 @@ type Backend interface {
 	// Meaningful only when Capabilities().RemoteVolumes; other engines return
 	// an error.
 	StoreSMBCredentials(server, username, password string) error
+}
+
+// RunningImage is the image one service's container was created from.
+type RunningImage struct {
+	Service string
+	ImageID string
+	// Ref is the image reference the container was created from
+	// ("repo:tag"), before any ${VAR} in the compose moved on or a version
+	// change retagged it.
+	Ref string
+	// Digest is the registry digest the image was pulled as -- for a
+	// multi-arch image the index digest, which is what a registry reports for
+	// a tag. The container keeps it; the image does not: once a pull moves
+	// the tag, the old image's RepoDigests is empty.
+	Digest string
+	// Digests is every registry digest the running image is known by: Digest
+	// plus the image's RepoDigests while it still has them. One image gathers
+	// several -- a re-pull after an other-arch rebuild adds the new index
+	// digest to the image already here, since its bytes did not change.
+	Digests []string
 }
 
 // HumanBytes formats a byte count the way podman's df does ("35.0GB"), so

@@ -57,6 +57,23 @@ type State struct {
 	AppVersion    string            `json:"app_version,omitempty"`
 	InstalledAt   string            `json:"installed_at"`
 	UpdatedAt     string            `json:"updated_at"`
+	// Rollback is, per service, the image the last update replaced -- what
+	// "Roll back" returns to, and what "Unpin" restores the compose from.
+	Rollback map[string]RollbackImage `json:"rollback,omitempty"`
+}
+
+// RollbackImage is one service's image before an update.
+type RollbackImage struct {
+	// Compose is the service's image: value as the compose had it, ${VAR}s
+	// and all, so an unpin puts back what the operator wrote.
+	Compose string `json:"compose"`
+	// Ref and Digest are what the container actually ran: the resolved
+	// "repo:tag" and the registry digest it was pulled as. Rollback pins to
+	// Ref@Digest, fetched from the registry -- the old image itself does not
+	// survive `podman image prune -af`, which maintenance runs.
+	Ref    string `json:"ref"`
+	Digest string `json:"digest"`
+	At     string `json:"at"`
 }
 
 // Stack represents a parsed directory containing a compose file.
@@ -219,7 +236,7 @@ func (m *Manager) Save(stack *Stack) error {
 	// behind that the compose path would then try to run.
 	if stack.Compose != "" || stack.Director == "" {
 		composePath := filepath.Join(dir, "compose.yaml")
-		if err := os.WriteFile(composePath, []byte(stack.Compose), 0644); err != nil {
+		if err := writeFileAtomic(composePath, []byte(stack.Compose), 0644); err != nil {
 			return fmt.Errorf("failed to write compose.yaml: %w", err)
 		}
 	}
@@ -227,7 +244,7 @@ func (m *Manager) Save(stack *Stack) error {
 	envPath := filepath.Join(dir, ".env")
 	if stack.Env != "" {
 		// Write .env tightly locked down (0600) to protect secrets
-		if err := os.WriteFile(envPath, []byte(stack.Env), 0600); err != nil {
+		if err := writeFileAtomic(envPath, []byte(stack.Env), 0600); err != nil {
 			return fmt.Errorf("failed to write .env: %w", err)
 		}
 	} else {
@@ -240,7 +257,7 @@ func (m *Manager) Save(stack *Stack) error {
 	// Empty means "not a director stack"; the file is never removed here.
 	if stack.Director != "" {
 		body := strings.TrimRight(stack.Director, "\n") + "\n"
-		if err := os.WriteFile(filepath.Join(dir, "appjail-director.yml"), []byte(body), 0644); err != nil {
+		if err := writeFileAtomic(filepath.Join(dir, "appjail-director.yml"), []byte(body), 0644); err != nil {
 			return fmt.Errorf("failed to write appjail-director.yml: %w", err)
 		}
 	}
@@ -249,7 +266,7 @@ func (m *Manager) Save(stack *Stack) error {
 		// unterminated final line (an `OPTION from=` lost that way builds an
 		// empty jail instead of the OCI container).
 		body := strings.TrimRight(stack.Makejail, "\n") + "\n"
-		if err := os.WriteFile(filepath.Join(dir, "Makejail"), []byte(body), 0644); err != nil {
+		if err := writeFileAtomic(filepath.Join(dir, "Makejail"), []byte(body), 0644); err != nil {
 			return fmt.Errorf("failed to write Makejail: %w", err)
 		}
 	}
@@ -431,7 +448,6 @@ func (m *Manager) SaveState(name string, st *State) error {
 	if !validName.MatchString(name) {
 		return ErrInvalidName
 	}
-	dir := filepath.Join(m.StacksDir, name)
 	st.SchemaVersion = stateSchemaVersion
 
 	data, err := json.MarshalIndent(st, "", "  ")
@@ -440,21 +456,49 @@ func (m *Manager) SaveState(name string, st *State) error {
 	}
 	data = append(data, '\n')
 
-	tmp, err := os.CreateTemp(dir, ".state-*.tmp")
+	return writeFileAtomic(m.statePath(name), data, 0600)
+}
+
+// writeData is the write writeFileAtomic makes; tests swap it to fail.
+var writeData = func(f *os.File, b []byte) (int, error) { return f.Write(b) }
+
+// writeFileAtomic replaces path with data, or leaves it exactly as it was.
+//
+// os.WriteFile truncates first and writes second, so a write that fails in
+// between leaves an EMPTY file. On netlab a full disk did exactly that to a
+// stack's compose.yaml during a version change: the container kept running,
+// and fjord lost every image, port and volume it knew for the stack. Written
+// to a temp file in the same directory and renamed over the old one, a failed
+// save is an error and nothing else.
+func writeFileAtomic(path string, data []byte, perm os.FileMode) error {
+	tmp, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".*.tmp")
 	if err != nil {
-		return fmt.Errorf("create temp state file: %w", err)
-	}
-	tmpName := tmp.Name()
-	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		os.Remove(tmpName)
 		return err
+	}
+	name := tmp.Name()
+	fail := func(err error) error {
+		tmp.Close()
+		os.Remove(name)
+		return err
+	}
+	if _, err := writeData(tmp, data); err != nil {
+		return fail(err)
+	}
+	if err := tmp.Sync(); err != nil {
+		return fail(err)
+	}
+	if err := tmp.Chmod(perm); err != nil {
+		return fail(err)
 	}
 	if err := tmp.Close(); err != nil {
-		os.Remove(tmpName)
+		os.Remove(name)
 		return err
 	}
-	return os.Rename(tmpName, m.statePath(name))
+	if err := os.Rename(name, path); err != nil {
+		os.Remove(name)
+		return err
+	}
+	return nil
 }
 
 // EnsureState creates state.json (desired_state "stopped") the first time a
