@@ -962,7 +962,14 @@ func (s *server) stackLifecycle(w http.ResponseWriter, r *http.Request, name, ac
 		if r.Context().Value(isRollbackKey{}) == nil {
 			s.recordRollback(ctx, st, services)
 		}
+		note := keptNote(s.keepAddresses(ctx, st))
 		stream, err = s.backendFor(st).Update(ctx, st, services)
+		if err == nil && note != "" {
+			stream = struct {
+				io.Reader
+				io.Closer
+			}{io.MultiReader(strings.NewReader(note), stream), stream}
+		}
 	case "restart":
 		stream, err = s.backendFor(st).Restart(ctx, st)
 	default:

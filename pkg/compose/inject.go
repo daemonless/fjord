@@ -1040,3 +1040,55 @@ func RepublishPorts(composeYAML string, services []string) (string, error) {
 	enc.Close()
 	return buf.String(), nil
 }
+
+// PinAddress sets service's ipv4_address on network, leaving the rest of the
+// compose as written. A list entry (`networks: [lan]`) becomes the map form
+// that can carry the address; an address already pinned is not changed.
+func PinAddress(composeYAML, service, network, ip string) (string, error) {
+	var doc yaml.Node
+	if err := yaml.Unmarshal([]byte(composeYAML), &doc); err != nil {
+		return "", fmt.Errorf("parse compose: %w", err)
+	}
+	if len(doc.Content) == 0 {
+		return "", fmt.Errorf("empty compose")
+	}
+	services := mapGet(doc.Content[0], "services")
+	if services == nil { // mapGet does not take a nil node
+		return "", fmt.Errorf("compose has no services")
+	}
+	svc := mapGet(services, service)
+	if svc == nil {
+		return "", fmt.Errorf("no service %q", service)
+	}
+	nets := mapGet(svc, "networks")
+	if nets == nil {
+		return "", fmt.Errorf("%s is on no named network", service)
+	}
+	if nets.Kind == yaml.SequenceNode {
+		m := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+		for _, it := range nets.Content {
+			m.Content = append(m.Content, scalar(it.Value), &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"})
+		}
+		mapSet(svc, "networks", m)
+		nets = m
+	}
+	entry := mapGet(nets, network)
+	if entry == nil {
+		return "", fmt.Errorf("%s is not on %s", service, network)
+	}
+	if entry.Kind != yaml.MappingNode { // `lan:` with no value
+		entry.Kind, entry.Tag, entry.Value = yaml.MappingNode, "!!map", ""
+	}
+	if mapGet(entry, "ipv4_address") != nil {
+		return composeYAML, nil
+	}
+	entry.Content = append(entry.Content, scalar("ipv4_address"), scalar(ip))
+	var buf bytes.Buffer
+	enc := yaml.NewEncoder(&buf)
+	enc.SetIndent(2)
+	if err := enc.Encode(doc.Content[0]); err != nil {
+		return "", err
+	}
+	enc.Close()
+	return buf.String(), nil
+}

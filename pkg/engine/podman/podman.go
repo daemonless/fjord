@@ -100,6 +100,7 @@ func (b *Backend) bringUp(ctx context.Context, pw *io.PipeWriter, s *stack.Stack
 			}
 			fmt.Fprintf(pw, "\n[warn] recreate refused (%s); force-removing the containers being replaced and retrying\n", why)
 			b.forceRemoveStackContainers(ctx, pw, s, targets)
+			b.releaseOrphanAddresses(ctx, pw, s)
 			err = b.runStreaming(ctx, pw, s.Dir, "podman-compose", args...)
 		}
 	}
@@ -654,13 +655,24 @@ func (b *Backend) releaseOrphanAddresses(ctx context.Context, pw io.Writer, s *s
 	for _, c := range all {
 		live[c.ID] = true
 	}
+	isLive := func(id string) bool { return live[id] }
+	// Addresses this stack pins first, with no age guard: they are its own,
+	// and on a cni-epair that never releases they are still held by the
+	// container a recreate just removed.
+	for _, byNet := range composepkg.ServiceAttachments(s.Compose) {
+		for _, a := range byNet {
+			if a.IP != "" && hostnet.ReleaseAddress(a.Network, a.IP, isLive) {
+				fmt.Fprintf(pw, "[fjord] released %s on %s for its own service: held by a removed container\n", a.IP, a.Network)
+			}
+		}
+	}
 	seen := map[string]bool{}
 	for _, a := range atts {
 		if seen[a.Network] {
 			continue
 		}
 		seen[a.Network] = true
-		for _, addr := range hostnet.ReleaseOrphans(a.Network, func(id string) bool { return live[id] }, 2*time.Minute) {
+		for _, addr := range hostnet.ReleaseOrphans(a.Network, isLive, 2*time.Minute) {
 			fmt.Fprintf(pw, "[fjord] released %s on %s: held by a container that no longer exists\n", addr, a.Network)
 		}
 	}

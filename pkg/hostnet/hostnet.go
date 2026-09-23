@@ -202,6 +202,27 @@ func AddressOf(network, containerID string) string {
 // ipamStateDir is where host-local records its allocations.
 var ipamStateDir = "/var/run/cni/networks"
 
+// ReleaseAddress frees one reservation if the container holding it is gone,
+// with no age guard: for an address a stack pins, which nothing else should
+// hold. Under a cni-epair that never releases on DEL, a recreate leaves the
+// pinned address reserved by the container it just removed, and the new one
+// is refused it ("duplicate allocation") until this frees it.
+func ReleaseAddress(network, addr string, live func(id string) bool) bool {
+	if !NameRe.MatchString(network) || net.ParseIP(addr) == nil {
+		return false
+	}
+	p := filepath.Join(ipamStateDir, network, addr)
+	data, err := os.ReadFile(p)
+	if err != nil {
+		return false
+	}
+	id, _, _ := strings.Cut(strings.TrimSpace(string(data)), "\n")
+	if id = strings.TrimSpace(id); id == "" || live(id) {
+		return false
+	}
+	return os.Remove(p) == nil
+}
+
 // ReleaseOrphans removes host-local reservations on network whose container
 // no longer exists (live says whether an ID does), returning the addresses it
 // freed.
