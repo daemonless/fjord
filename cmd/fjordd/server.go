@@ -29,6 +29,7 @@ type server struct {
 	stacksDir  string       // reported by /api/about
 	listenAddr string       // reported by /api/about
 	fleet      fleetUpdates // cached fleet-wide update state
+	seen       *firstSeen   // when each update candidate was first seen (soak)
 	events     *eventHub    // SSE pub/sub; fed by runEventLoop
 
 	catalogAutoMu  sync.Mutex // last automatic catalog refresh (catalog_scheduler.go)

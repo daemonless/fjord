@@ -246,6 +246,8 @@ func (s *server) handleStackRoutes(w http.ResponseWriter, r *http.Request) {
 		s.stackGroup(w, r, name)
 	case "rename":
 		s.stackRename(w, r, name)
+	case "policy":
+		s.stackPolicy(w, r, name)
 	case "rollback":
 		s.stackRollback(w, r, name)
 	case "unpin":
@@ -384,6 +386,8 @@ func (s *server) stackUpdateCheck(w http.ResponseWriter, name string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	status := updates.Check(ctx, s.backendFor(st), s.updateServices(ctx, st), s.schemeFor)
+	s.markCandidates(status)
+	s.fleet.put(name, status) // the list's badge agrees with the stack page
 	w.Header().Set("Content-Type", "application/json")
 	// perService: whether Update can take just the services that changed, so
 	// the panel offers that rather than a whole-stack recreate.
@@ -478,11 +482,15 @@ func (s *server) stackChanges(w http.ResponseWriter, r *http.Request, name strin
 	if diff.VersionTo == "" {
 		diff.VersionTo = to
 	}
+	class := updates.Classify(from, to)
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(struct {
 		sbom.Diff
 		Class updates.Class `json:"class"`
-	}{diff, updates.Classify(from, to)})
+		// Auto is what auto-update would do with this, under the stack's
+		// policy -- shown, not acted on, until the scheduler exists.
+		Auto updates.Verdict `json:"auto"`
+	}{diff, class, s.verdict(st, sv.Name, class, candidateKey(up.State, sv.Image, up.Latest, up.NewTag))})
 }
 
 // platformOf is this host's manifest inside an index, or the digest itself
@@ -771,11 +779,13 @@ func composeHash(st *stack.Stack) string {
 // its tag resolves to now ("repo:tag" -> "repo:tag@sha256:..."), so a later
 // tag move can't change what's deployed. SetImageTag drops any existing
 // @digest first, so pin=false (or omitted) unpins. The UI redeploys afterward
-// only when the version actually changed.
+// only when the version actually changed. With service set, only that
+// service's image moves -- how a multi-image stack takes a new version.
 func (s *server) stackSetTag(w http.ResponseWriter, r *http.Request, name string) {
 	var body struct {
-		Tag string `json:"tag"`
-		Pin bool   `json:"pin"`
+		Tag     string `json:"tag"`
+		Pin     bool   `json:"pin"`
+		Service string `json:"service"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Tag == "" {
 		http.Error(w, "tag required", 400)
@@ -786,11 +796,40 @@ func (s *server) stackSetTag(w http.ResponseWriter, r *http.Request, name string
 		http.Error(w, "Stack not found", 404)
 		return
 	}
+	if body.Service != "" {
+		// A director stack's jails read the tag from the director file, which
+		// has no per-service form here; retagging the compose alone would
+		// show one version and run another.
+		if st.Director != "" {
+			http.Error(w, "an appjail stack changes version for the whole stack", 400)
+			return
+		}
+		newCompose, err := composepkg.SetServiceTag(st.Compose, body.Service, body.Tag)
+		if err != nil {
+			http.Error(w, err.Error(), 400)
+			return
+		}
+		if body.Pin {
+			// This service only: PinImageDigests would freeze every image.
+			if newCompose, err = pinService(newCompose, body.Service); err != nil {
+				http.Error(w, err.Error(), 502)
+				return
+			}
+		}
+		st.Compose = newCompose
+		if err := s.manager.Save(st); err != nil {
+			http.Error(w, err.Error(), 500)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"status":"ok"}`))
+		return
+	}
 	// SetImageTag rewrites EVERY service image -- correct for single-image
 	// stacks, destructive for multi-image ones (it would retag the db/redis
-	// to an app version). Those edit their compose directly.
+	// to an app version). Those name the service.
 	if images, _ := composepkg.ServiceImages(st.Compose); len(images) > 1 {
-		http.Error(w, "multi-service stack: set image tags in the compose editor", 400)
+		http.Error(w, "multi-service stack: name the service to retag", 400)
 		return
 	}
 	newCompose, err := composepkg.SetImageTag(st.Compose, body.Tag)
@@ -826,6 +865,28 @@ func (s *server) stackSetTag(w http.ResponseWriter, r *http.Request, name string
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.Write([]byte(`{"status":"ok"}`))
+}
+
+// pinService freezes one service's image to the digest its tag resolves to
+// now ("repo:tag" -> "repo:tag@sha256:...").
+func pinService(composeYAML, service string) (string, error) {
+	images, err := composepkg.ServiceImageList(composeYAML)
+	if err != nil {
+		return "", err
+	}
+	for _, im := range images {
+		if im.Service != service {
+			continue
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		digest, err := registry.Digest(ctx, im.Image)
+		if err != nil {
+			return "", err
+		}
+		return composepkg.SetServiceImage(composeYAML, service, im.Image+"@"+digest)
+	}
+	return "", fmt.Errorf("no service %q with an image", service)
 }
 
 // stackGroup assigns the stack to a sidebar group (empty = ungrouped).
@@ -979,6 +1040,9 @@ func (s *server) stackLifecycle(w http.ResponseWriter, r *http.Request, name, ac
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
+	}
+	if action != "down" {
+		stream = s.keepAfter(ctx, st, stream)
 	}
 
 	// Record operator intent so start-on-boot can restore it after a

@@ -512,7 +512,7 @@ func (s *server) handleInstall(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 500)
 		return
 	}
-	streamOutput(w, stream)
+	streamOutput(w, s.keepAfter(ctx, st, stream))
 }
 
 // pathExpansion is a host-path variable whose folder list has more than one

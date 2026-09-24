@@ -120,6 +120,24 @@ func SetServiceImage(composeYAML, service, image string) (string, error) {
 	return out, err
 }
 
+// SetServiceTag moves one service to another tag of its own image (dropping
+// any @digest), leaving the rest alone: the per-service form of SetImageTag,
+// which would put a multi-image stack's database on the app's version.
+func SetServiceTag(composeYAML, service, tag string) (string, error) {
+	found := false
+	out, err := eachNamedImage(composeYAML, func(name, cur string) (string, error) {
+		if name != service {
+			return cur, nil
+		}
+		found = true
+		return replaceTag(cur, tag), nil
+	})
+	if err == nil && !found {
+		return "", fmt.Errorf("no service %q with an image", service)
+	}
+	return out, err
+}
+
 // eachNamedImage is eachServiceImage with the service's name.
 func eachNamedImage(composeYAML string, fn func(service, image string) (string, error)) (string, error) {
 	var doc yaml.Node

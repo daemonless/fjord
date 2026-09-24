@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"net"
 	"sort"
 	"strings"
@@ -15,15 +16,23 @@ import (
 // keepAddresses pins, in the compose, the address each service holds right
 // now on a fjord pool network, and returns what it pinned.
 //
-// Called before an update. host-local hands out the next address after the
-// last one it gave, not the lowest free, so a recreated container moves:
-// tautulli went .200 -> .201 on an update and every bookmark broke. Pinning
-// the address it already has is the only thing that survives a recreate --
-// and a stop, which removes the containers too.
+// Called before an update, after anything that starts a stack, and at
+// fjordd start for stacks already running. host-local hands out the next
+// address after the last one it gave, not the lowest free, so a recreated
+// container moves: tautulli went .200 -> .201 on an update and every
+// bookmark broke. And its reservations live in /var/run, which a reboot
+// empties: every pool address was handed out again from the bottom of the
+// range (pooled .232 -> .230). Pinning the address a service already has is
+// the only thing that survives a recreate, a stop, and a reboot.
 //
-// Left alone: addresses already pinned (the operator's), DHCP networks (the
-// router's reservation keeps those), static ones (nothing allocates), and a
-// stack's private segment (its services find each other by name).
+// On a DHCP network the MAC is pinned instead: the lease follows the MAC,
+// and an unpinned epair's MAC comes from its unit number, so it changed
+// whenever another container took that number first (.122 -> .120 on
+// netlab). Pinning the address there would bypass the router's lease.
+//
+// Left alone: whatever the operator already pinned, static networks (nothing
+// allocates), and a stack's private segment (its services find each other
+// by name).
 func (s *server) keepAddresses(ctx context.Context, st *stack.Stack) []string {
 	be := s.backendFor(st)
 	if !be.Capabilities().UpdateServices || st.Compose == "" {
@@ -40,9 +49,13 @@ func (s *server) keepAddresses(ctx context.Context, st *stack.Stack) []string {
 		}
 	}
 	held := map[string]map[string]string{} // service -> network -> address
+	ids := map[string]string{}             // service -> container
 	for _, c := range status.Containers {
 		if c.Service != "" && c.Addresses != nil {
 			held[c.Service] = c.Addresses
+		}
+		if c.Service != "" {
+			ids[c.Service] = c.ID
 		}
 	}
 	compose := st.Compose
@@ -55,11 +68,30 @@ func (s *server) keepAddresses(ctx context.Context, st *stack.Stack) []string {
 	sort.Strings(svcs)
 	for _, svc := range svcs {
 		for _, a := range per[svc] {
-			if a.IP != "" || private[a.Network] {
+			if private[a.Network] {
 				continue
 			}
 			n, ok := hostnet.Get(a.Network)
-			if !ok || n.DHCP || n.Static {
+			if !ok || n.Static {
+				continue
+			}
+			if n.DHCP {
+				if a.MAC != "" {
+					continue
+				}
+				mac := hostnet.MACOf(a.Network, ids[svc])
+				if mac == "" {
+					continue
+				}
+				out, err := composepkg.PinMAC(compose, svc, a.Network, mac)
+				if err != nil || out == compose {
+					continue
+				}
+				compose = out
+				kept = append(kept, fmt.Sprintf("kept %s's MAC %s on %s, which its DHCP lease follows", svc, mac, a.Network))
+				continue
+			}
+			if a.IP != "" {
 				continue
 			}
 			ip := held[svc][a.Network]
@@ -90,5 +122,37 @@ func keptNote(kept []string) string {
 		return ""
 	}
 	return "[fjord] " + strings.Join(kept, "\n[fjord] ") +
-		" -- pinned in the compose so the update doesn't move it\n"
+		" -- pinned in the compose so it keeps this address\n"
 }
+
+// keepAfter streams out, then pins the addresses the stack came up with and
+// appends what it pinned. At the end, not before: a service that was not
+// running has no address until the stream has started it.
+func (s *server) keepAfter(ctx context.Context, st *stack.Stack, out io.ReadCloser) io.ReadCloser {
+	return &thenReader{r: out, c: out, after: func() string { return keptNote(s.keepAddresses(ctx, st)) }}
+}
+
+// thenReader reads r, then whatever after returns, once.
+type thenReader struct {
+	r     io.Reader
+	c     io.Closer
+	after func() string
+	tail  io.Reader
+}
+
+func (t *thenReader) Read(p []byte) (int, error) {
+	if t.tail != nil {
+		return t.tail.Read(p)
+	}
+	n, err := t.r.Read(p)
+	if err == io.EOF {
+		t.tail = strings.NewReader(t.after())
+		if n > 0 {
+			return n, nil
+		}
+		return t.tail.Read(p)
+	}
+	return n, err
+}
+
+func (t *thenReader) Close() error { return t.c.Close() }

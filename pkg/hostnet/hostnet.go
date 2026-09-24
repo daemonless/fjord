@@ -202,6 +202,46 @@ func AddressOf(network, containerID string) string {
 // ipamStateDir is where host-local records its allocations.
 var ipamStateDir = "/var/run/cni/networks"
 
+// cniResultsDir is libcni's cache of what each plugin returned, one file per
+// container, network and interface. Unlike ipamStateDir it is under /var/lib
+// and survives a reboot.
+var cniResultsDir = "/var/lib/cni/results"
+
+// MACOf is the MAC a container holds on a network, as the plugin reported
+// it, or "". podman's own inspect leaves MacAddress empty on FreeBSD, and on
+// a DHCP network the MAC is what the lease -- and so the address -- follows.
+func MACOf(network, containerID string) string {
+	if containerID == "" {
+		return ""
+	}
+	files, _ := filepath.Glob(filepath.Join(cniResultsDir, network+"-"+containerID+"-*"))
+	for _, f := range files {
+		b, err := os.ReadFile(f)
+		if err != nil {
+			continue
+		}
+		var c struct {
+			IfName string `json:"ifName"`
+			Result struct {
+				Interfaces []struct {
+					Name string `json:"name"`
+					MAC  string `json:"mac"`
+				} `json:"interfaces"`
+			} `json:"result"`
+		}
+		if json.Unmarshal(b, &c) != nil {
+			continue
+		}
+		// The container's side, not the host's: epair reports both.
+		for _, i := range c.Result.Interfaces {
+			if i.Name == c.IfName && i.MAC != "" {
+				return i.MAC
+			}
+		}
+	}
+	return ""
+}
+
 // ReleaseAddress frees one reservation if the container holding it is gone,
 // with no age guard: for an address a stack pins, which nothing else should
 // hold. Under a cni-epair that never releases on DEL, a recreate leaves the

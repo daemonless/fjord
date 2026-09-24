@@ -154,7 +154,7 @@ func aggregateStatus(containers []libpodContainer) engine.StackStatus {
 				ports = append(ports, engine.Port{HostPort: p.HostPort, ContainerPort: p.ContainerPort, Protocol: p.Protocol})
 			}
 		}
-		cs := engine.ContainerStatus{Name: name, Service: c.Labels["io.podman.compose.service"], State: c.State, Ports: ports,
+		cs := engine.ContainerStatus{Name: name, ID: c.ID, Service: c.Labels["io.podman.compose.service"], State: c.State, Ports: ports,
 			Address: containerAddress(c), Addresses: containerAddresses(c)}
 		// Attached but address-less: the CNI plugin failed and podman started
 		// the container anyway, so it is "running" with no interface at all.

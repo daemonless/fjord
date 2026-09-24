@@ -196,13 +196,17 @@ export function setInterface(
  * this host's stack and reach each other over localhost, which is how the
  * bundles ship. "none" shares nothing with anyone, including another "none".
  *
+ * A row naming no network is the project default -- a service with no
+ * `networks:` key -- and every such service is on it together, so it counts
+ * as "bridge". Hand-written and 0.2 composes are all like that.
+ *
  * A single-service stack has nobody to be cut off from, so it never warns.
  */
 export function isolatedServices(edits: Record<string, Iface[]>): string[] {
   const names = Object.keys(edits);
   if (names.length < 2) return [];
   const reachable = (svc: string) =>
-    new Set((edits[svc] ?? []).map((r) => r.network).filter((n) => n && n !== 'none'));
+    new Set((edits[svc] ?? []).map((r) => r.network || 'bridge').filter((n) => n !== 'none'));
   const out: string[] = [];
   for (const svc of names) {
     const mine = reachable(svc);

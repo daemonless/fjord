@@ -297,6 +297,14 @@ describe('isolatedServices', () => {
     expect(isolatedServices(allNone).sort()).toEqual(Object.keys(immichPlan).sort());
   });
 
+  // No `networks:` key: compose puts every such service on the project
+  // default together (0.2 and hand-written stacks). notes/db read "cut off".
+  it('treats rows naming no network as the shared project default', () => {
+    expect(isolatedServices({ db: [{ network: '' }], web: [{ network: '' }] })).toEqual([]);
+    expect(isolatedServices({ db: [{ network: '' }], web: [{ network: 'bridge' }] })).toEqual([]);
+    expect(isolatedServices({ db: [{ network: '' }], web: [{ network: 'lan' }] }).sort()).toEqual(['db', 'web']);
+  });
+
   it('has nothing to say about a one-service stack', () => {
     expect(isolatedServices({ zensical: [] })).toEqual([]);
     expect(isolatedServices({ zensical: [{ network: 'none' }] })).toEqual([]);

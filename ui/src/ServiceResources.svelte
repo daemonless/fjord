@@ -83,6 +83,10 @@
   export let addSource = '';
   /** The service whose add form is open, '' for none. */
   export let addingTo = '';
+  // Whether a service's version can be changed on its own. A director
+  // stack's jails take their tag from the director file, which has no
+  // per-service form.
+  export let versionable = false;
 
   const dispatch = createEventDispatcher<{
     change: void;
@@ -96,6 +100,7 @@
     openUpdate: void;
     rollback: string;
     unpin: string;
+    version: { service: string; image: string };
   }>();
   // Which row is asking to be removed. Two clicks, in place -- the same shape
   // the stack-level list used, kept because unmounting is not undoable from
@@ -301,7 +306,15 @@
             {#if !planning}
             <div class="grid grid-cols-[6rem_1fr] gap-x-3 gap-y-1 text-xs">
               <span class="text-fjord-fg-dim">image</span>
-              <span class="font-mono text-fjord-fg-body break-all">{s.image ?? '—'}</span>
+              <span class="font-mono text-fjord-fg-body break-all">
+                {s.image ?? '—'}
+                {#if versionable && s.image}
+                  <button
+                    on:click={() => dispatch('version', { service: s.name, image: s.image ?? '' })}
+                    class="ml-2 font-sans text-fjord-accent hover:underline">Version…</button
+                  >
+                {/if}
+              </span>
               <span class="text-fjord-fg-dim">container</span>
               <span class="font-mono text-fjord-fg-body">{s.container ?? '—'}</span>
             </div>
@@ -363,7 +376,7 @@
                           {/if}
                           <!-- A built-in is a MODE, not a network to join, so
                                choosing one leaves the service with just it. -->
-                          {#each perServiceBuiltIns(r.network).filter((b) => !unsupportedModes.includes(b.name) || b.name === r.network) as b}
+                          {#each perServiceBuiltIns(r.network || 'bridge').filter((b) => !unsupportedModes.includes(b.name) || b.name === (r.network || 'bridge')) as b}
                             <option value={b.name} disabled={unsupportedModes.includes(b.name)}>
                               {b.name} — {b.detail}{unsupportedModes.includes(b.name) ? ' (not on this engine)' : ''}
                             </option>

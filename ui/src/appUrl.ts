@@ -19,10 +19,22 @@ export type AppUrlStack = {
   status?: {
     containers?: { address?: string; ports?: { hostPort: number; containerPort: number; protocol?: string }[] }[];
   };
+  state?: { origin?: { type?: string } };
 };
 
+/**
+ * A catalog app that has no web UI: clamd, a database. Its install writes
+ * x-fjord web_port whenever the catalog knows of one, so a catalog stack
+ * without it has nothing to open -- and guessing from the first published
+ * port gave clamav "Open http://host:3310", a TCP socket. A stack written by
+ * hand carries no hint either, and there the port is still the best guess.
+ */
+export function noWebUI(stack: AppUrlStack | null): boolean {
+  return stack?.state?.origin?.type === 'catalog' && !/^\s*web_port:/m.test(stack.compose || '');
+}
+
 export function appUrl(stack: AppUrlStack | null): string {
-  if (!stack) return '';
+  if (!stack || noWebUI(stack)) return '';
   const c = stack.compose || '';
   // An address is only somewhere the BROWSER can go when the network puts the
   // container on a real segment. Every container has an address -- podman's
@@ -71,13 +83,15 @@ export function appUrl(stack: AppUrlStack | null): string {
     .map((p) => String(ip ? p.containerPort || p.hostPort : p.hostPort))
     .filter((p) => p !== '0');
 
-  // Fallback (stack stopped): the compose's ports list items, resolving
-  // ${VAR} from .env. Anchored to "- host:container" lines so a MAC
-  // address (00:00) or an IP never reads as a port.
+  // Fallback (stack stopped, or on its own address and publishing nothing):
+  // the compose's ports list items, resolving ${VAR} from .env. Anchored to
+  // "- host:container" lines so a MAC address (00:00) or an IP never reads
+  // as a port. At the container's own address only the container side is
+  // listening: notes' web on the LAN linked to :8001, its old host port.
   if (!ports.length) {
     ports = [...c.matchAll(/^\s*-\s*["']?([\w${}.]+):(\d{2,5})(?:\/(tcp|udp))?["']?\s*$/gm)]
       .filter((m) => !m[3] || m[3] === 'tcp')
-      .map((m) => resolve(m[1]))
+      .map((m) => (ip ? m[2] : resolve(m[1])))
       .filter((h) => /^\d{2,5}$/.test(h));
   }
   return ports.length ? `http://${host}:${ports[0]}` : '';

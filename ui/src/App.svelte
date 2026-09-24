@@ -25,7 +25,7 @@
   import Toasts from './Toasts.svelte';
   import { toast, dismissToast } from './toast';
   import { expandVars } from './expand';
-  import { appUrl } from './appUrl';
+  import { appUrl, noWebUI } from './appUrl';
   import { currentTheme, setTheme, watchSystem, type Theme } from './theme';
   import { addressProblem, usableRange, networkLabel, HOST_NETWORK, DEFAULT_NETWORK, randomMAC } from './network';
 
@@ -38,7 +38,7 @@
     address?: string; // the container's own IP on an attachable network
   };
   type StackStatus = { state: string; containers: ContainerStatus[] };
-  type StackState = { group?: string; desired_state?: string; engine?: string; order?: number; origin?: { app_id?: string } };
+  type StackState = { group?: string; desired_state?: string; engine?: string; order?: number; origin?: { type?: string; app_id?: string } };
   type Stack = { name: string; displayName?: string; icon?: string; dir: string; compose: string; env: string; director?: string; makejail?: string; engine?: string; status?: StackStatus; state?: StackState; services?: any[]; composeHash?: string };
   // What the UI shows for a stack: its label, falling back to the id.
   const label = (s: { name: string; displayName?: string } | null | undefined) => s?.displayName || s?.name || '';
@@ -222,7 +222,9 @@
     return { destroy: () => node.removeEventListener('pointerdown', down) };
   }
   // Change-version modal: {name, image} of the stack being retagged, or null.
-  let changeVersion: { name: string; image: string; suggest?: string } | null = null;
+  // service set: that service alone (the Services tab); unset: the whole
+  // single-image stack (the ⋮ menu).
+  let changeVersion: { name: string; image: string; suggest?: string; service?: string } | null = null;
 
   // Pull the first service image out of a stack's compose (for the retag modal).
   function stackImage(compose: string): string {
@@ -399,7 +401,7 @@
   // Attached to a network but holding no address: the reason the Open button
   // is missing, taken from whichever container reported it.
   $: noAddress =
-    selectedStack && (selectedStack as any).ownAddress && !openUrl
+    selectedStack && (selectedStack as any).ownAddress && !openUrl && !noWebUI(selectedStack)
       ? (selectedStack.status?.containers || []).find((c: any) => c.detail?.includes('no address'))?.detail ||
         `no address on ${(selectedStack as any).network} yet`
       : '';
@@ -513,6 +515,10 @@
       if (res.ok && selectedStack?.name === name) {
         updateInfo = await res.json();
         updateCheckedAt = Date.now();
+        // The sidebar arrow and "N updates available" read the fleet list,
+        // which only a refresh replaced: after an update the page said up to
+        // date while the list still said behind.
+        if (updateInfo) fleet = { ...fleet, [name]: updateInfo };
       }
     } catch {
       // registry/socket unreachable -> leave it unknown, no badge
@@ -531,9 +537,18 @@
   const UPDATE_FRESH_MS = 2 * 60 * 1000;
   function openUpdatePanel(name: string) {
     updatePanel = name;
+    unpicked = {};
     if (!updateInfo || Date.now() - updateCheckedAt > UPDATE_FRESH_MS) checkForUpdate(name);
   }
   $: updatable = (updateInfo?.services ?? []).filter((s) => s.state === 'available');
+  // What the panel can take one service at a time: a new build, or a new
+  // version (the service is retagged first). All ticked by default; the ones
+  // unticked are remembered, so a re-check keeps the choice.
+  $: offered = updateInfo?.perService
+    ? (updateInfo.services ?? []).filter((s) => s.state === 'available' || (s.state === 'upgrade' && !!s.newTag))
+    : [];
+  let unpicked: Record<string, boolean> = {};
+  $: picked = offered.filter((s) => !unpicked[s.service]);
   $: svcPinned = Object.fromEntries(
     (updateInfo?.services ?? []).filter((s) => s.state === 'pinned').map((s) => [s.service, true]),
   ) as Record<string, boolean>;
@@ -578,7 +593,7 @@
       ? 'Up to date — nothing to pull'
       : updateInfo?.state === 'pinned'
         ? 'Pinned to an exact image — nothing to pull'
-        : updateInfo?.state === 'upgrade' && multiImage
+        : updateInfo?.state === 'upgrade' && multiImage && !updateInfo.perService
           ? `A newer version is published (v${updateInfo.toVersion}) — set it in the compose editor`
           : '';
   // A single-image stack behind by a VERSION: Update takes it there. It used
@@ -586,7 +601,7 @@
   // update next to a greyed-out Update button. Multi-image stacks cannot be
   // retagged in one go (set-tag refuses them), so there it stays a note.
   $: versionStep =
-    updateInfo?.state === 'upgrade' && !multiImage && updateInfo.newTag
+    updateInfo?.state === 'upgrade' && !multiImage && !updateInfo.perService && updateInfo.newTag
       ? { tag: updateInfo.newTag, from: updateInfo.fromVersion, to: updateInfo.toVersion }
       : null;
   async function upgradeTo(name: string, tag: string) {
@@ -602,6 +617,25 @@
     }
     await selectStack({ name } as Stack); // the compose now names the new tag
     await update(name);
+  }
+  // The picked services, new versions retagged first -- one service each, so
+  // the database is never moved to the app's version -- then one update.
+  async function updatePicked(name: string, svcs: ServiceUpdate[]) {
+    updatePanel = '';
+    const bumps = svcs.filter((s) => s.state === 'upgrade');
+    for (const s of bumps) {
+      const res = await fetch(`/api/stacks/${name}/set-tag`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tag: s.newTag, service: s.service, pin: false }),
+      });
+      if (!res.ok) {
+        toast(`Could not move ${s.service} to v${s.toVersion}: ${(await res.text()).trim()}`, { kind: 'error' });
+        return;
+      }
+    }
+    if (bumps.length) await selectStack({ name } as Stack); // the compose names the new tags
+    await update(name, svcs.map((s) => s.service));
   }
   const shortDigest = (d?: string) => (d ?? '').replace('sha256:', '').slice(0, 12);
 
@@ -995,7 +1029,17 @@
     } else if (section === 'stacks' && name) {
       currentView = 'stacks';
       const dec = decodeURIComponent(name);
-      const found = stacks.find((s) => s.name === dec) ?? { name: dec, dir: '', compose: '', env: '' };
+      const found = stacks.find((s) => s.name === dec);
+      if (!found) {
+        // A link to a stack that is not here -- mistyped, deleted, or with a
+        // stray character ("mariadb:" from a pasted sentence). It used to
+        // open an empty new-stack editor under that name, whose Logs tab then
+        // showed a bare "HTTP 400".
+        toast(`No stack named "${dec}"`, { kind: 'error' });
+        currentView = 'stacks';
+        await selectStack(null);
+        return;
+      }
       await selectStack(found);
     } else {
       currentView = 'stacks';
@@ -1277,7 +1321,8 @@
       const scope = all ? '' : selected.map((c) => `&container=${encodeURIComponent(c)}`).join('');
       const res = await fetch(`/api/stacks/${name}/logs?follow=1&tail=200${scope}`, { signal: logController.signal });
       if (!res.ok) {
-        containerLogs[name] += `[ERROR]: HTTP ${res.status}\n`;
+        // The daemon says why; the status alone told nobody anything.
+        containerLogs[name] += `[ERROR]: ${(await res.text()).trim() || `HTTP ${res.status}`}\n`;
         return;
       }
       const reader = res.body?.getReader();
@@ -1389,13 +1434,16 @@
   async function applyVersion(e: CustomEvent<{ tag: string; pin: boolean }>) {
     const name = changeVersion?.name;
     const curImage = changeVersion?.image ?? '';
+    const service = changeVersion?.service;
+    // Read before selectStack below clears updateInfo.
+    const perService = !!updateInfo?.perService;
     changeVersion = null;
     if (!name) return;
     const tagChanged = e.detail.tag !== refTag(curImage);
     const res = await fetch(`/api/stacks/${name}/set-tag`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tag: e.detail.tag, pin: e.detail.pin }),
+      body: JSON.stringify({ tag: e.detail.tag, pin: e.detail.pin, ...(service ? { service } : {}) }),
     });
     if (!res.ok) {
       const msg = (await res.text()).trim();
@@ -1406,7 +1454,8 @@
       return;
     }
     await selectStack({ name } as Stack); // re-fetch: compose now has the new ref
-    if (tagChanged) await update(name);
+    if (tagChanged) await update(name, service && perService ? [service] : undefined);
+    else checkForUpdate(name); // a pin alone runs the same bytes: nothing to recreate
   }
 
   // Prominent blocking overlay while a delete runs -- tearing containers down
@@ -1952,6 +2001,7 @@
                 <table class="w-full text-xs">
                   <thead class="text-fjord-fg-dim">
                     <tr>
+                      {#if offered.length > 1}<th class="w-6 pb-1.5"></th>{/if}
                       <th class="text-left font-medium pb-1.5">Service</th>
                       <th class="text-left font-medium pb-1.5">Tag</th>
                       <th class="text-left font-medium pb-1.5">State</th>
@@ -1961,6 +2011,19 @@
                   <tbody>
                     {#each updateInfo.services ?? [] as s}
                       <tr class="border-t border-fjord-border/60 align-top">
+                        {#if offered.length > 1}
+                          <td class="py-1.5 pr-1">
+                            {#if offered.includes(s)}
+                              <input
+                                type="checkbox"
+                                checked={!unpicked[s.service]}
+                                on:change={(e) => (unpicked = { ...unpicked, [s.service]: !e.currentTarget.checked })}
+                                aria-label="Update {s.service}"
+                                class="accent-fjord-accent"
+                              />
+                            {/if}
+                          </td>
+                        {/if}
                         <td class="py-1.5 pr-3 font-medium text-fjord-fg">{s.service}</td>
                         <td class="py-1.5 pr-3 font-mono text-fjord-fg-secondary">{s.tag ?? ''}</td>
                         <td class="py-1.5 pr-3 whitespace-nowrap">
@@ -1975,7 +2038,7 @@
                             {shortDigest(s.running) || 'local'} → {shortDigest(s.latest)}
                           {:else if s.state === 'upgrade'}
                             v{s.fromVersion} → v{s.toVersion}
-                            {#if multiImage}<span class="font-sans text-fjord-fg-dim">(set in the compose)</span>{/if}
+                            {#if multiImage && !updateInfo.perService}<span class="font-sans text-fjord-fg-dim">(set in the compose)</span>{/if}
                           {:else if s.state === 'unknown'}
                             <span class="font-sans text-fjord-fg-dim">{s.detail ?? ''}</span>
                           {/if}
@@ -1985,10 +2048,11 @@
                         {@const k = changesKey(selectedStack.name, s)}
                         {@const c = changes[k]}
                         {#if c === 'loading'}
-                          <tr><td></td><td colspan="3" class="pb-1.5 text-fjord-fg-dim">Reading what changed…</td></tr>
+                          <tr>{#if offered.length > 1}<td></td>{/if}<td></td><td colspan="3" class="pb-1.5 text-fjord-fg-dim">Reading what changed…</td></tr>
                         {:else if c && c !== 'none' && changesLine(c)}
                           {@const n = (c.changed?.length ?? 0) + (c.added?.length ?? 0) + (c.removed?.length ?? 0)}
                           <tr>
+                            {#if offered.length > 1}<td></td>{/if}
                             <td></td>
                             <td colspan="3" class="pb-1.5 text-fjord-fg-secondary">
                               {changesLine(c)}
@@ -2017,11 +2081,15 @@
                 <span class="flex-1 text-xs text-fjord-fg-dim">
                   {#if versionStep}
                     Switches to {versionStep.tag} and recreates the container.
-                  {:else if updatable.length && updateInfo.perService}
-                    {@const also = [...new Set(updatable.flatMap((s) => updateInfo?.restartsWith?.[s.service] ?? []))].filter(
-                      (n) => !updatable.some((s) => s.service === n),
+                  {:else if updateInfo.perService && offered.length && !picked.length}
+                    Tick the services to update.
+                  {:else if updateInfo.perService && picked.length}
+                    {@const also = [...new Set(picked.flatMap((s) => updateInfo?.restartsWith?.[s.service] ?? []))].filter(
+                      (n) => !picked.some((s) => s.service === n),
                     )}
-                    Pulls and recreates only {updatable.map((s) => s.service).join(', ')}{#if also.length}; {also.join(', ')}
+                    {@const bumps = picked.filter((s) => s.state === 'upgrade')}
+                    {#if bumps.length}Moves {bumps.map((s) => `${s.service} to v${s.toVersion}`).join(', ')} in the compose, then pulls{:else}Pulls{/if}
+                    and recreates only {picked.map((s) => s.service).join(', ')}{#if also.length}; {also.join(', ')}
                       {also.length === 1 ? 'restarts' : 'restart'} with it (depends on it){/if}. The rest keep running.
                   {:else if updatable.length}
                     {updatable.length} of {updateInfo.services?.length ?? 0}
@@ -2040,13 +2108,16 @@
                   on:click={() =>
                     versionStep
                       ? upgradeTo(selectedStack!.name, versionStep.tag)
-                      : update(selectedStack!.name, updateInfo?.perService ? updatable.map((s) => s.service) : undefined)}
-                  disabled={(!updatable.length && !versionStep) || execStatus[selectedStack.name] === 'running'}
+                      : updateInfo?.perService
+                        ? updatePicked(selectedStack!.name, picked)
+                        : update(selectedStack!.name)}
+                  disabled={(updateInfo.perService ? !picked.length : !updatable.length && !versionStep) ||
+                    execStatus[selectedStack.name] === 'running'}
                   class="shrink-0 px-3 py-1.5 rounded-lg text-sm font-medium bg-fjord-accent text-white hover:bg-fjord-accent-hover transition-colors disabled:opacity-40"
                   >{versionStep
                     ? `Update to v${versionStep.to}`
-                    : updateInfo.perService && updatable.length
-                      ? `Update ${updatable.length} service${updatable.length === 1 ? '' : 's'}`
+                    : updateInfo.perService && picked.length
+                      ? `Update ${picked.length} service${picked.length === 1 ? '' : 's'}`
                       : 'Update'}</button
                 >
               </div>
@@ -2319,6 +2390,14 @@
                   on:openUpdate={() => openUpdatePanel(selectedStack!.name)}
                   on:rollback={(e) => rollback(selectedStack!.name, e.detail)}
                   on:unpin={(e) => unpin(selectedStack!.name, e.detail)}
+                  versionable={!selectedStack.director}
+                  on:version={(e) =>
+                    (changeVersion = {
+                      name: selectedStack!.name,
+                      service: e.detail.service,
+                      image: e.detail.image,
+                      suggest: svcUpdates[e.detail.service]?.newTag,
+                    })}
                   {networks}
                   {unsupportedModes}
                   stackName={selectedStack.name}
@@ -2553,7 +2632,7 @@
 {/if}
 {#if changeVersion}
   <ChangeVersionModal
-    name={changeVersion.name}
+    name={changeVersion.service ? `${changeVersion.name} · ${changeVersion.service}` : changeVersion.name}
     image={changeVersion.image}
     suggestTag={changeVersion.suggest ?? ''}
     on:apply={applyVersion}

@@ -32,3 +32,24 @@ func TestSetServiceImage(t *testing.T) {
 		t.Error("unknown service accepted")
 	}
 }
+
+// A multi-image stack takes a new version one service at a time: the db
+// stays on its own tag, and a pin on the moved service goes with the old tag.
+func TestSetServiceTag(t *testing.T) {
+	in := `services:
+  db:
+    image: ghcr.io/x/mariadb:10.11
+  web:
+    image: ghcr.io/x/zensical:0.0.63@sha256:abc
+`
+	out, err := SetServiceTag(in, "web", "0.0.64")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "image: ghcr.io/x/zensical:0.0.64\n") || !strings.Contains(out, "image: ghcr.io/x/mariadb:10.11") {
+		t.Errorf("got:\n%s", out)
+	}
+	if _, err := SetServiceTag(in, "nope", "1"); err == nil {
+		t.Error("unknown service accepted")
+	}
+}

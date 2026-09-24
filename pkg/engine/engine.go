@@ -39,6 +39,7 @@ type Port struct {
 // (edits only apply on recreate).
 type ContainerStatus struct {
 	Name string `json:"name"`
+	ID   string `json:"id,omitempty"`
 	// Service is the compose service this container runs, so per-service
 	// state (an update, say) lands on the right row without guessing it
 	// from the container name.
