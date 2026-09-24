@@ -62,6 +62,11 @@ type fleetUpdates struct {
 	results    map[string]updates.Status
 	checkedAt  time.Time
 	refreshing bool
+	// touched is when each stack's entry was last replaced or dropped
+	// outside a refresh. A refresh checks stacks one by one for minutes; an
+	// update that finished meanwhile had its "behind" written straight back
+	// by the swap, and the badge stayed for the whole TTL.
+	touched map[string]time.Time
 }
 
 const fleetCacheTTL = 30 * time.Minute
@@ -96,6 +101,7 @@ func (s *server) handleUpdates(w http.ResponseWriter, r *http.Request) {
 // refreshFleet re-checks every stack against the registry, then swaps the
 // cache in one shot. Serial on purpose: gentle on the registry.
 func (s *server) refreshFleet() {
+	started := time.Now()
 	results := map[string]updates.Status{}
 	if stacks, err := s.manager.List(); err == nil {
 		for _, st := range stacks {
@@ -110,7 +116,7 @@ func (s *server) refreshFleet() {
 		}
 	}
 	s.fleet.mu.Lock()
-	s.fleet.results = results
+	s.fleet.swap(results, started)
 	s.fleet.checkedAt = time.Now()
 	s.fleet.refreshing = false
 	s.fleet.mu.Unlock()
@@ -133,9 +139,47 @@ func (f *fleetUpdates) current(m *stack.Manager) map[string]updates.Status {
 	return out
 }
 
-// forget drops a stack from the cache (on delete).
+// forget drops a stack from the cache (on delete, and after up/update).
 func (f *fleetUpdates) forget(name string) {
 	f.mu.Lock()
 	delete(f.results, name)
+	f.touch(name)
 	f.mu.Unlock()
+}
+
+// put stores a stack's fresh check -- the stack page's own, which is newer
+// than whatever the last fleet refresh saw.
+func (f *fleetUpdates) put(name string, st updates.Status) {
+	f.mu.Lock()
+	if f.results == nil {
+		f.results = map[string]updates.Status{}
+	}
+	f.results[name] = st
+	f.touch(name)
+	f.mu.Unlock()
+}
+
+// swap installs a refresh's results, except for stacks changed since it
+// started: those keep what they have now (or stay dropped). Caller holds mu.
+func (f *fleetUpdates) swap(results map[string]updates.Status, started time.Time) {
+	for name, at := range f.touched {
+		if !at.After(started) {
+			continue
+		}
+		if cur, ok := f.results[name]; ok {
+			results[name] = cur
+		} else {
+			delete(results, name)
+		}
+	}
+	f.touched = nil
+	f.results = results
+}
+
+// touch records an out-of-refresh change. Caller holds mu.
+func (f *fleetUpdates) touch(name string) {
+	if f.touched == nil {
+		f.touched = map[string]time.Time{}
+	}
+	f.touched[name] = time.Now()
 }

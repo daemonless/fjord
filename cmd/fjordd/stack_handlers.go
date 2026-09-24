@@ -387,6 +387,7 @@ func (s *server) stackUpdateCheck(w http.ResponseWriter, name string) {
 	defer cancel()
 	status := updates.Check(ctx, s.backendFor(st), s.updateServices(ctx, st), s.schemeFor)
 	s.markCandidates(status)
+	s.fleet.put(name, status) // the list's badge agrees with the stack page
 	w.Header().Set("Content-Type", "application/json")
 	// perService: whether Update can take just the services that changed, so
 	// the panel offers that rather than a whole-stack recreate.

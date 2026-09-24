@@ -513,6 +513,10 @@
       if (res.ok && selectedStack?.name === name) {
         updateInfo = await res.json();
         updateCheckedAt = Date.now();
+        // The sidebar arrow and "N updates available" read the fleet list,
+        // which only a refresh replaced: after an update the page said up to
+        // date while the list still said behind.
+        if (updateInfo) fleet = { ...fleet, [name]: updateInfo };
       }
     } catch {
       // registry/socket unreachable -> leave it unknown, no badge
