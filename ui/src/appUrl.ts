@@ -71,13 +71,15 @@ export function appUrl(stack: AppUrlStack | null): string {
     .map((p) => String(ip ? p.containerPort || p.hostPort : p.hostPort))
     .filter((p) => p !== '0');
 
-  // Fallback (stack stopped): the compose's ports list items, resolving
-  // ${VAR} from .env. Anchored to "- host:container" lines so a MAC
-  // address (00:00) or an IP never reads as a port.
+  // Fallback (stack stopped, or on its own address and publishing nothing):
+  // the compose's ports list items, resolving ${VAR} from .env. Anchored to
+  // "- host:container" lines so a MAC address (00:00) or an IP never reads
+  // as a port. At the container's own address only the container side is
+  // listening: notes' web on the LAN linked to :8001, its old host port.
   if (!ports.length) {
     ports = [...c.matchAll(/^\s*-\s*["']?([\w${}.]+):(\d{2,5})(?:\/(tcp|udp))?["']?\s*$/gm)]
       .filter((m) => !m[3] || m[3] === 'tcp')
-      .map((m) => resolve(m[1]))
+      .map((m) => (ip ? m[2] : resolve(m[1])))
       .filter((h) => /^\d{2,5}$/.test(h));
   }
   return ports.length ? `http://${host}:${ports[0]}` : '';
