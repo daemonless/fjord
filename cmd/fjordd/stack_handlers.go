@@ -246,6 +246,8 @@ func (s *server) handleStackRoutes(w http.ResponseWriter, r *http.Request) {
 		s.stackGroup(w, r, name)
 	case "rename":
 		s.stackRename(w, r, name)
+	case "policy":
+		s.stackPolicy(w, r, name)
 	case "rollback":
 		s.stackRollback(w, r, name)
 	case "unpin":
@@ -384,6 +386,7 @@ func (s *server) stackUpdateCheck(w http.ResponseWriter, name string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	status := updates.Check(ctx, s.backendFor(st), s.updateServices(ctx, st), s.schemeFor)
+	s.markCandidates(status)
 	w.Header().Set("Content-Type", "application/json")
 	// perService: whether Update can take just the services that changed, so
 	// the panel offers that rather than a whole-stack recreate.
@@ -478,11 +481,15 @@ func (s *server) stackChanges(w http.ResponseWriter, r *http.Request, name strin
 	if diff.VersionTo == "" {
 		diff.VersionTo = to
 	}
+	class := updates.Classify(from, to)
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(struct {
 		sbom.Diff
 		Class updates.Class `json:"class"`
-	}{diff, updates.Classify(from, to)})
+		// Auto is what auto-update would do with this, under the stack's
+		// policy -- shown, not acted on, until the scheduler exists.
+		Auto updates.Verdict `json:"auto"`
+	}{diff, class, s.verdict(st, sv.Name, class, candidateKey(up.State, sv.Image, up.Latest, up.NewTag))})
 }
 
 // platformOf is this host's manifest inside an index, or the digest itself

@@ -286,6 +286,7 @@ func main() {
 		stacksDir:  stacksDir,
 		listenAddr: addr,
 		events:     newEventHub(),
+		seen:       newFirstSeen(fjordRoot),
 	}
 	// One server-side loop pushes stack state-changes to all SSE clients.
 	go srv.runEventLoop()

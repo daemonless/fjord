@@ -105,6 +105,7 @@ func (s *server) refreshFleet() {
 			}
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			results[st.Name] = updates.Check(ctx, s.backendFor(full), s.updateServices(ctx, full), s.schemeFor)
+			s.markCandidates(results[st.Name])
 			cancel()
 		}
 	}

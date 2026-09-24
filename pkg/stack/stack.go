@@ -60,6 +60,11 @@ type State struct {
 	// Rollback is, per service, the image the last update replaced -- what
 	// "Roll back" returns to, and what "Unpin" restores the compose from.
 	Rollback map[string]RollbackImage `json:"rollback,omitempty"`
+	// UpdatePolicy is how far updates apply themselves ("" = off; see
+	// updates.Policy), and ServicePolicy overrides it per service -- a
+	// database can be stricter than the app in front of it.
+	UpdatePolicy  string            `json:"update_policy,omitempty"`
+	ServicePolicy map[string]string `json:"service_policy,omitempty"`
 }
 
 // RollbackImage is one service's image before an update.
@@ -378,6 +383,24 @@ func (m *Manager) SetDisplayName(id, name string) error {
 		st = &State{SchemaVersion: stateSchemaVersion}
 	}
 	st.DisplayName = strings.TrimSpace(name)
+	return m.SaveState(id, st)
+}
+
+// SetUpdatePolicy records a stack's update policy and per-service overrides.
+// Validation is the caller's: this package does not know the policy names.
+func (m *Manager) SetUpdatePolicy(id, policy string, services map[string]string) error {
+	st, err := m.LoadState(id)
+	if err != nil {
+		return err
+	}
+	if st == nil {
+		st = &State{SchemaVersion: stateSchemaVersion}
+	}
+	st.UpdatePolicy = policy
+	st.ServicePolicy = services
+	if len(services) == 0 {
+		st.ServicePolicy = nil
+	}
 	return m.SaveState(id, st)
 }
 
