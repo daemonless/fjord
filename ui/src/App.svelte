@@ -25,7 +25,7 @@
   import Toasts from './Toasts.svelte';
   import { toast, dismissToast } from './toast';
   import { expandVars } from './expand';
-  import { appUrl } from './appUrl';
+  import { appUrl, noWebUI } from './appUrl';
   import { currentTheme, setTheme, watchSystem, type Theme } from './theme';
   import { addressProblem, usableRange, networkLabel, HOST_NETWORK, DEFAULT_NETWORK, randomMAC } from './network';
 
@@ -38,7 +38,7 @@
     address?: string; // the container's own IP on an attachable network
   };
   type StackStatus = { state: string; containers: ContainerStatus[] };
-  type StackState = { group?: string; desired_state?: string; engine?: string; order?: number; origin?: { app_id?: string } };
+  type StackState = { group?: string; desired_state?: string; engine?: string; order?: number; origin?: { type?: string; app_id?: string } };
   type Stack = { name: string; displayName?: string; icon?: string; dir: string; compose: string; env: string; director?: string; makejail?: string; engine?: string; status?: StackStatus; state?: StackState; services?: any[]; composeHash?: string };
   // What the UI shows for a stack: its label, falling back to the id.
   const label = (s: { name: string; displayName?: string } | null | undefined) => s?.displayName || s?.name || '';
@@ -401,7 +401,7 @@
   // Attached to a network but holding no address: the reason the Open button
   // is missing, taken from whichever container reported it.
   $: noAddress =
-    selectedStack && (selectedStack as any).ownAddress && !openUrl
+    selectedStack && (selectedStack as any).ownAddress && !openUrl && !noWebUI(selectedStack)
       ? (selectedStack.status?.containers || []).find((c: any) => c.detail?.includes('no address'))?.detail ||
         `no address on ${(selectedStack as any).network} yet`
       : '';
@@ -1029,7 +1029,17 @@
     } else if (section === 'stacks' && name) {
       currentView = 'stacks';
       const dec = decodeURIComponent(name);
-      const found = stacks.find((s) => s.name === dec) ?? { name: dec, dir: '', compose: '', env: '' };
+      const found = stacks.find((s) => s.name === dec);
+      if (!found) {
+        // A link to a stack that is not here -- mistyped, deleted, or with a
+        // stray character ("mariadb:" from a pasted sentence). It used to
+        // open an empty new-stack editor under that name, whose Logs tab then
+        // showed a bare "HTTP 400".
+        toast(`No stack named "${dec}"`, { kind: 'error' });
+        currentView = 'stacks';
+        await selectStack(null);
+        return;
+      }
       await selectStack(found);
     } else {
       currentView = 'stacks';
@@ -1311,7 +1321,8 @@
       const scope = all ? '' : selected.map((c) => `&container=${encodeURIComponent(c)}`).join('');
       const res = await fetch(`/api/stacks/${name}/logs?follow=1&tail=200${scope}`, { signal: logController.signal });
       if (!res.ok) {
-        containerLogs[name] += `[ERROR]: HTTP ${res.status}\n`;
+        // The daemon says why; the status alone told nobody anything.
+        containerLogs[name] += `[ERROR]: ${(await res.text()).trim() || `HTTP ${res.status}`}\n`;
         return;
       }
       const reader = res.body?.getReader();

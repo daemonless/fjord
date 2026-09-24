@@ -19,10 +19,22 @@ export type AppUrlStack = {
   status?: {
     containers?: { address?: string; ports?: { hostPort: number; containerPort: number; protocol?: string }[] }[];
   };
+  state?: { origin?: { type?: string } };
 };
 
+/**
+ * A catalog app that has no web UI: clamd, a database. Its install writes
+ * x-fjord web_port whenever the catalog knows of one, so a catalog stack
+ * without it has nothing to open -- and guessing from the first published
+ * port gave clamav "Open http://host:3310", a TCP socket. A stack written by
+ * hand carries no hint either, and there the port is still the best guess.
+ */
+export function noWebUI(stack: AppUrlStack | null): boolean {
+  return stack?.state?.origin?.type === 'catalog' && !/^\s*web_port:/m.test(stack.compose || '');
+}
+
 export function appUrl(stack: AppUrlStack | null): string {
-  if (!stack) return '';
+  if (!stack || noWebUI(stack)) return '';
   const c = stack.compose || '';
   // An address is only somewhere the BROWSER can go when the network puts the
   // container on a real segment. Every container has an address -- podman's

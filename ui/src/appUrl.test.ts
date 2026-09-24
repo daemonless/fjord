@@ -22,4 +22,18 @@ describe('appUrl', () => {
     expect(appUrl({ compose, status: { containers: [{ ports: [] }] } })).toBe('http://netlab:8001');
     vi.unstubAllGlobals();
   });
+
+  // clamav and mariadb have no web UI, and the catalog says so by leaving
+  // out web_port. The first published port is a TCP socket, not a page.
+  it('offers no link for a catalog app without a web port', () => {
+    const compose = 'services:\n  clamav:\n    ports:\n      - "3310:3310"\n';
+    expect(appUrl({ compose, state: { origin: { type: 'catalog' } }, status: { containers: [{ ports: [{ hostPort: 3310, containerPort: 3310 }] }] } })).toBe('');
+  });
+
+  it('still links a catalog app that has one', () => {
+    const compose = 'services:\n  tautulli:\n    ports:\n      - "8181:8181"\n\nx-fjord:\n  web_port: "8181"\n';
+    vi.stubGlobal('location', { hostname: 'netlab' });
+    expect(appUrl({ compose, state: { origin: { type: 'catalog' } } })).toBe('http://netlab:8181');
+    vi.unstubAllGlobals();
+  });
 });

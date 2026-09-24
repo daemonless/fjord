@@ -13,7 +13,7 @@
     address?: string; // the container's own IP on an attachable network
   };
   type StackStatus = { state: string; containers: ContainerStatus[] };
-  type Stack = { name: string; displayName?: string; icon?: string; compose?: string; env?: string; status?: StackStatus; state?: { origin?: { app_id?: string }; engine?: string } };
+  type Stack = { name: string; displayName?: string; icon?: string; compose?: string; env?: string; status?: StackStatus; state?: { origin?: { type?: string; app_id?: string }; engine?: string } };
   export let stacks: Stack[] = [];
   // Fleet-wide update state, fetched once by the app shell (server-cached).
   export let fleet: Record<string, any> = {};
