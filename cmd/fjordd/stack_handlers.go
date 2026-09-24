@@ -809,6 +809,13 @@ func (s *server) stackSetTag(w http.ResponseWriter, r *http.Request, name string
 			http.Error(w, err.Error(), 400)
 			return
 		}
+		if body.Pin {
+			// This service only: PinImageDigests would freeze every image.
+			if newCompose, err = pinService(newCompose, body.Service); err != nil {
+				http.Error(w, err.Error(), 502)
+				return
+			}
+		}
 		st.Compose = newCompose
 		if err := s.manager.Save(st); err != nil {
 			http.Error(w, err.Error(), 500)
@@ -858,6 +865,28 @@ func (s *server) stackSetTag(w http.ResponseWriter, r *http.Request, name string
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.Write([]byte(`{"status":"ok"}`))
+}
+
+// pinService freezes one service's image to the digest its tag resolves to
+// now ("repo:tag" -> "repo:tag@sha256:...").
+func pinService(composeYAML, service string) (string, error) {
+	images, err := composepkg.ServiceImageList(composeYAML)
+	if err != nil {
+		return "", err
+	}
+	for _, im := range images {
+		if im.Service != service {
+			continue
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		digest, err := registry.Digest(ctx, im.Image)
+		if err != nil {
+			return "", err
+		}
+		return composepkg.SetServiceImage(composeYAML, service, im.Image+"@"+digest)
+	}
+	return "", fmt.Errorf("no service %q with an image", service)
 }
 
 // stackGroup assigns the stack to a sidebar group (empty = ungrouped).

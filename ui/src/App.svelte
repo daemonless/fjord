@@ -222,7 +222,9 @@
     return { destroy: () => node.removeEventListener('pointerdown', down) };
   }
   // Change-version modal: {name, image} of the stack being retagged, or null.
-  let changeVersion: { name: string; image: string; suggest?: string } | null = null;
+  // service set: that service alone (the Services tab); unset: the whole
+  // single-image stack (the ⋮ menu).
+  let changeVersion: { name: string; image: string; suggest?: string; service?: string } | null = null;
 
   // Pull the first service image out of a stack's compose (for the retag modal).
   function stackImage(compose: string): string {
@@ -1421,13 +1423,16 @@
   async function applyVersion(e: CustomEvent<{ tag: string; pin: boolean }>) {
     const name = changeVersion?.name;
     const curImage = changeVersion?.image ?? '';
+    const service = changeVersion?.service;
+    // Read before selectStack below clears updateInfo.
+    const perService = !!updateInfo?.perService;
     changeVersion = null;
     if (!name) return;
     const tagChanged = e.detail.tag !== refTag(curImage);
     const res = await fetch(`/api/stacks/${name}/set-tag`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tag: e.detail.tag, pin: e.detail.pin }),
+      body: JSON.stringify({ tag: e.detail.tag, pin: e.detail.pin, ...(service ? { service } : {}) }),
     });
     if (!res.ok) {
       const msg = (await res.text()).trim();
@@ -1438,7 +1443,8 @@
       return;
     }
     await selectStack({ name } as Stack); // re-fetch: compose now has the new ref
-    if (tagChanged) await update(name);
+    if (tagChanged) await update(name, service && perService ? [service] : undefined);
+    else checkForUpdate(name); // a pin alone runs the same bytes: nothing to recreate
   }
 
   // Prominent blocking overlay while a delete runs -- tearing containers down
@@ -2373,6 +2379,14 @@
                   on:openUpdate={() => openUpdatePanel(selectedStack!.name)}
                   on:rollback={(e) => rollback(selectedStack!.name, e.detail)}
                   on:unpin={(e) => unpin(selectedStack!.name, e.detail)}
+                  versionable={!selectedStack.director}
+                  on:version={(e) =>
+                    (changeVersion = {
+                      name: selectedStack!.name,
+                      service: e.detail.service,
+                      image: e.detail.image,
+                      suggest: svcUpdates[e.detail.service]?.newTag,
+                    })}
                   {networks}
                   {unsupportedModes}
                   stackName={selectedStack.name}
@@ -2607,7 +2621,7 @@
 {/if}
 {#if changeVersion}
   <ChangeVersionModal
-    name={changeVersion.name}
+    name={changeVersion.service ? `${changeVersion.name} · ${changeVersion.service}` : changeVersion.name}
     image={changeVersion.image}
     suggestTag={changeVersion.suggest ?? ''}
     on:apply={applyVersion}
