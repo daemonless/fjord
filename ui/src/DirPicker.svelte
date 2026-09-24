@@ -63,7 +63,7 @@
 </script>
 
 <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
-<div class="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-[60] p-4" on:click|self={() => dispatch('close')}>
+<div class="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center-safe justify-center overflow-y-auto z-[60] p-4" on:click|self={() => dispatch('close')}>
   <div class="bg-fjord-card border border-fjord-border rounded-xl shadow-2xl w-full max-w-lg flex flex-col" style="max-height: 80vh">
     <div class="p-4 border-b border-fjord-border">
       <h3 class="text-base font-bold text-fjord-fg mb-1">Choose a directory</h3>

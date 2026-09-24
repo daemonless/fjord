@@ -471,10 +471,8 @@
   $: needsSubnet = isPrivate || addressSource !== 'dhcp';
   $: canSubmit = form.name.trim() && !nameTaken && (!needsParent || form.parent) &&
     (!needsSubnet || !!form.subnet.trim());
-  // ...and a required field cannot hide. Subnet lives in Advanced, collapsed
-  // by default, so picking Static left Create disabled with the one field that
-  // would enable it out of sight and no reason on screen.
-  $: if (needsSubnet && !form.subnet.trim()) advanced = true;
+  // A required field cannot hide: Subnet is in the form itself, not in
+  // Advanced (which holds only optional fields and starts closed).
   // Said on the button too, for the moment before Advanced is noticed.
   $: createBlockedBy = !form.name.trim()
     ? 'Name this network'
@@ -842,7 +840,7 @@
 {#if creating}
   <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
   <div
-    class="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+    class="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center-safe justify-center overflow-y-auto z-50 p-4"
     on:click|self={() => (creating = false)}
   >
     <div class="bg-fjord-card border border-fjord-border rounded-xl shadow-2xl w-full max-w-lg p-6">
@@ -950,7 +948,7 @@
               {/if}
               {#if setupBusy === ps.id}<Spinner size={12} />{/if}
             </div>
-            <FixSnippet fix={ps.snippet} />
+            {#if ps.snippet}<FixSnippet fix={ps.snippet} />{/if}
             {#if ps.note}<span class="text-xs text-fjord-fg-dim">{ps.note}</span>{/if}
           </div>
         {/snippet}
@@ -1063,9 +1061,12 @@
               {#if showSetup && kind.parentSetups?.length}
                 <div class="mt-2 flex flex-col gap-3 border-l-2 border-fjord-border pl-3">
                   <div class="flex items-start justify-between gap-3">
+                    <!-- Only when there is something to run: a setup can be a
+                         note alone ("re0 is already in lanbridge"), and "run
+                         this" above an empty box read as a missing command. -->
                     <p class="text-xs text-fjord-fg-dim">
                       A {kind.parentLabel?.toLowerCase()} is host configuration, so fjord does not create
-                      one. Run this on the host, then check again.
+                      one.{#if setups.some((ps) => ps.snippet)} Run this on the host, then check again.{/if}
                     </p>
                     <div class="shrink-0 flex items-center gap-3">
                       <button
@@ -1126,6 +1127,27 @@
             </div>
           {/if}
 
+          <!-- Subnet and gateway are REQUIRED wherever something allocates, so
+               they sit in the form, not in Advanced. Advanced used to hold
+               them and was forced open whenever the subnet was empty -- which
+               is every new network, so it was never closed. -->
+          {#if (addressSource === 'pool' || addressSource === 'static') && !isPrivate}
+            <div class="grid grid-cols-2 gap-2">
+              <div class="flex flex-col gap-1">
+                <label class="text-xs font-semibold text-fjord-fg-muted" for="n-subnet"
+                  >Subnet{#if addressSource === 'static'} (the segment){/if}</label
+                >
+                <input id="n-subnet" bind:value={form.subnet} on:blur={() => { guessGateway(); defaultRange(); }} placeholder="192.168.4.0/24" class={inputCls} />
+              </div>
+              {#if kind?.needsGateway}
+                <div class="flex flex-col gap-1">
+                  <label class="text-xs font-semibold text-fjord-fg-muted" for="n-gw">Gateway</label>
+                  <input id="n-gw" bind:value={form.gateway} placeholder="192.168.4.1" class={inputCls} />
+                </div>
+              {/if}
+            </div>
+          {/if}
+
           <button
             type="button"
             on:click={() => (advanced = !advanced)}
@@ -1148,21 +1170,6 @@
 
           {#if advanced}
             {#if (addressSource === 'pool' || addressSource === 'static') && !isPrivate}
-              <div class="grid grid-cols-2 gap-2">
-                <div class="flex flex-col gap-1">
-                  <label class="text-xs font-semibold text-fjord-fg-muted" for="n-subnet"
-                    >Subnet{#if addressSource === 'static'} (the segment){/if}</label
-                  >
-                  <input id="n-subnet" bind:value={form.subnet} on:blur={() => { guessGateway(); defaultRange(); }} placeholder="192.168.4.0/24" class={inputCls} />
-                </div>
-                {#if kind?.needsGateway}
-                  <div class="flex flex-col gap-1">
-                    <label class="text-xs font-semibold text-fjord-fg-muted" for="n-gw">Gateway</label>
-                    <input id="n-gw" bind:value={form.gateway} placeholder="192.168.4.1" class={inputCls} />
-                  </div>
-                {/if}
-              </div>
-
               <!-- IPv6, optional and independent: a network may be v4-only,
                    dual-stack, or v6-only. Offered only where something
                    allocates from a subnet, because that is the only place a

@@ -1182,6 +1182,7 @@
         execMessage[name] = '';
       }
       await loadStacks();
+      await refreshOpenStack(name);
       // The stack may still be "partial" (yellow) the instant an action
       // returns. The SSE stream (subscribeEvents) pushes the settle to
       // running/stopped as the containers finish -- no polling needed.
@@ -1190,6 +1191,27 @@
       execMessage[name] = 'Failed';
       logs[name] += `[ERROR]: ${err?.message || err}\n`;
     }
+  }
+
+  // After an action, the stack on screen has to be re-read: a recreate can
+  // move a container to a new address, and the Open link, the addresses and
+  // the Services rows all come from the detail loaded when it was opened --
+  // tautulli's Open kept pointing at .200 after an update moved it to .201,
+  // until a page reload. With no unsaved edits it is simply re-opened; with
+  // some, only the live fields are taken, so an edit in progress survives.
+  async function refreshOpenStack(name: string) {
+    if (selectedStack?.name !== name || isDraft) return;
+    if (!isDirty) {
+      await selectStack({ name } as Stack);
+      return;
+    }
+    try {
+      const res = await fetch(`/api/stacks/${name}`);
+      if (!res.ok || selectedStack?.name !== name) return;
+      const fresh = await res.json();
+      const { compose, env, director, makejail, composeHash, ...live } = fresh;
+      selectedStack = { ...selectedStack, ...live };
+    } catch {}
   }
 
   // Live updates: one SSE stream pushes stack state-changes, so the UI reflects
@@ -2548,7 +2570,7 @@
 {/if}
 
 {#if deleting}
-  <div class="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+  <div class="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center-safe justify-center overflow-y-auto z-50 p-4">
     <div class="bg-fjord-card border border-fjord-border rounded-xl shadow-2xl w-full max-w-sm p-8 flex flex-col items-center text-center gap-4">
       <div class="w-14 h-14 rounded-full bg-fjord-danger/15 border border-fjord-danger/30 flex items-center justify-center text-fjord-danger">
         <Spinner size={26} class="text-fjord-danger" />

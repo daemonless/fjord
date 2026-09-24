@@ -375,6 +375,15 @@
   let svcNames: string[] = [];
   let netPlan: Record<string, string> = {};
   $: declaresNetworking = Object.keys(netPlan).length > 0;
+  // A one-service app gets the same per-service editor as the stack page, so
+  // networking reads the same before and after install. Seeded directly, not
+  // through resolveDefault/seedInterfaces: those pick the first LAN when no
+  // default is set (the old picker meant bridge) and add a private segment for
+  // parts that must reach each other, which a single service has none of.
+  // Undeclared multi-service apps keep the single picker: the daemon decides
+  // which of their services takes the network.
+  $: singleService = !declaresNetworking && svcNames.length === 1;
+  $: perService = declaresNetworking || singleService;
   // The interfaces the operator edits, one list per service -- the same editor
   // the stack page uses, so there is one way to read and change this and not
   // two. Seeded from the app's own declaration and NOT re-seeded afterwards:
@@ -386,7 +395,11 @@
     // in hand, so the seed waits for them and re-runs if the engine (and so
     // the network list) changes.
     const key = `${svcNames.join(',')}|${JSON.stringify(netPlan)}|${engineChoice}|${netChoice}|${networksLoaded}|${hostNetworked}`;
-    if (declaresNetworking && networksLoaded && key !== seededFor) {
+    if (singleService && networksLoaded && key !== seededFor) {
+      seededFor = key;
+      const choice = netChoice || (hostNetworked ? 'host' : 'bridge');
+      planEdits = { [svcNames[0]]: [builtIn(choice) ? { network: choice } : { network: choice, ip: '', mac: '' }] };
+    } else if (declaresNetworking && networksLoaded && key !== seededFor) {
       seededFor = key;
       // How the app already arranges itself, for the case where this host has
       // no network to offer: then it is installed as it ships rather than
@@ -612,7 +625,7 @@
     // What the operator left in the per-service editor, split into the two
     // shapes the daemon takes. null when the app named no services, which is
     // when the stack-wide picker above is the answer instead.
-    const plan = declaresNetworking ? splitPlan(planEdits) : null;
+    const plan = perService ? splitPlan(planEdits) : null;
     const values: Record<string, string> = { ...formData };
     const pathLists: Record<string, string[]> = {};
     for (const v of variables) {
@@ -649,7 +662,7 @@
   }
 </script>
 
-<div class="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+<div class="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center-safe justify-center overflow-y-auto z-50 p-4">
   <div class="bg-fjord-bg border border-fjord-border rounded-xl shadow-2xl w-full max-w-2xl flex flex-col overflow-hidden max-h-full">
     <div class="p-6 border-b border-fjord-border flex justify-between items-center bg-fjord-card">
       <h3 class="text-2xl font-bold text-fjord-fg">Install {appName}</h3>
@@ -884,9 +897,18 @@
               </div>
             {/snippet}
             <div class="pt-4 border-t border-fjord-border">
-              {#if declaresNetworking}
+              {#if perService}
                 <label class="text-sm font-semibold text-fjord-fg-secondary" for="net">Networking</label>
-                {#if joinableNets.length}
+                {#if singleService}
+                  {#if hostNetworked}
+                    <p class="text-xs text-fjord-warning mt-1 mb-3">
+                      This app expects host networking. Giving it an address of its own is possible
+                      below; install it as it is and change it afterwards if you want to try.
+                    </p>
+                  {:else}
+                    <p class="text-xs text-fjord-fg-dim mb-3">How this app reaches the network — the same editor as its Services tab after install.</p>
+                  {/if}
+                {:else if joinableNets.length}
                   <p class="text-xs text-fjord-fg-dim mb-3">
                     This app says which of its parts belongs where: the one you open goes on
                     <span class="font-mono">{exposedOn || joinableNets[0].name}</span>, and its
@@ -923,9 +945,15 @@
                 {:else}
                   <p class="text-xs text-fjord-fg-dim mb-2">How this app reaches the network.</p>
                 {/if}
+                <!-- Shows bridge while nothing is chosen, without choosing it:
+                     netChoice stays "" so the operator's default network can
+                     still land once the list loads (applyDefaultNetwork only
+                     fills an empty choice). Bound directly, "" matched no
+                     option and the box was blank above text describing bridge. -->
                 <select
                   id="net"
-                  bind:value={netChoice}
+                  value={netChoice || 'bridge'}
+                  on:change={(e) => (netChoice = e.currentTarget.value)}
                   class="w-full bg-fjord-inset border border-fjord-border rounded-md px-3 py-2 text-fjord-fg-body focus:outline-none focus:border-fjord-accent"
                 >
                   <!-- The built-ins by name, the same three words the Networks

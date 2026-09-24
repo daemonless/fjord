@@ -17,6 +17,7 @@ import (
 
 	composepkg "github.com/daemonless/fjord/pkg/compose"
 	"github.com/daemonless/fjord/pkg/engine"
+	"github.com/daemonless/fjord/pkg/hostnet"
 	"github.com/daemonless/fjord/pkg/stack"
 )
 
@@ -70,6 +71,7 @@ func (b *Backend) Up(ctx context.Context, s *stack.Stack) (io.ReadCloser, error)
 // recreated, force-removed on a refused recreate, and started.
 func (b *Backend) bringUp(ctx context.Context, pw *io.PipeWriter, s *stack.Stack, forceRecreate bool, only []string) {
 	b.removeOrphanStorage(ctx, pw, s.Name)
+	b.releaseOrphanAddresses(ctx, pw, s)
 	args := upArgs(forceRecreate, only)
 	started := time.Now()
 	err := b.runStreaming(ctx, pw, s.Dir, "podman-compose", args...)
@@ -98,6 +100,7 @@ func (b *Backend) bringUp(ctx context.Context, pw *io.PipeWriter, s *stack.Stack
 			}
 			fmt.Fprintf(pw, "\n[warn] recreate refused (%s); force-removing the containers being replaced and retrying\n", why)
 			b.forceRemoveStackContainers(ctx, pw, s, targets)
+			b.releaseOrphanAddresses(ctx, pw, s)
 			err = b.runStreaming(ctx, pw, s.Dir, "podman-compose", args...)
 		}
 	}
@@ -622,4 +625,55 @@ func upArgs(forceRecreate bool, only []string) []string {
 		args = append(append(args, "--no-deps"), only...)
 	}
 	return args
+}
+
+// releaseOrphanAddresses frees addresses on the stack's networks still held
+// by containers that no longer exist (see hostnet.ReleaseOrphans). Without
+// the full list of containers nothing is freed: an unreadable list would make
+// every reservation look orphaned.
+func (b *Backend) releaseOrphanAddresses(ctx context.Context, pw io.Writer, s *stack.Stack) {
+	atts := composepkg.AttachedNetworks(s.Compose)
+	if len(atts) == 0 {
+		return
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://d/v4.0.0/libpod/containers/json?all=true", nil)
+	if err != nil {
+		return
+	}
+	resp, err := b.http.Do(req)
+	if err != nil {
+		return
+	}
+	defer resp.Body.Close()
+	var all []struct {
+		ID string `json:"Id"`
+	}
+	if resp.StatusCode != http.StatusOK || json.NewDecoder(resp.Body).Decode(&all) != nil {
+		return
+	}
+	live := map[string]bool{}
+	for _, c := range all {
+		live[c.ID] = true
+	}
+	isLive := func(id string) bool { return live[id] }
+	// Addresses this stack pins first, with no age guard: they are its own,
+	// and on a cni-epair that never releases they are still held by the
+	// container a recreate just removed.
+	for _, byNet := range composepkg.ServiceAttachments(s.Compose) {
+		for _, a := range byNet {
+			if a.IP != "" && hostnet.ReleaseAddress(a.Network, a.IP, isLive) {
+				fmt.Fprintf(pw, "[fjord] released %s on %s for its own service: held by a removed container\n", a.IP, a.Network)
+			}
+		}
+	}
+	seen := map[string]bool{}
+	for _, a := range atts {
+		if seen[a.Network] {
+			continue
+		}
+		seen[a.Network] = true
+		for _, addr := range hostnet.ReleaseOrphans(a.Network, isLive, 2*time.Minute) {
+			fmt.Fprintf(pw, "[fjord] released %s on %s: held by a container that no longer exists\n", addr, a.Network)
+		}
+	}
 }
