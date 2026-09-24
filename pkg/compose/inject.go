@@ -1045,6 +1045,17 @@ func RepublishPorts(composeYAML string, services []string) (string, error) {
 // compose as written. A list entry (`networks: [lan]`) becomes the map form
 // that can carry the address; an address already pinned is not changed.
 func PinAddress(composeYAML, service, network, ip string) (string, error) {
+	return pinOnNetwork(composeYAML, service, network, "ipv4_address", ip)
+}
+
+// PinMAC is PinAddress for the MAC: what a DHCP network's lease follows.
+func PinMAC(composeYAML, service, network, mac string) (string, error) {
+	return pinOnNetwork(composeYAML, service, network, "mac_address", mac)
+}
+
+// pinOnNetwork sets key on one service's entry for one network, unless the
+// operator already set it.
+func pinOnNetwork(composeYAML, service, network, key, value string) (string, error) {
 	var doc yaml.Node
 	if err := yaml.Unmarshal([]byte(composeYAML), &doc); err != nil {
 		return "", fmt.Errorf("parse compose: %w", err)
@@ -1079,10 +1090,10 @@ func PinAddress(composeYAML, service, network, ip string) (string, error) {
 	if entry.Kind != yaml.MappingNode { // `lan:` with no value
 		entry.Kind, entry.Tag, entry.Value = yaml.MappingNode, "!!map", ""
 	}
-	if mapGet(entry, "ipv4_address") != nil {
+	if mapGet(entry, key) != nil {
 		return composeYAML, nil
 	}
-	entry.Content = append(entry.Content, scalar("ipv4_address"), scalar(ip))
+	entry.Content = append(entry.Content, scalar(key), scalar(value))
 	var buf bytes.Buffer
 	enc := yaml.NewEncoder(&buf)
 	enc.SetIndent(2)

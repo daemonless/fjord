@@ -16,6 +16,7 @@ var (
 	lanNet   = envOr("E2E_LAN", "lan")                  // a fjord pool network on this host
 	lanSpare = envOr("E2E_LAN_SPARE", "192.168.86.249") // an address in its range nothing uses
 	ipamDir  = "/var/run/cni/networks"
+	dhcpNet  = envOr("E2E_DHCP", "lan-dhcp") // a fjord DHCP network on this host
 )
 
 // needLAN skips when the host has no pool network to test on.
@@ -38,6 +39,12 @@ func onLAN(svc string) string {
 // lanAddress is the address a stack's service holds on the pool network.
 func lanAddress(t *testing.T, name, svc string) string {
 	t.Helper()
+	return lanAddressOn(t, name, svc, lanNet)
+}
+
+// lanAddressOn is the address a stack's service holds on one network.
+func lanAddressOn(t *testing.T, name, svc, network string) string {
+	t.Helper()
 	_, body := api(t, "GET", "/api/stacks/"+name, nil)
 	var d struct {
 		Status struct {
@@ -50,7 +57,7 @@ func lanAddress(t *testing.T, name, svc string) string {
 	decode(t, body, &d)
 	for _, c := range d.Status.Containers {
 		if c.Service == svc {
-			return c.Addresses[lanNet]
+			return c.Addresses[network]
 		}
 	}
 	return ""
@@ -108,6 +115,36 @@ func TestAddressKeptAcrossRestart(t *testing.T) {
 	}
 }
 
+// On a DHCP network the MAC is pinned, not the address: the lease follows
+// the MAC, and an unpinned epair's MAC comes from its unit number. Another
+// container taking that number first gave the service a new MAC and a new
+// lease (.122 -> .120 on netlab).
+func TestDHCPMACKept(t *testing.T) {
+	if code, body := api(t, "GET", "/api/networks", nil); code != 200 || !strings.Contains(body, `"name":"`+dhcpNet+`"`) {
+		t.Skipf("no DHCP network %q here (set E2E_DHCP)", dhcpNet)
+	}
+	name := stack(t, strings.ReplaceAll(onLAN("app"), lanNet, dhcpNet))
+	out := action(t, name, "up", nil)
+	addr := lanAddressOn(t, name, "app", dhcpNet)
+	if addr == "" {
+		t.Fatalf("fixture: no lease on %s:\n%s", dhcpNet, out)
+	}
+	if !strings.Contains(out, "kept app's MAC") {
+		t.Errorf("first up did not pin the MAC:\n%s", out)
+	}
+	action(t, name, "down", nil)
+	// Take the epair unit the service just released.
+	hog := "e2e-epairhog"
+	sh(t, "podman", "run", "-d", "--rm", "--name", hog, "--network", dhcpNet, "--entrypoint", "/bin/sleep", fixtureRef, "600")
+	t.Cleanup(func() { shTry("podman", "rm", "-f", hog) })
+	if out := action(t, name, "up", nil); failed(out) {
+		t.Fatalf("second up failed:\n%s", out)
+	}
+	if after := lanAddressOn(t, name, "app", dhcpNet); after != addr {
+		t.Errorf("lease moved %s -> %s once another container took the epair", addr, after)
+	}
+}
+
 // A reservation held by a container that no longer exists is released at the
 // next start on that network (#18: old cni-epair leaked one per recreate;
 // jupiter had 16+).
@@ -127,8 +164,10 @@ func TestOrphanReservationReleased(t *testing.T) {
 	if !strings.Contains(out, "released "+lanSpare+" on "+lanNet) {
 		t.Errorf("the orphan was not reported released:\n%s", out)
 	}
-	if _, err := os.Stat(res); err == nil {
-		t.Errorf("%s is still reserved", lanSpare)
+	// Gone, or taken again by this stack's own container: host-local hands
+	// out the next address, which can be the one just freed.
+	if b, err := os.ReadFile(res); err == nil && strings.HasPrefix(string(b), "e2e0000") {
+		t.Errorf("%s is still held by the orphan", lanSpare)
 	}
 }
 

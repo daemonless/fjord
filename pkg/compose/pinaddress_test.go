@@ -43,3 +43,20 @@ func TestPinAddress(t *testing.T) {
 		}
 	}
 }
+
+// A DHCP network's lease follows the MAC, so that is what gets pinned; one
+// the operator set is theirs.
+func TestPinMAC(t *testing.T) {
+	in := "services:\n  app:\n    image: x\n    networks:\n      - lan-dhcp\n"
+	out, err := PinMAC(in, "app", "lan-dhcp", "58:9c:fc:10:cd:c0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "mac_address: 58:9c:fc:10:cd:c0") {
+		t.Errorf("not pinned:\n%s", out)
+	}
+	again, _ := PinMAC(out, "app", "lan-dhcp", "02:00:00:00:00:01")
+	if again != out {
+		t.Errorf("an existing MAC was replaced:\n%s", again)
+	}
+}

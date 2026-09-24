@@ -25,9 +25,14 @@ import (
 // range (pooled .232 -> .230). Pinning the address a service already has is
 // the only thing that survives a recreate, a stop, and a reboot.
 //
-// Left alone: addresses already pinned (the operator's), DHCP networks (the
-// router's reservation keeps those), static ones (nothing allocates), and a
-// stack's private segment (its services find each other by name).
+// On a DHCP network the MAC is pinned instead: the lease follows the MAC,
+// and an unpinned epair's MAC comes from its unit number, so it changed
+// whenever another container took that number first (.122 -> .120 on
+// netlab). Pinning the address there would bypass the router's lease.
+//
+// Left alone: whatever the operator already pinned, static networks (nothing
+// allocates), and a stack's private segment (its services find each other
+// by name).
 func (s *server) keepAddresses(ctx context.Context, st *stack.Stack) []string {
 	be := s.backendFor(st)
 	if !be.Capabilities().UpdateServices || st.Compose == "" {
@@ -44,9 +49,13 @@ func (s *server) keepAddresses(ctx context.Context, st *stack.Stack) []string {
 		}
 	}
 	held := map[string]map[string]string{} // service -> network -> address
+	ids := map[string]string{}             // service -> container
 	for _, c := range status.Containers {
 		if c.Service != "" && c.Addresses != nil {
 			held[c.Service] = c.Addresses
+		}
+		if c.Service != "" {
+			ids[c.Service] = c.ID
 		}
 	}
 	compose := st.Compose
@@ -59,11 +68,30 @@ func (s *server) keepAddresses(ctx context.Context, st *stack.Stack) []string {
 	sort.Strings(svcs)
 	for _, svc := range svcs {
 		for _, a := range per[svc] {
-			if a.IP != "" || private[a.Network] {
+			if private[a.Network] {
 				continue
 			}
 			n, ok := hostnet.Get(a.Network)
-			if !ok || n.DHCP || n.Static {
+			if !ok || n.Static {
+				continue
+			}
+			if n.DHCP {
+				if a.MAC != "" {
+					continue
+				}
+				mac := hostnet.MACOf(a.Network, ids[svc])
+				if mac == "" {
+					continue
+				}
+				out, err := composepkg.PinMAC(compose, svc, a.Network, mac)
+				if err != nil || out == compose {
+					continue
+				}
+				compose = out
+				kept = append(kept, fmt.Sprintf("kept %s's MAC %s on %s, which its DHCP lease follows", svc, mac, a.Network))
+				continue
+			}
+			if a.IP != "" {
 				continue
 			}
 			ip := held[svc][a.Network]
