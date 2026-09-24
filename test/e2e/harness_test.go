@@ -52,6 +52,7 @@ const (
 // sh runs a host command (through sudo when it's podman) and returns stdout.
 func sh(t *testing.T, name string, args ...string) string {
 	t.Helper()
+	name, args = unsudo(name, args)
 	if sudo != "" && name == "podman" {
 		args = append([]string{name}, args...)
 		name = sudo
@@ -180,6 +181,7 @@ func sleeper(name string) string {
 
 // shTry is sh for commands allowed to fail (cleanup, "already gone").
 func shTry(name string, args ...string) {
+	name, args = unsudo(name, args)
 	if sudo != "" && name == "podman" {
 		args = append([]string{name}, args...)
 		name = sudo
@@ -202,4 +204,18 @@ func podmanOK(args ...string) bool {
 		name = sudo
 	}
 	return exec.Command(name, args...).Run() == nil
+}
+
+// hostOK reports whether a host command (not podman) succeeds.
+func hostOK(name string, args ...string) bool {
+	return exec.Command(name, args...).Run() == nil
+}
+
+// unsudo drops an empty sudo from the front of a command: callers write
+// sh(t, sudo, "rm", ...), and run as root (E2E_SUDO="") that was exec("").
+func unsudo(name string, args []string) (string, []string) {
+	if name == "" && len(args) > 0 {
+		return args[0], args[1:]
+	}
+	return name, args
 }

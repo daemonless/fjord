@@ -57,7 +57,8 @@ func lanAddress(t *testing.T, name, svc string) string {
 }
 
 // An update keeps a service on the address it had (#18: host-local hands out
-// the next address, so tautulli moved .200 -> .201 and bookmarks broke).
+// the next address, so tautulli moved .200 -> .201 and bookmarks broke). The
+// pin is made at the first up; the update must hold to it.
 func TestAddressKeptAcrossUpdate(t *testing.T) {
 	needLAN(t)
 	name := stack(t, onLAN("app"))
@@ -66,9 +67,8 @@ func TestAddressKeptAcrossUpdate(t *testing.T) {
 	if before == "" {
 		t.Fatalf("fixture: app got no address on %s", lanNet)
 	}
-	out := action(t, name, "update", nil)
-	if failed(out) || !strings.Contains(out, "kept app on "+before) {
-		t.Fatalf("update did not keep %s:\n%s", before, out)
+	if out := action(t, name, "update", nil); failed(out) {
+		t.Fatalf("update failed:\n%s", out)
 	}
 	if after := lanAddress(t, name, "app"); after != before {
 		t.Errorf("address moved %s -> %s", before, after)
@@ -80,6 +80,31 @@ func TestAddressKeptAcrossUpdate(t *testing.T) {
 	// A second update has nothing to pin and must not move it either.
 	if out := action(t, name, "update", nil); failed(out) || lanAddress(t, name, "app") != before {
 		t.Errorf("second update moved it or failed:\n%s", out)
+	}
+}
+
+// A pool address is pinned the first time a service comes up, so nothing
+// that drops its reservation can move it: a reboot empties /var/run, and
+// host-local then hands out from the bottom of the range (pooled .232 ->
+// .230 on a netlab reboot). Down + up is the same move without the reboot:
+// host-local gives the next address, not the one just released.
+func TestAddressKeptAcrossRestart(t *testing.T) {
+	needLAN(t)
+	name := stack(t, onLAN("app"))
+	out := action(t, name, "up", nil)
+	addr := lanAddress(t, name, "app")
+	if addr == "" {
+		t.Fatalf("fixture: app got no address on %s", lanNet)
+	}
+	if !strings.Contains(out, "kept app on "+addr) {
+		t.Errorf("first up did not pin %s:\n%s", addr, out)
+	}
+	action(t, name, "down", nil)
+	if out := action(t, name, "up", nil); failed(out) {
+		t.Fatalf("second up failed:\n%s", out)
+	}
+	if after := lanAddress(t, name, "app"); after != addr {
+		t.Errorf("address moved %s -> %s across down + up", addr, after)
 	}
 }
 

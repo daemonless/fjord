@@ -1041,6 +1041,9 @@ func (s *server) stackLifecycle(w http.ResponseWriter, r *http.Request, name, ac
 		http.Error(w, err.Error(), 500)
 		return
 	}
+	if action != "down" {
+		stream = s.keepAfter(ctx, st, stream)
+	}
 
 	// Record operator intent so start-on-boot can restore it after a
 	// fjordd/host restart. Best-effort: a state write failure must not abort

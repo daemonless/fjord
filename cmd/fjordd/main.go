@@ -347,6 +347,11 @@ func startOnBoot(srv *server) {
 		// the compose file has changed (killing open shells and restarting the
 		// app), so only bring up what is actually down.
 		if st, err := srv.backendFor(full).Status(ctx, full); err == nil && st.State == "running" {
+			// Pin what it holds before a reboot can hand it out again --
+			// stacks from before fjord pinned on start have never had it.
+			for _, k := range srv.keepAddresses(ctx, full) {
+				log.Printf("start-on-boot: %s: %s", s.Name, k)
+			}
 			cancel()
 			continue
 		}
@@ -358,6 +363,9 @@ func startOnBoot(srv *server) {
 		}
 		io.Copy(io.Discard, stream) // wait for the bring-up to finish before the next
 		stream.Close()
+		for _, k := range srv.keepAddresses(ctx, full) {
+			log.Printf("start-on-boot: %s: %s", s.Name, k)
+		}
 		cancel()
 		log.Printf("start-on-boot: brought up %s", s.Name)
 	}

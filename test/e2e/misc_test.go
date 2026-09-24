@@ -78,7 +78,7 @@ func TestUpdatePolicyVerdicts(t *testing.T) {
 // needAppJail skips on hosts without the appjail engine.
 func needAppJail(t *testing.T) {
 	t.Helper()
-	if _, body := api(t, "GET", "/api/setup", nil); !strings.Contains(body, `"appjail"`) || !podmanOKCmd("appjail-director", "--version") {
+	if _, body := api(t, "GET", "/api/setup", nil); !strings.Contains(body, `"appjail"`) || !hostOK("appjail-director", "--version") {
 		t.Skip("no appjail engine here")
 	}
 }
