@@ -208,6 +208,13 @@ func main() {
 	if err := os.MkdirAll(stacksDir, 0o755); err != nil {
 		log.Printf("could not create data root %s: %v (create it and make it writable)", stacksDir, err)
 	}
+	// Before anything reads or rewrites state: a new version pins addresses
+	// into composes at start and migrates settings on load.
+	if dst, err := snapshotOnUpgrade(fjordRoot, version, time.Now()); err != nil {
+		log.Printf("upgrade to %s: could not save fjord's state first: %v -- tried again at the next start", version, err)
+	} else if dst != "" {
+		log.Print(snapshotNote(dst, version))
+	}
 
 	// App-store catalogs: multiple named sources, fetched and cached locally
 	// so the store updates without rebuilding the binary. Sources come from
