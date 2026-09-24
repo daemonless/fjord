@@ -363,7 +363,7 @@
                           {/if}
                           <!-- A built-in is a MODE, not a network to join, so
                                choosing one leaves the service with just it. -->
-                          {#each perServiceBuiltIns(r.network).filter((b) => !unsupportedModes.includes(b.name) || b.name === r.network) as b}
+                          {#each perServiceBuiltIns(r.network || 'bridge').filter((b) => !unsupportedModes.includes(b.name) || b.name === (r.network || 'bridge')) as b}
                             <option value={b.name} disabled={unsupportedModes.includes(b.name)}>
                               {b.name} — {b.detail}{unsupportedModes.includes(b.name) ? ' (not on this engine)' : ''}
                             </option>

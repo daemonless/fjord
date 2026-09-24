@@ -531,9 +531,18 @@
   const UPDATE_FRESH_MS = 2 * 60 * 1000;
   function openUpdatePanel(name: string) {
     updatePanel = name;
+    unpicked = {};
     if (!updateInfo || Date.now() - updateCheckedAt > UPDATE_FRESH_MS) checkForUpdate(name);
   }
   $: updatable = (updateInfo?.services ?? []).filter((s) => s.state === 'available');
+  // What the panel can take one service at a time: a new build, or a new
+  // version (the service is retagged first). All ticked by default; the ones
+  // unticked are remembered, so a re-check keeps the choice.
+  $: offered = updateInfo?.perService
+    ? (updateInfo.services ?? []).filter((s) => s.state === 'available' || (s.state === 'upgrade' && !!s.newTag))
+    : [];
+  let unpicked: Record<string, boolean> = {};
+  $: picked = offered.filter((s) => !unpicked[s.service]);
   $: svcPinned = Object.fromEntries(
     (updateInfo?.services ?? []).filter((s) => s.state === 'pinned').map((s) => [s.service, true]),
   ) as Record<string, boolean>;
@@ -578,7 +587,7 @@
       ? 'Up to date — nothing to pull'
       : updateInfo?.state === 'pinned'
         ? 'Pinned to an exact image — nothing to pull'
-        : updateInfo?.state === 'upgrade' && multiImage
+        : updateInfo?.state === 'upgrade' && multiImage && !updateInfo.perService
           ? `A newer version is published (v${updateInfo.toVersion}) — set it in the compose editor`
           : '';
   // A single-image stack behind by a VERSION: Update takes it there. It used
@@ -586,7 +595,7 @@
   // update next to a greyed-out Update button. Multi-image stacks cannot be
   // retagged in one go (set-tag refuses them), so there it stays a note.
   $: versionStep =
-    updateInfo?.state === 'upgrade' && !multiImage && updateInfo.newTag
+    updateInfo?.state === 'upgrade' && !multiImage && !updateInfo.perService && updateInfo.newTag
       ? { tag: updateInfo.newTag, from: updateInfo.fromVersion, to: updateInfo.toVersion }
       : null;
   async function upgradeTo(name: string, tag: string) {
@@ -602,6 +611,25 @@
     }
     await selectStack({ name } as Stack); // the compose now names the new tag
     await update(name);
+  }
+  // The picked services, new versions retagged first -- one service each, so
+  // the database is never moved to the app's version -- then one update.
+  async function updatePicked(name: string, svcs: ServiceUpdate[]) {
+    updatePanel = '';
+    const bumps = svcs.filter((s) => s.state === 'upgrade');
+    for (const s of bumps) {
+      const res = await fetch(`/api/stacks/${name}/set-tag`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tag: s.newTag, service: s.service, pin: false }),
+      });
+      if (!res.ok) {
+        toast(`Could not move ${s.service} to v${s.toVersion}: ${(await res.text()).trim()}`, { kind: 'error' });
+        return;
+      }
+    }
+    if (bumps.length) await selectStack({ name } as Stack); // the compose names the new tags
+    await update(name, svcs.map((s) => s.service));
   }
   const shortDigest = (d?: string) => (d ?? '').replace('sha256:', '').slice(0, 12);
 
@@ -1952,6 +1980,7 @@
                 <table class="w-full text-xs">
                   <thead class="text-fjord-fg-dim">
                     <tr>
+                      {#if offered.length > 1}<th class="w-6 pb-1.5"></th>{/if}
                       <th class="text-left font-medium pb-1.5">Service</th>
                       <th class="text-left font-medium pb-1.5">Tag</th>
                       <th class="text-left font-medium pb-1.5">State</th>
@@ -1961,6 +1990,19 @@
                   <tbody>
                     {#each updateInfo.services ?? [] as s}
                       <tr class="border-t border-fjord-border/60 align-top">
+                        {#if offered.length > 1}
+                          <td class="py-1.5 pr-1">
+                            {#if offered.includes(s)}
+                              <input
+                                type="checkbox"
+                                checked={!unpicked[s.service]}
+                                on:change={(e) => (unpicked = { ...unpicked, [s.service]: !e.currentTarget.checked })}
+                                aria-label="Update {s.service}"
+                                class="accent-fjord-accent"
+                              />
+                            {/if}
+                          </td>
+                        {/if}
                         <td class="py-1.5 pr-3 font-medium text-fjord-fg">{s.service}</td>
                         <td class="py-1.5 pr-3 font-mono text-fjord-fg-secondary">{s.tag ?? ''}</td>
                         <td class="py-1.5 pr-3 whitespace-nowrap">
@@ -1975,7 +2017,7 @@
                             {shortDigest(s.running) || 'local'} → {shortDigest(s.latest)}
                           {:else if s.state === 'upgrade'}
                             v{s.fromVersion} → v{s.toVersion}
-                            {#if multiImage}<span class="font-sans text-fjord-fg-dim">(set in the compose)</span>{/if}
+                            {#if multiImage && !updateInfo.perService}<span class="font-sans text-fjord-fg-dim">(set in the compose)</span>{/if}
                           {:else if s.state === 'unknown'}
                             <span class="font-sans text-fjord-fg-dim">{s.detail ?? ''}</span>
                           {/if}
@@ -1985,10 +2027,11 @@
                         {@const k = changesKey(selectedStack.name, s)}
                         {@const c = changes[k]}
                         {#if c === 'loading'}
-                          <tr><td></td><td colspan="3" class="pb-1.5 text-fjord-fg-dim">Reading what changed…</td></tr>
+                          <tr>{#if offered.length > 1}<td></td>{/if}<td></td><td colspan="3" class="pb-1.5 text-fjord-fg-dim">Reading what changed…</td></tr>
                         {:else if c && c !== 'none' && changesLine(c)}
                           {@const n = (c.changed?.length ?? 0) + (c.added?.length ?? 0) + (c.removed?.length ?? 0)}
                           <tr>
+                            {#if offered.length > 1}<td></td>{/if}
                             <td></td>
                             <td colspan="3" class="pb-1.5 text-fjord-fg-secondary">
                               {changesLine(c)}
@@ -2017,11 +2060,15 @@
                 <span class="flex-1 text-xs text-fjord-fg-dim">
                   {#if versionStep}
                     Switches to {versionStep.tag} and recreates the container.
-                  {:else if updatable.length && updateInfo.perService}
-                    {@const also = [...new Set(updatable.flatMap((s) => updateInfo?.restartsWith?.[s.service] ?? []))].filter(
-                      (n) => !updatable.some((s) => s.service === n),
+                  {:else if updateInfo.perService && offered.length && !picked.length}
+                    Tick the services to update.
+                  {:else if updateInfo.perService && picked.length}
+                    {@const also = [...new Set(picked.flatMap((s) => updateInfo?.restartsWith?.[s.service] ?? []))].filter(
+                      (n) => !picked.some((s) => s.service === n),
                     )}
-                    Pulls and recreates only {updatable.map((s) => s.service).join(', ')}{#if also.length}; {also.join(', ')}
+                    {@const bumps = picked.filter((s) => s.state === 'upgrade')}
+                    {#if bumps.length}Moves {bumps.map((s) => `${s.service} to v${s.toVersion}`).join(', ')} in the compose, then pulls{:else}Pulls{/if}
+                    and recreates only {picked.map((s) => s.service).join(', ')}{#if also.length}; {also.join(', ')}
                       {also.length === 1 ? 'restarts' : 'restart'} with it (depends on it){/if}. The rest keep running.
                   {:else if updatable.length}
                     {updatable.length} of {updateInfo.services?.length ?? 0}
@@ -2040,13 +2087,16 @@
                   on:click={() =>
                     versionStep
                       ? upgradeTo(selectedStack!.name, versionStep.tag)
-                      : update(selectedStack!.name, updateInfo?.perService ? updatable.map((s) => s.service) : undefined)}
-                  disabled={(!updatable.length && !versionStep) || execStatus[selectedStack.name] === 'running'}
+                      : updateInfo?.perService
+                        ? updatePicked(selectedStack!.name, picked)
+                        : update(selectedStack!.name)}
+                  disabled={(updateInfo.perService ? !picked.length : !updatable.length && !versionStep) ||
+                    execStatus[selectedStack.name] === 'running'}
                   class="shrink-0 px-3 py-1.5 rounded-lg text-sm font-medium bg-fjord-accent text-white hover:bg-fjord-accent-hover transition-colors disabled:opacity-40"
                   >{versionStep
                     ? `Update to v${versionStep.to}`
-                    : updateInfo.perService && updatable.length
-                      ? `Update ${updatable.length} service${updatable.length === 1 ? '' : 's'}`
+                    : updateInfo.perService && picked.length
+                      ? `Update ${picked.length} service${picked.length === 1 ? '' : 's'}`
                       : 'Update'}</button
                 >
               </div>
