@@ -122,7 +122,7 @@
   // since that page is where you go to change something.
   $: if (!opened && services.length) {
     opened = true;
-    open = planning ? {} : { [services[0].name]: true };
+    open = planning && services.length > 1 ? {} : { [services[0].name]: true };
   }
   const toggle = (n: string) => (open = { ...open, [n]: !open[n] });
 
@@ -212,7 +212,7 @@
   // row has to be opened to read the page.
   function summary(s: ServiceView, r: Attachment[]): string {
     if (!r.length) return 'no network';
-    return r.map((a) => `${a.network || '(none)'}${a.ip ? ' ' + a.ip : ''}`).join(' · ');
+    return r.map((a) => `${a.network || 'bridge'}${a.ip ? ' ' + a.ip : ''}`).join(' · ');
   }
   // A network named twice on one service is two names for one interface.
   function duplicate(r: Attachment[], i: number): boolean {
@@ -341,8 +341,10 @@
                         <td class="py-1.5 pr-2 font-mono text-fjord-fg-dim">{r.iface ?? 'on create'}</td>
                       {/if}
                       <td class="py-1.5 pr-2">
+                        <!-- "" is bridge (no network named): shown as such, or
+                             it matched no option and the picker was blank. -->
                         <select
-                          value={r.network}
+                          value={r.network || 'bridge'}
                           on:change={(e) => setField(s.name, i, 'network', e.currentTarget.value)}
                           class="w-full bg-fjord-inset border border-fjord-border rounded-lg px-2 py-1.5 text-fjord-fg-body"
                         >
