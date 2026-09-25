@@ -228,6 +228,15 @@ func containerAddresses(c libpodContainer) map[string]string {
 		// each came from, so each is matched to the network whose segment
 		// contains it. Taking the first one attributed the private address to
 		// the LAN and built a link nothing could open.
+		// What the plugin reported for each network first: it says which
+		// network an address came from, which the jail's own list does not.
+		for _, n := range c.Networks {
+			if _, known := out[n]; !known {
+				if a := hostnet.ResultAddressOf(n, c.ID); a != "" {
+					out[n] = a
+				}
+			}
+		}
 		addrs := hostnet.JailAddresses(ctx, c.ID)
 		claimed := map[string]bool{}
 		for _, a := range out {

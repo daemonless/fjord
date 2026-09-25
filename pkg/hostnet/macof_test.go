@@ -24,3 +24,22 @@ func TestMACOf(t *testing.T) {
 		t.Errorf("another network's result was read: %q", got)
 	}
 }
+
+// A DHCP lease is recorded in the result too: which network it came from is
+// known, even when another network shares its segment.
+func TestResultAddressOf(t *testing.T) {
+	dir := t.TempDir()
+	old := cniResultsDir
+	cniResultsDir = dir
+	t.Cleanup(func() { cniResultsDir = old })
+	res := `{"ifName":"eth1","result":{"ips":[{"address":"192.168.4.114/24","gateway":"192.168.4.1","interface":1}]}}`
+	if err := os.WriteFile(filepath.Join(dir, "lan-dhcp-abc123-eth1"), []byte(res), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := ResultAddressOf("lan-dhcp", "abc123"); got != "192.168.4.114" {
+		t.Errorf("ResultAddressOf = %q", got)
+	}
+	if got := ResultAddressOf("lan", "abc123"); got != "" {
+		t.Errorf("another network's result was read: %q", got)
+	}
+}
