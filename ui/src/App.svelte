@@ -26,6 +26,8 @@
   import { toast, dismissToast } from './toast';
   import { expandVars } from './expand';
   import { appUrl, noWebUI } from './appUrl';
+  import { parseEnv, missingVars, setEnvVar, isSecret, usedVars } from './composeVars';
+  import VarsPanel from './VarsPanel.svelte';
   import { currentTheme, setTheme, watchSystem, type Theme } from './theme';
   import { addressProblem, usableRange, networkLabel, HOST_NETWORK, DEFAULT_NETWORK, randomMAC } from './network';
 
@@ -398,6 +400,48 @@
   // port. Empty when the stack publishes nothing web-ish.
 
   $: openUrl = appUrl(selectedStack);
+  // The .env as the editors resolve ${VAR} against it, and what the compose
+  // (or director file) uses that it never sets -- shown on the .env tab.
+  $: stackVars = parseEnv(selectedStack?.env ?? '');
+  $: unsetVars = missingVars((selectedStack?.director || selectedStack?.compose) ?? '', stackVars);
+  // Variables on the compose tab. Each ${VAR} carries its value in the
+  // editor (Values), and clicking one sets it in a small box right there.
+  // The Variables panel lists them all, missing first; with it open, a
+  // click jumps to the field instead. Both toggles are remembered.
+  const remembered = (key: string, dflt: boolean) => {
+    try {
+      const v = localStorage.getItem(key);
+      return v === null ? dflt : v === 'on';
+    } catch {
+      return dflt;
+    }
+  };
+  const remember = (key: string, on: boolean) => {
+    try {
+      localStorage.setItem(key, on ? 'on' : 'off');
+    } catch {}
+  };
+  let varLabels = remembered('fjord.varLabels', true);
+  let varsPanelOpen = remembered('fjord.varsPanel', false);
+  $: remember('fjord.varLabels', varLabels);
+  $: remember('fjord.varsPanel', varsPanelOpen);
+  let varsFocus = '';
+  let varPop: { name: string; x: number; y: number; value: string } | null = null;
+  $: varsFile = (isDirector ? selectedStack?.director : selectedStack?.compose) ?? '';
+  $: fileVars = usedVars(varsFile, stackVars);
+  $: fileMissing = fileVars.filter((v) => v.state === 'unset').length;
+  function setStackVar(name: string, value: string) {
+    if (selectedStack) selectedStack.env = setEnvVar(selectedStack.env ?? '', name, value);
+  }
+  function varClicked(name: string, rect: DOMRect) {
+    if (varsPanelOpen) varsFocus = name;
+    else varPop = { name, x: rect.left, y: rect.bottom + 4, value: stackVars[name] ?? '' };
+  }
+  function addUnsetVars() {
+    if (!selectedStack) return;
+    const env = (selectedStack.env ?? '').replace(/\s*$/, '');
+    selectedStack.env = (env ? env + '\n' : '') + unsetVars.map((n) => `${n}=`).join('\n') + '\n';
+  }
   // Attached to a network but holding no address: the reason the Open button
   // is missing, taken from whichever container reported it.
   $: noAddress =
@@ -2375,20 +2419,22 @@
                 : 'text-fjord-fg-muted hover:text-fjord-fg-body'}">Services</button
             >
             <button
-              on:click={() => (activeTab = 'env')}
-              class="px-4 py-2.5 border-r border-fjord-border flex items-center gap-2 {activeTab === 'env'
-                ? 'bg-fjord-card text-fjord-fg border-b-2 border-b-fjord-accent'
-                : 'text-fjord-fg-muted hover:text-fjord-fg-body'}"
-            >
-              .env{#if selectedStack.env !== originalEnv}<span class="text-fjord-warning font-bold">*</span>{/if}
-            </button>
-            <button
               on:click={() => (activeTab = 'compose')}
               class="px-4 py-2.5 border-r border-fjord-border flex items-center gap-2 {activeTab === 'compose'
                 ? 'bg-fjord-card text-fjord-fg border-b-2 border-b-fjord-accent'
                 : 'text-fjord-fg-muted hover:text-fjord-fg-body'}"
             >
               {#if isDirector}appjail-director.yml{#if (selectedStack.director ?? '') !== originalDirector}<span class="text-fjord-warning font-bold">*</span>{/if}{:else}compose.yaml{#if selectedStack.compose !== originalCompose}<span class="text-fjord-warning font-bold">*</span>{/if}{/if}
+            </button>
+            <!-- .env after the file it feeds: the compose tab shows each ${VAR}'s
+                 value and the Variables panel sets them; this is the whole file. -->
+            <button
+              on:click={() => (activeTab = 'env')}
+              class="px-4 py-2.5 border-r border-fjord-border flex items-center gap-2 {activeTab === 'env'
+                ? 'bg-fjord-card text-fjord-fg border-b-2 border-b-fjord-accent'
+                : 'text-fjord-fg-muted hover:text-fjord-fg-body'}"
+            >
+              .env{#if selectedStack.env !== originalEnv}<span class="text-fjord-warning font-bold">*</span>{/if}
             </button>
             {#if isDirector}
               <button
@@ -2403,20 +2449,67 @@
           </div>
 
           <div class="flex-1 relative min-h-0">
-            {#if activeTab === 'compose' && isDirector}
-              <Editor
-                bind:content={selectedStack.director}
-                language="yaml"
-                on:change={(e) => (selectedStack!.director = e.detail)}
-                on:save={save}
-              />
-            {:else if activeTab === 'compose'}
-              <Editor
-                bind:content={selectedStack.compose}
-                language="yaml"
-                on:change={(e) => (selectedStack!.compose = e.detail)}
-                on:save={save}
-              />
+            {#if activeTab === 'compose'}
+              <div class="h-full flex flex-col">
+                {#if fileVars.length}
+                  <div class="shrink-0 flex items-center justify-end gap-1.5 px-3 py-1 border-b border-fjord-border text-[11px]">
+                    <button
+                      on:click={() => (varLabels = !varLabels)}
+                      aria-pressed={varLabels}
+                      title={varLabels ? 'Hide the values shown after each ${VAR}' : 'Show each ${VAR}’s value in the file'}
+                      class="px-2 py-0.5 rounded {varLabels ? 'bg-fjord-border text-fjord-fg' : 'text-fjord-fg-muted hover:text-fjord-fg'}"
+                      >Values</button
+                    >
+                    <button
+                      on:click={() => (varsPanelOpen = !varsPanelOpen)}
+                      aria-pressed={varsPanelOpen}
+                      title="Every variable this file uses, and a field to set each"
+                      class="px-2 py-0.5 rounded {varsPanelOpen
+                        ? 'bg-fjord-border text-fjord-fg'
+                        : fileMissing
+                          ? 'text-fjord-warning hover:bg-fjord-warning/10'
+                          : 'text-fjord-fg-muted hover:text-fjord-fg'}"
+                      >Variables{#if fileMissing} · {fileMissing} missing{/if}</button
+                    >
+                  </div>
+                {/if}
+                <div class="flex-1 min-h-0 flex">
+                  <div class="flex-1 min-w-0">
+                    {#key varLabels}
+                      {#if isDirector}
+                        <Editor
+                          bind:content={selectedStack.director}
+                          language="yaml"
+                          vars={varLabels ? stackVars : null}
+                          varsClickable
+                          on:varclick={(e) => varClicked(e.detail.name, e.detail.rect)}
+                          on:change={(e) => (selectedStack!.director = e.detail)}
+                          on:save={save}
+                        />
+                      {:else}
+                        <Editor
+                          bind:content={selectedStack.compose}
+                          language="yaml"
+                          vars={varLabels ? stackVars : null}
+                          varsClickable
+                          on:varclick={(e) => varClicked(e.detail.name, e.detail.rect)}
+                          on:change={(e) => (selectedStack!.compose = e.detail)}
+                          on:save={save}
+                        />
+                      {/if}
+                    {/key}
+                  </div>
+                  {#if varsPanelOpen && fileVars.length}
+                    <VarsPanel
+                      text={varsFile}
+                      env={selectedStack.env ?? ''}
+                      bind:focus={varsFocus}
+                      on:set={(e) => setStackVar(e.detail.name, e.detail.value)}
+                      on:close={() => (varsPanelOpen = false)}
+                    />
+                  {/if}
+                </div>
+              </div>
             {:else if activeTab === 'makejail'}
               <Editor
                 bind:content={selectedStack.makejail}
@@ -2425,12 +2518,30 @@
                 on:save={save}
               />
             {:else if activeTab === 'env'}
-              <Editor
-                bind:content={selectedStack.env}
-                language="env"
-                on:change={(e) => (selectedStack!.env = e.detail)}
-                on:save={save}
-              />
+              <div class="h-full flex flex-col">
+                {#if unsetVars.length}
+                  <div class="shrink-0 flex items-center gap-3 px-4 py-2 text-xs bg-fjord-warning/10 border-b border-fjord-warning/30 text-fjord-fg-body">
+                    <span class="flex-1">
+                      The {selectedStack.director ? 'director file' : 'compose'} uses
+                      <span class="font-mono text-fjord-warning">{unsetVars.join(', ')}</span>, which
+                      {unsetVars.length === 1 ? 'is' : 'are'} not set here and {unsetVars.length === 1 ? 'has' : 'have'} no default.
+                    </span>
+                    <button
+                      on:click={addUnsetVars}
+                      class="shrink-0 px-2.5 py-1 rounded-lg font-medium bg-fjord-border hover:bg-fjord-accent hover:text-white transition-colors"
+                      >Add {unsetVars.length === 1 ? 'it' : 'them'}</button
+                    >
+                  </div>
+                {/if}
+                <div class="flex-1 min-h-0">
+                  <Editor
+                    bind:content={selectedStack.env}
+                    language="env"
+                    on:change={(e) => (selectedStack!.env = e.detail)}
+                    on:save={save}
+                  />
+                </div>
+              </div>
             {:else}
               <div class="p-6 overflow-y-auto h-full">
                 {#if !selectedStack.compose && !selectedStack.director}
@@ -2693,6 +2804,43 @@
 </div>
 
 
+{/if}
+{#if varPop}
+  <!-- Set one variable right where its label is -->
+  <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+  <div class="fixed inset-0 z-40" on:click={() => (varPop = null)}></div>
+  <div
+    class="fixed z-50 w-72 p-3 rounded-lg bg-fjord-card border border-fjord-border shadow-xl text-sm"
+    style="left: {Math.min(varPop.x, window.innerWidth - 300)}px; top: {varPop.y}px"
+  >
+    <label class="block text-xs text-fjord-fg-secondary mb-1" for="varpop-input"
+      ><span class="font-mono">{varPop.name}</span> in .env</label
+    >
+    <!-- svelte-ignore a11y-autofocus -->
+    <input
+      id="varpop-input"
+      autofocus
+      type={isSecret(varPop.name) ? 'password' : 'text'}
+      bind:value={varPop.value}
+      on:keydown={(e) => {
+        if (e.key === 'Enter' && varPop) {
+          setStackVar(varPop.name, varPop.value);
+          varPop = null;
+        } else if (e.key === 'Escape') varPop = null;
+      }}
+      class="w-full bg-fjord-inset border border-fjord-border rounded-md px-2 py-1.5 font-mono text-xs text-fjord-fg-body"
+    />
+    <div class="flex justify-end gap-2 mt-2">
+      <button on:click={() => (varPop = null)} class="px-2.5 py-1 rounded-lg text-xs text-fjord-fg-muted hover:text-fjord-fg">Cancel</button>
+      <button
+        on:click={() => {
+          if (varPop) setStackVar(varPop.name, varPop.value);
+          varPop = null;
+        }}
+        class="px-2.5 py-1 rounded-lg text-xs font-medium bg-fjord-accent text-white hover:bg-fjord-accent-hover">Set</button
+      >
+    </div>
+  </div>
 {/if}
 {#if changeVersion}
   <ChangeVersionModal
