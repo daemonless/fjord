@@ -45,6 +45,9 @@ func (s *server) preflight(ctx context.Context, st *stack.Stack) []string {
 	if msg := attachmentsUnusable(atts, s.engineNetworks(ctx, st.EngineName())); msg != "" {
 		problems = append(problems, msg)
 	}
+	// An address pinned here that another stack has: starting would put two
+	// containers on one address, and whichever the router believes wins.
+	problems = append(problems, clashes(st, s.takenAddresses(ctx, st.Name))...)
 
 	ports := composepkg.PublishedPorts(st.Compose, env)
 	// A stack with an address of its own binds nothing on the host: its ports

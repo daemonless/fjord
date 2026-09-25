@@ -331,6 +331,16 @@ func main() {
 	log.Fatal(http.ListenAndServe(addr, nil))
 }
 
+// logKept logs what start-on-boot pinned, and what it would not pin.
+func logKept(name string, kept, skipped []string) {
+	for _, k := range kept {
+		log.Printf("start-on-boot: %s: %s", name, k)
+	}
+	for _, k := range skipped {
+		log.Printf("start-on-boot: %s: NOT pinned, the address is taken: %s", name, k)
+	}
+}
+
 // startOnBoot brings up every stack whose recorded desired_state is "running",
 // one at a time, so running stacks survive a fjordd or host restart.
 func startOnBoot(srv *server) {
@@ -356,9 +366,8 @@ func startOnBoot(srv *server) {
 		if st, err := srv.backendFor(full).Status(ctx, full); err == nil && st.State == "running" {
 			// Pin what it holds before a reboot can hand it out again --
 			// stacks from before fjord pinned on start have never had it.
-			for _, k := range srv.keepAddresses(ctx, full) {
-				log.Printf("start-on-boot: %s: %s", s.Name, k)
-			}
+			kept, skipped := srv.keepAddresses(ctx, full)
+			logKept(s.Name, kept, skipped)
 			cancel()
 			continue
 		}
@@ -370,9 +379,8 @@ func startOnBoot(srv *server) {
 		}
 		io.Copy(io.Discard, stream) // wait for the bring-up to finish before the next
 		stream.Close()
-		for _, k := range srv.keepAddresses(ctx, full) {
-			log.Printf("start-on-boot: %s: %s", s.Name, k)
-		}
+		kept, skipped := srv.keepAddresses(ctx, full)
+		logKept(s.Name, kept, skipped)
 		cancel()
 		log.Printf("start-on-boot: brought up %s", s.Name)
 	}

@@ -733,6 +733,12 @@ func (s *server) stackSave(w http.ResponseWriter, r *http.Request, name string) 
 			st.Director, st.Makejail = payload.Director, payload.Makejail
 		}
 	}
+	// Refused here too, not only at start: said while the address is being
+	// typed, rather than the next time the stack comes up.
+	if c := clashes(st, s.takenAddresses(r.Context(), st.Name)); len(c) > 0 {
+		http.Error(w, "not saved: "+strings.Join(c, "; "), 409)
+		return
+	}
 	if err := s.manager.Save(st); err != nil {
 		http.Error(w, err.Error(), 500)
 		return
