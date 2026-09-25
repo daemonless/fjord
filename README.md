@@ -13,7 +13,45 @@ format carries nothing vendor-specific.
 > run containers as root on the host. Keep it on a trusted LAN, or bind it
 > to loopback (`FJORD_LISTEN=127.0.0.1:3567`) and reach it over SSH.
 
-## Quick start (FreeBSD host)
+## What's new in 0.3
+
+- **Updates you can see into and undo.** The Update panel lists what each
+  service would get, in plain words ("New build of the same version —
+  3 packages changed"), and lets you tick which ones to update, version bumps
+  included. After an update fjord watches the new container and marks the
+  update failed if it crash-loops; **Roll back** returns to the previous image
+  from the registry.
+- **Addresses that stay put.** A service's LAN address -- or, on a DHCP
+  network, its MAC -- is pinned the first time it starts, so updates, restarts
+  and reboots never move it. An address another stack already has is refused
+  on Save and at start.
+- **The compose tab explains itself.** Each `${VAR}` shows its value from
+  `.env`; click one to set it, or open the Variables panel.
+- **Delete says what it removes.** Its app data is kept unless you tick it,
+  and **System → Left-over app data** finds folders earlier deletes left behind.
+- **Upgrades can be undone.** fjordd saves its own state before a new version
+  starts (`/var/db/fjord/backups/`).
+- Stack list filter (Running · Stopped · Problems · Updates), a one-line health
+  summary, Audiobooks and Ebooks folder sets, a tab's address in the URL.
+
+## Install a release (FreeBSD host)
+
+```sh
+pkg install podman sysutils/podman-compose conmon ocijail
+V=0.3.0   # or a pre-release: https://github.com/daemonless/fjord/releases
+fetch -o /usr/local/sbin/fjordd https://github.com/daemonless/fjord/releases/download/v$V/fjordd-freebsd-$(uname -m)
+fetch -o /usr/local/etc/rc.d/fjordd https://github.com/daemonless/fjord/releases/download/v$V/fjordd.rc
+chmod 755 /usr/local/sbin/fjordd /usr/local/etc/rc.d/fjordd
+sysrc fjordd_enable=YES podman_service_enable=YES
+service podman_service start
+service fjordd start
+```
+
+LAN networks (a container with its own address) need the
+[cni-epair](https://github.com/daemonless/cni-epair) plugin; the **System**
+page says how to install it.
+
+## Build from source (FreeBSD host)
 
 ```sh
 # toolchain the podman engine needs
@@ -86,5 +124,7 @@ plugins — lives in Settings and is persisted in `<fjord root>/settings.json`.
 ## Contributing
 
 Go code is `gofmt`-clean and `go vet`/`go test ./...` pass; the UI is
-Svelte 5 (legacy syntax) built with Vite — `npm run check` for types. See
+Svelte 5 (legacy syntax) built with Vite — `npm run check` for types.
+`scripts/e2e.sh <host>` runs the end-to-end suite against a live fjordd on a
+disposable host and checks it left nothing behind. See
 `DESIGN.md` for the architecture and the releases page for what shipped.
