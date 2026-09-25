@@ -3,6 +3,7 @@
   import Icon from './Icon.svelte';
   import Spinner from './Spinner.svelte';
   import EmptyState from './EmptyState.svelte';
+  import InstallCheckButton from './InstallCheckButton.svelte';
   import FixSnippet from './FixSnippet.svelte';
   import { toast } from './toast';
 
@@ -13,6 +14,7 @@
     detail?: string;
     why?: string;
     fix?: string;
+    installable?: boolean;
   };
   type Report = {
     os: string;
@@ -237,6 +239,7 @@
                   <div class="text-xs text-fjord-fg-dim mt-0.5">{c.why}</div>
                 {/if}
               </div>
+              {#if c.installable}<InstallCheckButton id={c.id} name={c.name} on:installed={load} />{/if}
               <span class="shrink-0 text-[11px] font-semibold uppercase tracking-wide {STATUS[c.status].cls}">{STATUS[c.status].label}</span>
             </div>
             {#if c.fix}
