@@ -226,3 +226,100 @@ func TestInstallOnLAN(t *testing.T) {
 	}
 	t.Errorf("zensical on %s never answered: %v", addr, err)
 }
+
+// fjordRoot is where fjordd keeps its stacks on the host under test.
+var fjordRoot = envOr("E2E_FJORD_ROOT", "/var/db/fjord")
+
+// pinnedOnLAN is onLAN with the service's address pinned.
+func pinnedOnLAN(svc, ip string) string {
+	return fmt.Sprintf("services:\n  %s:\n    image: %s\n    entrypoint: [\"/bin/sleep\", \"3600\"]\n    networks:\n      %s:\n        ipv4_address: %s\nnetworks:\n  %s:\n    external: true\n",
+		svc, fixtureRef, lanNet, ip, lanNet)
+}
+
+// An address another stack has pinned is refused on Save, and -- for a
+// compose changed behind fjord's back -- at start (#24: on jupiter smokeping
+// and seerr both answered for 192.168.5.19).
+func TestAddressClashRefused(t *testing.T) {
+	needLAN(t)
+	first := stack(t, pinnedOnLAN("app", lanSpare))
+	second := stack(t, onLAN("app")) // on the network, no pin yet
+
+	code, body := api(t, "POST", "/api/stacks/"+second+"/save", map[string]any{"compose": pinnedOnLAN("app", lanSpare), "env": ""})
+	if code != 409 || !strings.Contains(body, lanSpare) || !strings.Contains(body, first+"'s address") {
+		t.Errorf("save of a taken address: %d %s", code, body)
+	}
+
+	// The same compose written straight to disk: pre-flight catches it.
+	path := filepath.Join(fjordRoot, "stacks", second, "compose.yaml")
+	sh(t, sudo, "sh", "-c", fmt.Sprintf("cat > %s <<'EOF'\n%sEOF", path, pinnedOnLAN("app", lanSpare)))
+	code, body = api(t, "POST", "/api/stacks/"+second+"/up", nil)
+	if code != 409 || !strings.Contains(body, first+"'s address") {
+		t.Errorf("start with a taken address: %d %s", code, body)
+	}
+}
+
+// A service on a pool network and a DHCP network on the same segment holds
+// both addresses, and fjord says so (#28: the lease sat inside the pool's
+// subnet and was attributed to neither -- "no address").
+func TestPoolAndDHCPOnOneSegment(t *testing.T) {
+	needLAN(t)
+	if code, body := api(t, "GET", "/api/networks", nil); code != 200 || !strings.Contains(body, `"name":"`+dhcpNet+`"`) {
+		t.Skipf("no DHCP network %q here (set E2E_DHCP)", dhcpNet)
+	}
+	compose := fmt.Sprintf("services:\n  app:\n    image: %s\n    entrypoint: [\"/bin/sleep\", \"3600\"]\n    networks:\n      - %s\n      - %s\nnetworks:\n  %s:\n    external: true\n  %s:\n    external: true\n",
+		fixtureRef, lanNet, dhcpNet, lanNet, dhcpNet)
+	name := stack(t, compose)
+	if out := action(t, name, "up", nil); failed(out) {
+		t.Fatalf("up:\n%s", out)
+	}
+	pool, lease := lanAddressOn(t, name, "app", lanNet), lanAddressOn(t, name, "app", dhcpNet)
+	if pool == "" || lease == "" || pool == lease {
+		t.Errorf("addresses: %s=%q %s=%q", lanNet, pool, dhcpNet, lease)
+	}
+	_, body := api(t, "GET", "/api/stacks/"+name, nil)
+	if strings.Contains(body, "no address") {
+		t.Errorf("reported as having no address:\n%s", body)
+	}
+}
+
+// An app installed from the catalog onto a DHCP network gets a lease, answers
+// on it, and has its MAC pinned so the lease survives a recreate.
+func TestInstallOnDHCP(t *testing.T) {
+	if code, body := api(t, "GET", "/api/networks", nil); code != 200 || !strings.Contains(body, `"name":"`+dhcpNet+`"`) {
+		t.Skipf("no DHCP network %q here (set E2E_DHCP)", dhcpNet)
+	}
+	manifest := sh(t, "fetch", "-qo", "-", "https://catalog.daemonless.io/v1/daemonless/manifests/zensical.yaml")
+	name := fmt.Sprintf("e2e-dhcpinst-%d", time.Now().Unix()%10000)
+	t.Cleanup(func() {
+		api(t, "DELETE", "/api/stacks/"+name, nil)
+		shTry(sudo, "rm", "-rf", "/containers/"+name)
+	})
+	code, out := api(t, "POST", "/api/apps/install", map[string]any{
+		"name": name, "app_id": "zensical", "manifest": manifest, "engine": "podman",
+		"values":   map[string]string{"WEB_PORT": "8000"},
+		"networks": []map[string]string{{"network": dhcpNet, "service": "zensical"}},
+	})
+	if code != 200 || failed(out) {
+		t.Fatalf("install: %d\n%s", code, out)
+	}
+	addr := lanAddressOn(t, name, "zensical", dhcpNet)
+	if addr == "" {
+		t.Fatalf("installed with no lease on %s:\n%s", dhcpNet, out)
+	}
+	_, body := api(t, "GET", "/api/stacks/"+name, nil)
+	if !strings.Contains(body, "mac_address") {
+		t.Errorf("the MAC was not pinned after install")
+	}
+	var err error
+	for i := 0; i < 30; i++ {
+		var r *http.Response
+		if r, err = http.Get("http://" + addr + ":8000/"); err == nil {
+			r.Body.Close()
+			if r.StatusCode == 200 {
+				return
+			}
+		}
+		time.Sleep(2 * time.Second)
+	}
+	t.Errorf("zensical on its lease %s never answered: %v", addr, err)
+}
