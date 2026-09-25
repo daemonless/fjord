@@ -33,14 +33,14 @@ import (
 // Left alone: whatever the operator already pinned, static networks (nothing
 // allocates), and a stack's private segment (its services find each other
 // by name).
-func (s *server) keepAddresses(ctx context.Context, st *stack.Stack) []string {
+func (s *server) keepAddresses(ctx context.Context, st *stack.Stack) (kept, skipped []string) {
 	be := s.backendFor(st)
 	if !be.Capabilities().UpdateServices || st.Compose == "" {
-		return nil // podman only: appjail's director names no compose networks
+		return nil, nil // podman only: appjail's director names no compose networks
 	}
 	status, err := be.Status(ctx, st)
 	if err != nil {
-		return nil
+		return nil, nil
 	}
 	private := map[string]bool{}
 	if list, err := s.manager.List(); err == nil {
@@ -59,7 +59,10 @@ func (s *server) keepAddresses(ctx context.Context, st *stack.Stack) []string {
 		}
 	}
 	compose := st.Compose
-	var kept []string
+	// What other stacks have, worked out once and only if something is to be
+	// pinned: an address another stack has is never pinned here (see
+	// takenAddresses), it is reported.
+	var taken map[string]addrHolder
 	per := composepkg.ServiceAttachments(compose)
 	svcs := make([]string, 0, len(per))
 	for svc := range per {
@@ -98,6 +101,13 @@ func (s *server) keepAddresses(ctx context.Context, st *stack.Stack) []string {
 			if parsed := net.ParseIP(ip); parsed == nil || parsed.To4() == nil {
 				continue
 			}
+			if taken == nil {
+				taken = s.takenAddresses(ctx, st.Name)
+			}
+			if h, ok := taken[a.Network+"|"+ip]; ok {
+				skipped = append(skipped, clashText(svc, ip, a.Network, h))
+				continue
+			}
 			out, err := composepkg.PinAddress(compose, svc, a.Network, ip)
 			if err != nil || out == compose {
 				continue
@@ -107,21 +117,22 @@ func (s *server) keepAddresses(ctx context.Context, st *stack.Stack) []string {
 		}
 	}
 	if len(kept) == 0 {
-		return nil
+		return nil, skipped
 	}
 	st.Compose = compose
 	if err := s.manager.Save(st); err != nil {
-		return []string{"could not keep addresses: " + err.Error()}
+		return []string{"could not keep addresses: " + err.Error()}, skipped
 	}
-	return kept
+	return kept, skipped
 }
 
 // keptNote is the Output preamble for keepAddresses.
-func keptNote(kept []string) string {
+func keptNote(kept, skipped []string) string {
+	note := clashNote(skipped)
 	if len(kept) == 0 {
-		return ""
+		return note
 	}
-	return "[fjord] " + strings.Join(kept, "\n[fjord] ") +
+	return note + "[fjord] " + strings.Join(kept, "\n[fjord] ") +
 		" -- pinned in the compose so it keeps this address\n"
 }
 
