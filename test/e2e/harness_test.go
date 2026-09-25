@@ -5,6 +5,11 @@
 // exit codes. Every case builds its own throwaway stacks (named e2e-...) and
 // removes them, pass or fail.
 //
+//	scripts/e2e.sh <ssh host | local> [pattern]
+//
+// builds it, runs it on that host as root, and checks nothing was left
+// behind; or by hand, on the host itself:
+//
 //	go test -tags e2e ./test/e2e -v -count=1
 //
 // FJORD_URL   fjordd to drive (default http://127.0.0.1:3567)
