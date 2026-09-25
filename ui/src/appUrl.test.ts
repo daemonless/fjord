@@ -37,3 +37,26 @@ describe('appUrl', () => {
     vi.unstubAllGlobals();
   });
 });
+
+// web_port is the host side (${WEB_PORT}). At a service's own address only
+// the container side listens, so a renumbered host port must not leak into
+// the link.
+describe('appUrl web_port hint', () => {
+  const compose =
+    'services:\n  app:\n    x-fjord-published:\n      - "${WEB_PORT}:8181"\n\nx-fjord:\n  web_port: "${WEB_PORT}"\n';
+  it('uses the container port at the service’s own address', () => {
+    expect(
+      appUrl({ compose, env: 'WEB_PORT=9000\n', ownAddress: true, linkHost: '192.168.4.235', state: { origin: { type: 'catalog' } } }),
+    ).toBe('http://192.168.4.235:8181');
+  });
+  it('keeps the host port when the link goes to the host', () => {
+    vi.stubGlobal('location', { hostname: 'netlab' });
+    const onHost = compose.replace('x-fjord-published', 'ports');
+    expect(appUrl({ compose: onHost, env: 'WEB_PORT=9000\n', state: { origin: { type: 'catalog' } } })).toBe('http://netlab:9000');
+    vi.unstubAllGlobals();
+  });
+  it('keeps a host-network hint that maps nothing', () => {
+    const hostNet = 'services:\n  app:\n    network_mode: host\n\nx-fjord:\n  web_port: "8123"\n';
+    expect(appUrl({ compose: hostNet, ownAddress: true, linkHost: '192.168.4.10' })).toBe('http://192.168.4.10:8123');
+  });
+});

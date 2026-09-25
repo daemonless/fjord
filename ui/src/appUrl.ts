@@ -69,7 +69,10 @@ export function appUrl(stack: AppUrlStack | null): string {
   const hinted = resolve((c.match(/web_port:\s*["']?([^\s"']+)/) || [])[1] || '');
   if (/^\d{2,5}$/.test(hinted)) {
     const scheme = /web_https:\s*true/.test(c) ? 'https' : 'http';
-    return `${scheme}://${host}:${hinted}`;
+    // The hint is the HOST side ("${WEB_PORT}"). At the service's own address
+    // only the container side listens: WEB_PORT=9000 with "9000:8181" linked
+    // to :9000 while the app answered on 8181.
+    return `${scheme}://${host}:${ip ? containerSide(c, hinted, resolve) : hinted}`;
   }
 
   // No hint: prefer the RUNNING container's actual published ports (from the
@@ -95,4 +98,15 @@ export function appUrl(stack: AppUrlStack | null): string {
       .filter((h) => /^\d{2,5}$/.test(h));
   }
   return ports.length ? `http://${host}:${ports[0]}` : '';
+}
+
+// containerSide maps a published host port to the container port it
+// forwards to, from the compose's "HOST:CONTAINER" lines (ports: or the
+// x-fjord-published ones parked there on a LAN address). Unmapped, the port
+// is taken to be the app's own -- a host-network stack's hint.
+function containerSide(compose: string, host: string, resolve: (v: string) => string): string {
+  for (const m of compose.matchAll(/^\s*-\s*["']?([\w${}.]+):(\d{2,5})(?:\/tcp)?["']?\s*$/gm)) {
+    if (resolve(m[1]) === host) return m[2];
+  }
+  return host;
 }
