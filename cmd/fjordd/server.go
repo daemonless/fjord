@@ -167,6 +167,7 @@ func (s *server) routes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/settings/network", s.handleDefaultNetwork)
 	mux.HandleFunc("/api/settings/catalog-refresh", s.handleCatalogRefreshSettings)
 	mux.HandleFunc("/api/setup/state", s.handleSetupState)
+	mux.HandleFunc("/api/setup/install", s.handleSetupInstall)
 	mux.HandleFunc("/api/folder-sets", s.handleFolderSets)
 	mux.HandleFunc("/api/plugins", s.handlePlugins)
 	mux.HandleFunc("/api/maintenance/df", s.handleDiskUsage)

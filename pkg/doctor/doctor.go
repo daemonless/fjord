@@ -10,7 +10,12 @@
 // means adding a leaf, never touching this core.
 package doctor
 
-import "context"
+import (
+	"context"
+	"fmt"
+	"os/exec"
+	"strings"
+)
 
 type Status string
 
@@ -37,7 +42,10 @@ type Check struct {
 	// reported when not ok. It must paste into a root shell as-is: no prose,
 	// no "(optional)" asides -- those belong in Why.
 	Fix string
-	Pkg map[string]string // GOOS -> package name, for future auto-install
+	Pkg map[string]string // GOOS -> package name: installed by Install when set
+	// Install puts what the check wants in place, for the Install button;
+	// nil with a Pkg entry means "pkg install" that package.
+	Install func(ctx context.Context) error
 }
 
 // Result is the wire form of one executed check.
@@ -48,6 +56,9 @@ type Result struct {
 	Detail string `json:"detail,omitempty"`
 	Why    string `json:"why,omitempty"`
 	Fix    string `json:"fix,omitempty"`
+	// Installable: fjord can fix this itself (the check has an installer or
+	// a package, and fjordd runs on the host). The UI offers a button.
+	Installable bool `json:"installable,omitempty"`
 }
 
 // Report is the full doctor output. Mode is "host", "container", or "unknown";
@@ -120,6 +131,7 @@ func Run(ctx context.Context, cfg Config) Report {
 		r := Result{ID: c.ID, Name: c.Name, Status: st, Detail: detail, Why: c.Why}
 		if st != OK {
 			r.Fix = c.Fix
+			r.Installable = p.canInstall && p.mode == "host" && (c.Install != nil || c.Pkg[p.os] != "")
 		}
 		results = append(results, r)
 	}
@@ -129,4 +141,31 @@ func Run(ctx context.Context, cfg Config) Report {
 		CanInstall: p.canInstall && p.mode == "host",
 		Checks:     results,
 	}
+}
+
+// Install runs the installer of check id: its own, or "pkg install" of its
+// package. Only on the host -- from inside a container there is nothing of
+// the host's to install into.
+func Install(ctx context.Context, cfg Config, id string) error {
+	p := platform(cfg)
+	if p.mode != "host" {
+		return fmt.Errorf("fjordd is not running directly on the host, so it cannot install anything there")
+	}
+	for _, c := range p.checks {
+		if c.ID != id {
+			continue
+		}
+		if c.Install != nil {
+			return c.Install(ctx)
+		}
+		pkg := c.Pkg[p.os]
+		if pkg == "" || !p.canInstall {
+			return fmt.Errorf("%s has no installer: follow its fix by hand", c.Name)
+		}
+		if out, err := exec.CommandContext(ctx, "pkg", append([]string{"install", "-y"}, strings.Fields(pkg)...)...).CombinedOutput(); err != nil {
+			return fmt.Errorf("pkg install %s: %v\n%s", pkg, err, out)
+		}
+		return nil
+	}
+	return fmt.Errorf("no check %q", id)
 }

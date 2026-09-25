@@ -26,6 +26,31 @@ func (s *server) handleSetup(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(report)
 }
 
+// handleSetupInstall fixes one doctor check itself: POST {"id": "epair"}
+// runs that check's installer (a pinned, checksummed download, or "pkg
+// install" of its package). The page runs the checks again afterwards.
+func (s *server) handleSetupInstall(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.ID == "" {
+		http.Error(w, "id required", 400)
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Minute)
+	defer cancel()
+	if err := doctor.Install(ctx, doctor.Config{Engines: s.engineNames(), FjordRoot: s.fjordRoot}, req.ID); err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	log.Printf("setup: installed what the %q check needs", req.ID)
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // logDoctor runs the doctor once at startup and logs every non-ok check, so a
 // mis-provisioned host is named in the daemon log before the first stack-up
 // fails cryptically.

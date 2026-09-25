@@ -9,6 +9,7 @@
   import Spinner from './Spinner.svelte';
   import DirPicker from './DirPicker.svelte';
   import FolderRows from './FolderRows.svelte';
+  import InstallCheckButton from './InstallCheckButton.svelte';
   import FixSnippet from './FixSnippet.svelte';
   import { toast } from './toast';
 
@@ -25,7 +26,7 @@
   let step = 0;
 
   // ---- 1. readiness ----
-  type Check = { id: string; name: string; status: 'ok' | 'warn' | 'fail' | 'unknown'; detail?: string; why?: string; fix?: string };
+  type Check = { id: string; name: string; status: 'ok' | 'warn' | 'fail' | 'unknown'; detail?: string; why?: string; fix?: string; installable?: boolean };
   let checks: Check[] = [];
   let engineName = '';
   let hostMode = false;
@@ -406,6 +407,7 @@
                   {#if c.why}<div class="text-xs text-fjord-fg-dim mt-0.5">{c.why}</div>{/if}
                   {#if c.status !== 'ok' && c.fix}<div class="mt-1.5"><FixSnippet fix={c.fix} /></div>{/if}
                 </div>
+                {#if c.installable}<InstallCheckButton id={c.id} name={c.name} on:installed={loadChecks} />{/if}
               </div>
             {/each}
           </div>

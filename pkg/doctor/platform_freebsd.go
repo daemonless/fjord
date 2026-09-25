@@ -69,9 +69,10 @@ func platform(cfg Config) platformInfo {
 		},
 		{
 			ID: "epair", Name: "LAN networks (epair plugin)", Engine: "podman", HostOnly: true,
-			Probe: epairProbe,
-			Why:   "The CNI plugin that gives a container its own address on your LAN instead of a port published on the host. Optional: stacks run without it, but no podman network can hand out a LAN address. appjail does not use it -- it makes its own epair.",
-			Fix:   "# not in the ports tree yet:\nfetch -o /usr/local/libexec/cni/epair https://raw.githubusercontent.com/daemonless/cni-epair/main/epair\nchmod 755 /usr/local/libexec/cni/epair",
+			Probe:   epairProbe,
+			Install: installEpair,
+			Why:     "The CNI plugin that gives a container its own address on your LAN instead of a port published on the host. Optional: stacks run without it, but no podman network can hand out a LAN address. appjail does not use it -- it makes its own epair.",
+			Fix:     "# not in the ports tree yet; fjord's Install button does this too:\nfetch -o /usr/local/libexec/cni/epair " + epairURL + "\nchmod 755 /usr/local/libexec/cni/epair",
 		},
 		{
 			ID: "dnsname", Name: "container name resolution (dnsname plugin)", Engine: "podman", HostOnly: true,
