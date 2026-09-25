@@ -144,9 +144,15 @@ jobs:
             fi
             gh release upload "${TAG}" --repo "${{ github.repository }}" --clobber $ASSETS
           else
+            # A tag with a hyphen (v0.3.0-rc1) is a pre-release: published for
+            # testing, never marked Latest, so "the latest fjord" stays the
+            # last real release.
+            PRE=""
+            case "${VERSION}" in *-*) PRE="--prerelease" ;; esac
             gh release create "${TAG}" \
               --repo "${{ github.repository }}" \
               --title "fjord ${VERSION}" \
               --generate-notes \
+              $PRE \
               $ASSETS
           fi
