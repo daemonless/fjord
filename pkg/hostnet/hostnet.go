@@ -207,6 +207,44 @@ var ipamStateDir = "/var/run/cni/networks"
 // and survives a reboot.
 var cniResultsDir = "/var/lib/cni/results"
 
+// ResultAddressOf is the IPv4 address a network gave a container, as the
+// plugin reported it to libcni, or "". It is the one source that says which
+// network an address came from: the jail's own list does not, and two
+// networks on one segment (a pool and a DHCP network on the same bridge)
+// made guessing by subnet hand the DHCP lease to neither.
+func ResultAddressOf(network, containerID string) string {
+	if containerID == "" {
+		return ""
+	}
+	files, _ := filepath.Glob(filepath.Join(cniResultsDir, network+"-"+containerID+"-*"))
+	for _, f := range files {
+		b, err := os.ReadFile(f)
+		if err != nil {
+			continue
+		}
+		var c struct {
+			Result struct {
+				IPs []struct {
+					Address string `json:"address"`
+				} `json:"ips"`
+			} `json:"result"`
+		}
+		if json.Unmarshal(b, &c) != nil {
+			continue
+		}
+		for _, ip := range c.Result.IPs {
+			a := ip.Address
+			if i := strings.IndexByte(a, '/'); i >= 0 {
+				a = a[:i]
+			}
+			if parsed := net.ParseIP(a); parsed != nil && parsed.To4() != nil {
+				return a
+			}
+		}
+	}
+	return ""
+}
+
 // MACOf is the MAC a container holds on a network, as the plugin reported
 // it, or "". podman's own inspect leaves MacAddress empty on FreeBSD, and on
 // a DHCP network the MAC is what the lease -- and so the address -- follows.
