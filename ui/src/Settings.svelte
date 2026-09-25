@@ -271,7 +271,7 @@
   );
   // Preset-backed sets get a kind icon (film, tv, ...) instead of a label;
   // custom sets a plain folder. Keyed by preset name, so renames keep it.
-  const PRESET_ICON: Record<string, string> = { movies: 'film', tv: 'tv', music: 'music', downloads: 'download', books: 'book', photos: 'image' };
+  const PRESET_ICON: Record<string, string> = { movies: 'film', tv: 'tv', music: 'music', downloads: 'download', books: 'book', audiobooks: 'headphones', ebooks: 'book', photos: 'image' };
   const setIcon = (l: FolderSet) => (l.match ? PRESET_ICON[l.name.trim().toLowerCase()] || 'folder' : 'folder');
   function addFolderSet(name = '', match = '') {
     folderSets = [...folderSets, { id: '', name, folders: [''], match }];

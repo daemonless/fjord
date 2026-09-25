@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { setFor } from './folderMatch';
   import { onMount, createEventDispatcher } from 'svelte';
   import * as yaml from 'js-yaml';
   import Icon from './Icon.svelte';
@@ -283,8 +284,7 @@
   function applyDefaultSets() {
     for (const v of variables) {
       if (v.type !== 'path' || touched.has(v.name) || defaultedFrom[v.name]) continue;
-      const up = String(v.name).toUpperCase();
-      const set = folderSets.find((s) => (s.match || '').split('|').some((k) => k && up.includes(k)) && s.folders.length);
+      const set = setFor(String(v.name), v.label, folderSets);
       if (!set) continue;
       paths[v.name] = [...set.folders];
       defaultedFrom[v.name] = set.name;

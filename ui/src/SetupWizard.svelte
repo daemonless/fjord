@@ -99,7 +99,7 @@
   let customSets: FolderSet[] = [];
   // Icon per preset name, matching Settings' folder-set list.
   const PRESET_ICON: Record<string, string> = {
-    movies: 'film', tv: 'tv', music: 'music', downloads: 'download', books: 'book', photos: 'image',
+    movies: 'film', tv: 'tv', music: 'music', downloads: 'download', books: 'book', audiobooks: 'headphones', ebooks: 'book', photos: 'image',
   };
   const presetIcon = (name: string) => PRESET_ICON[name.trim().toLowerCase()] || 'folder';
 
