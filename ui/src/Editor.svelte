@@ -5,10 +5,16 @@
   import { oneDark } from '@codemirror/theme-one-dark';
   import { EditorState } from '@codemirror/state';
   import { keymap } from '@codemirror/view';
+  import { varHints, setEnv } from './varHints';
 
   export let content = '';
   export let language: 'yaml' | 'env' = 'yaml';
   export let readonly = false;
+  // The stack's .env, parsed: set, each ${VAR} gets a label with its value.
+  export let vars: Record<string, string> | null = null;
+  // Labels are clickable when set: 'varclick' carries the name and where the
+  // label is on screen.
+  export let varsClickable = false;
 
   const dispatch = createEventDispatcher();
   let editorContainer: HTMLDivElement;
@@ -43,6 +49,10 @@
     if (language === 'yaml') {
       extensions.push(yaml());
     }
+    if (vars)
+      extensions.push(
+        varHints(vars, varsClickable ? (name, el) => dispatch('varclick', { name, rect: el.getBoundingClientRect() }) : undefined),
+      );
 
     if (readonly) {
       // A generated spec (e.g. appjail-director.yml) is shown for reference,
@@ -66,6 +76,10 @@
       initEditor();
     }
   }
+
+  // A new .env relabels in place; rebuilding the editor would lose the
+  // cursor and the undo history.
+  $: if (view && vars) view.dispatch({ effects: setEnv.of(vars) });
 
   onMount(() => {
     initEditor();

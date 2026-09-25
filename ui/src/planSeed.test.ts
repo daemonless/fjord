@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { resolveDefault, seedInterfaces, splitPlan, setInterface, perServiceModes, isMode, isolatedServices } from './planSeed';
+import { resolveDefault, seedInterfaces, splitPlan, setInterface, perServiceModes, isMode, isolatedServices, keepAttachable } from './planSeed';
 
 // immich's declaration, as the catalog carries it.
 const immich = { 'immich-server': 'default', '*': 'private' };
@@ -308,5 +308,24 @@ describe('isolatedServices', () => {
   it('has nothing to say about a one-service stack', () => {
     expect(isolatedServices({ zensical: [] })).toEqual([]);
     expect(isolatedServices({ zensical: [{ network: 'none' }] })).toEqual([]);
+  });
+});
+
+describe('keepAttachable', () => {
+  const fresh = { web: [{ network: 'bridge' }], db: [{ network: 'private' }] };
+  // Picked lan, then switched engine: lan exists there too, so it stays.
+  it('keeps a pick the new engine can attach', () => {
+    const edits = { web: [{ network: 'lan', ip: '192.168.4.9', mac: '' }], db: [{ network: 'private' }] };
+    expect(keepAttachable(edits, fresh, [{ name: 'lan' }])).toEqual(edits);
+  });
+  it('drops only what the new engine cannot attach', () => {
+    const edits = { web: [{ network: 'lan' }, { network: 'private' }], db: [{ network: 'private' }] };
+    expect(keepAttachable(edits, fresh, [{ name: 'ajnet' }])).toEqual({
+      web: [{ network: 'private' }],
+      db: [{ network: 'private' }],
+    });
+  });
+  it('gives a service left with nothing its fresh seed', () => {
+    expect(keepAttachable({ web: [{ network: 'host' }], db: [] }, fresh, [], ['host'])).toEqual(fresh);
   });
 });

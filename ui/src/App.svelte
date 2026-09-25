@@ -26,6 +26,8 @@
   import { toast, dismissToast } from './toast';
   import { expandVars } from './expand';
   import { appUrl, noWebUI } from './appUrl';
+  import { parseEnv, missingVars, setEnvVar, isSecret, usedVars } from './composeVars';
+  import VarsPanel from './VarsPanel.svelte';
   import { currentTheme, setTheme, watchSystem, type Theme } from './theme';
   import { addressProblem, usableRange, networkLabel, HOST_NETWORK, DEFAULT_NETWORK, randomMAC } from './network';
 
@@ -107,12 +109,28 @@
     engine === 'appjail'
       ? { name, dir: '', compose: '', env: `DIRECTOR_PROJECT=${name}\nTZ=UTC\n`, director: newStackDirector(name), makejail: NEW_STACK_MAKEJAIL, engine }
       : { name, dir: '', compose: NEW_STACK_COMPOSE, env: 'TZ=UTC\n', engine };
-  // Switch a draft's runtime: swap in that engine's starter files.
-  function setDraftEngine(engine: string) {
-    if (!selectedStack || !isDraft) return;
+  // Switch a draft's runtime: swap in that engine's starter files. The two
+  // engines' files are different formats (compose vs director + Makejail), so
+  // nothing carries over -- which was silent, and took every edit with it. An
+  // edited draft asks first; an untouched one just switches.
+  let engineSwitch = ''; // the engine a confirm is pending for
+  function draftEdited(): boolean {
+    if (!selectedStack) return false;
+    const starter = newStackDraft(selectedStack.engine ?? defaultEngine, selectedStack.name);
+    return (['compose', 'env', 'director', 'makejail'] as const).some((k) => (selectedStack![k] ?? '') !== (starter[k] ?? ''));
+  }
+  function setDraftEngine(engine: string, confirmed = false) {
+    if (!selectedStack || !isDraft || engine === (selectedStack.engine ?? defaultEngine)) return;
+    if (!confirmed && draftEdited()) {
+      engineSwitch = engine;
+      return;
+    }
+    engineSwitch = '';
     selectedStack = newStackDraft(engine, selectedStack.name);
     activeTab = 'compose';
   }
+  $: if (!isDraft) engineSwitch = '';
+  const draftFiles = (engine: string) => (engine === 'appjail' ? 'a director file and a Makejail' : 'a compose.yaml');
   let saving = false;
   let actionsMenuOpen = false; // stack header overflow menu
   let editingName = false; // inline click-to-rename on the stack title
@@ -398,6 +416,48 @@
   // port. Empty when the stack publishes nothing web-ish.
 
   $: openUrl = appUrl(selectedStack);
+  // The .env as the editors resolve ${VAR} against it, and what the compose
+  // (or director file) uses that it never sets -- shown on the .env tab.
+  $: stackVars = parseEnv(selectedStack?.env ?? '');
+  $: unsetVars = missingVars((selectedStack?.director || selectedStack?.compose) ?? '', stackVars);
+  // Variables on the compose tab. Each ${VAR} carries its value in the
+  // editor (Values), and clicking one sets it in a small box right there.
+  // The Variables panel lists them all, missing first; with it open, a
+  // click jumps to the field instead. Both toggles are remembered.
+  const remembered = (key: string, dflt: boolean) => {
+    try {
+      const v = localStorage.getItem(key);
+      return v === null ? dflt : v === 'on';
+    } catch {
+      return dflt;
+    }
+  };
+  const remember = (key: string, on: boolean) => {
+    try {
+      localStorage.setItem(key, on ? 'on' : 'off');
+    } catch {}
+  };
+  let varLabels = remembered('fjord.varLabels', true);
+  let varsPanelOpen = remembered('fjord.varsPanel', false);
+  $: remember('fjord.varLabels', varLabels);
+  $: remember('fjord.varsPanel', varsPanelOpen);
+  let varsFocus = '';
+  let varPop: { name: string; x: number; y: number; value: string } | null = null;
+  $: varsFile = (isDirector ? selectedStack?.director : selectedStack?.compose) ?? '';
+  $: fileVars = usedVars(varsFile, stackVars);
+  $: fileMissing = fileVars.filter((v) => v.state === 'unset').length;
+  function setStackVar(name: string, value: string) {
+    if (selectedStack) selectedStack.env = setEnvVar(selectedStack.env ?? '', name, value);
+  }
+  function varClicked(name: string, rect: DOMRect) {
+    if (varsPanelOpen) varsFocus = name;
+    else varPop = { name, x: rect.left, y: rect.bottom + 4, value: stackVars[name] ?? '' };
+  }
+  function addUnsetVars() {
+    if (!selectedStack) return;
+    const env = (selectedStack.env ?? '').replace(/\s*$/, '');
+    selectedStack.env = (env ? env + '\n' : '') + unsetVars.map((n) => `${n}=`).join('\n') + '\n';
+  }
   // Attached to a network but holding no address: the reason the Open button
   // is missing, taken from whichever container reported it.
   $: noAddress =
@@ -506,8 +566,10 @@
   // page renders (selectedStack wins over currentView) so the address bar
   // always matches what's on screen.
   $: if (routeReady && typeof location !== 'undefined') {
+    // The tab is part of a stack's address (Services has none), so a refresh
+    // or a link lands on it rather than back on Services.
     const h = selectedStack
-      ? '#/stacks/' + encodeURIComponent(selectedStack.name)
+      ? '#/stacks/' + encodeURIComponent(selectedStack.name) + (activeTab === 'net' || isDraft ? '' : '/' + activeTab)
       : currentView === 'store'
         ? '#/store'
         : currentView === 'volumes'
@@ -523,7 +585,11 @@
               : '#/stacks';
     if (!setupOpen && location.hash !== h) {
       const rename = isDraft && location.hash.startsWith('#/stacks/');
-      history[rename ? 'replaceState' : 'pushState'](null, '', h);
+      // Another tab of the same stack replaces the entry: Back goes to the
+      // page before, not through every tab clicked on the way.
+      const stackOf = (x: string) => x.split('/').slice(0, 3).join('/');
+      const sameStack = selectedStack && stackOf(location.hash) === stackOf(h);
+      history[rename || sameStack ? 'replaceState' : 'pushState'](null, '', h);
     }
   }
 
@@ -1028,7 +1094,7 @@
 
   // Restore view/stack from the URL hash so deep links + refresh work.
   async function restoreFromHash() {
-    const [, section, name] = location.hash.replace(/^#/, '').split('/');
+    const [, section, name, tab] = location.hash.replace(/^#/, '').split('/');
     if (section === 'setup') {
       setupOpen = true;
       return;
@@ -1068,6 +1134,10 @@
         return;
       }
       await selectStack(found);
+      // Only a tab this stack has: makejail exists on a director stack alone.
+      // The list carries no director file; the loaded stack does.
+      if (tab === 'compose' || tab === 'env' || (tab === 'makejail' && selectedStack?.director)) activeTab = tab;
+      else activeTab = 'net';
     } else {
       currentView = 'stacks';
       await selectStack(null);
@@ -1959,7 +2029,11 @@
                 Engine
                 <select
                   value={selectedStack.engine ?? defaultEngine}
-                  on:change={(e) => setDraftEngine(e.currentTarget.value)}
+                  on:change={(e) => {
+                    setDraftEngine(e.currentTarget.value);
+                    // Until confirmed, the picker keeps showing the engine in use.
+                    e.currentTarget.value = selectedStack?.engine ?? defaultEngine;
+                  }}
                   class="bg-fjord-inset border border-fjord-border rounded-lg px-2 py-1 text-sm text-fjord-fg-body focus:border-fjord-accent outline-none"
                 >
                   {#each engines.filter((e) => e.available && e.enabled) as e}
@@ -1986,6 +2060,28 @@
         </header>
 
         <!-- Inline confirmation for Stop / Delete: visible, but nothing is blocked -->
+        {#if engineSwitch && isDraft}
+          <div
+            role="alertdialog"
+            aria-live="polite"
+            class="flex items-center gap-3 mb-4 shrink-0 px-4 py-2.5 rounded-lg bg-fjord-danger/10 border border-fjord-danger/30 text-sm text-fjord-fg-body"
+          >
+            <span class="flex-1">
+              <b>Switch to {engineSwitch}?</b> It replaces this {selectedStack.director ? 'director file and Makejail' : 'compose.yaml'}
+              with {draftFiles(engineSwitch)} — your edits are lost.
+            </span>
+            <button
+              on:click={() => (engineSwitch = '')}
+              class="shrink-0 px-3 py-1.5 rounded-lg text-sm font-medium text-fjord-fg-muted hover:text-fjord-fg transition-colors"
+              >Keep {selectedStack.engine ?? defaultEngine}</button
+            >
+            <button
+              on:click={() => setDraftEngine(engineSwitch, true)}
+              class="shrink-0 px-3 py-1.5 rounded-lg text-sm font-medium bg-fjord-danger text-white hover:bg-fjord-danger-hover transition-colors"
+              >Switch</button
+            >
+          </div>
+        {/if}
         {#if pendingAction && pendingAction.stack === selectedStack.name}
           <div
             role="alertdialog"
@@ -2375,20 +2471,22 @@
                 : 'text-fjord-fg-muted hover:text-fjord-fg-body'}">Services</button
             >
             <button
-              on:click={() => (activeTab = 'env')}
-              class="px-4 py-2.5 border-r border-fjord-border flex items-center gap-2 {activeTab === 'env'
-                ? 'bg-fjord-card text-fjord-fg border-b-2 border-b-fjord-accent'
-                : 'text-fjord-fg-muted hover:text-fjord-fg-body'}"
-            >
-              .env{#if selectedStack.env !== originalEnv}<span class="text-fjord-warning font-bold">*</span>{/if}
-            </button>
-            <button
               on:click={() => (activeTab = 'compose')}
               class="px-4 py-2.5 border-r border-fjord-border flex items-center gap-2 {activeTab === 'compose'
                 ? 'bg-fjord-card text-fjord-fg border-b-2 border-b-fjord-accent'
                 : 'text-fjord-fg-muted hover:text-fjord-fg-body'}"
             >
               {#if isDirector}appjail-director.yml{#if (selectedStack.director ?? '') !== originalDirector}<span class="text-fjord-warning font-bold">*</span>{/if}{:else}compose.yaml{#if selectedStack.compose !== originalCompose}<span class="text-fjord-warning font-bold">*</span>{/if}{/if}
+            </button>
+            <!-- .env after the file it feeds: the compose tab shows each ${VAR}'s
+                 value and the Variables panel sets them; this is the whole file. -->
+            <button
+              on:click={() => (activeTab = 'env')}
+              class="px-4 py-2.5 border-r border-fjord-border flex items-center gap-2 {activeTab === 'env'
+                ? 'bg-fjord-card text-fjord-fg border-b-2 border-b-fjord-accent'
+                : 'text-fjord-fg-muted hover:text-fjord-fg-body'}"
+            >
+              .env{#if selectedStack.env !== originalEnv}<span class="text-fjord-warning font-bold">*</span>{/if}
             </button>
             {#if isDirector}
               <button
@@ -2403,20 +2501,67 @@
           </div>
 
           <div class="flex-1 relative min-h-0">
-            {#if activeTab === 'compose' && isDirector}
-              <Editor
-                bind:content={selectedStack.director}
-                language="yaml"
-                on:change={(e) => (selectedStack!.director = e.detail)}
-                on:save={save}
-              />
-            {:else if activeTab === 'compose'}
-              <Editor
-                bind:content={selectedStack.compose}
-                language="yaml"
-                on:change={(e) => (selectedStack!.compose = e.detail)}
-                on:save={save}
-              />
+            {#if activeTab === 'compose'}
+              <div class="h-full flex flex-col">
+                {#if fileVars.length}
+                  <div class="shrink-0 flex items-center justify-end gap-1.5 px-3 py-1 border-b border-fjord-border text-[11px]">
+                    <button
+                      on:click={() => (varLabels = !varLabels)}
+                      aria-pressed={varLabels}
+                      title={varLabels ? 'Hide the values shown after each ${VAR}' : 'Show each ${VAR}’s value in the file'}
+                      class="px-2 py-0.5 rounded {varLabels ? 'bg-fjord-border text-fjord-fg' : 'text-fjord-fg-muted hover:text-fjord-fg'}"
+                      >Values</button
+                    >
+                    <button
+                      on:click={() => (varsPanelOpen = !varsPanelOpen)}
+                      aria-pressed={varsPanelOpen}
+                      title="Every variable this file uses, and a field to set each"
+                      class="px-2 py-0.5 rounded {varsPanelOpen
+                        ? 'bg-fjord-border text-fjord-fg'
+                        : fileMissing
+                          ? 'text-fjord-warning hover:bg-fjord-warning/10'
+                          : 'text-fjord-fg-muted hover:text-fjord-fg'}"
+                      >Variables{#if fileMissing} · {fileMissing} missing{/if}</button
+                    >
+                  </div>
+                {/if}
+                <div class="flex-1 min-h-0 flex">
+                  <div class="flex-1 min-w-0">
+                    {#key varLabels}
+                      {#if isDirector}
+                        <Editor
+                          bind:content={selectedStack.director}
+                          language="yaml"
+                          vars={varLabels ? stackVars : null}
+                          varsClickable
+                          on:varclick={(e) => varClicked(e.detail.name, e.detail.rect)}
+                          on:change={(e) => (selectedStack!.director = e.detail)}
+                          on:save={save}
+                        />
+                      {:else}
+                        <Editor
+                          bind:content={selectedStack.compose}
+                          language="yaml"
+                          vars={varLabels ? stackVars : null}
+                          varsClickable
+                          on:varclick={(e) => varClicked(e.detail.name, e.detail.rect)}
+                          on:change={(e) => (selectedStack!.compose = e.detail)}
+                          on:save={save}
+                        />
+                      {/if}
+                    {/key}
+                  </div>
+                  {#if varsPanelOpen && fileVars.length}
+                    <VarsPanel
+                      text={varsFile}
+                      env={selectedStack.env ?? ''}
+                      bind:focus={varsFocus}
+                      on:set={(e) => setStackVar(e.detail.name, e.detail.value)}
+                      on:close={() => (varsPanelOpen = false)}
+                    />
+                  {/if}
+                </div>
+              </div>
             {:else if activeTab === 'makejail'}
               <Editor
                 bind:content={selectedStack.makejail}
@@ -2425,12 +2570,30 @@
                 on:save={save}
               />
             {:else if activeTab === 'env'}
-              <Editor
-                bind:content={selectedStack.env}
-                language="env"
-                on:change={(e) => (selectedStack!.env = e.detail)}
-                on:save={save}
-              />
+              <div class="h-full flex flex-col">
+                {#if unsetVars.length}
+                  <div class="shrink-0 flex items-center gap-3 px-4 py-2 text-xs bg-fjord-warning/10 border-b border-fjord-warning/30 text-fjord-fg-body">
+                    <span class="flex-1">
+                      The {selectedStack.director ? 'director file' : 'compose'} uses
+                      <span class="font-mono text-fjord-warning">{unsetVars.join(', ')}</span>, which
+                      {unsetVars.length === 1 ? 'is' : 'are'} not set here and {unsetVars.length === 1 ? 'has' : 'have'} no default.
+                    </span>
+                    <button
+                      on:click={addUnsetVars}
+                      class="shrink-0 px-2.5 py-1 rounded-lg font-medium bg-fjord-border hover:bg-fjord-accent hover:text-white transition-colors"
+                      >Add {unsetVars.length === 1 ? 'it' : 'them'}</button
+                    >
+                  </div>
+                {/if}
+                <div class="flex-1 min-h-0">
+                  <Editor
+                    bind:content={selectedStack.env}
+                    language="env"
+                    on:change={(e) => (selectedStack!.env = e.detail)}
+                    on:save={save}
+                  />
+                </div>
+              </div>
             {:else}
               <div class="p-6 overflow-y-auto h-full">
                 {#if !selectedStack.compose && !selectedStack.director}
@@ -2693,6 +2856,43 @@
 </div>
 
 
+{/if}
+{#if varPop}
+  <!-- Set one variable right where its label is -->
+  <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+  <div class="fixed inset-0 z-40" on:click={() => (varPop = null)}></div>
+  <div
+    class="fixed z-50 w-72 p-3 rounded-lg bg-fjord-card border border-fjord-border shadow-xl text-sm"
+    style="left: {Math.min(varPop.x, window.innerWidth - 300)}px; top: {varPop.y}px"
+  >
+    <label class="block text-xs text-fjord-fg-secondary mb-1" for="varpop-input"
+      ><span class="font-mono">{varPop.name}</span> in .env</label
+    >
+    <!-- svelte-ignore a11y-autofocus -->
+    <input
+      id="varpop-input"
+      autofocus
+      type={isSecret(varPop.name) ? 'password' : 'text'}
+      bind:value={varPop.value}
+      on:keydown={(e) => {
+        if (e.key === 'Enter' && varPop) {
+          setStackVar(varPop.name, varPop.value);
+          varPop = null;
+        } else if (e.key === 'Escape') varPop = null;
+      }}
+      class="w-full bg-fjord-inset border border-fjord-border rounded-md px-2 py-1.5 font-mono text-xs text-fjord-fg-body"
+    />
+    <div class="flex justify-end gap-2 mt-2">
+      <button on:click={() => (varPop = null)} class="px-2.5 py-1 rounded-lg text-xs text-fjord-fg-muted hover:text-fjord-fg">Cancel</button>
+      <button
+        on:click={() => {
+          if (varPop) setStackVar(varPop.name, varPop.value);
+          varPop = null;
+        }}
+        class="px-2.5 py-1 rounded-lg text-xs font-medium bg-fjord-accent text-white hover:bg-fjord-accent-hover">Set</button
+      >
+    </div>
+  </div>
 {/if}
 {#if changeVersion}
   <ChangeVersionModal
