@@ -109,12 +109,28 @@
     engine === 'appjail'
       ? { name, dir: '', compose: '', env: `DIRECTOR_PROJECT=${name}\nTZ=UTC\n`, director: newStackDirector(name), makejail: NEW_STACK_MAKEJAIL, engine }
       : { name, dir: '', compose: NEW_STACK_COMPOSE, env: 'TZ=UTC\n', engine };
-  // Switch a draft's runtime: swap in that engine's starter files.
-  function setDraftEngine(engine: string) {
-    if (!selectedStack || !isDraft) return;
+  // Switch a draft's runtime: swap in that engine's starter files. The two
+  // engines' files are different formats (compose vs director + Makejail), so
+  // nothing carries over -- which was silent, and took every edit with it. An
+  // edited draft asks first; an untouched one just switches.
+  let engineSwitch = ''; // the engine a confirm is pending for
+  function draftEdited(): boolean {
+    if (!selectedStack) return false;
+    const starter = newStackDraft(selectedStack.engine ?? defaultEngine, selectedStack.name);
+    return (['compose', 'env', 'director', 'makejail'] as const).some((k) => (selectedStack![k] ?? '') !== (starter[k] ?? ''));
+  }
+  function setDraftEngine(engine: string, confirmed = false) {
+    if (!selectedStack || !isDraft || engine === (selectedStack.engine ?? defaultEngine)) return;
+    if (!confirmed && draftEdited()) {
+      engineSwitch = engine;
+      return;
+    }
+    engineSwitch = '';
     selectedStack = newStackDraft(engine, selectedStack.name);
     activeTab = 'compose';
   }
+  $: if (!isDraft) engineSwitch = '';
+  const draftFiles = (engine: string) => (engine === 'appjail' ? 'a director file and a Makejail' : 'a compose.yaml');
   let saving = false;
   let actionsMenuOpen = false; // stack header overflow menu
   let editingName = false; // inline click-to-rename on the stack title
@@ -2013,7 +2029,11 @@
                 Engine
                 <select
                   value={selectedStack.engine ?? defaultEngine}
-                  on:change={(e) => setDraftEngine(e.currentTarget.value)}
+                  on:change={(e) => {
+                    setDraftEngine(e.currentTarget.value);
+                    // Until confirmed, the picker keeps showing the engine in use.
+                    e.currentTarget.value = selectedStack?.engine ?? defaultEngine;
+                  }}
                   class="bg-fjord-inset border border-fjord-border rounded-lg px-2 py-1 text-sm text-fjord-fg-body focus:border-fjord-accent outline-none"
                 >
                   {#each engines.filter((e) => e.available && e.enabled) as e}
@@ -2040,6 +2060,28 @@
         </header>
 
         <!-- Inline confirmation for Stop / Delete: visible, but nothing is blocked -->
+        {#if engineSwitch && isDraft}
+          <div
+            role="alertdialog"
+            aria-live="polite"
+            class="flex items-center gap-3 mb-4 shrink-0 px-4 py-2.5 rounded-lg bg-fjord-danger/10 border border-fjord-danger/30 text-sm text-fjord-fg-body"
+          >
+            <span class="flex-1">
+              <b>Switch to {engineSwitch}?</b> It replaces this {selectedStack.director ? 'director file and Makejail' : 'compose.yaml'}
+              with {draftFiles(engineSwitch)} — your edits are lost.
+            </span>
+            <button
+              on:click={() => (engineSwitch = '')}
+              class="shrink-0 px-3 py-1.5 rounded-lg text-sm font-medium text-fjord-fg-muted hover:text-fjord-fg transition-colors"
+              >Keep {selectedStack.engine ?? defaultEngine}</button
+            >
+            <button
+              on:click={() => setDraftEngine(engineSwitch, true)}
+              class="shrink-0 px-3 py-1.5 rounded-lg text-sm font-medium bg-fjord-danger text-white hover:bg-fjord-danger-hover transition-colors"
+              >Switch</button
+            >
+          </div>
+        {/if}
         {#if pendingAction && pendingAction.stack === selectedStack.name}
           <div
             role="alertdialog"
