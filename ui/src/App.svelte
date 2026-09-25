@@ -425,6 +425,33 @@
   // usable and the question stays visible. Cleared when the selection changes.
   let pendingAction: { kind: 'stop' | 'delete' | 'recreate'; stack: string } | null = null;
   let pendingConfirmBtn: HTMLButtonElement | null = null;
+  // What a delete removes and leaves, from the daemon (delete-preview): its
+  // containers and stack files always; its own app-data folders only when
+  // ticked; anything else it uses is listed as untouched.
+  type DeletePlan = {
+    containers?: string[];
+    stackDir: string;
+    appData: { path: string; bytes: number; more?: boolean }[];
+    keeps: { path: string; why: string }[];
+  };
+  let deletePlan: DeletePlan | 'loading' | 'error' | null = null;
+  let deleteData = false;
+  $: if (pendingAction?.kind === 'delete' && deletePlan === null) loadDeletePlan(pendingAction.stack);
+  $: if (pendingAction?.kind !== 'delete') {
+    deletePlan = null;
+    deleteData = false;
+  }
+  async function loadDeletePlan(name: string) {
+    deletePlan = 'loading';
+    try {
+      const r = await fetch(`/api/stacks/${name}/delete-preview`);
+      deletePlan = r.ok ? await r.json() : 'error';
+    } catch {
+      deletePlan = 'error';
+    }
+  }
+  const fmtBytes = (n: number) =>
+    n < 1024 ? `${n} B` : n < 1024 ** 2 ? `${(n / 1024).toFixed(0)} KB` : n < 1024 ** 3 ? `${(n / 1024 ** 2).toFixed(1)} MB` : `${(n / 1024 ** 3).toFixed(1)} GB`;
   $: if (pendingAction && selectedStack?.name !== pendingAction.stack) pendingAction = null;
   // Focus the confirm button so Enter confirms and Escape cancels from the keyboard.
   $: if (pendingAction) tick().then(() => pendingConfirmBtn?.focus());
@@ -434,7 +461,7 @@
     if (!a) return;
     if (a.kind === 'stop') down(a.stack);
     else if (a.kind === 'recreate') update(a.stack);
-    else deleteStack(a.stack);
+    else deleteStack(a.stack, deleteData);
   }
 
   // Networks a stack can be given an address on (empty on a host with none).
@@ -1462,10 +1489,10 @@
   // can take seconds, and a small toast wasn't clear enough that work was
   // happening. `deleting` is the stack's display label; '' hides the overlay.
   let deleting = '';
-  async function deleteStack(name: string) {
+  async function deleteStack(name: string, withData = false) {
     deleting = label(selectedStack) || name;
     try {
-      const res = await fetch(`/api/stacks/${name}`, { method: 'DELETE' });
+      const res = await fetch(`/api/stacks/${name}${withData ? '?data=1' : ''}`, { method: 'DELETE' });
       if (!res.ok) throw new Error((await res.text()).trim() || `HTTP ${res.status}`);
       const gone = deleting;
       deleting = '';
@@ -1963,11 +1990,42 @@
           <div
             role="alertdialog"
             aria-live="polite"
-            class="flex items-center gap-3 mb-4 shrink-0 px-4 py-2.5 rounded-lg bg-fjord-danger/10 border border-fjord-danger/30 text-sm text-fjord-fg-body"
+            class="flex {pendingAction.kind === 'delete'
+              ? 'items-start'
+              : 'items-center'} gap-3 mb-4 shrink-0 px-4 py-2.5 rounded-lg bg-fjord-danger/10 border border-fjord-danger/30 text-sm text-fjord-fg-body"
           >
             <span class="flex-1">
               {#if pendingAction.kind === 'delete'}
-                <b>Delete {label(selectedStack)}?</b> Stops the stack and removes it from fjord. Bind-mounted data stays on disk.
+                <b>Delete {label(selectedStack)}?</b> Stops it and removes its containers and its settings in fjord.
+                {#if deletePlan === 'loading'}
+                  <span class="block mt-1 text-xs text-fjord-fg-dim">Looking at what it uses…</span>
+                {:else if deletePlan && deletePlan !== 'error'}
+                  {#if deletePlan.appData.length}
+                    <span class="block mt-2 text-xs">
+                      <span class="font-medium text-fjord-fg-secondary">Its app data</span>
+                      {deleteData ? '— deleted with it:' : '— kept on disk unless you tick below:'}
+                      {#each deletePlan.appData as d}
+                        <span class="block font-mono {deleteData ? 'text-fjord-danger' : 'text-fjord-success'}"
+                          >{d.path} <span class="font-sans text-fjord-fg-dim">({d.more ? 'more than ' : ''}{fmtBytes(d.bytes)})</span></span
+                        >
+                      {/each}
+                    </span>
+                    <label class="flex items-center gap-2 mt-1.5 text-xs cursor-pointer">
+                      <input type="checkbox" bind:checked={deleteData} class="accent-fjord-danger" />
+                      Also delete its app data — this cannot be undone
+                    </label>
+                  {/if}
+                  {#if deletePlan.keeps.length}
+                    <span class="block mt-2 text-xs text-fjord-fg-dim">
+                      Not touched:
+                      {#each deletePlan.keeps as k}
+                        <span class="block"><span class="font-mono text-fjord-fg-secondary">{k.path}</span> — {k.why}</span>
+                      {/each}
+                    </span>
+                  {/if}
+                {:else}
+                  Its data stays on disk.
+                {/if}
               {:else if pendingAction.kind === 'recreate'}
                 <b>Pull &amp; recreate {label(selectedStack)}?</b> Pulls every image and recreates every container, including
                 ones already up to date.
@@ -1986,7 +2044,13 @@
               on:keydown={(e) => e.key === 'Escape' && (pendingAction = null)}
               disabled={execStatus[selectedStack.name] === 'running'}
               class="shrink-0 px-3 py-1.5 rounded-lg text-sm font-medium bg-fjord-danger text-white hover:bg-fjord-danger-hover transition-colors disabled:opacity-40"
-              >{pendingAction.kind === 'delete' ? 'Delete' : pendingAction.kind === 'recreate' ? 'Recreate' : 'Stop'}</button
+              >{pendingAction.kind === 'delete'
+                ? deleteData
+                  ? 'Delete stack and data'
+                  : 'Delete'
+                : pendingAction.kind === 'recreate'
+                  ? 'Recreate'
+                  : 'Stop'}</button
             >
           </div>
         {/if}

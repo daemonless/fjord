@@ -209,7 +209,7 @@ func (s *server) handleStackRoutes(w http.ResponseWriter, r *http.Request) {
 			s.stackDetail(w, r, parts[0])
 			return
 		case http.MethodDelete:
-			s.stackDelete(w, parts[0])
+			s.stackDelete(w, parts[0], r.URL.Query().Get("data") == "1")
 			return
 		}
 	}
@@ -229,6 +229,9 @@ func (s *server) handleStackRoutes(w http.ResponseWriter, r *http.Request) {
 			return
 		case "logs":
 			s.stackLogs(w, r, parts[0])
+			return
+		case "delete-preview":
+			s.stackDeletePreview(w, parts[0])
 			return
 		}
 	}
@@ -306,7 +309,11 @@ func (s *server) stackDetail(w http.ResponseWriter, r *http.Request, name string
 // teardown (Down streams its errors rather than returning them), the delete
 // is refused: removing the dir would orphan running containers that fjord
 // could no longer see or stop.
-func (s *server) stackDelete(w http.ResponseWriter, name string) {
+// With data, the stack's own app-data folders go too -- worked out here
+// again from the stack (planDelete), never taken from the request, so no
+// client can name a path to remove. They go before the stack itself: if one
+// cannot be removed, the stack is still there to retry from.
+func (s *server) stackDelete(w http.ResponseWriter, name string, data bool) {
 	unlock, ok := lockStack(name)
 	if !ok {
 		http.Error(w, "another operation is already running on this stack; wait for it to finish", http.StatusConflict)
@@ -331,6 +338,17 @@ func (s *server) stackDelete(w http.ResponseWriter, name string) {
 				cancel()
 				http.Error(w, "not deleted: containers are still up after the stop attempt -- "+strings.Join(alive, ", ")+". Check Output/Logs, stop them, then delete again.", http.StatusConflict)
 				return
+			}
+		}
+		if data {
+			for _, d := range s.planDelete(ctx, st).AppData {
+				if err := os.RemoveAll(d.Path); err != nil {
+					cancel()
+					http.Error(w, "not deleted: could not remove its app data "+d.Path+": "+err.Error()+
+						" -- the stack is stopped and still listed; fix that and delete again", 500)
+					return
+				}
+				log.Printf("delete %s: removed app data %s", name, d.Path)
 			}
 		}
 		cancel()
