@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { problem } from './stackHealth';
   import { onMount, createEventDispatcher } from 'svelte';
   import Icon from './Icon.svelte';
   import EngineMark from './EngineMark.svelte';
@@ -13,13 +14,17 @@
     address?: string; // the container's own IP on an attachable network
   };
   type StackStatus = { state: string; containers: ContainerStatus[] };
-  type Stack = { name: string; displayName?: string; icon?: string; compose?: string; env?: string; status?: StackStatus; state?: { origin?: { type?: string; app_id?: string }; engine?: string } };
+  type Stack = { name: string; displayName?: string; icon?: string; compose?: string; env?: string; status?: StackStatus; state?: { origin?: { type?: string; app_id?: string }; engine?: string; desired_state?: string } };
   export let stacks: Stack[] = [];
   // Fleet-wide update state, fetched once by the app shell (server-cached).
   export let fleet: Record<string, any> = {};
   export let fleetRefreshing = false;
 
   const dispatch = createEventDispatcher();
+  // One line that says whether anything needs you: the first stack meant to
+  // run that isn't, with a way to it -- or that all is well.
+  $: problems = stacks.map((s) => ({ s, p: problem(s) })).filter((x) => x.p);
+  $: stoppedByYou = stacks.filter((s) => s.state?.desired_state === 'stopped').length;
 
   import { appIcons, loadAppIcons, iconFor, tile } from './appIcons';
   // Resolve a stack's catalog icon: by its stored app_id first (stable), then by
@@ -87,7 +92,16 @@
     <div>
       <h2 class="text-2xl font-bold text-fjord-fg">Stacks</h2>
       <div class="text-sm text-fjord-fg-dim">
-        {stacks.length} stack{stacks.length === 1 ? '' : 's'} · {runningCount} running{#if updateCount}
+        {#if !stacks.length}
+          No stacks yet
+        {:else if problems.length}
+          <span class="text-fjord-danger font-medium">{problems[0].s.displayName || problems[0].s.name} {problems[0].p}</span>
+          — <button on:click={() => dispatch('select', problems[0].s.name)} class="text-fjord-accent hover:underline">View</button>
+          {#if problems.length > 1}<span> · and {problems.length - 1} more</span>{/if}
+        {:else}
+          <span class="text-fjord-success">All {runningCount} running</span>{#if stoppedByYou}
+            · {stoppedByYou} stopped{/if}
+        {/if}{#if updateCount}
           · <span class="text-fjord-warning">{updateCount} update{updateCount === 1 ? '' : 's'} available</span>{/if}
       </div>
     </div>

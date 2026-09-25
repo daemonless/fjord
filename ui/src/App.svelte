@@ -26,6 +26,7 @@
   import { toast, dismissToast } from './toast';
   import { expandVars } from './expand';
   import { appUrl, noWebUI } from './appUrl';
+  import { health } from './stackHealth';
   import { parseEnv, missingVars, setEnvVar, isSecret, usedVars } from './composeVars';
   import VarsPanel from './VarsPanel.svelte';
   import { currentTheme, setTheme, watchSystem, type Theme } from './theme';
@@ -257,7 +258,34 @@
   // tab edits the director spec; director reconciles changes on the next up.
   $: isDirector = !!selectedStack?.director;
 
-  $: filtered = stacks.filter((s) => s.name.toLowerCase().includes(search.toLowerCase()));
+  // The status filter under the search box. Remembered; a chip shows only
+  // when it has something in it, so a healthy host shows next to nothing.
+  type StackFilter = 'all' | 'running' | 'stopped' | 'problem' | 'updates';
+  let stackFilter: StackFilter = (() => {
+    try {
+      const v = localStorage.getItem('fjord.stackFilter') as StackFilter;
+      return ['all', 'running', 'stopped', 'problem', 'updates'].includes(v) ? v : 'all';
+    } catch {
+      return 'all';
+    }
+  })();
+  $: try {
+    localStorage.setItem('fjord.stackFilter', stackFilter);
+  } catch {}
+  // fleet is passed in, not read inside: a $: line re-runs only for what it
+  // names, and Updates must follow each update check as it lands.
+  const inFilter = (s: Stack, f: StackFilter, fl: Record<string, UpdateInfo>) =>
+    f === 'all' ? true : f === 'updates' ? behind(fl[s.name]) : health(s) === f;
+  $: filterCounts = {
+    running: stacks.filter((s) => inFilter(s, 'running', fleet)).length,
+    stopped: stacks.filter((s) => inFilter(s, 'stopped', fleet)).length,
+    problem: stacks.filter((s) => inFilter(s, 'problem', fleet)).length,
+    updates: stacks.filter((s) => inFilter(s, 'updates', fleet)).length,
+  } as Record<string, number>;
+  // A filter emptied by events (the last problem fixed) falls back to All
+  // rather than leaving an empty list with no chip to explain it.
+  $: if (stackFilter !== 'all' && !filterCounts[stackFilter]) stackFilter = 'all';
+  $: filtered = stacks.filter((s) => s.name.toLowerCase().includes(search.toLowerCase()) && inFilter(s, stackFilter, fleet));
 
   // Sidebar grouping by state.group. Ungrouped ('') sorts last, no header.
   let collapsedGroups: Record<string, boolean> = {};
@@ -1754,6 +1782,27 @@
       >
     </div>
 
+    <!-- status filter: only the chips with something in them -->
+    {#if filterCounts.problem || filterCounts.updates || (filterCounts.running && filterCounts.stopped)}
+      <div class="flex flex-wrap gap-1 px-3 pt-2">
+        {#each [['all', 'All', stacks.length], ['running', 'Running', filterCounts.running], ['stopped', 'Stopped', filterCounts.stopped], ['problem', 'Problems', filterCounts.problem], ['updates', 'Updates', filterCounts.updates]] as [id, text, n]}
+          {#if id === 'all' || n}
+            <button
+              on:click={() => (stackFilter = stackFilter === id && id !== 'all' ? 'all' : (id as StackFilter))}
+              aria-pressed={stackFilter === id}
+              class="px-2 py-0.5 rounded-full text-[11px] font-medium border transition-colors {stackFilter === id
+                ? 'bg-fjord-accent text-white border-fjord-accent'
+                : id === 'problem'
+                  ? 'text-fjord-danger border-fjord-danger/40 hover:bg-fjord-danger/10'
+                  : id === 'updates'
+                    ? 'text-fjord-warning border-fjord-warning/40 hover:bg-fjord-warning/10'
+                    : 'text-fjord-fg-dim border-fjord-border hover:text-fjord-fg-secondary'}">{text} {n}</button
+            >
+          {/if}
+        {/each}
+      </div>
+    {/if}
+
     <!-- group-by selector: how the stack list is bucketed -->
     <div class="relative px-3 pb-1 pt-0.5">
       <button
@@ -1868,7 +1917,7 @@
         </div>
       {/if}
       {#if filtered.length === 0}
-        <p class="px-4 py-2 text-xs text-fjord-fg-faint italic">No stacks{search ? ' match' : ' yet'}.</p>
+        <p class="px-4 py-2 text-xs text-fjord-fg-faint italic">No stacks{search || stackFilter !== 'all' ? ' match' : ' yet'}.</p>
       {/if}
     </div>
 
