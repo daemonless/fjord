@@ -78,6 +78,19 @@ func loadSettings(fjordRoot string) savedSettings {
 		s.FolderSets = s.Libraries
 	}
 	s.Libraries = nil
+	// The Books preset split into Audiobooks and Ebooks: an untouched Books
+	// set (its preset keyword) was always an ebook library -- "BOOK" is what
+	// handed audiobook apps the ebook folder -- so it becomes Ebooks. The id
+	// stays, so nothing that refers to it changes.
+	hasEbooks := false
+	for _, fs := range s.FolderSets {
+		hasEbooks = hasEbooks || fs.Name == "Ebooks"
+	}
+	for i, fs := range s.FolderSets {
+		if !hasEbooks && fs.Name == "Books" && fs.Match == "BOOK" {
+			s.FolderSets[i].Name, s.FolderSets[i].Match = "Ebooks", "EBOOK|BOOK"
+		}
+	}
 	return s
 }
 

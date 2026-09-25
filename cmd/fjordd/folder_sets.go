@@ -52,7 +52,9 @@ func (l *FolderSet) UnmarshalJSON(b []byte) error {
 }
 
 // folderSetPreset is a one-click set the UI offers: a name plus the variable
-// keywords it applies to. Any name is allowed for custom sets.
+// keywords it applies to. Any name is allowed for custom sets. A keyword is a
+// whole word of the variable name (split at "_"), alone or with an S -- see
+// ui/src/folderMatch.ts -- so Audiobooks and Ebooks can be told apart.
 type folderSetPreset struct {
 	Name  string `json:"name"`
 	Match string `json:"match"`
@@ -62,8 +64,9 @@ var folderSetPresets = []folderSetPreset{
 	{"Movies", "MOVIE|FILM"},
 	{"TV", "TV|SHOW|SERIES"},
 	{"Music", "MUSIC"},
+	{"Audiobooks", "AUDIOBOOK"},
+	{"Ebooks", "EBOOK|BOOK"},
 	{"Downloads", "DOWNLOAD"},
-	{"Books", "BOOK"},
 	{"Photos", "PHOTO|PICTURE"},
 }
 
