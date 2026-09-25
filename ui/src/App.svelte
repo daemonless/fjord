@@ -550,8 +550,10 @@
   // page renders (selectedStack wins over currentView) so the address bar
   // always matches what's on screen.
   $: if (routeReady && typeof location !== 'undefined') {
+    // The tab is part of a stack's address (Services has none), so a refresh
+    // or a link lands on it rather than back on Services.
     const h = selectedStack
-      ? '#/stacks/' + encodeURIComponent(selectedStack.name)
+      ? '#/stacks/' + encodeURIComponent(selectedStack.name) + (activeTab === 'net' || isDraft ? '' : '/' + activeTab)
       : currentView === 'store'
         ? '#/store'
         : currentView === 'volumes'
@@ -567,7 +569,11 @@
               : '#/stacks';
     if (!setupOpen && location.hash !== h) {
       const rename = isDraft && location.hash.startsWith('#/stacks/');
-      history[rename ? 'replaceState' : 'pushState'](null, '', h);
+      // Another tab of the same stack replaces the entry: Back goes to the
+      // page before, not through every tab clicked on the way.
+      const stackOf = (x: string) => x.split('/').slice(0, 3).join('/');
+      const sameStack = selectedStack && stackOf(location.hash) === stackOf(h);
+      history[rename || sameStack ? 'replaceState' : 'pushState'](null, '', h);
     }
   }
 
@@ -1072,7 +1078,7 @@
 
   // Restore view/stack from the URL hash so deep links + refresh work.
   async function restoreFromHash() {
-    const [, section, name] = location.hash.replace(/^#/, '').split('/');
+    const [, section, name, tab] = location.hash.replace(/^#/, '').split('/');
     if (section === 'setup') {
       setupOpen = true;
       return;
@@ -1112,6 +1118,10 @@
         return;
       }
       await selectStack(found);
+      // Only a tab this stack has: makejail exists on a director stack alone.
+      // The list carries no director file; the loaded stack does.
+      if (tab === 'compose' || tab === 'env' || (tab === 'makejail' && selectedStack?.director)) activeTab = tab;
+      else activeTab = 'net';
     } else {
       currentView = 'stacks';
       await selectStack(null);

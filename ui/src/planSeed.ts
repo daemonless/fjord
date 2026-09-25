@@ -219,3 +219,29 @@ export function isolatedServices(edits: Record<string, Iface[]>): string[] {
   }
   return out;
 }
+
+/**
+ * keepAttachable carries the operator's interface edits over to a new
+ * engine's network list instead of re-seeding them.
+ *
+ * Changing the engine re-seeded the wizard's table from the app's defaults,
+ * so a network picked a moment earlier was replaced as soon as the engine
+ * changed. What really has to go is only what the new engine cannot attach:
+ * a row on a network it does not list, or a built-in it cannot do
+ * (unsupported). A service left with nothing takes its fresh seed.
+ */
+export function keepAttachable(
+  edits: Record<string, Iface[]>,
+  fresh: Record<string, Iface[]>,
+  networks: Net[],
+  unsupported: string[] = [],
+): Record<string, Iface[]> {
+  const ok = (n: string) =>
+    (isMode(n) && !unsupported.includes(n)) || n === PRIVATE || networks.some((x) => x.name === n);
+  const out: Record<string, Iface[]> = {};
+  for (const svc of Object.keys(fresh)) {
+    const kept = (edits[svc] ?? []).filter((r) => ok(r.network));
+    out[svc] = kept.length ? kept : fresh[svc];
+  }
+  return out;
+}

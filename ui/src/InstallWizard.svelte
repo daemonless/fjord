@@ -6,7 +6,7 @@
   import DirPicker from './DirPicker.svelte';
   import { addressProblem, usableRange, randomMAC } from './network';
   import ServiceResources from './ServiceResources.svelte';
-  import { resolveDefault, seedInterfaces, splitPlan, joinable, type Iface } from './planSeed';
+  import { resolveDefault, seedInterfaces, splitPlan, joinable, keepAttachable, type Iface } from './planSeed';
 
   // sources: every catalog offering this app; the user picks one (Repository)
   // when there's more than one. Each carries its own manifest_url + variants.
@@ -390,24 +390,33 @@
   // recomputing it on every reactive pass threw each edit away as it was made.
   let planEdits: Record<string, Iface[]> = {};
   let seededFor = '';
+  let seededApp = '';
+  let lastSeed = ''; // what the last seed wrote, to tell an edited table from an untouched one
   $: {
     // "default" can only be resolved once the networks it has to become are
     // in hand, so the seed waits for them and re-runs if the engine (and so
     // the network list) changes.
-    const key = `${svcNames.join(',')}|${JSON.stringify(netPlan)}|${engineChoice}|${netChoice}|${networksLoaded}|${hostNetworked}`;
-    if (singleService && networksLoaded && key !== seededFor) {
+    const app = `${svcNames.join(',')}|${JSON.stringify(netPlan)}|${hostNetworked}`;
+    const key = `${app}|${engineChoice}|${netChoice}|${networksLoaded}`;
+    if ((singleService || declaresNetworking) && networksLoaded && key !== seededFor) {
       seededFor = key;
-      const choice = netChoice || (hostNetworked ? 'host' : 'bridge');
-      planEdits = { [svcNames[0]]: [builtIn(choice) ? { network: choice } : { network: choice, ip: '', mac: '' }] };
-    } else if (declaresNetworking && networksLoaded && key !== seededFor) {
-      seededFor = key;
-      // How the app already arranges itself, for the case where this host has
-      // no network to offer: then it is installed as it ships rather than
-      // being split across a built-in and a private segment.
-      planEdits = seedInterfaces(
-        svcNames,
-        resolveDefault(netPlan, networks, netChoice, hostNetworked ? 'host' : 'bridge'),
-      );
+      let fresh: Record<string, Iface[]>;
+      if (singleService) {
+        const choice = netChoice || (hostNetworked ? 'host' : 'bridge');
+        fresh = { [svcNames[0]]: [builtIn(choice) ? { network: choice } : { network: choice, ip: '', mac: '' }] };
+      } else {
+        // How the app already arranges itself, for the case where this host has
+        // no network to offer: then it is installed as it ships rather than
+        // being split across a built-in and a private segment.
+        fresh = seedInterfaces(svcNames, resolveDefault(netPlan, networks, netChoice, hostNetworked ? 'host' : 'bridge'));
+      }
+      // The same app on another engine: what the operator picked stays,
+      // minus what this engine cannot attach. Re-seeding threw a network
+      // chosen a moment before away as soon as the engine changed.
+      const edited = app === seededApp && lastSeed !== '' && JSON.stringify(planEdits) !== lastSeed;
+      planEdits = edited ? keepAttachable(planEdits, fresh, networks, wizardUnsupported) : fresh;
+      seededApp = app;
+      lastSeed = JSON.stringify(fresh);
     }
   }
   // The services as the editor wants them. Nothing is running yet, so a name
