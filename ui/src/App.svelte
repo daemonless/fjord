@@ -27,6 +27,7 @@
   import { expandVars } from './expand';
   import { appUrl, noWebUI } from './appUrl';
   import { health } from './stackHealth';
+  import { changeSentence } from './updateWords';
   import { parseEnv, missingVars, setEnvVar, isSecret, usedVars } from './composeVars';
   import VarsPanel from './VarsPanel.svelte';
   import { currentTheme, setTheme, watchSystem, type Theme } from './theme';
@@ -162,6 +163,7 @@
     location.hash = '#/store';
   }
   let search = ''; // sidebar stack filter
+  let daemonVersion = ''; // shown under the sidebar
   let drawerOpen = true; // bottom panel — open by default
   try {
     const d = localStorage.getItem('fjord.drawerOpen');
@@ -790,33 +792,8 @@
         .then((d) => (changes = { ...changes, [k]: d }));
     }
   }
-  const day = (iso?: string) => (iso ? new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : '');
   // One line: the version move (or "same version"), then what the SBOMs say.
-  function changesLine(c: Changes): string {
-    // The class first: it is what an update policy acts on, and "rebuild"
-    // says more at a glance than the version pair that follows it.
-    const parts: string[] = c.class && c.class !== 'unknown' ? [c.class] : [];
-    if (c.versionFrom && c.versionTo) {
-      parts.push(c.versionFrom === c.versionTo ? `same version (${c.versionTo})` : `${c.versionFrom} → ${c.versionTo}`);
-    } else if (c.versionTo) {
-      parts.push(c.versionTo);
-    }
-    if (c.createdFrom && c.createdTo && day(c.createdFrom) !== day(c.createdTo)) {
-      parts.push(`built ${day(c.createdFrom)} → ${day(c.createdTo)}`);
-    }
-    if (c.packages) {
-      const n = (c.changed?.length ?? 0) + (c.added?.length ?? 0) + (c.removed?.length ?? 0);
-      if (!n) parts.push('no package changes');
-      else {
-        const bits = [];
-        if (c.changed?.length) bits.push(`${c.changed.length} changed`);
-        if (c.added?.length) bits.push(`${c.added.length} added`);
-        if (c.removed?.length) bits.push(`${c.removed.length} removed`);
-        parts.push(`packages: ${bits.join(', ')}`);
-      }
-    }
-    return parts.join(' · ');
-  }
+
 
   // Whether the operator is still on the stack an action was started from.
   // Anything that finishes long after it was started has to check this before
@@ -1173,6 +1150,10 @@
   }
 
   onMount(async () => {
+    fetch('/api/about')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((a) => (daemonVersion = a?.version ?? ''))
+      .catch(() => {});
     loadAppIcons();
     try {
       const r = await fetch('/api/setup/state');
@@ -1973,6 +1954,17 @@
           : 'text-fjord-fg-muted hover:text-fjord-fg'}"><Icon name="settings" size={15} /> Settings</button
       >
     </nav>
+    <!-- Which fjord this is, where anyone reporting a problem can see it. -->
+    {#if daemonVersion}
+      <button
+        on:click={() => {
+          selectStack(null);
+          currentView = 'system';
+        }}
+        title="System: this host and fjord"
+        class="px-4 pb-3 text-left text-[11px] text-fjord-fg-faint hover:text-fjord-fg-dim">fjord {daemonVersion}</button
+      >
+    {/if}
   </aside>
 
   <!-- sidebar↔main sash: visible divider, widens + highlights on hover -->
@@ -2244,7 +2236,9 @@
                         </td>
                         <td class="py-1.5 font-mono text-fjord-fg-secondary">
                           {#if s.state === 'available'}
-                            {shortDigest(s.running) || 'local'} → {shortDigest(s.latest)}
+                            <!-- Digests identify the builds but say nothing to read; they
+                                 stay reachable on hover, the sentence below says what changed. -->
+                            <span class="font-sans" title="{shortDigest(s.running) || 'local'} → {shortDigest(s.latest)}">new build</span>
                           {:else if s.state === 'upgrade'}
                             v{s.fromVersion} → v{s.toVersion}
                             {#if multiImage && !updateInfo.perService}<span class="font-sans text-fjord-fg-dim">(set in the compose)</span>{/if}
@@ -2258,13 +2252,13 @@
                         {@const c = changes[k]}
                         {#if c === 'loading'}
                           <tr>{#if offered.length > 1}<td></td>{/if}<td></td><td colspan="3" class="pb-1.5 text-fjord-fg-dim">Reading what changed…</td></tr>
-                        {:else if c && c !== 'none' && changesLine(c)}
+                        {:else if c && c !== 'none' && changeSentence(c)}
                           {@const n = (c.changed?.length ?? 0) + (c.added?.length ?? 0) + (c.removed?.length ?? 0)}
                           <tr>
                             {#if offered.length > 1}<td></td>{/if}
                             <td></td>
                             <td colspan="3" class="pb-1.5 text-fjord-fg-secondary">
-                              {changesLine(c)}
+                              {changeSentence(c)}
                               {#if c.packages && n}
                                 <button
                                   on:click={() => (changesOpen = { ...changesOpen, [k]: !changesOpen[k] })}
