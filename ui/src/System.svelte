@@ -110,10 +110,51 @@
     (caps.containers && pruneOpts.containers) || (caps.images && pruneOpts.images) || (caps.allImages && pruneOpts.allImages) ||
     (caps.volumes && pruneOpts.volumes) || (caps.networks && pruneOpts.networks) || (caps.build && pruneOpts.build);
 
+  // ---- left-over app data ----
+  // Folders in the app-data locations that no stack and no container uses:
+  // what deleting a stack left behind. Removed one at a time, two clicks each.
+  type Leftovers = { folders: { path: string; bytes: number; more?: boolean }[]; unchecked?: string[] };
+  let leftovers: Leftovers | null = null;
+  let leftoversError = '';
+  let confirmLeftover = '';
+  let removingLeftover = '';
+  async function loadLeftovers() {
+    leftoversError = '';
+    try {
+      const r = await fetch('/api/maintenance/leftovers');
+      if (!r.ok) throw new Error((await r.text()).trim() || `HTTP ${r.status}`);
+      leftovers = await r.json();
+    } catch (e: any) {
+      leftoversError = e.message;
+    }
+  }
+  async function removeLeftover(path: string) {
+    confirmLeftover = '';
+    removingLeftover = path;
+    try {
+      const r = await fetch('/api/maintenance/leftovers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path }),
+      });
+      if (!r.ok) throw new Error((await r.text()).trim() || `HTTP ${r.status}`);
+      toast(`Removed ${path}`, { kind: 'success' });
+    } catch (e: any) {
+      toast(`Could not remove ${path}: ${e.message}`, { kind: 'error' });
+    } finally {
+      removingLeftover = '';
+      loadLeftovers();
+    }
+  }
+  const fmtBytes = (n: number) =>
+    n < 1024 ? `${n} B` : n < 1024 ** 2 ? `${(n / 1024).toFixed(0)} KB` : n < 1024 ** 3 ? `${(n / 1024 ** 2).toFixed(1)} MB` : `${(n / 1024 ** 3).toFixed(1)} GB`;
+  $: leftoverTotal = (leftovers?.folders ?? []).reduce((a, f) => a + f.bytes, 0);
+
   onMount(() => {
     load();
     loadDf();
     loadPruneEngines();
+    loadLeftovers();
   });
 
   const STATUS = {
@@ -298,6 +339,56 @@
         >
           {#if pruning}<Spinner size={14} /> Cleaning…{:else}<Icon name="trash" size={14} /> Clean up{/if}
         </button>
+      {/if}
+
+      <!-- Left-over app data -->
+      <h3 class="text-lg font-bold text-fjord-fg mt-8 mb-1">Left-over app data</h3>
+      <p class="text-sm text-fjord-fg-dim mb-3 max-w-2xl">
+        Folders in your app-data locations that no stack and no container uses — usually what a deleted stack left
+        behind.
+      </p>
+      {#if leftoversError}
+        <p class="text-sm text-fjord-danger max-w-2xl">Could not check: {leftoversError}</p>
+      {:else if !leftovers}
+        <div class="flex items-center gap-2 text-fjord-fg-dim text-sm"><Spinner size={14} /> Looking…</div>
+      {:else if !leftovers.folders.length}
+        <p class="text-sm text-fjord-fg-dim">None — every folder there is in use.</p>
+      {:else}
+        <div class="text-xs text-fjord-fg-dim mb-2">
+          {leftovers.folders.length} folder{leftovers.folders.length === 1 ? '' : 's'}, {fmtBytes(leftoverTotal)}
+        </div>
+        <div class="border border-fjord-border rounded-xl overflow-hidden divide-y divide-fjord-border mb-2 max-w-2xl">
+          {#each leftovers.folders as f (f.path)}
+            <div class="flex items-center gap-3 px-4 py-2.5 text-sm">
+              <span class="flex-1 font-mono text-fjord-fg-body truncate" title={f.path}>{f.path}</span>
+              <span class="shrink-0 text-xs text-fjord-fg-dim">{f.more ? 'more than ' : ''}{fmtBytes(f.bytes)}</span>
+              {#if confirmLeftover === f.path}
+                <button
+                  on:click={() => removeLeftover(f.path)}
+                  class="shrink-0 px-3 py-1 rounded-lg text-xs font-medium bg-fjord-danger hover:bg-fjord-danger-hover text-white"
+                  >Delete for good</button
+                >
+                <button on:click={() => (confirmLeftover = '')} class="shrink-0 text-xs text-fjord-fg-muted hover:text-fjord-fg"
+                  >Cancel</button
+                >
+              {:else}
+                <button
+                  on:click={() => (confirmLeftover = f.path)}
+                  disabled={removingLeftover === f.path}
+                  title="Remove this folder"
+                  class="shrink-0 p-1.5 rounded-lg text-fjord-fg-muted hover:bg-fjord-danger hover:text-white transition-colors disabled:opacity-40"
+                  >{#if removingLeftover === f.path}<Spinner size={14} />{:else}<Icon name="trash" size={14} />{/if}</button
+                >
+              {/if}
+            </div>
+          {/each}
+        </div>
+        {#if leftovers.unchecked?.length}
+          <p class="text-xs text-fjord-warning max-w-2xl">
+            Not checked against {leftovers.unchecked.join(', ')}: it cannot list what its containers mount, so make sure
+            none of them uses a folder before removing it.
+          </p>
+        {/if}
       {/if}
     {/if}
   </div>

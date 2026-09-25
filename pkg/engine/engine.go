@@ -510,6 +510,13 @@ type Backend interface {
 	StoreSMBCredentials(server, username, password string) error
 }
 
+// MountLister is an engine that can say every host path any of its
+// containers mounts -- its own and ones fjord does not manage. Optional: an
+// engine without it leaves left-over data unconfirmed, never assumed unused.
+type MountLister interface {
+	HostMounts(ctx context.Context) ([]string, error)
+}
+
 // RunningImage is the image one service's container was created from.
 type RunningImage struct {
 	Service string

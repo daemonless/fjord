@@ -171,6 +171,7 @@ func (s *server) routes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/plugins", s.handlePlugins)
 	mux.HandleFunc("/api/maintenance/df", s.handleDiskUsage)
 	mux.HandleFunc("/api/maintenance/prune", s.handlePrune)
+	mux.HandleFunc("/api/maintenance/leftovers", s.handleLeftovers)
 	mux.HandleFunc("/api/networks", s.handleNetworks)
 	mux.HandleFunc("/api/networks/suggest", s.handleNetworkSuggest)
 	mux.HandleFunc("/api/networks/kinds", s.handleNetworkKinds)
