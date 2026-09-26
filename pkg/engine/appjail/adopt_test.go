@@ -95,3 +95,39 @@ func TestMissingDHClient(t *testing.T) {
 		t.Error("answered for a jail whose filesystem is not there")
 	}
 }
+
+// `appjail oci get-args` answers with each argument double-quoted, as stored
+// in conf/boot/oci/args. Adopting some-redis quoted those words again, so the
+// jail ran a program literally named "redis-server" (quotes included) and
+// nothing started; "very verbose" would have become two arguments.
+func TestConvertJailKeepsArguments(t *testing.T) {
+	info := jailInfo{
+		Name: "some-redis", Image: "ghcr.io/appjail-makejails/redis:latest", State: "running",
+		Args:       `"redis-server" "--protected-mode" "no" "--loglevel" "very verbose" "it's" "say \"hi\""`,
+		Entrypoint: `"/usr/local/bin/docker-entrypoint.sh"`,
+	}
+	spec := convertJail(info)
+	for _, want := range []string{
+		`      arguments: ['redis-server', '--protected-mode', 'no', '--loglevel', 'very verbose', 'it''s', 'say "hi"']` + "\n",
+		`      entrypoint: ['/usr/local/bin/docker-entrypoint.sh']` + "\n",
+	} {
+		if !strings.Contains(spec.Director, want) {
+			t.Errorf("director missing %q:\n%s", want, spec.Director)
+		}
+	}
+}
+
+func TestOCIWords(t *testing.T) {
+	for in, want := range map[string][]string{
+		`"serve"`:                 {"serve"},
+		`"a b" "c"`:               {"a b", "c"},
+		`"back\\slash" "q\"uote"`: {`back\slash`, `q"uote`},
+		`plain words`:             {"plain", "words"}, // not quoted: split on spaces
+		``:                        nil,
+		`  "x"  `:                 {"x"},
+	} {
+		if got := ociWords(in); strings.Join(got, "|") != strings.Join(want, "|") || len(got) != len(want) {
+			t.Errorf("ociWords(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

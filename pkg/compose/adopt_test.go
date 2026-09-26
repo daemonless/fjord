@@ -68,3 +68,36 @@ func TestFromRunArgsNetworkNone(t *testing.T) {
 		t.Errorf("none must not become an external network:\n%s", a.Compose)
 	}
 }
+
+// podman records the line the container was made with, and that is not
+// always `podman run`: navidrome made with `podman create` was read as image
+// "podman" running "create --name ...", and Adopt & replace swapped the real
+// container for a stack that could not start.
+func TestFromRunArgsCreateAndOtherSpellings(t *testing.T) {
+	tail := []string{"--name", "navidrome", "--network", "host", "-v", "/media/music:/music", "ghcr.io/daemonless/navidrome:pkg"}
+	for _, head := range [][]string{
+		{"podman", "create"},
+		{"podman", "container", "create"},
+		{"podman", "container", "run", "-d"},
+		{"/usr/local/bin/podman", "run", "-d"},
+	} {
+		a, err := FromRunArgs(append(append([]string{}, head...), tail...))
+		if err != nil {
+			t.Fatalf("%v: %v", head, err)
+		}
+		svcs := ParseServices(a.Compose, nil)
+		if len(svcs) != 1 || svcs[0].Image != "ghcr.io/daemonless/navidrome:pkg" {
+			t.Fatalf("%v: services %+v\n%s", head, svcs, a.Compose)
+		}
+		if strings.Contains(a.Compose, "command:") {
+			t.Errorf("%v: no command was given, got one:\n%s", head, a.Compose)
+		}
+	}
+}
+
+// A podman line that is neither run nor create is refused, not guessed at.
+func TestFromRunArgsRefusesOtherSubcommands(t *testing.T) {
+	if _, err := FromRunArgs([]string{"podman", "start", "navidrome"}); err == nil {
+		t.Fatal("podman start was accepted as a run line")
+	}
+}

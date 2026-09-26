@@ -265,10 +265,10 @@ func convertJail(info jailInfo) *engine.AdoptSpec {
 		w(&d, "      workdir: %s\n", info.Workdir)
 	}
 	if info.Entrypoint != "" {
-		w(&d, "      entrypoint: [%s]\n", quoteFields(info.Entrypoint))
+		w(&d, "      entrypoint: [%s]\n", yamlList(ociWords(info.Entrypoint)))
 	}
 	if info.Args != "" {
-		w(&d, "      arguments: [%s]\n", quoteFields(info.Args))
+		w(&d, "      arguments: [%s]\n", yamlList(ociWords(info.Args)))
 	}
 	if len(envKeys) > 0 {
 		w(&d, "      environment:\n")
@@ -379,11 +379,46 @@ func yamlScalar(v string) string {
 	return "'" + strings.ReplaceAll(v, "'", "''") + "'"
 }
 
-// quoteFields renders a whitespace-separated command as a YAML flow list.
-func quoteFields(s string) string {
-	var q []string
-	for _, f := range strings.Fields(s) {
-		q = append(q, "'"+strings.ReplaceAll(f, "'", "''")+"'")
+// ociWords splits what `appjail oci get-args` / get-entrypoint answer: each
+// word double-quoted, `\"` and `\\` escaped ("redis-server" "very verbose").
+// Splitting that on spaces kept the quotes as part of every word -- the jail
+// then looked for a program named "redis-server", quotes included -- and cut
+// "very verbose" in two. Unquoted text is split on spaces.
+func ociWords(s string) []string {
+	var words []string
+	for i := 0; i < len(s); {
+		switch {
+		case s[i] == ' ' || s[i] == '\t' || s[i] == '\n':
+			i++
+		case s[i] == '"':
+			var b strings.Builder
+			i++
+			for i < len(s) && s[i] != '"' {
+				if s[i] == '\\' && i+1 < len(s) {
+					i++
+				}
+				b.WriteByte(s[i])
+				i++
+			}
+			i++ // closing quote
+			words = append(words, b.String())
+		default:
+			j := i
+			for j < len(s) && s[j] != ' ' && s[j] != '\t' && s[j] != '\n' {
+				j++
+			}
+			words = append(words, s[i:j])
+			i = j
+		}
+	}
+	return words
+}
+
+// yamlList renders words as a YAML flow list of single-quoted strings.
+func yamlList(words []string) string {
+	q := make([]string, len(words))
+	for i, w := range words {
+		q[i] = "'" + strings.ReplaceAll(w, "'", "''") + "'"
 	}
 	return strings.Join(q, ", ")
 }
