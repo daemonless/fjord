@@ -20,15 +20,25 @@ type Adopted struct {
 }
 
 // FromRunArgs turns `podman run ...` argv (with or without the leading
-// "podman run") into a stack. Recognised: --name, --hostname, --network,
+// "podman run"; `podman create`, `podman container run|create` and a full
+// path to podman are the same thing) into a stack. Recognised: --name, --hostname, --network,
 // --ip, --mac-address, --annotation, -e/--env, -v/--volume, -p/--publish,
 // --restart, --user, --privileged, --cap-add, --device, --dns, --label, plus
 // the image and command. Anything else is reported in Notes rather than
 // silently lost. The FreeBSD podman doesn't report a container's IP/MAC via
 // inspect, which is why the run line is the source of truth.
 func FromRunArgs(args []string) (*Adopted, error) {
-	if len(args) >= 2 && args[0] == "podman" && args[1] == "run" {
-		args = args[2:]
+	// Anything else after "podman" is refused rather than read as flags: the
+	// word "podman" would become the image and the rest its command.
+	if len(args) > 0 && path.Base(args[0]) == "podman" {
+		rest := args[1:]
+		if len(rest) > 0 && rest[0] == "container" {
+			rest = rest[1:]
+		}
+		if len(rest) == 0 || (rest[0] != "run" && rest[0] != "create") {
+			return nil, fmt.Errorf("not a podman run or create line: %s", strings.Join(args, " "))
+		}
+		args = rest[1:]
 	}
 	var (
 		name, hostname, network, ip, mac, restart, user string

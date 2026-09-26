@@ -28,9 +28,20 @@ export async function adoptContainer(c: Candidate, replace: boolean): Promise<st
   return (await r.json()).id;
 }
 
-// Starts a stack and waits for the engine's output to finish.
+// Starts a stack and waits for the engine's output to finish. The status is
+// sent before the outcome is known, so a failure is a "[error]" line in the
+// output -- reading only the status reported a stack that never started
+// (navidrome, adopted from a bad run line) as adopted.
 export async function startStack(id: string): Promise<void> {
   const r = await fetch(`/api/stacks/${encodeURIComponent(id)}/up`, { method: 'POST' });
-  await r.text();
-  if (!r.ok) throw new Error(`start ${id}: HTTP ${r.status}`);
+  const out = await r.text();
+  if (!r.ok) throw new Error(`start ${id}: ${out.trim() || `HTTP ${r.status}`}`);
+  const err = startError(out);
+  if (err) throw new Error(`start ${id}: ${err}`);
+}
+
+// startError is the first "[error]" line of a stack's start output, or ''.
+export function startError(out: string): string {
+  const line = out.split('\n').find((l) => /^\[error\]/i.test(l));
+  return line ? line.replace(/^\[error\]:?\s*/i, '') || 'failed' : '';
 }
