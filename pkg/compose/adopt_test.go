@@ -101,3 +101,34 @@ func TestFromRunArgsRefusesOtherSubcommands(t *testing.T) {
 		t.Fatal("podman start was accepted as a run line")
 	}
 }
+
+// "--read-only img" must not take the image as the flag's value.
+func TestFromRunArgsBoolFlagBeforeImage(t *testing.T) {
+	for _, flag := range []string{"--read-only", "--no-hosts", "--sig-proxy", "-P", "--replace"} {
+		a, err := FromRunArgs([]string{"podman", "run", "-d", "--name", "web", flag, "ghcr.io/daemonless/caddy:latest", "caddy", "run"})
+		if err != nil {
+			t.Fatalf("%s: %v", flag, err)
+		}
+		svcs := ParseServices(a.Compose, nil)
+		if len(svcs) != 1 || svcs[0].Image != "ghcr.io/daemonless/caddy:latest" {
+			t.Fatalf("%s swallowed the image: %+v\n%s", flag, svcs, a.Compose)
+		}
+		if !strings.Contains(strings.Join(a.Notes, "|"), "dropped "+flag) {
+			t.Errorf("%s: not noted as dropped: %v", flag, a.Notes)
+		}
+	}
+}
+
+// Named volumes are declared external, so the stack reuses the data.
+func TestFromRunArgsNamedVolumeIsExternal(t *testing.T) {
+	a, err := FromRunArgs([]string{"podman", "run", "-d", "--name", "db", "-v", "pgdata:/var/db/postgres", "-v", "/srv/conf:/conf", "-v", "pgdata:/backup", "ghcr.io/daemonless/postgres:17"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(a.Compose, "\nvolumes:\n  pgdata:\n    external: true\n") {
+		t.Fatalf("pgdata not declared external:\n%s", a.Compose)
+	}
+	if strings.Count(a.Compose, "  pgdata:\n") != 1 || strings.Contains(a.Compose, "  /srv/conf:") {
+		t.Fatalf("declared a path, or pgdata twice:\n%s", a.Compose)
+	}
+}

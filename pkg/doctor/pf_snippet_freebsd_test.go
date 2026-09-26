@@ -69,6 +69,10 @@ func TestMissingNat(t *testing.T) {
 	if got := missingNat(active, []string{"vtnet0", "vtnet1"}); !slices.Equal(got, []string{"vtnet1"}) {
 		t.Fatalf("got %v, want [vtnet1]", got)
 	}
+	// The host's own nat on vtnet1 (a VPN subnet) is not container NAT.
+	if got := missingNat(active+"nat on vtnet1 inet from 10.8.0.0/24 to any -> (vtnet1)\n", []string{"vtnet1"}); !slices.Equal(got, []string{"vtnet1"}) {
+		t.Fatalf("an unrelated nat rule counted as container NAT: %v", got)
+	}
 	// vtnet1 must not count as covered by a rule for vtnet10.
 	if got := missingNat("nat on vtnet10 inet from <cni-nat> to any -> (vtnet10)\n", []string{"vtnet1"}); !slices.Equal(got, []string{"vtnet1"}) {
 		t.Fatalf("vtnet10 rule counted for vtnet1: %v", got)

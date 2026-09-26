@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { plan, purpose, outcome, type Check } from './setupPlan';
+import { plan, purpose, outcome, installStream, type Check } from './setupPlan';
 
 const ENGINES = ['podman', 'appjail'];
 const c = (id: string, over: Partial<Check> = {}): Check => ({ id, name: id, status: 'fail', ...over });
@@ -107,5 +107,20 @@ describe('all checks', () => {
     expect(ids).toContain('podman-stale');
     expect(ids).toContain('root');
     expect(ids).not.toContain('appjail');
+  });
+});
+
+describe('install stream when the connection drops', () => {
+  it('returns a failure instead of throwing', async () => {
+    const real = globalThis.fetch;
+    globalThis.fetch = (() => Promise.reject(new TypeError('Failed to fetch'))) as any;
+    try {
+      let shown = '';
+      const err = await installStream('podman', (t) => (shown += t));
+      expect(err).toMatch(/lost the connection/);
+      expect(shown).toMatch(/^\n\[error\]/);
+    } finally {
+      globalThis.fetch = real;
+    }
   });
 });
