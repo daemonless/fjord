@@ -152,7 +152,9 @@
         body: JSON.stringify({ name }),
       });
       if (!res.ok) throw new Error((await res.text()).trim() || `HTTP ${res.status}`);
-      toast(`${name} installed — restart fjordd to enable it`, { kind: 'success', timeout: 8000 });
+      const { restartRequired } = await res.json();
+      if (restartRequired) toast(`${name} installed — restart fjordd to enable it`, { kind: 'success', timeout: 8000 });
+      else toast(`${name} installed and ready`, { kind: 'success' });
       await loadEngines();
     } catch (e: any) {
       toast(e.message || `Could not install ${name}`, { kind: 'error' });
@@ -701,7 +703,7 @@
                 <p class="text-xs text-fjord-danger mb-2">Another folder set already has this name — rename it or move its folders into the other one.</p>
               {/if}
 
-              <FolderRows bind:folders={lib.folders} on:change={touchSets} />
+              <FolderRows bind:folders={lib.folders} name={lib.name} on:change={touchSets} />
             </div>
           {/each}
           <datalist id="set-presets">{#each setPresets as p}<option value={p.name}></option>{/each}</datalist>
@@ -1023,7 +1025,7 @@
         </div>
 
         <h3 class="text-sm font-semibold text-fjord-fg-secondary mt-8 mb-1">First-run setup</h3>
-        <p class="text-xs text-fjord-fg-dim mb-3">Storage, Homelab presets, catalog and the quick guide, as shown on first launch. Nothing is reset; it only walks through the same settings again.</p>
+        <p class="text-xs text-fjord-fg-dim mb-3">Storage, Homelab folder presets, catalog and the quick guide, as shown on first launch. Nothing is reset; it only walks through the same settings again.</p>
         <button
           on:click={async () => {
             try {

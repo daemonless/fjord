@@ -1,8 +1,10 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"strings"
@@ -13,15 +15,30 @@ import (
 
 // handleSetup reports host readiness: platform, deployment mode, and every
 // doctor check with its remediation. Read-only -- the UI renders fixes as
-// commands for the operator (an install endpoint may come later).
+// commands for the operator; /api/setup/install fixes the installable ones.
 func (s *server) handleSetup(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	s.registerNewEngines()
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
-	report := doctor.Run(ctx, doctor.Config{Engines: s.engineNames(), FjordRoot: s.fjordRoot})
+	engines := s.doctorEngines()
+	// ?engine=podman,appjail asks about those engines, installed or not: the
+	// setup page shows what the engines you pick would need before they are
+	// on the host.
+	if q := r.URL.Query().Get("engine"); q != "" {
+		engines = nil
+		for _, name := range strings.Split(q, ",") {
+			if _, ok := descriptor(name); !ok {
+				http.Error(w, "unknown engine: "+name, 400)
+				return
+			}
+			engines = append(engines, name)
+		}
+	}
+	report := doctor.Run(ctx, doctor.Config{Engines: engines, FjordRoot: s.fjordRoot})
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(report)
 }
@@ -29,6 +46,10 @@ func (s *server) handleSetup(w http.ResponseWriter, r *http.Request) {
 // handleSetupInstall fixes one doctor check itself: POST {"id": "epair"}
 // runs that check's installer (a pinned, checksummed download, or "pkg
 // install" of its package). The page runs the checks again afterwards.
+//
+// With ?stream=1 the answer is the installer's terminal session as it
+// happens, ending in a line "[done]" or "[error] <why>": the status is sent
+// before the outcome is known.
 func (s *server) handleSetupInstall(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -43,11 +64,27 @@ func (s *server) handleSetupInstall(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Minute)
 	defer cancel()
-	if err := doctor.Install(ctx, doctor.Config{Engines: s.engineNames(), FjordRoot: s.fjordRoot}, req.ID); err != nil {
-		http.Error(w, err.Error(), 500)
+	cfg := doctor.Config{Engines: s.doctorEngines(), FjordRoot: s.fjordRoot}
+	if r.URL.Query().Get("stream") == "1" {
+		w.Header().Set("Content-Type", "text/plain")
+		w.WriteHeader(http.StatusOK)
+		out := flushWriter{w}
+		if err := doctor.Install(ctx, cfg, req.ID, out); err != nil {
+			fmt.Fprintf(out, "[error] %v\n", err)
+			return
+		}
+		log.Printf("setup: installed what the %q check needs", req.ID)
+		s.registerNewEngines()
+		fmt.Fprintln(out, "[done]")
+		return
+	}
+	var out bytes.Buffer
+	if err := doctor.Install(ctx, cfg, req.ID, &out); err != nil {
+		http.Error(w, err.Error()+"\n"+out.String(), 500)
 		return
 	}
 	log.Printf("setup: installed what the %q check needs", req.ID)
+	s.registerNewEngines()
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -74,4 +111,16 @@ func logDoctor(fjordRoot string, engineNames []string) {
 		}
 		log.Printf("doctor: [%s] %s: %s", c.Status, c.Name, msg)
 	}
+}
+
+// flushWriter sends every write to the client at once, so a long pkg install
+// shows up line by line instead of all at the end.
+type flushWriter struct{ w http.ResponseWriter }
+
+func (f flushWriter) Write(p []byte) (int, error) {
+	n, err := f.w.Write(p)
+	if fl, ok := f.w.(http.Flusher); ok {
+		fl.Flush()
+	}
+	return n, err
 }

@@ -60,14 +60,15 @@ type folderSetPreset struct {
 	Match string `json:"match"`
 }
 
+// Alphabetical: every screen lists them in this order.
 var folderSetPresets = []folderSetPreset{
-	{"Movies", "MOVIE|FILM"},
-	{"TV", "TV|SHOW|SERIES"},
-	{"Music", "MUSIC"},
 	{"Audiobooks", "AUDIOBOOK"},
-	{"Ebooks", "EBOOK|BOOK"},
 	{"Downloads", "DOWNLOAD"},
+	{"Ebooks", "EBOOK|BOOK"},
+	{"Movies", "MOVIE|FILM"},
+	{"Music", "MUSIC"},
 	{"Photos", "PHOTO|PICTURE"},
+	{"TV", "TV|SHOW|SERIES"},
 }
 
 // handleFolderSets lists (GET) or replaces (PUT) all folder sets. Whole-list

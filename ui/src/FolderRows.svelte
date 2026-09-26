@@ -10,6 +10,9 @@
   import { remoteKind, type RemoteKind } from './remote';
 
   export let folders: string[] = [];
+  // The set's name, for an example path that fits it (/mnt/photos for Photos).
+  export let name = '';
+  $: example = '/mnt/' + (name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'media');
   const dispatch = createEventDispatcher<{ change: void }>();
   const changed = () => {
     folders = folders;
@@ -38,7 +41,7 @@
 <div class="space-y-1.5 mb-2 pl-1">
   {#each folders as _, j (j)}
     <div class="flex items-center gap-2">
-      <input bind:value={folders[j]} on:input={changed} placeholder={'/mnt/movies or {{appdata}}/{{stack}}/data'} class="flex-1 min-w-0 bg-fjord-inset border border-fjord-border rounded-md px-2 py-1 text-xs text-fjord-fg-body font-mono focus:outline-none focus:border-fjord-accent" />
+      <input bind:value={folders[j]} on:input={changed} placeholder={example} class="flex-1 min-w-0 bg-fjord-inset border border-fjord-border rounded-md px-2 py-1 text-xs text-fjord-fg-body font-mono focus:outline-none focus:border-fjord-accent" />
       {#if remoteKind(folders[j])}
         <span class="shrink-0 text-[10px] font-semibold uppercase tracking-wide text-fjord-fg-muted border border-fjord-border rounded px-1.5 py-0.5" title="Mounted as a named volume at install">{remoteKind(folders[j])}</span>
       {:else}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -24,7 +25,7 @@ func TestInstallEpairChecksChecksum(t *testing.T) {
 	epairURL, epairSHA256, epairDest = srv.URL, hex.EncodeToString(sum[:]), dest
 	t.Cleanup(func() { epairURL, epairSHA256, epairDest = oldURL, oldSum, oldDest })
 
-	if err := installEpair(context.Background()); err != nil {
+	if err := installEpair(context.Background(), io.Discard); err != nil {
 		t.Fatal(err)
 	}
 	info, err := os.Stat(dest)
@@ -33,7 +34,7 @@ func TestInstallEpairChecksChecksum(t *testing.T) {
 	}
 
 	served = []byte("#!/bin/sh\nrm -rf /\n")
-	if err := installEpair(context.Background()); err == nil {
+	if err := installEpair(context.Background(), io.Discard); err == nil {
 		t.Fatal("a file that does not match the checksum was accepted")
 	}
 	if b, _ := os.ReadFile(dest); string(b) != string(good) {

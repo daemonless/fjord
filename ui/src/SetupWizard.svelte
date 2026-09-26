@@ -5,55 +5,42 @@
   import { onMount, createEventDispatcher } from 'svelte';
   import Icon from './Icon.svelte';
   import EngineMark from './EngineMark.svelte';
-  import { listCandidates, adoptContainer, startStack, type Candidate } from './adopt';
+  import { listCandidates, type Candidate } from './adopt';
+  import Adopt from './Adopt.svelte';
   import Spinner from './Spinner.svelte';
   import DirPicker from './DirPicker.svelte';
   import FolderRows from './FolderRows.svelte';
-  import InstallCheckButton from './InstallCheckButton.svelte';
-  import FixSnippet from './FixSnippet.svelte';
+  import SetupReady from './SetupReady.svelte';
   import { toast } from './toast';
-
   const dispatch = createEventDispatcher<{ done: void }>();
-  const STEPS = ['Welcome', 'Engine', 'Storage', 'Catalog', 'Already running', 'How it works'];
+  const STEPS = ['Welcome', 'Storage', 'Catalog', 'Already running', 'How it works'];
   // "Already running" only exists when something already is. Listing a step and
   // then jumping over it reads as a bug, so the indicator omits it entirely
   // when there is nothing to adopt. Entries carry their real index: `step`
   // still counts through STEPS, and hiding a label must not shift it.
-  const ADOPT_STEP = 4;
+  const ADOPT_STEP = 3;
   $: visibleSteps = STEPS.map((label, i) => ({ label, i })).filter(
-    (s) => s.i !== ADOPT_STEP || candidates.length > 0,
+    (s) => s.i !== ADOPT_STEP || candidates.length > 0 || step === ADOPT_STEP,
   );
   let step = 0;
 
-  // ---- 1. readiness ----
-  type Check = { id: string; name: string; status: 'ok' | 'warn' | 'fail' | 'unknown'; detail?: string; why?: string; fix?: string; installable?: boolean };
-  let checks: Check[] = [];
-  let engineName = '';
+  // ---- 1. host and engines ----
+  // SetupReady picks the engines and sets the host up; the first one picked
+  // becomes the default for new installs.
+  let engineName = ''; // the default in effect
   let hostMode = false;
-  let checksLoading = true;
-  async function loadChecks() {
-    checksLoading = true;
+  async function loadEngine() {
     try {
-      const [setupRes, engineRes] = await Promise.all([fetch('/api/setup'), fetch('/api/engine')]);
-      if (setupRes.ok) {
-        const rep = await setupRes.json();
-        checks = rep.checks || [];
-        hostMode = rep.mode === 'host';
-      }
-      if (engineRes.ok) {
-        const d = await engineRes.json();
+      const r = await fetch('/api/engine');
+      if (r.ok) {
+        const d = await r.json();
         engineName = d.default || '';
-        engines = d.engines || [];
-        engineChoice = engineName;
+        hostMode = !d.jailed;
       }
     } catch {}
-    checksLoading = false;
   }
 
-  // ---- 1b. default engine ----
   // Which runtime new installs use unless the install wizard picks another.
-  // Every engine is listed, unavailable ones greyed with the reason, so a
-  // host with only one still learns what the other would need.
   type Engine = { name: string; description?: string; available: boolean; enabled: boolean; default: boolean; reason?: string; warning?: string };
   let engines: Engine[] = [];
   let engineChoice = '';
@@ -77,7 +64,6 @@
       savingEngine = false;
     }
   }
-  $: failing = checks.filter((c) => c.status === 'fail');
 
   // ---- 2. storage + homelab ----
   type FolderSet = { id?: string; name: string; folders: string[]; match?: string };
@@ -86,7 +72,7 @@
   let pickDir = false;
   let homelab = true;
   let savingStorage = false;
-  // Homelab presets (Movies, TV, ...) and their host paths. With homelab on
+  // Homelab folder presets (Movies, TV, ...) and their host paths. With homelab on
   // the wizard asks where each preset folder lives so apps pick them up at
   // install; off, it asks nothing. Presets and their match come from the API
   // (never hardcoded here). customSets are user-defined sets we must preserve
@@ -265,34 +251,25 @@
   // image, mounts, network address and name. The step is skipped when there
   // is nothing to adopt.
   let candidates: Candidate[] = [];
-  let picked: Record<string, boolean> = {};
-  let adopting = false;
-  let adoptProgress = '';
-  let adoptedCount = 0;
-  async function loadCandidates() {
-    candidates = await listCandidates();
-    for (const c of candidates) if (!c.error) picked[c.name] = true;
+  // Listing asks the engines, and podman answers slowly while it is writing
+  // an image (a pull, an update) -- so the wizard never waits on it to move:
+  // the step shows it is looking, and steps past itself if there is nothing.
+  let candidatesLoading = false;
+  let candidatesSeq = 0;
+  // The look in flight (or done), started ahead of the step that shows it:
+  // leaving the first screen (the engines are set up by then) and Storage.
+  let candidatesLook: Promise<void> | null = null;
+  function lookForCandidates() {
+    candidatesLook = loadCandidates();
+    return candidatesLook;
   }
-  async function adoptPicked() {
-    const todo = candidates.filter((c) => picked[c.name] && !c.error);
-    if (!todo.length) return;
-    adopting = true;
-    let failed = 0;
-    for (const [i, c] of todo.entries()) {
-      adoptProgress = `${i + 1} / ${todo.length}: ${c.name}`;
-      try {
-        const id = await adoptContainer(c, true);
-        await startStack(id);
-        adoptedCount++;
-      } catch (e: any) {
-        failed++;
-        toast(`${c.name}: ${e.message}`, { kind: 'error' });
-      }
-    }
-    adopting = false;
-    adoptProgress = '';
-    toast(failed ? `Adopted ${todo.length - failed}, ${failed} failed` : `Adopted ${todo.length} container${todo.length === 1 ? '' : 's'}`, { kind: failed ? 'error' : 'success' });
-    await loadCandidates();
+  async function loadCandidates() {
+    const seq = ++candidatesSeq;
+    candidatesLoading = true;
+    const found = await listCandidates();
+    if (seq !== candidatesSeq) return; // a newer look replaced this one
+    candidates = found;
+    candidatesLoading = false;
   }
 
   // ---- navigation ----
@@ -307,10 +284,18 @@
     if (navigating) return;
     navigating = true;
     try {
-      if (step === 1 && !(await saveEngine())) return;
-      if (step === 2 && !(await saveStorage())) return;
-      // Refresh: something may have been started since the wizard opened.
-      if (step === 3) await loadCandidates();
+      // An engine that is not set up yet cannot be the default; carry on.
+      if (step === 0 && engines.find((e) => e.name === engineChoice)?.enabled && !(await saveEngine())) return;
+      if (step === 1 && !(await saveStorage())) return;
+      if (step === 0 || step === 1) lookForCandidates();
+      if (step === 2) {
+        // Usually answered by now; if not, this screen says it is looking.
+        step = ADOPT_STEP;
+        (candidatesLook ?? lookForCandidates()).then(() => {
+          if (step === ADOPT_STEP && !candidates.length) step = ADOPT_STEP + 1; // nothing to adopt
+        });
+        return;
+      }
       step = Math.min(step + 1, STEPS.length - 1);
       if (step === ADOPT_STEP && !candidates.length) step = ADOPT_STEP + 1; // nothing to adopt
     } finally {
@@ -338,20 +323,13 @@
   }
 
   onMount(() => {
-    loadChecks();
+    loadEngine();
     loadStorage();
     loadCatalog();
     // Up front, not on the way into the step: the indicator has to know from
     // the first screen whether there is an "Already running" step at all.
-    loadCandidates();
+    lookForCandidates();
   });
-
-  const STATUS: Record<string, { icon: string; cls: string }> = {
-    ok: { icon: 'check', cls: 'text-fjord-success' },
-    warn: { icon: 'alert', cls: 'text-fjord-warning' },
-    fail: { icon: 'alert', cls: 'text-fjord-danger' },
-    unknown: { icon: 'alert', cls: 'text-fjord-fg-dim' },
-  };
 </script>
 
 <!-- Centred by m-auto, not items-center: flex centring pushes content taller
@@ -380,80 +358,10 @@
       {#if step === 0}
         <h2 class="text-2xl font-bold text-fjord-fg mb-2">Welcome to fjord</h2>
         <p class="text-sm text-fjord-fg-muted mb-5">
-          An app store for your own host. Pick an app, answer a couple of questions, and it runs as a
-          stack you can see, update, and remove. This takes about two minutes and nothing here is final.
+          An app store for your own host. First, let's get this host ready to run apps.
         </p>
-        <div class="flex items-center justify-between mb-2">
-          <h3 class="text-sm font-semibold text-fjord-fg-secondary">Host readiness{#if engineName} · {engineName}{/if}</h3>
-          <!-- Fixes are applied in a root shell outside fjord; re-run without leaving the page. -->
-          <button
-            on:click={loadChecks}
-            disabled={checksLoading}
-            class="flex items-center gap-1.5 text-xs font-medium text-fjord-fg-muted hover:text-fjord-fg py-1 px-2.5 rounded-md border border-fjord-border hover:border-fjord-accent/40 transition-colors disabled:opacity-40"
-            ><Icon name="refresh" size={13} /> Re-check</button
-          >
-        </div>
-        {#if checksLoading}
-          <div class="flex items-center gap-2 text-sm text-fjord-fg-dim"><Spinner size={14} /> Checking the host…</div>
-        {:else if checks.length === 0}
-          <p class="text-sm text-fjord-fg-dim">No checks reported.</p>
-        {:else}
-          <div class="border border-fjord-border rounded-xl overflow-hidden divide-y divide-fjord-border">
-            {#each checks as c (c.id)}
-              <div class="flex items-start gap-3 px-4 py-2.5">
-                <Icon name={STATUS[c.status]?.icon || 'alert'} size={15} class="shrink-0 mt-0.5 {STATUS[c.status]?.cls || ''}" />
-                <div class="min-w-0 flex-1">
-                  <div class="text-sm text-fjord-fg-body">{c.name}{#if c.detail}<span class="text-fjord-fg-dim"> · {c.detail}</span>{/if}</div>
-                  {#if c.why}<div class="text-xs text-fjord-fg-dim mt-0.5">{c.why}</div>{/if}
-                  {#if c.status !== 'ok' && c.fix}<div class="mt-1.5"><FixSnippet fix={c.fix} /></div>{/if}
-                </div>
-                {#if c.installable}<InstallCheckButton id={c.id} name={c.name} on:installed={loadChecks} />{/if}
-              </div>
-            {/each}
-          </div>
-          {#if failing.length}
-            <p class="text-xs text-fjord-warning mt-3">
-              {failing.length} check{failing.length === 1 ? '' : 's'} failing. Installs on this engine will not work until fixed;
-              the same list lives on the System page, so you can carry on and come back to it.
-            </p>
-          {/if}
-        {/if}
+        <SetupReady bind:engineChoice bind:engines />
       {:else if step === 1}
-        <h2 class="text-2xl font-bold text-fjord-fg mb-2">Engine</h2>
-        <p class="text-sm text-fjord-fg-muted mb-5">
-          The runtime new apps are installed on. Both run the same images as FreeBSD jails; each install can still
-          pick the other, and a stack's engine is fixed once installed. Change the default any time under
-          Settings → Engines.
-        </p>
-        <div class="space-y-2 mb-2">
-          {#each engines as e (e.name)}
-            <label
-              class="flex items-start gap-3 p-3 rounded-xl border transition-colors {e.enabled
-                ? engineChoice === e.name
-                  ? 'border-fjord-accent bg-fjord-accent/10 cursor-pointer'
-                  : 'border-fjord-border hover:border-fjord-neutral cursor-pointer'
-                : 'border-fjord-border opacity-60 cursor-not-allowed'}"
-            >
-              <input type="radio" name="engine" value={e.name} bind:group={engineChoice} disabled={!e.enabled} class="mt-1 accent-fjord-accent" />
-              <span class="flex items-center justify-center w-8 h-8 rounded-lg bg-fjord-bg border border-fjord-border shrink-0 text-fjord-fg-secondary"
-                ><EngineMark engine={e.name} size={18} /></span
-              >
-              <span class="min-w-0">
-                <span class="flex items-center gap-2">
-                  <span class="font-semibold text-fjord-fg">{e.name}</span>
-                  {#if !e.available}<span class="text-[10px] font-medium px-1.5 py-0.5 rounded bg-fjord-bg border border-fjord-border text-fjord-fg-dim">not installed</span>{/if}
-                </span>
-                <span class="block text-xs text-fjord-fg-muted mt-0.5">{e.description}</span>
-                {#if !e.available && e.reason}<span class="block text-xs text-fjord-fg-dim mt-0.5">{e.reason} — the System page shows how to install it.</span>{/if}
-                {#if e.warning}<span class="flex items-start gap-1.5 text-xs text-fjord-warning mt-1"><Icon name="alert" size={12} class="shrink-0 mt-0.5" /> {e.warning}</span>{/if}
-              </span>
-            </label>
-          {/each}
-        </div>
-        {#if !engines.some((e) => e.enabled)}
-          <p class="text-sm text-fjord-warning">No engine is available yet — install one (see the readiness checks) and restart fjordd.</p>
-        {/if}
-      {:else if step === 2}
         <h2 class="text-2xl font-bold text-fjord-fg mb-2">Storage</h2>
         <p class="text-sm text-fjord-fg-muted mb-5">
           Where apps keep their data. Each app gets its own folder under this location. Pick a disk with room;
@@ -476,7 +384,7 @@
         <div class="border border-fjord-border px-4 py-3 flex items-center gap-3 {homelab && presets.length ? 'rounded-t-xl' : 'rounded-xl'}">
           <div class="min-w-0 flex-1">
             <div class="flex items-center gap-2">
-              <span class="text-sm font-medium text-fjord-fg">Homelab presets</span>
+              <span class="text-sm font-medium text-fjord-fg">Homelab folder presets</span>
               <span class="text-[10px] font-semibold uppercase tracking-wide text-fjord-success">suggested</span>
             </div>
             <div class="text-xs text-fjord-fg-dim">
@@ -486,7 +394,7 @@
           </div>
           <button
             on:click={toggleHomelab}
-            aria-label={homelab ? 'Disable Homelab presets' : 'Enable Homelab presets'}
+            aria-label={homelab ? 'Disable Homelab folder presets' : 'Enable Homelab folder presets'}
             class="shrink-0 relative w-11 h-6 rounded-full transition-colors {homelab ? 'bg-fjord-accent' : 'bg-fjord-border'}"
           >
             <span class="absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform {homelab ? 'translate-x-5' : ''}"></span>
@@ -506,13 +414,13 @@
                     <Icon name={presetIcon(pr.name)} size={14} class="shrink-0 text-fjord-fg-dim" />
                     <span class="text-sm font-medium text-fjord-fg-secondary">{pr.name}</span>
                   </div>
-                  <FolderRows bind:folders={presetFolders[pr.name]} />
+                  <FolderRows bind:folders={presetFolders[pr.name]} name={pr.name} />
                 </div>
               {/each}
             </div>
           </div>
         {/if}
-      {:else if step === 3}
+      {:else if step === 2}
         <h2 class="text-2xl font-bold text-fjord-fg mb-2">Catalog</h2>
         <p class="text-sm text-fjord-fg-muted mb-5">
           Where apps come from. A catalog is a URL publishing an app list, icons and install manifests.
@@ -571,37 +479,14 @@
             ><Icon name="plus" size={12} /> Re-add the daemonless catalog</button
           >
         {/if}
-      {:else if step === 4}
-        <h2 class="text-2xl font-bold text-fjord-fg mb-2">Already running on this host</h2>
-        <p class="text-sm text-fjord-fg-muted mb-5">
-          These containers and jails were started outside fjord. Adopting one turns what the engine recorded
-          into a stack — same image, mounts, network address and name — and starts it in place of the old one.
-          Data stays where it is. Untick anything you'd rather leave alone; you can adopt later from the Stacks
-          page.
-        </p>
-        <div class="border border-fjord-border rounded-xl overflow-hidden divide-y divide-fjord-border mb-4 max-w-2xl">
-          {#each candidates as c (c.engine + ':' + c.id)}
-            <label class="flex items-center gap-3 px-4 py-2.5 {c.error ? 'opacity-60' : 'cursor-pointer hover:bg-fjord-border/40'}">
-              <input type="checkbox" bind:checked={picked[c.name]} disabled={!!c.error || adopting} class="accent-fjord-accent" />
-              <EngineMark engine={c.engine} size={14} />
-              <span class="min-w-0 flex-1">
-                <span class="text-sm text-fjord-fg-body">{c.name}</span>
-                <span class="block text-xs text-fjord-fg-dim font-mono truncate">{c.image}</span>
-                {#if c.error}<span class="block text-xs text-fjord-danger">{c.error}</span>{/if}
-                {#each c.notes || [] as n}<span class="block text-xs text-fjord-warning">{n}</span>{/each}
-              </span>
-              <span class="text-[10px] font-semibold uppercase tracking-wide {c.state === 'running' ? 'text-fjord-success' : 'text-fjord-fg-dim'}">{c.state}</span>
-            </label>
-          {/each}
-        </div>
-        <button
-          on:click={adoptPicked}
-          disabled={adopting || !candidates.some((c) => picked[c.name] && !c.error)}
-          class="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-fjord-accent hover:bg-fjord-accent-hover text-white disabled:opacity-50"
-          >{#if adopting}<Spinner size={13} /> {adoptProgress}{:else}Adopt &amp; replace selected{/if}</button
-        >
-        {#if adoptedCount}
-          <p class="text-xs text-fjord-success mt-3">{adoptedCount} adopted — they're on the Stacks page.</p>
+      {:else if step === 3}
+        {#if candidates.length || !candidatesLoading}
+          <!-- Same page as Stacks → Adopt. Adopting refreshes the wizard's copy too,
+               so Back and forward again does not offer what is already a stack. -->
+          <Adopt embedded initial={candidates} on:adopted={lookForCandidates} />
+        {:else}
+          <h2 class="text-2xl font-bold text-fjord-fg mb-2">Already running on this host</h2>
+          <div class="flex items-center gap-2 text-sm text-fjord-fg-dim"><Spinner size={14} /> Looking for containers and jails already running…</div>
         {/if}
       {:else}
         <h2 class="text-2xl font-bold text-fjord-fg mb-2">How it works</h2>
@@ -633,7 +518,7 @@
           <button on:click={finish} disabled={finishing} class="px-3 py-2 rounded-lg text-sm font-medium text-fjord-fg-dim hover:text-fjord-fg-secondary">Skip setup</button>
           <button
             on:click={next}
-            disabled={navigating || adopting}
+            disabled={navigating}
             class="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-fjord-accent hover:bg-fjord-accent-hover text-white disabled:opacity-50"
             >{#if navigating}<Spinner size={13} />{/if}Continue <Icon name="chevron-right" size={14} /></button
           >

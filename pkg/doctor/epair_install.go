@@ -26,9 +26,10 @@ var (
 // installEpair downloads the pinned plugin, checks it byte for byte against
 // its checksum, and moves it into place in one rename: a failed or tampered
 // download never replaces a working plugin.
-func installEpair(ctx context.Context) error {
+func installEpair(ctx context.Context, w io.Writer) error {
 	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
+	fmt.Fprintf(w, "$ fetch -o %s %s\n", epairDest, epairURL)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, epairURL, nil)
 	if err != nil {
 		return err
@@ -49,6 +50,7 @@ func installEpair(ctx context.Context) error {
 	if got := hex.EncodeToString(sum[:]); got != epairSHA256 {
 		return fmt.Errorf("cni-epair %s did not match its checksum (got %s) -- not installed", epairVersion, got)
 	}
+	fmt.Fprintf(w, "%d bytes, sha256 %s: matches %s\n$ chmod 755 %s\n", len(body), epairSHA256, epairVersion, epairDest)
 	dir := filepath.Dir(epairDest)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
@@ -70,4 +72,15 @@ func installEpair(ctx context.Context) error {
 		return err
 	}
 	return os.Rename(tmp.Name(), epairDest)
+}
+
+// epairCommands is what installEpair does, as the commands a person would
+// type: fjordd does the same in Go, and refuses a download that does not
+// match the pinned checksum.
+func epairCommands() []string {
+	return []string{
+		"fetch -o " + epairDest + " " + epairURL,
+		"# refused unless its sha256 is " + epairSHA256,
+		"chmod 755 " + epairDest,
+	}
 }
