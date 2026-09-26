@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -161,18 +162,30 @@ func appjailPfCheck() Check {
 // fix is the exact lines to add (with this host's default-route interface),
 // then enable -- "reload pf" is no help to someone who never had the rules.
 func pfFix() string {
-	ifc := defaultIface()
+	ifaces := natIfaces()
 	rules := []string{
 		`rdr-anchor "cni-rdr/*"`,
 		`nat-anchor "cni-rdr/*"`,
 		`table <cni-nat>`,
-		"nat on " + ifc + " inet from <cni-nat> to any -> (" + ifc + ")",
 	}
+	for _, ifc := range ifaces {
+		rules = append(rules, natRule(ifc))
+	}
+	which := "containers leave by " + strings.Join(ifaces, " and ") + ", the interfaces with an address"
 	conf, _ := os.ReadFile("/etc/pf.conf")
 	if strings.Contains(string(conf), "cni-rdr") {
+		if miss := missingNat(string(conf), ifaces); len(miss) > 0 {
+			var add []string
+			for _, ifc := range miss {
+				add = append(add, natRule(ifc))
+			}
+			return "# /etc/pf.conf NATs containers out of only some of this host's networks -- add " + strings.Join(miss, ", ") + "\n" +
+				pfInsertSnippet(add, "/etc/pf.conf") + pfValidate +
+				"pfctl -f /etc/pf.conf"
+		}
 		// The lines are shown as comments here so pasting the block can't
 		// append a second copy.
-		s := "# /etc/pf.conf already has podman's anchors; it must contain these (" + ifc + " = your LAN interface):\n"
+		s := "# /etc/pf.conf already has podman's anchors; it must contain these (" + which + "):\n"
 		for _, r := range rules {
 			s += "#   " + r + "\n"
 		}
@@ -184,7 +197,7 @@ func pfFix() string {
 			"sysrc pf_enable=YES\n" +
 			"service pf start"
 	}
-	return "# /etc/pf.conf is missing podman's anchors -- add them once (" + ifc + " = your LAN interface)\n" +
+	return "# /etc/pf.conf is missing podman's anchors -- add them once (" + which + ")\n" +
 		pfInsertSnippet(rules, "/etc/pf.conf") + pfValidate +
 		"sysrc pf_enable=YES\n" +
 		"service pf start\n" +
@@ -204,12 +217,24 @@ func pfFix() string {
 // and every later line fails on the missing file. touch makes it an empty one,
 // which awk ends up appending to -- and makes the podman and AppJail snippets
 // safe to paste in either order.
+//
+// Only lines the file lacks are added, so pasting it again changes nothing
+// (an earlier version appended every line on each run: six copies after a few
+// tries), and a file with some of the lines gets just the rest.
 func pfInsertSnippet(rules []string, path string) string {
 	add := strings.ReplaceAll(strings.Join(rules, "\\n"), "'", "'\\''")
 	return "touch " + path + "\n" +
 		"awk -v add='" + add + "' '\n" +
-		"  !done && /^(pass|block|match|antispoof|anchor)[[:space:]]/ { print add; done=1 } { print }\n" +
-		"  END { if (!done) print add }' " + path + " > " + path + ".new && mv " + path + ".new " + path + "\n"
+		"  BEGIN { n = split(add, want, \"\\n\") }\n" +
+		"  { have[$0] = 1; line[NR] = $0 }\n" +
+		"  END {\n" +
+		"    for (i = 1; i <= n; i++) if (!(want[i] in have)) miss = miss want[i] \"\\n\"\n" +
+		"    for (j = 1; j <= NR; j++) {\n" +
+		"      if (miss != \"\" && line[j] ~ /^(pass|block|match|antispoof|anchor)[[:space:]]/) { printf \"%s\", miss; miss = \"\" }\n" +
+		"      print line[j]\n" +
+		"    }\n" +
+		"    printf \"%s\", miss\n" +
+		"  }' " + path + " > " + path + ".new && mv " + path + ".new " + path + "\n"
 }
 
 // pfValidate checks /etc/pf.conf before it is loaded. pfctl needs the pf
@@ -404,7 +429,75 @@ func pfProbe(ctx context.Context) (Status, string) {
 	if !strings.Contains(string(out), "cni-rdr") && !strings.Contains(string(out), "netavark") {
 		return Warn, "pf is loaded but the container rdr anchors are not in the active ruleset -- published bridge ports will hang; reload pf.conf"
 	}
+	if miss := missingNat(string(out), natIfaces()); len(miss) > 0 {
+		return Warn, "bridge-network containers are not NATed out of " + strings.Join(miss, ", ") +
+			" -- anything they reach that way (the LAN, its DNS server) never answers"
+	}
 	return OK, "pf loaded, container rdr anchors active"
+}
+
+// natIfaces are the interfaces bridge-network containers can leave by: every
+// one with an IPv4 address, the default route's first. NAT on the default
+// route's interface alone broke a two-network host completely: traffic to the
+// other network (its DNS server included) left un-NATed and was never answered.
+func natIfaces() []string {
+	out, err := exec.Command("ifconfig", "-l", "inet").Output()
+	if err != nil {
+		return []string{defaultIface()}
+	}
+	var skip []string
+	if _, err := exec.LookPath("appjail"); err == nil {
+		// AppJail names each virtual network's bridge after the network.
+		nets, _ := exec.Command("appjail", "network", "list", "-HIp", "name").Output()
+		skip = strings.Fields(string(nets))
+	}
+	if got := natCandidates(strings.Fields(string(out)), defaultIface(), skip); len(got) > 0 {
+		return got
+	}
+	return []string{defaultIface()}
+}
+
+// natCandidates keeps the host's own interfaces -- not loopback, pf's, or the
+// bridges, epairs and vnets that belong to containers and jails -- with def
+// first.
+func natCandidates(ifaces []string, def string, skip []string) []string {
+	var out []string
+	for _, ifc := range ifaces {
+		if slices.Contains(skip, ifc) {
+			continue
+		}
+		own := true
+		for _, p := range []string{"lo", "cni-", "epair", "vnet", "pflog", "pfsync"} {
+			if strings.HasPrefix(ifc, p) {
+				own = false
+			}
+		}
+		if !own {
+			continue
+		}
+		if ifc == def {
+			out = append([]string{ifc}, out...)
+		} else {
+			out = append(out, ifc)
+		}
+	}
+	return out
+}
+
+func natRule(ifc string) string {
+	return "nat on " + ifc + " inet from <cni-nat> to any -> (" + ifc + ")"
+}
+
+// missingNat are the interfaces with no "nat on <ifc> " rule in rules
+// (pfctl -s nat output, or pf.conf).
+func missingNat(rules string, ifaces []string) []string {
+	var miss []string
+	for _, ifc := range ifaces {
+		if !strings.Contains(rules, "nat on "+ifc+" ") {
+			miss = append(miss, ifc)
+		}
+	}
+	return miss
 }
 
 // dnsnameProbe reports whether podman can resolve container names.
