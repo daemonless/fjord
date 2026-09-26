@@ -239,7 +239,8 @@ func (s *server) handleEngineInstall(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unknown engine: "+req.Name, 400)
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Minute)
+	// Outlives the request: a closed tab must not SIGKILL pkg mid-transaction.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 5*time.Minute)
 	defer cancel()
 	// Package may list several (appjail + its director); one pkg invocation.
 	// Before the new engine can be registered: whatever is default now stays

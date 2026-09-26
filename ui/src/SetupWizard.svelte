@@ -280,6 +280,10 @@
   // One flag guards re-entry and drives the spinner, so the button is never
   // both busy and idle-looking.
   let navigating = false;
+  // Leaving mid-run would unmount it halfway.
+  let setupRunning = false;
+  let adoptWorking = false;
+  $: busy = setupRunning || adoptWorking;
   async function next() {
     if (navigating) return;
     navigating = true;
@@ -343,7 +347,7 @@
         <button
           on:click={() => s.i < step && (step = s.i)}
           class="flex items-center gap-2 text-xs font-medium {s.i === step ? 'text-fjord-fg' : s.i < step ? 'text-fjord-fg-muted hover:text-fjord-fg-body' : 'text-fjord-fg-faint'}"
-          disabled={s.i > step}
+          disabled={s.i > step || busy}
         >
           <span class="w-5 h-5 rounded-full flex items-center justify-center text-[10px] {s.i === step ? 'bg-fjord-accent text-white' : s.i < step ? 'bg-fjord-border text-fjord-fg-secondary' : 'border border-fjord-border'}"
             >{#if s.i < step}<Icon name="check" size={11} />{:else}{n + 1}{/if}</span
@@ -360,7 +364,7 @@
         <p class="text-sm text-fjord-fg-muted mb-5">
           An app store for your own host. First, let's get this host ready to run apps.
         </p>
-        <SetupReady bind:engineChoice bind:engines />
+        <SetupReady bind:engineChoice bind:engines bind:running={setupRunning} />
       {:else if step === 1}
         <h2 class="text-2xl font-bold text-fjord-fg mb-2">Storage</h2>
         <p class="text-sm text-fjord-fg-muted mb-5">
@@ -483,7 +487,7 @@
         {#if candidates.length || !candidatesLoading}
           <!-- Same page as Stacks → Adopt. Adopting refreshes the wizard's copy too,
                so Back and forward again does not offer what is already a stack. -->
-          <Adopt embedded initial={candidates} on:adopted={lookForCandidates} />
+          <Adopt embedded initial={candidates} on:adopted={lookForCandidates} bind:working={adoptWorking} />
         {:else}
           <h2 class="text-2xl font-bold text-fjord-fg mb-2">Already running on this host</h2>
           <div class="flex items-center gap-2 text-sm text-fjord-fg-dim"><Spinner size={14} /> Looking for containers and jails already running…</div>
@@ -511,21 +515,21 @@
       <!-- footer -->
       <div class="flex items-center gap-3 mt-7 pt-5 border-t border-fjord-border">
         {#if step > 0}
-          <button on:click={back} disabled={navigating} class="px-3 py-2 rounded-lg text-sm font-medium text-fjord-fg-muted hover:text-fjord-fg disabled:opacity-40">Back</button>
+          <button on:click={back} disabled={navigating || busy} class="px-3 py-2 rounded-lg text-sm font-medium text-fjord-fg-muted hover:text-fjord-fg disabled:opacity-40">Back</button>
         {/if}
         <div class="flex-1"></div>
         {#if step < STEPS.length - 1}
-          <button on:click={finish} disabled={finishing} class="px-3 py-2 rounded-lg text-sm font-medium text-fjord-fg-dim hover:text-fjord-fg-secondary">Skip setup</button>
+          <button on:click={finish} disabled={finishing || busy} class="px-3 py-2 rounded-lg text-sm font-medium text-fjord-fg-dim hover:text-fjord-fg-secondary disabled:opacity-40">Skip setup</button>
           <button
             on:click={next}
-            disabled={navigating}
+            disabled={navigating || busy}
             class="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-fjord-accent hover:bg-fjord-accent-hover text-white disabled:opacity-50"
             >{#if navigating}<Spinner size={13} />{/if}Continue <Icon name="chevron-right" size={14} /></button
           >
         {:else}
           <button
             on:click={finish}
-            disabled={finishing}
+            disabled={finishing || busy}
             class="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-fjord-accent hover:bg-fjord-accent-hover text-white disabled:opacity-50"
             >{#if finishing}<Spinner size={13} />{/if}Open the App Store</button
           >

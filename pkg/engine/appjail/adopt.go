@@ -315,7 +315,12 @@ func convertJail(info jailInfo) *engine.AdoptSpec {
 	if len(envKeys) > 0 {
 		w(&c, "    environment:\n")
 		for _, k := range envKeys {
-			w(&c, "      - %s=%s\n", k, envValues[k])
+			// Literals quoted: unquoted, "a # b" or "x: y" is a comment or a map.
+			if strings.HasPrefix(envValues[k], "${") {
+				w(&c, "      - %s=%s\n", k, envValues[k])
+			} else {
+				w(&c, "      - %q\n", k+"="+envValues[k])
+			}
 		}
 	}
 	if len(vols) > 0 {

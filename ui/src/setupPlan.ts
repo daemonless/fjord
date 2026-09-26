@@ -76,27 +76,34 @@ export function purpose(c: Check): string {
 // out as it arrives. The daemon ends the stream with "[done]" or
 // "[error] <why>" -- the HTTP status is sent before the outcome is known.
 export async function installStream(id: string, out: (text: string) => void): Promise<string | null> {
-  const r = await fetch('/api/setup/install?stream=1', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ id }),
-  });
-  if (!r.ok) {
-    const msg = (await r.text()).trim() || `HTTP ${r.status}`;
-    out(`[error] ${msg}\n`);
-    return msg;
-  }
+  // A dropped connection is a failed step; thrown, it left the screen stuck.
   let all = '';
-  const reader = r.body?.getReader();
-  const decoder = new TextDecoder('utf-8');
-  if (reader) {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      const text = decoder.decode(value, { stream: true });
-      all += text;
-      out(text);
+  try {
+    const r = await fetch('/api/setup/install?stream=1', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id }),
+    });
+    if (!r.ok) {
+      const msg = (await r.text()).trim() || `HTTP ${r.status}`;
+      out(`[error] ${msg}\n`);
+      return msg;
     }
+    const reader = r.body?.getReader();
+    const decoder = new TextDecoder('utf-8');
+    if (reader) {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const text = decoder.decode(value, { stream: true });
+        all += text;
+        out(text);
+      }
+    }
+  } catch (e: any) {
+    const msg = `lost the connection to fjordd (${e?.message || e}) -- the install may still be running; check again in a moment`;
+    out(`\n[error] ${msg}\n`);
+    return msg;
   }
   return outcome(all);
 }

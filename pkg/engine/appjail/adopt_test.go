@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	composepkg "github.com/daemonless/fjord/pkg/compose"
 )
 
 // Fixture: uptime-kuma on saturn, made by a director project outside fjord.
@@ -129,5 +131,21 @@ func TestOCIWords(t *testing.T) {
 		if got := ociWords(in); strings.Join(got, "|") != strings.Join(want, "|") || len(got) != len(want) {
 			t.Errorf("ociWords(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+// YAML-special literal env values survive; references stay bare.
+func TestConvertJailQuotesLiteralEnv(t *testing.T) {
+	info := jailInfo{
+		Name: "app", Image: "ghcr.io/x/app:latest", State: "running",
+		Env: map[string]string{"GREETING": "hi # there: friend", "PUID": "1000"},
+	}
+	spec := convertJail(info)
+	svcs := composepkg.ParseServices(spec.Compose, map[string]string{"PUID": "1000"})
+	if len(svcs) != 1 || svcs[0].Env["GREETING"] != "hi # there: friend" {
+		t.Fatalf("literal value lost: %+v\n%s", svcs, spec.Compose)
+	}
+	if !strings.Contains(spec.Compose, "      - PUID=${PUID}\n") {
+		t.Errorf("reference was quoted:\n%s", spec.Compose)
 	}
 }

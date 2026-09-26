@@ -20,7 +20,8 @@
   let checks: Check[] = [];
   let loading = true;
   let loadedOnce = false;
-  let running = false;
+  // Bound by the wizard to hold its buttons.
+  export let running = false;
   let selected: string[] = [];
 
   $: names = engines.map((e) => e.name);

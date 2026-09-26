@@ -64,8 +64,9 @@ func runDirector(ctx context.Context, w io.Writer, dir string, tolerateMissing b
 	// to recognise the tolerated "Project not found" exit afterwards.
 	var buf bytes.Buffer
 	fmt.Fprintf(w, "$ appjail-director %s\n", strings.Join(args, " "))
-	cmd.Stdout = io.MultiWriter(w, &buf)
-	cmd.Stderr = io.MultiWriter(w, &buf)
+	// One writer for both, so os/exec serializes the writes into buf.
+	out := io.MultiWriter(w, &buf)
+	cmd.Stdout, cmd.Stderr = out, out
 	err := cmd.Run()
 	if err != nil && tolerateMissing && bytes.Contains(buf.Bytes(), []byte("Project not found")) {
 		fmt.Fprintln(w, "[fjord] nothing to tear down (already stopped)")

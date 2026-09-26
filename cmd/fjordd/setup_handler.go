@@ -62,7 +62,8 @@ func (s *server) handleSetupInstall(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "id required", 400)
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Minute)
+	// Outlives the request: a closed tab must not SIGKILL pkg mid-transaction.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 5*time.Minute)
 	defer cancel()
 	cfg := doctor.Config{Engines: s.doctorEngines(), FjordRoot: s.fjordRoot}
 	if r.URL.Query().Get("stream") == "1" {
@@ -117,10 +118,13 @@ func logDoctor(fjordRoot string, engineNames []string) {
 // shows up line by line instead of all at the end.
 type flushWriter struct{ w http.ResponseWriter }
 
+// Drops a gone client's write error: returned, exec stops draining and pkg
+// blocks on a full pipe.
 func (f flushWriter) Write(p []byte) (int, error) {
-	n, err := f.w.Write(p)
-	if fl, ok := f.w.(http.Flusher); ok {
-		fl.Flush()
+	if _, err := f.w.Write(p); err == nil {
+		if fl, ok := f.w.(http.Flusher); ok {
+			fl.Flush()
+		}
 	}
-	return n, err
+	return len(p), nil
 }

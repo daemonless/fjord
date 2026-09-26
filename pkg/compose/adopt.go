@@ -76,6 +76,13 @@ func FromRunArgs(args []string) (*Adopted, error) {
 			return take(&i, flag)
 		}
 		switch flag {
+		// Value-less (podman 5.8.6 run --help): the unknown-flag guess below
+		// would take the next word -- often the image -- as their value.
+		case "--disable-content-trust", "--env-host", "--http-proxy", "--no-healthcheck", "--no-hostname",
+			"--no-hosts", "--oom-kill-disable", "--passwd", "-P", "--publish-all", "-q", "--quiet",
+			"--read-only", "--read-only-tmpfs", "--replace", "--rmi", "--rootfs", "--sig-proxy",
+			"--tls-verify", "--unsetenv-all":
+			notes = append(notes, "dropped "+a)
 		case "-d", "--detach", "-t", "--tty", "-i", "--interactive", "--rm", "--init":
 			// lifecycle flags: compose handles these
 		case "--name":
@@ -249,6 +256,14 @@ func FromRunArgs(args []string) (*Adopted, error) {
 		}
 		w("\nnetworks:\n  %s:\n    external: true\n", network)
 	}
+	// Named volumes: undeclared, podman-compose refuses the stack; not
+	// external, it makes a new empty <project>_<name> without the data.
+	if named := namedVolumes(volumes); len(named) > 0 {
+		w("\nvolumes:\n")
+		for _, n := range named {
+			w("  %s:\n    external: true\n", n)
+		}
+	}
 	if len(envFile) == 0 {
 		envFile["TZ"] = "UTC"
 	}
@@ -290,4 +305,19 @@ func sortedKeys(m map[string]string) []string {
 	}
 	sort.Strings(keys)
 	return keys
+}
+
+// namedVolumes are the -v sources that are names, not paths.
+func namedVolumes(volumes []string) []string {
+	var out []string
+	seen := map[string]bool{}
+	for _, v := range volumes {
+		src, _, ok := strings.Cut(v, ":")
+		if !ok || src == "" || strings.ContainsAny(src, "/~.$") || seen[src] {
+			continue
+		}
+		seen[src] = true
+		out = append(out, src)
+	}
+	return out
 }

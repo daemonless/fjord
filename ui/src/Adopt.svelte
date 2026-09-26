@@ -17,6 +17,9 @@
   // shown at once instead of looking again.
   export let embedded = false;
   export let initial: Candidate[] | null = null;
+  // An adopt is running: other adopt buttons, and the wizard's, wait.
+  export let working = false;
+  $: working = allBusy || !!busy;
 
   let list: Candidate[] = initial ?? [];
   let loading = initial === null;
@@ -122,7 +125,7 @@
         {:else}
           <button
             on:click={() => (confirmAll = true)}
-            disabled={allBusy}
+            disabled={working}
             class="flex items-center gap-2 whitespace-nowrap bg-fjord-accent hover:bg-fjord-accent-hover text-white font-medium py-2 px-4 rounded-lg text-sm disabled:opacity-50"
             >{#if allBusy}<Spinner size={13} /> {progress}{:else}Adopt &amp; replace all ({list.filter((c) => !c.error).length}){/if}</button
           >
@@ -157,7 +160,7 @@
               </button>
               <button
                 on:click={() => adopt(c, false)}
-                disabled={!!c.error || busy === c.name}
+                disabled={!!c.error || working}
                 title="Create the stack (stopped); the container keeps running"
                 class="text-sm px-3 py-1.5 rounded-lg bg-fjord-border hover:bg-fjord-accent hover:text-white disabled:opacity-40">Adopt</button>
               {#if confirmReplace === c.name}
@@ -168,7 +171,7 @@
               {:else}
                 <button
                   on:click={() => (confirmReplace = c.name)}
-                  disabled={!!c.error || busy === c.name}
+                  disabled={!!c.error || working}
                   title="Remove the container and start it as a stack"
                   class="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg bg-fjord-accent hover:bg-fjord-accent-hover text-white disabled:opacity-40"
                   >{#if busy === c.name}<Spinner size={13} />{/if}Adopt &amp; replace</button>

@@ -72,6 +72,10 @@ func platform(cfg Config) platformInfo {
 			Why:   "The OCI runtime that turns a container into a FreeBSD jail; podman cannot start anything without it.",
 			Fix:   "pkg install -y ocijail\n# already installed but older than 0.6.0?\npkg upgrade -y ocijail",
 			Pkg:   map[string]string{"freebsd": "ocijail"},
+			Installed: func() bool {
+				_, err := exec.LookPath("ocijail")
+				return err == nil
+			},
 		},
 		{
 			ID: "epair", Name: "LAN networks (epair plugin)", Engine: "podman", HostOnly: true,
@@ -181,6 +185,9 @@ func pfFix() string {
 			}
 			return "# /etc/pf.conf NATs containers out of only some of this host's networks -- add " + strings.Join(miss, ", ") + "\n" +
 				pfInsertSnippet(add, "/etc/pf.conf") + pfValidate +
+				"sysrc pf_enable=YES\n" +
+				"service pf start\n" +
+				"# and load them now: `service pf start` does nothing if pf was already up\n" +
 				"pfctl -f /etc/pf.conf"
 		}
 		// The lines are shown as comments here so pasting the block can't
@@ -491,12 +498,20 @@ func natRule(ifc string) string {
 	return "nat on " + ifc + " inet from <cni-nat> to any -> (" + ifc + ")"
 }
 
-// missingNat are the interfaces with no "nat on <ifc> " rule in rules
-// (pfctl -s nat output, or pf.conf).
+// missingNat are the interfaces with no "nat on <ifc>" line naming <cni-nat>
+// (the host's own nat rules on it don't count).
 func missingNat(rules string, ifaces []string) []string {
+	lines := strings.Split(rules, "\n")
 	var miss []string
 	for _, ifc := range ifaces {
-		if !strings.Contains(rules, "nat on "+ifc+" ") {
+		found := false
+		for _, l := range lines {
+			if strings.Contains(l, "nat on "+ifc+" ") && strings.Contains(l, "<cni-nat>") {
+				found = true
+				break
+			}
+		}
+		if !found {
 			miss = append(miss, ifc)
 		}
 	}
