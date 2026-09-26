@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"os/exec"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -74,7 +75,10 @@ func (b *Backend) bringUp(ctx context.Context, pw *io.PipeWriter, s *stack.Stack
 	b.releaseOrphanAddresses(ctx, pw, s)
 	args := upArgs(forceRecreate, only)
 	started := time.Now()
-	err := b.runStreaming(ctx, pw, s.Dir, "podman-compose", args...)
+	// A copy of what compose says, to explain a failure its own words don't.
+	seen := &lastBytes{}
+	out := io.MultiWriter(pw, seen)
+	err := b.runStreaming(ctx, out, s.Dir, "podman-compose", args...)
 	// A plain up tolerates a failure here: compose can leave a container in
 	// "created" and the explicit `podman start` below recovers it. A recreate
 	// cannot -- if the teardown was refused the OLD container is still there,
@@ -101,8 +105,11 @@ func (b *Backend) bringUp(ctx context.Context, pw *io.PipeWriter, s *stack.Stack
 			fmt.Fprintf(pw, "\n[warn] recreate refused (%s); force-removing the containers being replaced and retrying\n", why)
 			b.forceRemoveStackContainers(ctx, pw, s, targets)
 			b.releaseOrphanAddresses(ctx, pw, s)
-			err = b.runStreaming(ctx, pw, s.Dir, "podman-compose", args...)
+			err = b.runStreaming(ctx, out, s.Dir, "podman-compose", args...)
 		}
+	}
+	if b.explainNoDHCP(ctx, pw, seen.String()) {
+		return // `podman start` would fail the same way
 	}
 	if err != nil && forceRecreate {
 		fmt.Fprintf(pw, "\n[error] recreate failed, the stack still runs its previous image: %v\n", err)
@@ -121,10 +128,66 @@ func (b *Backend) bringUp(ctx context.Context, pw *io.PipeWriter, s *stack.Stack
 		fmt.Fprintf(pw, "\n[error] compose created no containers to start\n")
 		return
 	}
-	if err := b.runStreaming(ctx, pw, s.Dir, "podman", append([]string{"start"}, names...)...); err != nil {
-		fmt.Fprintf(pw, "\n[error] start: %v\n", err)
+	seen.reset()
+	if err := b.runStreaming(ctx, out, s.Dir, "podman", append([]string{"start"}, names...)...); err != nil {
+		if !b.explainNoDHCP(ctx, pw, seen.String()) {
+			fmt.Fprintf(pw, "\n[error] start: %v\n", err)
+		}
 	}
 }
+
+// explainNoDHCP says in plain words why a container on a DHCP network did not
+// start, when the epair plugin reports that nothing answered. Its own message
+// ("cni plugin epair failed: no DHCP response on vlan4bridge for epair0b")
+// does not say the network never reaches this host -- the VLAN not carried on
+// its switch port, army's case -- so people retry, or blame the app.
+func (b *Backend) explainNoDHCP(ctx context.Context, w io.Writer, output string) bool {
+	bridge := noDHCPBridge(output)
+	if bridge == "" {
+		return false
+	}
+	nets, _ := b.Networks(ctx)
+	fmt.Fprintf(w, "\n[error] %s\n", noDHCPMessage(bridge, nets))
+	return true
+}
+
+var noDHCPRe = regexp.MustCompile(`no DHCP response on (\S+)`)
+
+// noDHCPBridge is the bridge the epair plugin got no DHCP answer on, or "".
+func noDHCPBridge(output string) string {
+	if m := noDHCPRe.FindStringSubmatch(output); m != nil {
+		return m[1]
+	}
+	return ""
+}
+
+func noDHCPMessage(bridge string, nets []engine.Network) string {
+	where := "on " + bridge
+	for _, n := range nets {
+		if n.Bridge == bridge {
+			where = "on network " + n.Name + " (bridge " + bridge + ")"
+			break
+		}
+	}
+	return "no DHCP server answered " + where + ", so the service got no address and did not start. " +
+		"That network does not reach this host: its VLAN is not carried on this host's switch port, " +
+		"or nothing serves DHCP on it. Put the service on another network in the Services tab."
+}
+
+// lastBytes keeps the last 16 KiB written to it: enough for an error at the
+// end of a start, without holding a whole image pull.
+type lastBytes struct{ b []byte }
+
+func (l *lastBytes) Write(p []byte) (int, error) {
+	l.b = append(l.b, p...)
+	if over := len(l.b) - 16<<10; over > 0 {
+		l.b = l.b[over:]
+	}
+	return len(p), nil
+}
+
+func (l *lastBytes) String() string { return string(l.b) }
+func (l *lastBytes) reset()         { l.b = l.b[:0] }
 
 // forceRemoveStackContainers force-removes this stack's own containers, used
 // only to unwedge a refused recreate. Scoped to the stack's containers, so it
