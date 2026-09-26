@@ -69,7 +69,7 @@ func platform(cfg Config) platformInfo {
 		{
 			ID: "ocijail", Name: "ocijail runtime", Engine: "podman", HostOnly: true,
 			Probe: ocijailProbe,
-			Why:   "The OCI runtime that turns a container into a FreeBSD jail; podman cannot start anything without it. 0.6.0+ fixes a umask leak that left files in built images root-only.",
+			Why:   "The OCI runtime that turns a container into a FreeBSD jail; podman cannot start anything without it.",
 			Fix:   "pkg install -y ocijail\n# already installed but older than 0.6.0?\npkg upgrade -y ocijail",
 			Pkg:   map[string]string{"freebsd": "ocijail"},
 		},
@@ -322,9 +322,9 @@ func appjailProbe(ctx context.Context) (Status, string) {
 }
 
 // ocijailProbe checks the ocijail OCI runtime is present and >= 0.6.0. podman
-// can't run a container without it, so missing Fails. Older ocijail runs but
-// carries correctness bugs (the create.cpp umask leak that makes built files
-// root-only, plus OCI-spec gaps), so a pre-0.6.0 build Warns with an upgrade.
+// can't run a container without it, so missing Fails; older Warns. (The umask
+// leak once given as the reason was fixed in 0.6.1, and only ever hit `podman
+// build`: `podman run`, all fjord does, writes umask 022 into the config.)
 // epairProbe reports the LAN-network plugin. Warn, never Fail: a host without
 // it runs every stack perfectly well on published ports -- it just cannot give
 // one an address of its own.
@@ -351,10 +351,10 @@ func ocijailProbe(ctx context.Context) (Status, string) {
 	}
 	ver := ocijailVersion(ctx)
 	if ver == "" {
-		return Warn, "installed, but its version could not be read -- 0.6.0+ required"
+		return Warn, "installed, but its version could not be read -- 0.6.0 or newer required"
 	}
-	if versionBelow(ver, 0, 6) {
-		return Warn, "ocijail " + ver + " -- 0.6.0+ required; older leaks umask into built images and lacks OCI fixes"
+	if versionBelow(ver, 0, 6, 0) {
+		return Warn, "ocijail " + ver + " -- 0.6.0 or newer required"
 	}
 	return OK, "ocijail " + ver
 }
@@ -384,8 +384,8 @@ func ocijailVersion(ctx context.Context) string {
 }
 
 // versionBelow reports whether dotted version v is older than major.minor.
-func versionBelow(v string, major, minor int) bool {
-	parts := strings.SplitN(v, ".", 3)
+func versionBelow(v string, want ...int) bool {
+	parts := strings.Split(v, ".")
 	num := func(s string) int {
 		n := 0
 		for _, c := range s {
@@ -399,14 +399,17 @@ func versionBelow(v string, major, minor int) bool {
 	if len(parts) == 0 || parts[0] == "" {
 		return false // unknown version -> don't warn
 	}
-	if maj := num(parts[0]); maj != major {
-		return maj < major
+	// As many parts as asked for; a missing part counts as 0.
+	for i, w := range want {
+		got := 0
+		if i < len(parts) {
+			got = num(parts[i])
+		}
+		if got != w {
+			return got < w
+		}
 	}
-	min := 0
-	if len(parts) > 1 {
-		min = num(parts[1])
-	}
-	return min < minor
+	return false
 }
 
 // pfProbe reports pf readiness in two layers: the module, then the container
