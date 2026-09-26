@@ -1,12 +1,11 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"log"
 	"net/http"
-	"os/exec"
-	"strings"
 	"time"
 
 	"github.com/daemonless/fjord/pkg/doctor"
@@ -218,7 +217,7 @@ func toggleInList(list []string, name string, present bool) []string {
 
 // handleEngineInstall installs an engine's package via pkg (host mode only;
 // the package name comes from the engine's Descriptor, so this stays generic).
-// fjordd builds its registry at startup, so a restart enables the new engine.
+// The new engine is registered right away; no restart.
 func (s *server) handleEngineInstall(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -246,11 +245,15 @@ func (s *server) handleEngineInstall(w http.ResponseWriter, r *http.Request) {
 	// Before the new engine can be registered: whatever is default now stays
 	// default.
 	s.pinDefaultEngine()
-	cmd := exec.CommandContext(ctx, "pkg", append([]string{"install", "-y"}, strings.Fields(d.Package)...)...)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		http.Error(w, "pkg install "+d.Package+" failed: "+string(out), http.StatusInternalServerError)
+	var out bytes.Buffer
+	if err := doctor.PkgInstall(ctx, d.Package, &out); err != nil {
+		http.Error(w, err.Error()+"\n"+out.String(), http.StatusInternalServerError)
 		return
 	}
+	restart := !s.registerNewEngines()
+	if _, ok := s.backend(req.Name); ok {
+		restart = false
+	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{"status": "installed", "restartRequired": true})
+	json.NewEncoder(w).Encode(map[string]any{"status": "installed", "restartRequired": restart})
 }

@@ -5,6 +5,7 @@ package doctor
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -18,8 +19,9 @@ import (
 )
 
 // platform describes FreeBSD: mode via the jail sysctl (an OCI-deployed fjordd
-// is a jail), installs via pkg(8). Package names here track the ports tree --
-// the podman-compose name is Python-flavor-dependent and moves on flavor bumps.
+// is a jail), installs via pkg(8). A Python package is named by its port
+// origin (sysutils/podman-compose): its package name carries the Python
+// flavor (py312-) and changes on every flavor bump.
 func platform(cfg Config) platformInfo {
 	mode := "host"
 	if engine.Jailed() {
@@ -36,9 +38,12 @@ func platform(cfg Config) platformInfo {
 		},
 		{
 			ID: "socket", Name: "podman API socket", Engine: "podman",
-			Probe: socketProbe,
-			Why:   "fjord talks to podman over its API socket for status, logs and shells. Without it the podman engine is blind, even with podman installed.",
-			Fix:   "sysrc podman_service_enable=YES\nservice podman_service onerestart",
+			Probe:    socketProbe,
+			Install:  enableService("podman_service", "podman_service_enable"),
+			Commands: serviceCommands("podman_service", "podman_service_enable"),
+			Action:   "Start podman's API service",
+			Why:      "fjord talks to podman over its API socket for status, logs and shells. Without it the podman engine is blind, even with podman installed.",
+			Fix:      "sysrc podman_service_enable=YES\nservice podman_service onerestart",
 		},
 		{
 			ID: "podman-stale", Name: "podman API service is current", Engine: "podman", HostOnly: true,
@@ -50,8 +55,8 @@ func platform(cfg Config) platformInfo {
 			ID: "compose", Name: "podman-compose", Engine: "podman",
 			Probe: binProbe("podman-compose"),
 			Why:   "Turns a stack's compose.yaml into containers. fjord hands it the file on every up, down and update.",
-			Fix:   "pkg install -y py312-podman-compose",
-			Pkg:   map[string]string{"freebsd": "py312-podman-compose"},
+			Fix:   "pkg install -y sysutils/podman-compose",
+			Pkg:   map[string]string{"freebsd": "sysutils/podman-compose"},
 		},
 		{
 			ID: "conmon", Name: "conmon", Engine: "podman", HostOnly: true,
@@ -69,13 +74,17 @@ func platform(cfg Config) platformInfo {
 		},
 		{
 			ID: "epair", Name: "LAN networks (epair plugin)", Engine: "podman", HostOnly: true,
-			Probe:   epairProbe,
-			Install: installEpair,
-			Why:     "The CNI plugin that gives a container its own address on your LAN instead of a port published on the host. Optional: stacks run without it, but no podman network can hand out a LAN address. appjail does not use it -- it makes its own epair.",
-			Fix:     "# not in the ports tree yet; fjord's Install button does this too:\nfetch -o /usr/local/libexec/cni/epair " + epairURL + "\nchmod 755 /usr/local/libexec/cni/epair",
+			Group: "networking", Optional: true,
+			Probe:    epairProbe,
+			Install:  installEpair,
+			Commands: epairCommands(),
+			Action:   "Download the cni-epair plugin (" + epairVersion + ")",
+			Why:      "The CNI plugin that gives a container its own address on your LAN instead of a port published on the host. Optional: stacks run without it, but no podman network can hand out a LAN address. appjail does not use it -- it makes its own epair.",
+			Fix:      "# not in the ports tree yet; fjord's Install button does this too:\nfetch -o /usr/local/libexec/cni/epair " + epairURL + "\nchmod 755 /usr/local/libexec/cni/epair",
 		},
 		{
 			ID: "dnsname", Name: "container name resolution (dnsname plugin)", Engine: "podman", HostOnly: true,
+			Group: "networking",
 			Probe: dnsnameProbe,
 			Why:   "Without it, containers on the same network cannot resolve each other by name -- a stack's app looks up its database, gets nothing, and crash-loops with the networking apparently fine. Every multi-service app needs it unless its parts address each other by IP.",
 			Fix:   "pkg install -y cni-dnsname",
@@ -83,24 +92,31 @@ func platform(cfg Config) platformInfo {
 		},
 		{
 			ID: "appjail-dns", Name: "jail name resolution (appjail-dns)", Engine: "appjail", HostOnly: true,
-			Probe: appjailDNSProbe,
-			Why:   "The appjail side of the same thing: jails on one network reach each other by name only while appjail-dns is running. Without it a director project's services have to address each other by IP.",
-			Fix:   "sysrc appjail_dns_enable=YES\nservice appjail-dns start",
+			Group:    "networking",
+			Probe:    appjailDNSProbe,
+			Install:  enableService("appjail-dns", "appjail_dns_enable"),
+			Commands: serviceCommands("appjail-dns", "appjail_dns_enable"),
+			Action:   "Start appjail-dns",
+			Why:      "The appjail side of the same thing: jails on one network reach each other by name only while appjail-dns is running. Without it a director project's services have to address each other by IP.",
+			Fix:      "sysrc appjail_dns_enable=YES\nservice appjail-dns start",
 		},
 		{
 			ID: "appjail-git", Name: "git, for makejails on GitHub", Engine: "appjail", HostOnly: true,
+			Group: "extras", Optional: true,
 			Probe: appjailGitProbe(stacksDir(cfg)),
 			Why:   "A director service with makejail: gh+Owner/repo (every AppJail-makejails README) is cloned from GitHub when it builds. Without git the build fails with \"git(1) is not installed\" and the jail is never created.",
 			Fix:   "pkg install -y git",
 		},
 		{
 			ID: "appjail-secrets", Name: "rage-encryption, for AppJail secrets", Engine: "appjail", HostOnly: true,
+			Group: "extras", Optional: true,
 			Probe: appjailSecretsProbe(stacksDir(cfg)),
 			Why:   "A director service with secret: mounts AppJail secrets, which are encrypted with rage. The package is rage-encryption: `pkg install rage` installs an unrelated video player.",
 			Fix:   "pkg install -y rage-encryption\nappjail secrets init",
 		},
 		{
 			ID: "pf", Name: "pf firewall", Engine: "podman",
+			Group: "firewall",
 			Probe: pfProbe,
 			Why:   "podman's bridge networking publishes ports through pf's rdr/nat anchors. If they aren't loaded, containers start fine but their published ports hang. Host-network stacks don't need this.",
 			Fix:   pfFix(),
@@ -111,7 +127,13 @@ func platform(cfg Config) platformInfo {
 			ID: "appjail", Name: "AppJail engine",
 			Probe: appjailProbe,
 			Why:   "Optional second engine: runs apps as native FreeBSD jails from the same OCI images, orchestrated by appjail-director. 5.5.0+ is needed for kernel modules, secrets and full OCI support.",
-			Fix:   "pkg install -y appjail sysutils/py-director\n# already installed but older than 5.5.0?\npkg upgrade -y appjail",
+			Fix:   "pkg install -y appjail sysutils/py-director\n# older than 5.5.0? quarterly packages can lag behind; newer is in the\n# latest package branch, or: make -C /usr/ports/sysutils/appjail install clean",
+			Pkg:   map[string]string{"freebsd": "appjail sysutils/py-director"},
+			Installed: func() bool {
+				_, a := exec.LookPath("appjail")
+				_, d := exec.LookPath("appjail-director")
+				return a == nil && d == nil
+			},
 		},
 		rootCheck(cfg.FjordRoot),
 	}
@@ -126,7 +148,7 @@ func platform(cfg Config) platformInfo {
 // appjailPfCheck is the pf-anchors check for AppJail's virtual networks.
 func appjailPfCheck() Check {
 	return Check{
-		ID: "appjail-pf", Name: "pf anchors for AppJail",
+		ID: "appjail-pf", Name: "pf anchors for AppJail", Engine: "appjail", Group: "firewall",
 		Probe: appjailPfProbe,
 		Why:   "AppJail gives each jail a virtual-network address and NATs it through pf's appjail-nat/appjail-rdr anchors. Without them every jail on a virtual network fails to create (\"The nat command requires appjail-nat/jail/* ...\"). Host-network jails don't need this.",
 		Fix:   appjailPfFix(),
@@ -156,14 +178,14 @@ func pfFix() string {
 		}
 		return s +
 			"# they are just not loaded -- validate, then reload the ruleset\n" +
-			"pfctl -nf /etc/pf.conf\n" +
+			pfValidate +
 			"pfctl -f /etc/pf.conf\n" +
 			"# pf not enabled at all?\n" +
 			"sysrc pf_enable=YES\n" +
 			"service pf start"
 	}
 	return "# /etc/pf.conf is missing podman's anchors -- add them once (" + ifc + " = your LAN interface)\n" +
-		pfInsertSnippet(rules) +
+		pfInsertSnippet(rules, "/etc/pf.conf") + pfValidate +
 		"sysrc pf_enable=YES\n" +
 		"service pf start\n" +
 		"# and load them now: `service pf start` does nothing if pf was already up\n" +
@@ -177,13 +199,24 @@ func pfFix() string {
 // script then leaves pf running with NOTHING loaded -- appending at the end
 // did exactly that on a host with pass rules. The load is validated first so
 // a mistake is shown instead of silently unloading the firewall.
-func pfInsertSnippet(rules []string) string {
+//
+// A fresh host has no pf.conf at all: awk cannot read it, the && skips the mv,
+// and every later line fails on the missing file. touch makes it an empty one,
+// which awk ends up appending to -- and makes the podman and AppJail snippets
+// safe to paste in either order.
+func pfInsertSnippet(rules []string, path string) string {
 	add := strings.ReplaceAll(strings.Join(rules, "\\n"), "'", "'\\''")
-	return "awk -v add='" + add + "' '\n" +
+	return "touch " + path + "\n" +
+		"awk -v add='" + add + "' '\n" +
 		"  !done && /^(pass|block|match|antispoof|anchor)[[:space:]]/ { print add; done=1 } { print }\n" +
-		"  END { if (!done) print add }' /etc/pf.conf > /etc/pf.conf.new && mv /etc/pf.conf.new /etc/pf.conf\n" +
-		"pfctl -nf /etc/pf.conf   # validate before loading\n"
+		"  END { if (!done) print add }' " + path + " > " + path + ".new && mv " + path + ".new " + path + "\n"
 }
+
+// pfValidate checks /etc/pf.conf before it is loaded. pfctl needs the pf
+// module even for -n ("Failed to open netlink" on 15.x), and on a host that
+// never ran pf it is not loaded until `service pf start`.
+const pfValidate = "kldload -n pf\n" +
+	"pfctl -nf /etc/pf.conf   # validate before loading\n"
 
 // appjailPfProbe checks pf carries AppJail's NAT/rdr anchors, which its
 // virtual-network jails need (the appjail-director default). Mirrors pfProbe.
@@ -219,10 +252,10 @@ func appjailPfFix() string {
 		for _, r := range rules {
 			s += "#   " + r + "\n"
 		}
-		return s + "# they are just not loaded -- validate, then reload the ruleset\npfctl -nf /etc/pf.conf\npfctl -f /etc/pf.conf\n# harmless if pf is already enabled and running:\nsysrc pf_enable=YES\nservice pf start"
+		return s + "# they are just not loaded -- validate, then reload the ruleset\n" + pfValidate + "pfctl -f /etc/pf.conf\n# harmless if pf is already enabled and running:\nsysrc pf_enable=YES\nservice pf start"
 	}
 	return "# /etc/pf.conf is missing AppJail's anchors -- add them once\n" +
-		pfInsertSnippet(rules) +
+		pfInsertSnippet(rules, "/etc/pf.conf") + pfValidate +
 		"sysrc pf_enable=YES\nservice pf start\n# and load them now: `service pf start` does nothing if pf was already up\npfctl -f /etc/pf.conf"
 }
 
@@ -527,4 +560,24 @@ func appjailSecretsProbe(dir string) func(context.Context) (Status, string) {
 		}
 		return Warn, msg
 	}
+}
+
+// enableService is a check's Fix for an rc service, run for the operator:
+// enabled at boot, then (re)started now. The rc script comes with the
+// package, so without it the package is what is missing.
+func enableService(service, rcvar string) func(context.Context, io.Writer) error {
+	return func(ctx context.Context, w io.Writer) error {
+		if _, err := os.Stat("/usr/local/etc/rc.d/" + service); err != nil {
+			return fmt.Errorf("%s is not installed yet -- install it first", service)
+		}
+		if err := runShown(ctx, w, nil, "sysrc", rcvar+"=YES"); err != nil {
+			return err
+		}
+		return runShown(ctx, w, nil, "service", service, "onerestart")
+	}
+}
+
+// serviceCommands are enableService's commands, for the setup page.
+func serviceCommands(service, rcvar string) []string {
+	return []string{"sysrc " + rcvar + "=YES", "service " + service + " onerestart"}
 }

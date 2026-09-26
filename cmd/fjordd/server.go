@@ -2,7 +2,9 @@ package main
 
 import (
 	"io"
+	"log"
 	"net/http"
+	"os"
 	"sort"
 	"strings"
 	"sync"
@@ -116,6 +118,49 @@ func (s *server) rebuildBackends() {
 	s.mu.Lock()
 	s.backends, s.defEngine = backends, def
 	s.mu.Unlock()
+}
+
+// registerNewEngines picks up an engine installed since fjordd started (from
+// the setup page, or by hand), so a fresh host needs no restart. Reports
+// whether anything was added. The default in effect is pinned first, so a new
+// engine is a new choice, not the new default -- unless there was none.
+func (s *server) registerNewEngines() bool {
+	disabled := map[string]bool{}
+	for _, name := range loadSettings(s.fjordRoot).DisabledEngines {
+		disabled[name] = true
+	}
+	var added []string
+	for _, d := range engineDescriptors {
+		if _, ok := s.backend(d.Name); ok || disabled[d.Name] {
+			continue
+		}
+		if ok, _, _ := d.Available(); ok {
+			added = append(added, d.Name)
+		}
+	}
+	if len(added) == 0 {
+		return false
+	}
+	s.pinDefaultEngine()
+	s.rebuildBackends()
+	log.Printf("engine: %s now available (default %s)", strings.Join(added, ", "), s.defaultEngine())
+	return true
+}
+
+// doctorEngines are the engines whose checks the setup page shows: the
+// registered ones, or on a host with none yet, the one fjord would use
+// (FJORD_ENGINE or Settings, else the first), so a fresh host is told what to
+// install instead of seeing nothing to do.
+func (s *server) doctorEngines() []string {
+	if names := s.engineNames(); len(names) > 0 {
+		return names
+	}
+	for _, want := range []string{os.Getenv("FJORD_ENGINE"), loadSettings(s.fjordRoot).DefaultEngine} {
+		if _, ok := descriptor(want); ok {
+			return []string{want}
+		}
+	}
+	return []string{engineDescriptors[0].Name}
 }
 
 // backendForRequest routes an engine-agnostic query to the right runtime: if

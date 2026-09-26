@@ -12,8 +12,14 @@
   // written.
   const dispatch = createEventDispatcher<{ adopted: string; back: void }>();
 
-  let list: Candidate[] = [];
-  let loading = true;
+  // embedded: inside the setup wizard -- its own title, no way "back" to a
+  // Stacks page it came from. initial: a list the caller already looked up,
+  // shown at once instead of looking again.
+  export let embedded = false;
+  export let initial: Candidate[] | null = null;
+
+  let list: Candidate[] = initial ?? [];
+  let loading = initial === null;
   let open: Record<string, boolean> = {};
   let busy = '';
 
@@ -22,7 +28,9 @@
     list = await listCandidates();
     loading = false;
   }
-  onMount(load);
+  onMount(() => {
+    if (initial === null) load();
+  });
 
   // replace: remove the old container so the stack takes its name; the
   // stack is then started like any other. Without replace the stack is
@@ -65,9 +73,21 @@
     busy = c.name;
     try {
       const id = await adoptContainer(c, replace);
-      toast(replace ? `Adopted ${c.name} — starting` : `Created stack ${id} (stopped)`, { kind: 'success' });
+      if (replace && embedded) {
+        // Nothing around the wizard starts it (the app opens the stack and
+        // starts it there), so start it here and say if it did not.
+        try {
+          await startStack(id);
+          toast(`Adopted ${c.name} — running as a stack`, { kind: 'success' });
+        } catch (e: any) {
+          toast(`Adopted ${c.name}, but it did not start: ${e.message}. Open it on the Stacks page.`, { kind: 'error', timeout: 12000 });
+        }
+      } else {
+        toast(replace ? `Adopted ${c.name} — starting` : `Created stack ${id} (stopped)`, { kind: 'success' });
+      }
       dispatch('adopted', replace ? id : '');
-      if (!replace) await load();
+      // The app moves on to the new stack; the wizard stays on this list.
+      if (!replace || embedded) await load();
     } catch (e: any) {
       toast(`Adopt failed: ${e.message}`, { kind: 'error' });
     } finally {
@@ -79,10 +99,11 @@
 <div class="h-full flex flex-col">
   <div class="flex items-center justify-between gap-6 mb-4 shrink-0">
     <div class="max-w-3xl">
-      <h2 class="text-2xl font-bold text-fjord-fg">Adopt existing containers</h2>
+      <h2 class="text-2xl font-bold text-fjord-fg">{embedded ? 'Already running on this host' : 'Adopt existing containers'}</h2>
       <div class="text-sm text-fjord-fg-dim">
         Containers and jails on this host that no stack owns — started by hand, a script, or another tool.
         Adopting one turns what the engine recorded into a stack: same image, mounts, network address and name.
+        {#if embedded}Nothing here has to be done now; the Stacks page can adopt them later.{/if}
       </div>
     </div>
     <div class="flex items-center gap-3">
@@ -107,7 +128,7 @@
           >
         {/if}
       {/if}
-      <button on:click={() => dispatch('back')} class="text-sm text-fjord-fg-muted hover:text-fjord-fg">← Stacks</button>
+      {#if !embedded}<button on:click={() => dispatch('back')} class="text-sm text-fjord-fg-muted hover:text-fjord-fg">← Stacks</button>{/if}
     </div>
   </div>
 
