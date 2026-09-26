@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { forwardDeploy } from './installForward';
   import { onMount, createEventDispatcher } from 'svelte';
   import InstallWizard from './InstallWizard.svelte';
   import Icon from './Icon.svelte';
@@ -171,34 +172,25 @@
     img.src = FALLBACK_ICON;
   }
 
-  function handleDeploy(e: CustomEvent<{name: string, engine: string, manifest: string, values: Record<string,string>, paths: Record<string,string[]>, appData: string, tag: string, network: string, ip: string, mac: string, networkPlan?: Record<string,string>, networkModes?: Record<string,string>}>) {
+  function handleDeploy(e: CustomEvent<Record<string, any> & { name?: string }>) {
     if (!installingApp) return;
     installBusy = true;
     installError = '';
     dispatch('install', {
-        name: e.detail.name || installingApp.id,
-        appId: installingApp.id,
-        engine: e.detail.engine,
-        manifest: e.detail.manifest,
-        values: e.detail.values,
-        paths: e.detail.paths,
-        appData: e.detail.appData,
-        tag: e.detail.tag,
-        network: e.detail.network,
-        ip: e.detail.ip,
-        mac: e.detail.mac,
-        // Taken: there is a stack now, and the install streams on its page.
-        accepted: () => {
-          installBusy = false;
-          installingApp = null;
-        },
-        // Refused before anything was saved: keep the wizard and say why.
-        refused: (msg: string) => {
-          installBusy = false;
-          installError = msg;
-        },
+      ...forwardDeploy(e.detail, installingApp.id),
+      // Taken: there is a stack now, and the install streams on its page.
+      accepted: () => {
+        installBusy = false;
+        installingApp = null;
+      },
+      // Refused before anything was saved: keep the wizard and say why.
+      refused: (msg: string) => {
+        installBusy = false;
+        installError = msg;
+      },
     });
   }
+
 </script>
 
 <div class="h-full flex flex-col relative">
