@@ -37,3 +37,27 @@ func TestServiceStaleQuietWhenCurrent(t *testing.T) {
 		t.Errorf("status = %v with no package time, want OK", st)
 	}
 }
+
+// versionBelow compares every part it is given, not just major.minor.
+func TestVersionBelowComparesEveryPartAskedFor(t *testing.T) {
+	for _, c := range []struct {
+		v    string
+		want []int
+		old  bool
+	}{
+		{"0.6.0", []int{0, 6, 1}, true},
+		{"0.6.1", []int{0, 6, 1}, false},
+		{"0.6.2", []int{0, 6, 1}, false},
+		{"0.7", []int{0, 6, 1}, false},
+		{"0.6", []int{0, 6, 1}, true}, // a missing part counts as 0
+		{"0.5.9", []int{0, 6, 1}, true},
+		{"5.4.2", []int{5, 5}, true},
+		{"5.5.0", []int{5, 5}, false},
+		{"5.7.0", []int{5, 5}, false},
+		{"", []int{5, 5}, false}, // unknown: no warning
+	} {
+		if got := versionBelow(c.v, c.want...); got != c.old {
+			t.Errorf("versionBelow(%q, %v) = %v, want %v", c.v, c.want, got, c.old)
+		}
+	}
+}
