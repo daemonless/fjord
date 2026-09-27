@@ -1,6 +1,9 @@
 package doctor
 
 import (
+	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -59,5 +62,25 @@ func TestVersionBelowComparesEveryPartAskedFor(t *testing.T) {
 		if got := versionBelow(c.v, c.want...); got != c.old {
 			t.Errorf("versionBelow(%q, %v) = %v, want %v", c.v, c.want, got, c.old)
 		}
+	}
+}
+
+// A host with no /etc/localtime (FreeBSD's VM images) cannot start an AppJail
+// jail; the check must say so, and name the zone once there is one.
+func TestLocaltimeProbe(t *testing.T) {
+	dir := t.TempDir()
+	lt := filepath.Join(dir, "localtime")
+	if st, _ := localtimeProbe(lt)(context.Background()); st != Fail {
+		t.Fatalf("missing localtime: %s, want fail", st)
+	}
+	zone := filepath.Join(dir, "UTC")
+	os.WriteFile(zone, []byte("TZif"), 0o644)
+	os.Symlink(zone, lt)
+	if st, d := localtimeProbe(lt)(context.Background()); st != OK || d != zone {
+		t.Fatalf("symlinked zone: %s %q", st, d)
+	}
+	os.Remove(zone) // dangling link: still no timezone
+	if st, _ := localtimeProbe(lt)(context.Background()); st != Fail {
+		t.Fatalf("dangling localtime: %s, want fail", st)
 	}
 }
