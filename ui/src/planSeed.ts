@@ -245,3 +245,23 @@ export function keepAttachable(
   }
   return out;
 }
+
+// addressesNeeded lists "svc on net" for per-service rows that need an address
+// typed in: a static network allocates nothing, and appjail cannot draw from a
+// pool network's IPAM. Checking the stack-wide field instead left Install
+// disabled by a field the per-service editor does not show.
+export function addressesNeeded(
+  edits: Record<string, Iface[]>,
+  networks: { name: string; addressSource?: string }[],
+  engine: string,
+): string[] {
+  const out: string[] = [];
+  for (const [svc, rows] of Object.entries(edits)) {
+    for (const r of rows) {
+      const n = networks.find((x) => x.name === r.network);
+      if (!n || (r.ip ?? '').trim()) continue;
+      if (n.addressSource === 'static' || (engine === 'appjail' && n.addressSource === 'pool')) out.push(`${svc} on ${r.network}`);
+    }
+  }
+  return out;
+}

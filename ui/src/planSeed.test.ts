@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { resolveDefault, seedInterfaces, splitPlan, setInterface, perServiceModes, isMode, isolatedServices, keepAttachable } from './planSeed';
+import { resolveDefault, seedInterfaces, splitPlan, setInterface, perServiceModes, isMode, isolatedServices, keepAttachable, addressesNeeded } from './planSeed';
 
 // immich's declaration, as the catalog carries it.
 const immich = { 'immich-server': 'default', '*': 'private' };
@@ -327,5 +327,25 @@ describe('keepAttachable', () => {
   });
   it('gives a service left with nothing its fresh seed', () => {
     expect(keepAttachable({ web: [{ network: 'host' }], db: [] }, fresh, [], ['host'])).toEqual(fresh);
+  });
+});
+
+describe('addressesNeeded', () => {
+  const nets = [
+    { name: 'lan', addressSource: 'pool' },
+    { name: 'lan-dhcp', addressSource: 'dhcp' },
+    { name: 'fixed', addressSource: 'static' },
+  ];
+  it('appjail on a pool network needs an address typed in', () => {
+    expect(addressesNeeded({ web: [{ network: 'lan', ip: '' }] }, nets, 'appjail')).toEqual(['web on lan']);
+    expect(addressesNeeded({ web: [{ network: 'lan', ip: '192.168.4.50' }] }, nets, 'appjail')).toEqual([]);
+  });
+  it('podman draws from the pool; DHCP never needs one; static always does', () => {
+    expect(addressesNeeded({ web: [{ network: 'lan' }] }, nets, 'podman')).toEqual([]);
+    expect(addressesNeeded({ web: [{ network: 'lan-dhcp' }] }, nets, 'appjail')).toEqual([]);
+    expect(addressesNeeded({ db: [{ network: 'fixed' }] }, nets, 'podman')).toEqual(['db on fixed']);
+  });
+  it('built-in modes and unknown networks are not its business', () => {
+    expect(addressesNeeded({ web: [{ network: 'bridge' }, { network: 'host' }] }, nets, 'appjail')).toEqual([]);
   });
 });

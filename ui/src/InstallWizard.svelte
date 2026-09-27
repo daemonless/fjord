@@ -7,7 +7,7 @@
   import DirPicker from './DirPicker.svelte';
   import { addressProblem, usableRange, randomMAC } from './network';
   import ServiceResources from './ServiceResources.svelte';
-  import { resolveDefault, seedInterfaces, splitPlan, joinable, keepAttachable, type Iface } from './planSeed';
+  import { resolveDefault, seedInterfaces, splitPlan, joinable, keepAttachable, addressesNeeded, type Iface } from './planSeed';
 
   // sources: every catalog offering this app; the user picks one (Repository)
   // when there's more than one. Each carries its own manifest_url + variants.
@@ -477,7 +477,7 @@
   // Checked here, not just at the daemon. The daemon's refusal arrives after
   // Install, and the wizard is gone by then -- a network address typed into
   // this field cost the operator every other answer in the form.
-  $: ipProblem = netChoice && !builtIn(netChoice) ? addressProblem(netIP, chosenNet) : '';
+  $: ipProblem = !perService && netChoice && !builtIn(netChoice) ? addressProblem(netIP, chosenNet) : '';
   // What may go in the field, said forwards -- the subnet in the picker does
   // not answer it, since three of its addresses are spoken for.
   $: ipRange = netChoice && !builtIn(netChoice) ? usableRange(chosenNet) : '';
@@ -487,7 +487,10 @@
   // a subnet" was wrong twice over: a DHCP network records its segment, and an
   // appjail virtualnet has a CIDR that appjail itself allocates from -- so
   // both were demanding an address that neither needs.
+  $: needAddress = perService ? addressesNeeded(planEdits, networks, engineChoice) : [];
+  // Stack-wide form only; per service, the rows say (addressesNeeded).
   $: ipRequired =
+    !perService &&
     !!netChoice &&
     (chosenNet?.addressSource === 'static' ||
       (engineChoice === 'appjail' && chosenNet?.addressSource === 'pool'));
@@ -939,6 +942,7 @@
                   {networks}
                   bind:edits={planEdits}
                   planning
+                  oneBridgePerService={engineChoice === 'appjail'}
                   unsupportedModes={wizardUnsupported}
                   on:change={() => (planEdits = planEdits)}
                 />
@@ -1074,9 +1078,12 @@
         disabled={busy}
         class="px-4 py-2 rounded-md font-medium text-fjord-fg-secondary hover:text-fjord-fg hover:bg-fjord-border transition-all disabled:opacity-50">Cancel</button
       >
+      {#if needAddress.length}
+        <span class="text-xs text-fjord-warning">Give an address: {needAddress.join(', ')} (in Networking above)</span>
+      {/if}
       <button
         on:click={deploy}
-        disabled={busy || loading || !!error || !validName || missingRequired.length > 0 || (ipRequired && !netIP.trim()) || !!ipProblem}
+        disabled={busy || loading || !!error || !validName || missingRequired.length > 0 || (ipRequired && !netIP.trim()) || !!ipProblem || needAddress.length > 0}
         title={!validName
           ? 'Enter a valid stack name'
           : missingRequired.length
@@ -1085,7 +1092,9 @@
               ? ipProblem
               : ipRequired && !netIP.trim()
                 ? `${netChoice} allocates nothing — give this app an address`
-                : ''}
+                : needAddress.length
+                  ? `Give an address: ${needAddress.join(', ')}`
+                  : ''}
         class="bg-fjord-accent hover:bg-fjord-accent-hover text-white px-6 py-2 rounded-md font-medium shadow-lg transition-all disabled:opacity-50 flex items-center gap-2"
       >
         {#if busy}<Spinner size={14} />{/if}

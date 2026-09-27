@@ -2654,6 +2654,7 @@
                 </p>
                 <ServiceResources
                   services={selectedStack.services ?? []}
+                  oneBridgePerService={(selectedStack.state?.engine || selectedStack.engine || defaultEngine) === 'appjail'}
                   updates={svcUpdates}
                   rollbacks={updateInfo?.rollback ?? {}}
                   pinned={svcPinned}

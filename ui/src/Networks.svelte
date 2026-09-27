@@ -1243,7 +1243,11 @@
           </div>
         {/if}
 
-        <div class="flex justify-end gap-2 pt-2">
+        <div class="flex justify-end items-center gap-2 pt-2">
+          <!-- The reason Create is off, on screen: a tooltip was the only place it was said. -->
+          {#if createBlockedBy || blocked}
+            <span class="text-xs text-fjord-warning mr-auto">{createBlockedBy || 'No bridge on this host yet -- make one first (commands above)'}</span>
+          {/if}
           <button on:click={() => (creating = false)} class="px-4 py-2 rounded-md text-sm text-fjord-fg-secondary hover:bg-fjord-border">Cancel</button>
           <button
             on:click={submitCreate}

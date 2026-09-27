@@ -62,6 +62,9 @@
   let confirmRollback = '';
   const day = (iso: string) => (iso ? new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : '');
   export let networks: Net[] = [];
+  // AppJail: one interface per bridge per service, so a second network on a
+  // bridge the service already uses is shown but not offered.
+  export let oneBridgePerService = false;
   /** service name -> its interfaces, staged. The parent owns it so Save can
    *  post it and the dirty check can see it. */
   export let edits: Record<string, Attachment[]> = {};
@@ -170,13 +173,18 @@
   $: isolated = new Set(isolatedServices(edits));
   const rows = (svc: string): Attachment[] => edits[svc] ?? [];
   const byName = (n: string) => networks.find((x) => x.name === n);
+  // The network on another of this service's rows that uses n's bridge, or ''.
+  function sameBridgeAs(svc: string, i: number, n: Net): string {
+    if (!oneBridgePerService || !n.bridge) return '';
+    return rows(svc).find((r, j) => j !== i && byName(r.network)?.bridge === n.bridge)?.network ?? '';
+  }
 
   function addRow(svc: string) {
     const used = rows(svc).map((r) => r.network);
     // Prefer one this service is not on yet; failing that, anything at all --
     // an empty row is a control that looks broken, and naming the same network
     // twice is flagged on the row rather than prevented here.
-    const unused = pickable(networks, '').find((n) => !used.includes(n.name))?.name;
+    const unused = pickable(networks, '').find((n) => !used.includes(n.name) && !sameBridgeAs(svc, -1, n))?.name;
     const privateFree = planning && !used.includes('private') ? 'private' : '';
     const network = unused || privateFree || pickable(networks, '')[0]?.name || (planning ? 'private' : '');
     edits[svc] = [...rows(svc), { network, ip: '', mac: '' }];
@@ -367,8 +375,11 @@
                                  exactly like a v4-only one, so the second
                                  address box appeared with no warning and its
                                  absence looked like a missing feature. -->
-                            <option value={n.name}>
-                              {n.name}{n.subnet ? ` (${n.subnet}${n.subnet6 ? ' + IPv6' : ''})` : n.subnet6 ? ' (IPv6)' : ''}
+                            {@const clash = sameBridgeAs(s.name, i, n)}
+                            <option value={n.name} disabled={!!clash}>
+                              {n.name}{n.subnet ? ` (${n.subnet}${n.subnet6 ? ' + IPv6' : ''})` : n.subnet6 ? ' (IPv6)' : ''}{clash
+                                ? ` — same bridge as ${clash}`
+                                : ''}
                             </option>
                           {/each}
                           {#if offerPrivateSpec}
