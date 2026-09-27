@@ -120,6 +120,12 @@ func platform(cfg Config) platformInfo {
 			Fix:   "pkg install -y rage-encryption\nappjail secrets init",
 		},
 		{
+			ID: "timezone", Name: "host timezone", Engine: "appjail", HostOnly: true,
+			Probe: localtimeProbe("/etc/localtime"),
+			Why:   "AppJail copies the host's /etc/localtime into every jail, and FreeBSD's VM images ship without one: every AppJail app then fails to start.",
+			Fix:   "# pick your zone from the menu\ntzsetup\n# or set it directly, e.g.: tzsetup America/New_York",
+		},
+		{
 			ID: "pf", Name: "pf firewall", Engine: "podman",
 			Group: "firewall",
 			Probe: pfProbe,
@@ -691,4 +697,17 @@ func enableService(service, rcvar string) func(context.Context, io.Writer) error
 // serviceCommands are enableService's commands, for the setup page.
 func serviceCommands(service, rcvar string) []string {
 	return []string{"sysrc " + rcvar + "=YES", "service " + service + " onerestart"}
+}
+
+// localtimeProbe: a dangling localtime symlink counts as none (os.Stat follows it).
+func localtimeProbe(path string) func(context.Context) (Status, string) {
+	return func(context.Context) (Status, string) {
+		if _, err := os.Stat(path); err != nil {
+			return Fail, "no timezone is set on this host -- AppJail cannot start any jail until one is"
+		}
+		if dst, err := os.Readlink(path); err == nil {
+			return OK, strings.TrimPrefix(dst, "/usr/share/zoneinfo/")
+		}
+		return OK, "set"
+	}
 }
