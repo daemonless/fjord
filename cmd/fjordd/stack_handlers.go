@@ -649,9 +649,7 @@ func (s *server) stackSave(w http.ResponseWriter, r *http.Request, name string) 
 			}
 			composeYAML = moded
 		}
-		// A service left only on this stack's private segment is reachable
-		// from this host and nowhere else, so it keeps its published ports.
-		republished, err := composepkg.RepublishPorts(composeYAML, privateOnlyServices(atts, privateNetworkName(name)))
+		republished, err := composepkg.RepublishPorts(composeYAML, hostOnlyServices(atts, s.hostOnlyNetworks(r.Context(), eng, privateNetworkName(name))))
 		if err != nil {
 			http.Error(w, "network: "+err.Error(), 400)
 			return

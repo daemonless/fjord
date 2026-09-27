@@ -191,27 +191,25 @@ func planServiceNetworks(
 	return out, modes, nil
 }
 
-// privateOnlyServices names the services whose every interface is on the
-// stack's own private segment -- the ones nothing off this host can reach, and
-// so the ones that still have to publish their ports.
-func privateOnlyServices(atts []composepkg.Attachment, private string) []string {
-	if private == "" {
-		return nil
-	}
+// hostOnlyServices names the services whose every network is in hostOnly --
+// reachable from this host and nowhere else -- so they keep their published
+// ports. Attaching stashes them, which is right on a LAN segment and left a
+// service on a podman bridge network (test-bridge) unreachable.
+func hostOnlyServices(atts []composepkg.Attachment, hostOnly map[string]bool) []string {
 	elsewhere := map[string]bool{}
-	onPrivate := map[string]bool{}
+	onHost := map[string]bool{}
 	for _, a := range atts {
 		if a.Service == "" {
 			continue
 		}
-		if a.Network == private {
-			onPrivate[a.Service] = true
+		if hostOnly[a.Network] {
+			onHost[a.Service] = true
 			continue
 		}
 		elsewhere[a.Service] = true
 	}
 	var out []string
-	for svc := range onPrivate {
+	for svc := range onHost {
 		if !elsewhere[svc] {
 			out = append(out, svc)
 		}
@@ -461,6 +459,21 @@ func envMap(env string) map[string]string {
 		}
 		if eq := strings.IndexByte(line, '='); eq > 0 {
 			out[strings.TrimSpace(line[:eq])] = strings.TrimSpace(line[eq+1:])
+		}
+	}
+	return out
+}
+
+// hostOnlyNetworks are the networks nothing off this host reaches: the
+// stack's private segment, and every NAT'd bridge-driver network.
+func (s *server) hostOnlyNetworks(ctx context.Context, engineName, private string) map[string]bool {
+	out := map[string]bool{}
+	if private != "" {
+		out[private] = true
+	}
+	for _, n := range s.engineNetworks(ctx, engineName) {
+		if n.Driver == "bridge" {
+			out[n.Name] = true
 		}
 	}
 	return out
