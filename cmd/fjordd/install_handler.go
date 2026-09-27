@@ -342,7 +342,7 @@ func (s *server) handleInstall(w http.ResponseWriter, r *http.Request) {
 		// attachable network gets, and immich came up healthy on 10.100.0.x
 		// with no way to open it.
 		if err == nil {
-			composeYAML, err = composepkg.RepublishPorts(composeYAML, privateOnlyServices(atts, privateNetworkName(id)))
+			composeYAML, err = composepkg.RepublishPorts(composeYAML, hostOnlyServices(atts, s.hostOnlyNetworks(r.Context(), req.Engine, privateNetworkName(id))))
 		}
 	}
 	if err != nil {

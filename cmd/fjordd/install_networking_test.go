@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net"
+	"slices"
 	"testing"
 
 	composepkg "github.com/daemonless/fjord/pkg/compose"
@@ -309,38 +310,35 @@ func TestPlanServiceNetworksNoPlanLeavesUnlistedServicesAlone(t *testing.T) {
 	}
 }
 
-// A service on the private segment ONLY is reachable from this host and
-// nowhere else, so it has to keep the ports it publishes. One that is also on
-// a real segment does not: it has an address of its own there.
-func TestPrivateOnlyServices(t *testing.T) {
+// A service only on host-only networks (the private segment, a podman
+// bridge network) keeps its published ports; one also on a LAN segment has
+// its own address there and does not.
+func TestHostOnlyServices(t *testing.T) {
+	hostOnly := map[string]bool{"immich_priv": true}
 	atts := []composepkg.Attachment{
 		{Network: "lan", Service: "immich-server"},
 		{Network: "immich_priv", Service: "immich-server"},
 		{Network: "immich_priv", Service: "database"},
 		{Network: "immich_priv", Service: "redis"},
 	}
-	got := privateOnlyServices(atts, "immich_priv")
-	want := []string{"database", "redis"}
-	if len(got) != len(want) {
-		t.Fatalf("got %v, want %v", got, want)
+	if got := hostOnlyServices(atts, hostOnly); !slices.Equal(got, []string{"database", "redis"}) {
+		t.Fatalf("got %v, want [database redis]", got)
 	}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Fatalf("got %v, want %v", got, want)
-		}
-	}
-
-	// The whole stack on the private segment: every service keeps its ports,
-	// which is the only way a host with no attachable network can be used.
+	// The whole stack on the private segment: every service keeps its ports.
 	all := []composepkg.Attachment{
 		{Network: "immich_priv", Service: "immich-server"},
 		{Network: "immich_priv", Service: "database"},
 	}
-	if got := privateOnlyServices(all, "immich_priv"); len(got) != 2 {
+	if got := hostOnlyServices(all, hostOnly); len(got) != 2 {
 		t.Errorf("got %v, want both services", got)
 	}
-	// Nothing private at all: nothing to give back.
-	if got := privateOnlyServices(atts, ""); got != nil {
+	// netlab's zensical on test-bridge (a podman bridge network): keeps :8000.
+	onBridge := []composepkg.Attachment{{Network: "test-bridge", Service: "zensical"}}
+	if got := hostOnlyServices(onBridge, map[string]bool{"test-bridge": true}); !slices.Equal(got, []string{"zensical"}) {
+		t.Errorf("bridge network: got %v, want [zensical]", got)
+	}
+	// Nothing host-only: nothing to give back.
+	if got := hostOnlyServices(atts, nil); got != nil {
 		t.Errorf("got %v, want nothing", got)
 	}
 }
