@@ -82,6 +82,9 @@ func (s *server) handleNetworks(w http.ResponseWriter, r *http.Request) {
 				nets[i].AddressSource = "pool"
 			}
 		}
+		if parents, err := s.backendForRequest(r).NetworkParents(r.Context()); err == nil {
+			s.markWireWarnings(nets, parents)
+		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(nets)
 	case http.MethodPost:
@@ -92,6 +95,13 @@ func (s *server) handleNetworks(w http.ResponseWriter, r *http.Request) {
 		}
 		ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
 		defer cancel()
+		if spec.Parent != "" && spec.Subnet != "" {
+			parents, _ := s.backendForRequest(r).NetworkParents(ctx)
+			if msg := s.wireMismatch(spec.Parent, spec.Subnet, parents); msg != "" {
+				http.Error(w, msg, 400)
+				return
+			}
+		}
 		n, err := s.backendForRequest(r).CreateNetwork(ctx, spec)
 		if err != nil {
 			// The backend validates the spec (name, subnet, gateway-in-subnet);

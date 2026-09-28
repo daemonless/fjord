@@ -30,6 +30,8 @@
     bridge?: string;
     addressSource?: string;
     problem?: string;
+    /** The network's subnet is not the segment its bridge is on. */
+    wireWarning?: string;
   };
   type Attachment = { network: string; ip?: string; ip6?: string; mac?: string; iface?: string };
   type ServiceVolume = {
@@ -48,6 +50,9 @@
     address?: string;
     hostNetwork?: boolean;
     networks?: Attachment[];
+    /** What each network gave the running container. A pin is networks[].ip;
+     *  this is only shown, never saved. */
+    live?: Record<string, string>;
     volumes?: ServiceVolume[];
   };
 
@@ -249,7 +254,10 @@
   // row has to be opened to read the page.
   function summary(s: ServiceView, r: Attachment[]): string {
     if (!r.length) return 'no network';
-    return r.map((a) => `${a.network || 'bridge'}${a.ip ? ' ' + a.ip : ''}`).join(' · ');
+    return r.map((a) => {
+      const ip = a.ip || s.live?.[a.network];
+      return `${a.network || 'bridge'}${ip ? ' ' + ip : ''}`;
+    }).join(' · ');
   }
   // A network named twice on one service is two names for one interface.
   function duplicate(r: Attachment[], i: number): boolean {
@@ -452,7 +460,9 @@
                           value={builtin ? '' : (r.ip ?? '')}
                           disabled={builtin}
                           on:input={(e) => setField(s.name, i, 'ip', e.currentTarget.value)}
-                          placeholder={builtin ? 'from the engine' : net?.addressSource === 'dhcp' ? 'from DHCP' : 'from the network'}
+                          placeholder={builtin
+                            ? 'from the engine'
+                            : `${s.live?.[r.network] ? s.live[r.network] + ' — ' : ''}${net?.addressSource === 'dhcp' ? 'from DHCP' : 'from the network'}`}
                           class="w-full bg-fjord-inset border rounded-lg px-2 py-1.5 font-mono text-fjord-fg-body disabled:opacity-60 {problem
                             ? 'border-fjord-danger'
                             : 'border-fjord-border'}"
@@ -529,6 +539,8 @@
                         <td colspan="4" class="pb-1.5">
                           {#if problem}
                             <span class="text-fjord-danger">{problem}</span>
+                          {:else if net?.wireWarning}
+                            <span class="text-fjord-warning">{net.wireWarning}</span>
                           {:else if usableRange(net)}
                             <span class="text-fjord-fg-dim">Usable: <span class="font-mono">{usableRange(net)}</span></span>
                           {/if}

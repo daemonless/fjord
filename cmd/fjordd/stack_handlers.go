@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -320,9 +321,10 @@ func (s *server) stackDelete(w http.ResponseWriter, name string, data bool) {
 		return
 	}
 	defer unlock()
+	var be engine.Backend
 	if st, err := s.manager.Get(name); err == nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-		be := s.backendFor(st)
+		be = s.backendFor(st)
 		if stream, err := be.Down(ctx, st); err == nil {
 			io.Copy(io.Discard, stream) // block until teardown finishes
 			stream.Close()
@@ -362,6 +364,9 @@ func (s *server) stackDelete(w http.ResponseWriter, name string, data bool) {
 		return
 	}
 	log.Printf("delete %s", name)
+	if be != nil {
+		s.dropPrivateNetwork(be, name)
+	}
 	s.fleet.forget(name) // no lingering "update available" for a gone stack
 	w.Header().Set("Content-Type", "application/json")
 	w.Write([]byte(`{"status":"deleted"}`))
@@ -1090,5 +1095,27 @@ func (s *server) stackLifecycle(w http.ResponseWriter, r *http.Request, name, ac
 	// per stack is rate-limited, and down/restart cannot move an image.
 	if action == "up" || action == "update" {
 		s.fleet.forget(name)
+	}
+}
+
+// dropPrivateNetwork removes the segment fjord made for a stack once the stack
+// is gone. Nothing did, so every multi-network install left one behind
+// (zensical_priv on netlab, listed as an ordinary network with its stack long
+// deleted). One something still uses is left alone.
+func (s *server) dropPrivateNetwork(be engine.Backend, stackName string) {
+	net := privateNetworkName(stackName)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	nets, err := be.Networks(ctx)
+	if err != nil || !slices.ContainsFunc(nets, func(n engine.Network) bool { return n.Name == net }) {
+		return
+	}
+	switch err := be.RemoveNetwork(ctx, net, false); {
+	case err == nil:
+		log.Printf("delete %s: removed its private network %s", stackName, net)
+	case errors.Is(err, engine.ErrInUse):
+		log.Printf("delete %s: kept its private network %s, still in use", stackName, net)
+	default:
+		log.Printf("delete %s: could not remove its private network %s: %v", stackName, net, err)
 	}
 }
