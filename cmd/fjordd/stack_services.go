@@ -30,6 +30,7 @@ type serviceView struct {
 	Detail    string                  `json:"detail,omitempty"`
 	Address   string                  `json:"address,omitempty"`
 	HostNet   bool                    `json:"hostNetwork,omitempty"`
+	NoNet     bool                    `json:"noNetwork,omitempty"` // network_mode: none; else it read as bridge
 	Networks  []composepkg.Attachment `json:"networks,omitempty"`
 	Volumes   []serviceVolume         `json:"volumes,omitempty"`
 	Ports     []engine.Port           `json:"ports,omitempty"`
@@ -84,6 +85,7 @@ func composeServiceViews(st *stack.Stack) []serviceView {
 			// this view either, so the editor's Interface column said "on
 			// create" for every row of a stack that had been running for days.
 			HostNet:  svc.NetworkHost,
+			NoNet:    svc.NetworkNone,
 			Networks: nameServiceIfaces(byService[svc.Name]),
 		}
 		for _, p := range svc.Ports {

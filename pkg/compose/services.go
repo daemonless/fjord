@@ -18,6 +18,7 @@ type Service struct {
 	Ports       []PortMap
 	Volumes     []VolMount
 	NetworkHost bool     // network_mode: host
+	NetworkNone bool     // network_mode: none
 	DependsOn   []string // services that must start first
 	Annotations map[string]string
 }
@@ -70,8 +71,9 @@ func ParseServices(composeYAML string, env map[string]string) []Service {
 		if img := mapGet(svc, "image"); img != nil {
 			s.Image = resolve(img.Value)
 		}
-		if nm := mapGet(svc, "network_mode"); nm != nil && resolve(nm.Value) == "host" {
-			s.NetworkHost = true
+		if nm := mapGet(svc, "network_mode"); nm != nil {
+			s.NetworkHost = resolve(nm.Value) == "host"
+			s.NetworkNone = resolve(nm.Value) == "none"
 		}
 
 		// env_file: load the named files' KEY=VALUE lines as base env. The

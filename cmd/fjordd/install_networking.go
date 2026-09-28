@@ -194,12 +194,20 @@ func planServiceNetworks(
 // hostOnlyServices names the services whose every network is in hostOnly --
 // reachable from this host and nowhere else -- so they keep their published
 // ports. Attaching stashes them, which is right on a LAN segment and left a
-// service on a podman bridge network (test-bridge) unreachable.
+// service on a podman bridge network (test-bridge) unreachable. A service on
+// the built-in bridge keeps them whatever else it is on: publishing is what
+// that bridge is for.
 func hostOnlyServices(atts []composepkg.Attachment, hostOnly map[string]bool) []string {
 	elsewhere := map[string]bool{}
 	onHost := map[string]bool{}
+	bridged := map[string]bool{}
 	for _, a := range atts {
 		if a.Service == "" {
+			continue
+		}
+		if a.Network == composepkg.Bridge {
+			onHost[a.Service] = true
+			bridged[a.Service] = true
 			continue
 		}
 		if hostOnly[a.Network] {
@@ -210,12 +218,40 @@ func hostOnlyServices(atts []composepkg.Attachment, hostOnly map[string]bool) []
 	}
 	var out []string
 	for svc := range onHost {
-		if !elsewhere[svc] {
+		if !elsewhere[svc] || bridged[svc] {
 			out = append(out, svc)
 		}
 	}
 	sort.Strings(out)
 	return out
+}
+
+// bridgeMixUnsupported refuses the built-in bridge next to other networks on
+// one AppJail service: podman runs that (proven on netlab), appjail has not
+// been tried, and a jail that half-works is worse than a clear no.
+func bridgeMixUnsupported(engineName string, atts []composepkg.Attachment) string {
+	if engineName != "appjail" {
+		return ""
+	}
+	count := map[string]int{}
+	bridged := map[string]bool{}
+	for _, a := range atts {
+		count[a.Service]++
+		if a.Network == composepkg.Bridge {
+			bridged[a.Service] = true
+		}
+	}
+	var svcs []string
+	for svc := range bridged {
+		if count[svc] > 1 {
+			svcs = append(svcs, svc)
+		}
+	}
+	if len(svcs) == 0 {
+		return ""
+	}
+	sort.Strings(svcs)
+	return "on AppJail, " + strings.Join(svcs, ", ") + " can be on the built-in bridge or on networks, not both at once"
 }
 
 // ensurePrivateNetwork returns the name of this stack's private segment,

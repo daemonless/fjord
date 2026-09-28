@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net"
 	"slices"
+	"strings"
 	"testing"
 
 	composepkg "github.com/daemonless/fjord/pkg/compose"
@@ -340,6 +341,29 @@ func TestHostOnlyServices(t *testing.T) {
 	// Nothing host-only: nothing to give back.
 	if got := hostOnlyServices(atts, nil); got != nil {
 		t.Errorf("got %v, want nothing", got)
+	}
+	// The built-in bridge keeps the ports even next to a LAN network.
+	mixed := []composepkg.Attachment{
+		{Network: composepkg.Bridge, Service: "tautulli"},
+		{Network: "lan-dhcp", Service: "tautulli"},
+	}
+	if got := hostOnlyServices(mixed, nil); !slices.Equal(got, []string{"tautulli"}) {
+		t.Errorf("bridge + lan: got %v, want [tautulli]", got)
+	}
+}
+
+func TestBridgeMixUnsupported(t *testing.T) {
+	mixed := []composepkg.Attachment{
+		{Network: composepkg.Bridge, Service: "tautulli"},
+		{Network: "lan-dhcp", Service: "tautulli"},
+		{Network: composepkg.Bridge, Service: "alone"},
+	}
+	if msg := bridgeMixUnsupported("podman", mixed); msg != "" {
+		t.Errorf("podman refused: %s", msg)
+	}
+	msg := bridgeMixUnsupported("appjail", mixed)
+	if !strings.Contains(msg, "tautulli") || strings.Contains(msg, "alone") {
+		t.Errorf("appjail: got %q, want tautulli named and alone not", msg)
 	}
 }
 

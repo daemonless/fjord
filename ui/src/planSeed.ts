@@ -28,31 +28,36 @@ export const joinable = (networks: Net[]) =>
 export const isMode = (spec: string) => MODES.includes(spec);
 
 /**
- * The built-ins ONE SERVICE can be put on.
- *
- * "bridge" is not one of them. host and none must clear the other interfaces:
- * podman-compose refuses `networks` and `network_mode` in the same service
- * ("networks and network_mode must not be present in the same service"), so
- * the format decides that, not fjord. bridge writes no network_mode at all --
- * it only means "hold no interface and take the project default" -- and fjord
- * grouped it with the other two, so it inherited an exclusivity nothing
- * imposes. On a multi-service stack that made it a trap: putting the exposed
- * service on bridge dropped the private interface it reaches its own database
- * through. "private" is the same NAT segment with the rest of the stack still
- * on it, and the stack-level mode picker still offers bridge, where it means
- * every service and is true.
- *
- * A stack with ONE service is the exception: there is nothing to strand, and
- * "publish my ports, join nothing" is the ordinary thing to want -- so bridge
- * belongs there. It used to be reachable only through a stack-level mode
- * picker that said the same thing as the table beside it, which is what made
- * that screen confusing enough to delete.
- *
- * A row already on it keeps it, so opening the page never silently drops a
- * choice something else made.
+ * The built-ins that stand alone. podman-compose refuses `networks` and
+ * `network_mode` in one service, so host and none clear every interface.
+ * bridge is not one of them: it is compose's `default` network, and a service
+ * can be on it and on a LAN at once (tried on netlab: both answer).
  */
-export const perServiceModes = (current: string, serviceCount = 1) =>
-  MODES.filter((m) => m !== 'bridge' || m === current || serviceCount <= 1);
+export const ALONE = ['host', 'none'];
+
+/** What the Type pulldown says for a service: networks, host or none. */
+export const serviceType = (rows: Iface[]) =>
+  rows.length === 1 && ALONE.includes(rows[0].network) ? rows[0].network : 'networks';
+
+/**
+ * switchType moves a service between networks, host and none.
+ *
+ * Leaving networks keeps the rows aside (`kept`) and coming back restores
+ * them: picking host used to throw every interface away, and only a page
+ * refresh brought them back.
+ */
+export function switchType(
+  rows: Iface[],
+  to: string,
+  kept: Iface[] | undefined,
+  fallback: Iface[],
+): { rows: Iface[]; kept?: Iface[] } {
+  if (ALONE.includes(to)) {
+    return { rows: [{ network: to }], kept: serviceType(rows) === 'networks' ? rows : kept };
+  }
+  if (serviceType(rows) === 'networks') return { rows, kept };
+  return { rows: kept?.length ? kept : fallback };
+}
 
 /**
  * resolveDefault turns the manifest's "default" spec into a real network.
@@ -138,10 +143,13 @@ export function splitPlan(edits: Record<string, Iface[]>): {
   const modes: Record<string, string> = {};
   for (const [svc, rows] of Object.entries(edits)) {
     let placed = false;
+    // bridge alone is the mode (no networks key); next to other networks it
+    // is an interface on compose's default network.
+    const alone = rows.filter((r) => r.network).length === 1;
     for (const r of rows) {
       if (!r.network) continue;
       placed = true;
-      if (isMode(r.network)) {
+      if (ALONE.includes(r.network) || (r.network === 'bridge' && alone)) {
         modes[svc] = r.network;
         continue;
       }
@@ -161,10 +169,9 @@ export function splitPlan(edits: Record<string, Iface[]>): {
 /**
  * setInterface applies one edit to a service's interface list.
  *
- * Choosing a MODE replaces the whole list: a container on the host's stack, on
- * podman's default bridge, or on nothing does not also hold other interfaces.
- * That is correct and was invisible -- the private row just disappeared -- so
- * the caller is told, and can say so on screen.
+ * Choosing host or none replaces the whole list: a container on the host's
+ * stack or on nothing holds no other interface. The caller is told what went,
+ * so it can say so. bridge is an ordinary row.
  */
 export function setInterface(
   rows: Iface[],
@@ -172,7 +179,7 @@ export function setInterface(
   field: 'network' | 'ip' | 'ip6' | 'mac',
   value: string,
 ): { rows: Iface[]; replaced: Iface[] } {
-  if (field === 'network' && isMode(value)) {
+  if (field === 'network' && ALONE.includes(value)) {
     const replaced = rows.filter((_, j) => j !== i).filter((r) => r.network);
     return { rows: [{ network: value }], replaced };
   }

@@ -566,6 +566,20 @@
   let svcNets: Record<string, Attachment[]> = {};
   let savedSvcNets = '{}';
   $: svcNetsDirty = JSON.stringify(svcNets) !== savedSvcNets;
+  // The interfaces as the stack has them on disk, and the copy the dirty check
+  // compares against. Re-seeded after a network Save too: keeping the copy from
+  // when the page opened made "back to what it was" look unchanged, so that
+  // Save sent nothing.
+  function seedSvcNets(stack: any) {
+    svcNets = Object.fromEntries(
+      (stack?.services ?? []).map((v: any) => {
+        const rows = (v.networks ?? []).map((n: any) => ({ ...n }));
+        if (rows.length) return [v.name, rows];
+        return [v.name, [{ network: v.hostNetwork ? 'host' : v.noNetwork ? 'none' : '', ip: '', mac: '' }]];
+      }),
+    );
+    savedSvcNets = JSON.stringify(svcNets);
+  }
 
   // Which built-ins this engine cannot give a service. An appjail director
   // project takes bridge -- that is its own NAT virtualnet -- but not host or
@@ -839,14 +853,7 @@
     // The editor used to be replaced by a line of prose for a host-networked
     // service, which left a host stack with nothing to change: switching to
     // "per service" showed nothing and Save had nothing to save.
-    svcNets = Object.fromEntries(
-      ((stack as any)?.services ?? []).map((v: any) => {
-        const rows = (v.networks ?? []).map((n: any) => ({ ...n }));
-        if (rows.length) return [v.name, rows];
-        return [v.name, [{ network: v.hostNetwork ? 'host' : '', ip: '', mac: '' }]];
-      }),
-    );
-    savedSvcNets = JSON.stringify(svcNets);
+    seedSvcNets(stack);
     // Resources tab is engine-scoped to this stack (see loadNetworks/loadVolumes).
     loadNetworks(stack!.name);
     loadVolumes(stack!.name);
@@ -1253,7 +1260,10 @@
         // save.
         if (body.networks || body.network || body.volume) {
           const detail = await fetch(`/api/stacks/${selectedStack.name}`);
-          if (detail.ok) selectedStack = await detail.json();
+          if (detail.ok) {
+            selectedStack = await detail.json();
+            seedSvcNets(selectedStack);
+          }
           volChoice = '';
           volPath = '';
           volRO = false;
@@ -2655,6 +2665,7 @@
                 <ServiceResources
                   services={selectedStack.services ?? []}
                   oneBridgePerService={(selectedStack.state?.engine || selectedStack.engine || defaultEngine) === 'appjail'}
+                  bridgeAlone={(selectedStack.state?.engine || selectedStack.engine || defaultEngine) === 'appjail'}
                   updates={svcUpdates}
                   rollbacks={updateInfo?.rollback ?? {}}
                   pinned={svcPinned}
