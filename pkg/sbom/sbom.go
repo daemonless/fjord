@@ -1,11 +1,13 @@
 // Package sbom reads what an image says about its own contents, from the
 // registry, so an update can say what it changes before anything is pulled.
 //
-// Two places an image can carry an SBOM, tried in order:
+// Three places an image can carry an SBOM, tried in order:
 //   - a BuildKit attestation inside the tag's index (Docker Hub's official
 //     images, anything built with `docker buildx --sbom`): SPDX.
-//   - a cosign attestation at the tag "sha256-<digest>.att" (sigstore users,
-//     daemonless): CycloneDX, or SPDX.
+//   - a cosign 2 attestation at the tag "sha256-<digest>.att" (sigstore
+//     users, daemonless): CycloneDX, or SPDX.
+//   - a cosign 3 attestation: Sigstore bundles in the index at the tag
+//     "sha256-<digest>" (the OCI referrers tag schema). Same contents.
 //
 // Most images carry neither, and that is not an error: the image config's own
 // labels (version, build date) are read for every image, so a stack with no
@@ -151,6 +153,9 @@ func For(ctx context.Context, image, index, platform string) (*Doc, error) {
 	if pkgs == nil {
 		pkgs, src = cosignSBOM(ctx, image, platform)
 	}
+	if pkgs == nil {
+		pkgs, src = bundleSBOM(ctx, image, platform)
+	}
 	d.Packages, d.Source = pkgs, src
 
 	cache.Lock()
@@ -241,7 +246,58 @@ func buildkitSBOM(ctx context.Context, image, index, platform string) (map[strin
 // layer a DSSE envelope whose payload is an in-toto statement.
 func cosignSBOM(ctx context.Context, image, platform string) (map[string]string, string) {
 	tag := strings.Replace(platform, ":", "-", 1) + ".att"
-	layers := attestationLayers(ctx, image, tag, "predicateType")
+	return envelopeSBOM(ctx, image, attestationLayers(ctx, image, tag, "predicateType"))
+}
+
+// bundleSBOM reads what cosign 3 stores instead: the tag "sha256-<hex>" is an
+// index of Sigstore bundle manifests, each naming its predicate type in an
+// annotation and holding the bundle, whose dsseEnvelope is the same envelope
+// cosign 2 stored bare.
+func bundleSBOM(ctx context.Context, image, platform string) (map[string]string, string) {
+	body, _, err := manifest(ctx, image, strings.Replace(platform, ":", "-", 1), acceptIndex)
+	if err != nil {
+		return nil, ""
+	}
+	var idx struct {
+		Manifests []struct {
+			Digest       string `json:"digest"`
+			ArtifactType string `json:"artifactType"`
+		} `json:"manifests"`
+	}
+	if json.Unmarshal(body, &idx) != nil {
+		return nil, ""
+	}
+	var layers []sbomLayer
+	for _, m := range idx.Manifests {
+		// Other referrers can share the tag; a signature bundle has no
+		// predicate type, so it drops out at predicateKind below.
+		if !strings.HasPrefix(m.ArtifactType, "application/vnd.dev.sigstore.bundle") {
+			continue
+		}
+		mb, _, err := manifest(ctx, image, m.Digest, acceptManifest)
+		if err != nil {
+			continue
+		}
+		var bm struct {
+			Annotations map[string]string `json:"annotations"`
+			Layers      []struct {
+				Digest string `json:"digest"`
+			} `json:"layers"`
+		}
+		if json.Unmarshal(mb, &bm) != nil || len(bm.Layers) == 0 {
+			continue
+		}
+		if k := predicateKind(bm.Annotations["dev.sigstore.bundle.predicateType"]); k != "" {
+			layers = append(layers, sbomLayer{bm.Layers[0].Digest, k})
+		}
+	}
+	return envelopeSBOM(ctx, image, layers)
+}
+
+// envelopeSBOM reads the first SBOM layer that parses: each a DSSE envelope,
+// bare (cosign 2) or wrapped in a Sigstore bundle (cosign 3), whose payload is
+// an in-toto statement.
+func envelopeSBOM(ctx context.Context, image string, layers []sbomLayer) (map[string]string, string) {
 	// CycloneDX first: it names the app itself as well as its packages.
 	sort.SliceStable(layers, func(i, j int) bool { return layers[i].kind == "cyclonedx" && layers[j].kind != "cyclonedx" })
 	for _, l := range layers {
@@ -251,12 +307,19 @@ func cosignSBOM(ctx context.Context, image, platform string) (map[string]string,
 		}
 		var env struct {
 			Payload string `json:"payload"`
+			Bundle  struct {
+				Payload string `json:"payload"`
+			} `json:"dsseEnvelope"`
 		}
-		if json.Unmarshal(raw, &env) != nil || env.Payload == "" {
+		if json.Unmarshal(raw, &env) != nil {
 			continue
 		}
-		stmt, err := base64.StdEncoding.DecodeString(env.Payload)
-		if err != nil {
+		payload := env.Payload
+		if payload == "" {
+			payload = env.Bundle.Payload
+		}
+		stmt, err := base64.StdEncoding.DecodeString(payload)
+		if err != nil || len(stmt) == 0 {
 			continue
 		}
 		if pkgs := parseStatement(stmt, l.kind); pkgs != nil {
