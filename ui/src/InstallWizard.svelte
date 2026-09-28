@@ -452,7 +452,11 @@
     { name: 'none', detail: 'No network at all: nothing in and nothing out.' },
   ];
   const builtIn = (name: string) => BUILT_IN.some((b) => b.name === name);
-  $: chosenBuiltIn = BUILT_IN.find((b) => b.name === (netChoice || 'bridge'));
+  // What an empty choice installs as: the manifest's own networking. On podman
+  // a host-networked app stays on host -- the picker said "bridge" over it. On
+  // appjail the app's bundle decides, and bundles ship on appjail's NAT bridge.
+  $: shownChoice = netChoice || (hostNetworked && engineChoice !== 'appjail' ? 'host' : 'bridge');
+  $: chosenBuiltIn = BUILT_IN.find((b) => b.name === shownChoice);
   // A default of host or none is fine until the engine is appjail, which has
   // no director option for either. The option was already grayed out, but it
   // stayed SELECTED -- so the install went ahead and came back 400. Falling
@@ -943,12 +947,13 @@
                   bind:edits={planEdits}
                   planning
                   oneBridgePerService={engineChoice === 'appjail'}
+                  bridgeAlone={engineChoice === 'appjail'}
                   unsupportedModes={wizardUnsupported}
                   on:change={() => (planEdits = planEdits)}
                 />
               {:else}
                 <label class="text-sm font-semibold text-fjord-fg-secondary" for="net">Networking</label>
-                {#if hostNetworked && !declaresNetworking}
+                {#if hostNetworked && !declaresNetworking && engineChoice !== 'appjail'}
                   <p class="text-xs text-fjord-warning mt-1 mb-2">
                     This app expects host networking — its services reach each other over
                     <span class="font-mono">localhost</span>. Giving it an address of its own means
@@ -965,7 +970,7 @@
                      option and the box was blank above text describing bridge. -->
                 <select
                   id="net"
-                  value={netChoice || 'bridge'}
+                  value={shownChoice}
                   on:change={(e) => (netChoice = e.currentTarget.value)}
                   class="w-full bg-fjord-inset border border-fjord-border rounded-md px-3 py-2 text-fjord-fg-body focus:outline-none focus:border-fjord-accent"
                 >

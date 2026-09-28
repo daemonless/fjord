@@ -322,6 +322,10 @@ func (s *server) handleInstall(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "network: "+planErr.Error(), 400)
 			return
 		}
+		if msg := bridgeMixUnsupported(req.Engine, atts); msg != "" {
+			http.Error(w, msg, 400)
+			return
+		}
 		if len(atts) > 0 {
 			composeYAML, err = composepkg.InjectNetworks(composeYAML, atts)
 		}

@@ -200,9 +200,17 @@ func InjectNetworks(composeYAML string, atts []Attachment) (string, error) {
 		target = published[0]
 	}
 
-	// Top-level networks: {<network>: {external: true}} (idempotent).
+	// Top-level networks: {<network>: {external: true}} (idempotent). The
+	// built-in bridge is the project's own "default", which podman-compose
+	// refuses to attach unless it is declared -- and it is not external.
 	networks := mapEnsure(root, "networks")
 	for _, a := range atts {
+		if a.Network == Bridge {
+			if mapGet(networks, composeDefault) == nil {
+				mapSet(networks, composeDefault, &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map", Style: yaml.FlowStyle})
+			}
+			continue
+		}
 		if mapGet(networks, a.Network) == nil {
 			mapSet(networks, a.Network, externalNetworkNode())
 		}
@@ -415,7 +423,7 @@ func serviceNetworksNode(atts []Attachment) *yaml.Node {
 	if plain {
 		seq := &yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq"}
 		for _, a := range atts {
-			seq.Content = append(seq.Content, scalar(a.Network))
+			seq.Content = append(seq.Content, scalar(composeName(a.Network)))
 		}
 		return seq
 	}
@@ -434,9 +442,28 @@ func serviceNetworksNode(atts []Attachment) *yaml.Node {
 		if len(inner.Content) == 0 {
 			inner.Style = yaml.FlowStyle // "net: {}" -- an empty mapping, not null
 		}
-		outer.Content = append(outer.Content, scalar(a.Network), inner)
+		outer.Content = append(outer.Content, scalar(composeName(a.Network)), inner)
 	}
 	return outer
+}
+
+// composeDefault is compose's name for the project's own network -- what fjord
+// calls the built-in bridge. A service listing it next to other networks keeps
+// the bridge (and its published ports) and gains the others.
+const composeDefault = "default"
+
+func composeName(network string) string {
+	if network == Bridge {
+		return composeDefault
+	}
+	return network
+}
+
+func fjordName(network string) string {
+	if network == composeDefault {
+		return Bridge
+	}
+	return network
 }
 
 func serviceNetworkNode(network, ip string) *yaml.Node {
@@ -652,12 +679,12 @@ func serviceAttachments(n *yaml.Node) []Attachment {
 	case yaml.SequenceNode:
 		for _, item := range n.Content {
 			if item.Kind == yaml.ScalarNode && item.Value != "" {
-				out = append(out, Attachment{Network: item.Value})
+				out = append(out, Attachment{Network: fjordName(item.Value)})
 			}
 		}
 	case yaml.MappingNode:
 		for i := 0; i+1 < len(n.Content); i += 2 {
-			a := Attachment{Network: n.Content[i].Value}
+			a := Attachment{Network: fjordName(n.Content[i].Value)}
 			if opts := n.Content[i+1]; opts != nil && opts.Kind == yaml.MappingNode {
 				if v := mapGet(opts, "ipv4_address"); v != nil {
 					a.IP = v.Value

@@ -631,6 +631,10 @@ func (s *server) stackSave(w http.ResponseWriter, r *http.Request, name string) 
 			http.Error(w, msg, 400)
 			return
 		}
+		if msg := bridgeMixUnsupported(eng, atts); msg != "" {
+			http.Error(w, msg, 400)
+			return
+		}
 		if len(atts) > 0 {
 			injected, err := composepkg.InjectNetworks(composeYAML, atts)
 			if err != nil {

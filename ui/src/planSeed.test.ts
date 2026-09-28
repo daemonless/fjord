@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { resolveDefault, seedInterfaces, splitPlan, setInterface, perServiceModes, isMode, isolatedServices, keepAttachable, addressesNeeded } from './planSeed';
+import { resolveDefault, seedInterfaces, splitPlan, setInterface, serviceType, switchType, isMode, isolatedServices, keepAttachable, addressesNeeded } from './planSeed';
 
 // immich's declaration, as the catalog carries it.
 const immich = { 'immich-server': 'default', '*': 'private' };
@@ -96,11 +96,11 @@ describe('setInterface', () => {
     expect(out[0].ip).toBe('');
   });
 
-  // A mode is exclusive -- and it used to silently take the private interface
-  // with it, which read as the editor losing data.
-  it('a mode replaces the list, and says what it replaced', () => {
-    const { rows: out, replaced } = setInterface(rows, 0, 'network', 'bridge');
-    expect(out).toEqual([{ network: 'bridge' }]);
+  // host and none are exclusive -- and used to silently take the private
+  // interface with them, which read as the editor losing data.
+  it('host replaces the list, and says what it replaced', () => {
+    const { rows: out, replaced } = setInterface(rows, 0, 'network', 'host');
+    expect(out).toEqual([{ network: 'host' }]);
     expect(replaced.map((r) => r.network)).toEqual(['private']);
   });
 
@@ -233,32 +233,58 @@ describe('resolveDefault and other stacks\' private segments', () => {
   });
 });
 
-describe('perServiceModes', () => {
+describe('bridge is an interface, not a mode', () => {
   // host and none clear the other interfaces because podman-compose refuses
-  // both keys on one service. bridge writes no network_mode at all, so its
-  // exclusivity was fjord's own -- and it silently took away the private
-  // interface the exposed service reaches its database through.
-  it('does not offer bridge to one service OF MANY', () => {
-    expect(perServiceModes('', 4)).toEqual(['host', 'none']);
-    expect(perServiceModes('lan', 4)).toEqual(['host', 'none']);
+  // both keys on one service. bridge is compose's default network and sits
+  // next to a LAN fine -- netlab ran bridge + epair with both answering.
+  it('picking bridge on one row keeps the others', () => {
+    const { rows, replaced } = setInterface([{ network: 'lan' }, { network: 'private' }], 0, 'network', 'bridge');
+    expect(rows.map((r) => r.network)).toEqual(['bridge', 'private']);
+    expect(replaced).toEqual([]);
   });
 
-  // A one-service stack has nothing to strand, and "publish my ports, join
-  // nothing" is the ordinary thing to want. It used to be reachable only
-  // through the stack-level mode picker, which said the same thing as the
-  // table next to it.
-  it('offers bridge when the stack has one service', () => {
-    expect(perServiceModes('', 1)).toEqual(['host', 'bridge', 'none']);
+  it('bridge alone is still sent as the mode', () => {
+    expect(splitPlan({ web: [{ network: 'bridge' }] }).modes).toEqual({ web: 'bridge' });
   });
 
-  it('keeps bridge on a row that is already on it', () => {
-    expect(perServiceModes('bridge', 4)).toEqual(['host', 'bridge', 'none']);
+  it('bridge next to a LAN is sent as an interface', () => {
+    const { networks, modes } = splitPlan({ web: [{ network: 'bridge' }, { network: 'lan-dhcp', mac: '0e:04:00:00:00:31' }] });
+    expect(modes).toEqual({});
+    expect(networks.map((n) => n.network)).toEqual(['bridge', 'lan-dhcp']);
   });
 
-  it('still treats bridge as a mode wherever it arrives from', () => {
+  it('isMode still knows bridge, for seeds and stack-wide choices', () => {
     expect(isMode('bridge')).toBe(true);
-    const { rows } = setInterface([{ network: 'lan' }, { network: 'private' }], 0, 'network', 'bridge');
-    expect(rows).toEqual([{ network: 'bridge' }]);
+  });
+});
+
+describe('serviceType / switchType', () => {
+  const three = [
+    { network: 'lan-dhcp', mac: '58:9c:fc:10:b7:36' },
+    { network: 'lan-range', ip: '192.168.86.200' },
+    { network: 'lan-static', ip: '192.168.86.49' },
+  ];
+  it('reads host and none as types, everything else as networks', () => {
+    expect(serviceType([{ network: 'host' }])).toBe('host');
+    expect(serviceType([{ network: 'none' }])).toBe('none');
+    expect(serviceType([{ network: 'bridge' }])).toBe('networks');
+    expect(serviceType(three)).toBe('networks');
+  });
+
+  // tautulli on army: three networks, switched to host and back, came back
+  // empty until a refresh.
+  it('host and back gives every interface back unchanged', () => {
+    const toHost = switchType(three, 'host', undefined, [{ network: 'bridge' }]);
+    expect(toHost.rows).toEqual([{ network: 'host' }]);
+    const toNone = switchType(toHost.rows, 'none', toHost.kept, [{ network: 'bridge' }]);
+    expect(toNone.rows).toEqual([{ network: 'none' }]);
+    const back = switchType(toNone.rows, 'networks', toNone.kept, [{ network: 'bridge' }]);
+    expect(back.rows).toEqual(three);
+    expect(back.kept).toBeUndefined();
+  });
+
+  it('networks with nothing kept starts on bridge', () => {
+    expect(switchType([{ network: 'host' }], 'networks', undefined, [{ network: 'bridge' }]).rows).toEqual([{ network: 'bridge' }]);
   });
 });
 

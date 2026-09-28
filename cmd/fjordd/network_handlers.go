@@ -655,6 +655,9 @@ func (s *server) engineNetworks(ctx context.Context, engineName string) []engine
 }
 
 func (s *server) networkUnusable(ctx context.Context, engineName, network string) string {
+	if network == composepkg.Bridge {
+		return "" // every engine has one; it is written as the compose default
+	}
 	be, ok := s.backend(engineName)
 	if !ok {
 		return ""

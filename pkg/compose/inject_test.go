@@ -613,3 +613,37 @@ func TestInjectNetworksIPv6Only(t *testing.T) {
 		t.Errorf("round trip: %+v", got)
 	}
 }
+
+// The built-in bridge next to a LAN network: written as compose's "default"
+// (declared, not external -- podman-compose refuses it undeclared) and read
+// back as "bridge". Proven on netlab: both interfaces up, the published port
+// and the LAN address both answer.
+func TestInjectNetworksBridgeWithOthers(t *testing.T) {
+	out, err := InjectNetworks(caddyCompose, []Attachment{
+		{Network: Bridge, Service: "caddy"},
+		{Network: "lan-dhcp", Service: "caddy", MAC: "58:9c:fc:10:b7:36"},
+	})
+	if err != nil {
+		t.Fatalf("InjectNetworks: %v", err)
+	}
+	m := mustParse(t, out)
+	top := m["networks"].(map[string]any)
+	if d, ok := top["default"]; !ok || d == nil || len(d.(map[string]any)) != 0 {
+		t.Errorf("top-level default: got %#v, want an empty mapping\n%s", top["default"], out)
+	}
+	if _, ok := top["bridge"]; ok {
+		t.Errorf("wrote a network named bridge:\n%s", out)
+	}
+	if ext := top["lan-dhcp"].(map[string]any)["external"]; ext != true {
+		t.Errorf("lan-dhcp not external:\n%s", out)
+	}
+	svc := m["services"].(map[string]any)["caddy"].(map[string]any)
+	nets := svc["networks"].(map[string]any)
+	if _, ok := nets["default"]; !ok {
+		t.Errorf("service networks lack default:\n%s", out)
+	}
+	got := ServiceAttachments(out)["caddy"]
+	if len(got) != 2 || got[0].Network != Bridge || got[1].Network != "lan-dhcp" || got[1].MAC != "58:9c:fc:10:b7:36" {
+		t.Errorf("read back %+v, want bridge then lan-dhcp with its MAC", got)
+	}
+}

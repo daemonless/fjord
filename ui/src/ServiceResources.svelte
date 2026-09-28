@@ -10,7 +10,7 @@
   import Icon from './Icon.svelte';
   import AddMount from './AddMount.svelte';
   import { addressProblem, address6Problem, usableRange, randomMAC } from './network';
-  import { setInterface, perServiceModes, isolatedServices } from './planSeed';
+  import { setInterface, serviceType, switchType, isolatedServices, ALONE, type Iface } from './planSeed';
 
   type Net = {
     name: string;
@@ -65,6 +65,9 @@
   // AppJail: one interface per bridge per service, so a second network on a
   // bridge the service already uses is shown but not offered.
   export let oneBridgePerService = false;
+  // AppJail: the built-in bridge only on its own. podman runs it next to other
+  // networks; appjail has not been tried, and fjordd refuses the mix.
+  export let bridgeAlone = false;
   /** service name -> its interfaces, staged. The parent owns it so Save can
    *  post it and the dirty check can see it. */
   export let edits: Record<string, Attachment[]> = {};
@@ -134,19 +137,45 @@
   }
   const toggle = (n: string) => (open = { ...open, [n]: !open[n] });
 
-  // Modes, not networks: a service on one of these holds no interface of its
-  // own, so picking one replaces whatever list it had.
-  const BUILT_INS = [
-    { name: 'host', detail: "shares this host's stack" },
-    { name: 'bridge', detail: 'published ports only' },
-    { name: 'none', detail: 'no network at all' },
+  // Type is networks, host or none -- the same built-ins, in the same words,
+  // as the Networks page. host and none hold no interface, so the table is
+  // only for networks; bridge is one of them.
+  const TYPES: { id: string; text: string }[] = [
+    { id: 'networks', text: 'One or more interfaces, each on a network.' },
+    { id: 'host', text: "No interface of its own — it binds this host's ports directly." },
+    { id: 'none', text: 'No network at all: nothing in and nothing out.' },
   ];
-  const isBuiltIn = (n: string) => BUILT_INS.some((b) => b.name === n);
-  // Which of them ONE service may be put on -- see perServiceModes.
-  const perServiceBuiltIns = (current: string) => {
-    const allowed = perServiceModes(current, services.length);
-    return BUILT_INS.filter((b) => allowed.includes(b.name));
-  };
+  const isBuiltIn = (n: string) => n === 'bridge' || ALONE.includes(n);
+  // Rows set aside by a trip to host or none, per service, until Save.
+  let kept: Record<string, Iface[] | undefined> = {};
+  function setType(svc: string, to: string) {
+    const r = switchType(rows(svc), to, kept[svc], [{ network: 'bridge' }]);
+    kept = { ...kept, [svc]: r.kept };
+    edits[svc] = r.rows;
+    touch();
+  }
+  // Each network is grouped under its own type, as the engine reports it
+  // (epair here, macvlan on Linux); the built-in bridge, this stack's own
+  // segment and bridge-driver networks go under bridge. The list is passed in,
+  // not read here: the template only redraws for what it references, and the
+  // networks arrive after the first draw.
+  const bridgeKind = (n: Net) => n.driver === 'bridge' || !!n.private || n.addressSource === 'engine';
+  function netGroups(nets: Net[], current: string): { label: string; nets: Net[] }[] {
+    const list = pickable(nets, current);
+    const out: { label: string; nets: Net[] }[] = [{ label: 'bridge', nets: list.filter(bridgeKind) }];
+    for (const n of list.filter((x) => !bridgeKind(x))) {
+      const label = n.driver || 'other';
+      let g = out.find((x) => x.label === label);
+      if (!g) out.push((g = { label, nets: [] }));
+      g.nets.push(n);
+    }
+    return out;
+  }
+  function kindOf(nets: Net[], name: string): string {
+    if (!name || name === 'bridge' || name === 'private') return 'bridge';
+    const n = nets.find((x) => x.name === name);
+    return n ? (bridgeKind(n) ? 'bridge' : n.driver || '') : '';
+  }
   // A network the ENGINE allocates on is some stack's own private segment.
   // Joining another stack's is almost never the intent, and one per stack
   // makes this list grow by one for every multi-service app installed -- so
@@ -200,13 +229,8 @@
   const cutsOff = (svc: string, i: number) =>
     !isolated.has(svc) &&
     isolatedServices({ ...edits, [svc]: rows(svc).filter((_, j) => j !== i) }).includes(svc);
-  // What picking a mode took away, so the row can say so instead of the other
-  // interfaces just vanishing.
-  let replacedBy: Record<string, string[]> = {};
   function setField(svc: string, i: number, field: 'network' | 'ip' | 'ip6' | 'mac', value: string) {
-    const { rows: next, replaced } = setInterface(rows(svc), i, field, value);
-    edits[svc] = next;
-    replacedBy = { ...replacedBy, [svc]: replaced.map((r) => r.network) };
+    edits[svc] = setInterface(rows(svc), i, field, value).rows;
     touch();
   }
   function genMAC(svc: string, i: number) {
@@ -330,17 +354,34 @@
 
             <div>
               <div class="text-xs font-semibold text-fjord-fg-secondary mb-1">Networking</div>
-              <!-- The table is always the control. It used to be replaced
-                   by a line reading "set by the stack's mode, not per",
-                   which made host a one-way door: a stack on the host
-                   stack had no row to change, so switching to per-service
-                   showed nothing and Save had nothing to save. A mode is
-                   a row (see seedInterfaces), so it says the same thing
-                   and can be changed. -->
+              <div class="flex flex-wrap items-center gap-x-3 gap-y-1 mb-2 text-xs">
+                <label for="type-{s.name}" class="text-fjord-fg-dim">Type</label>
+                <select
+                  id="type-{s.name}"
+                  value={serviceType(edits[s.name] ?? [])}
+                  on:change={(e) => setType(s.name, e.currentTarget.value)}
+                  class="bg-fjord-inset border border-fjord-border rounded-lg px-2 py-1.5 text-fjord-fg-body min-w-[10rem]"
+                >
+                  {#each TYPES as t}
+                    <option value={t.id} disabled={unsupportedModes.includes(t.id) && t.id !== serviceType(edits[s.name] ?? [])}>
+                      {t.id}{unsupportedModes.includes(t.id) ? ' — not on this engine' : ''}
+                    </option>
+                  {/each}
+                </select>
+                <span class="text-fjord-fg-dim">{TYPES.find((t) => t.id === serviceType(edits[s.name] ?? []))?.text}</span>
+              </div>
+              {#if serviceType(edits[s.name] ?? []) !== 'networks'}
+                {#if (kept[s.name] ?? []).length}
+                  <p class="text-xs text-fjord-fg-dim">
+                    {(kept[s.name] ?? []).length} interface{(kept[s.name] ?? []).length > 1 ? 's' : ''} kept until Save — set
+                    Type back to networks to get {(kept[s.name] ?? []).length > 1 ? 'them' : 'it'} back.
+                  </p>
+                {/if}
+              {:else}
               <table class="w-full text-xs">
                 <thead class="text-fjord-fg-dim">
                   <tr>
-                    {#if !planning}<th class="text-left font-medium pb-1 w-36">Interface</th>{/if}
+                    {#if !planning}<th class="text-left font-medium pb-1 w-24">Interface</th>{/if}
                     <th class="text-left font-medium pb-1">Network</th>
                     <th class="text-left font-medium pb-1">Address</th>
                     <th class="text-left font-medium pb-1">MAC</th>
@@ -354,6 +395,7 @@
                        add and remove then changed nothing on screen. -->
                   {#each edits[s.name] ?? [] as r, i}
                     {@const net = byName(r.network)}
+                    {@const builtin = !r.network || r.network === 'bridge'}
                     {@const problem = duplicate(edits[s.name] ?? [], i)
                       ? `${r.network} is already on this service`
                       : addressProblem(r.ip ?? '', net) || address6Problem(r.ip6 ?? '', net)}
@@ -362,63 +404,62 @@
                         <td class="py-1.5 pr-2 font-mono text-fjord-fg-dim">{r.iface ?? 'on create'}</td>
                       {/if}
                       <td class="py-1.5 pr-2">
-                        <!-- "" is bridge (no network named): shown as such, or
-                             it matched no option and the picker was blank. -->
-                        <select
-                          value={r.network || 'bridge'}
-                          on:change={(e) => setField(s.name, i, 'network', e.currentTarget.value)}
-                          class="w-full bg-fjord-inset border border-fjord-border rounded-lg px-2 py-1.5 text-fjord-fg-body"
-                        >
-                          {#each pickable(networks, r.network) as n}
-                            <!-- Say when a network carries IPv6. Showing only
-                                 the v4 subnet made a dual-stack network read
-                                 exactly like a v4-only one, so the second
-                                 address box appeared with no warning and its
-                                 absence looked like a missing feature. -->
-                            {@const clash = sameBridgeAs(s.name, i, n)}
-                            <option value={n.name} disabled={!!clash}>
-                              {n.name}{n.subnet ? ` (${n.subnet}${n.subnet6 ? ' + IPv6' : ''})` : n.subnet6 ? ' (IPv6)' : ''}{clash
-                                ? ` — same bridge as ${clash}`
-                                : ''}
-                            </option>
-                          {/each}
-                          {#if offerPrivateSpec}
-                            <option value="private">private — only this stack</option>
-                          {/if}
-                          <!-- A built-in is a MODE, not a network to join, so
-                               choosing one leaves the service with just it. -->
-                          {#each perServiceBuiltIns(r.network || 'bridge').filter((b) => !unsupportedModes.includes(b.name) || b.name === (r.network || 'bridge')) as b}
-                            <option value={b.name} disabled={unsupportedModes.includes(b.name)}>
-                              {b.name} — {b.detail}{unsupportedModes.includes(b.name) ? ' (not on this engine)' : ''}
-                            </option>
-                          {/each}
-                          <!-- Keeps a network the host no longer defines, so an
-                               attachment is not silently lost. Not for one the
-                               list already offers: "private" is a spec rather
-                               than a network, so it has no entry in hostnet and
-                               appeared twice, once as itself and once as
-                               "not on this host". -->
-                          {#if r.network && !byName(r.network) && !isBuiltIn(r.network) && !(offerPrivateSpec && r.network === 'private')}
-                            <option value={r.network}>{r.network} (not on this host)</option>
-                          {/if}
-                        </select>
+                        <div class="flex items-center gap-2">
+                          <span class="shrink-0 w-14 text-center font-mono text-[10px] px-1 py-0.5 rounded border border-fjord-border text-fjord-fg-muted">{kindOf(networks, r.network)}</span>
+                          <!-- "" is bridge (no network named): shown as such, or
+                               it matched no option and the picker was blank. -->
+                          <select
+                            value={r.network || 'bridge'}
+                            on:change={(e) => setField(s.name, i, 'network', e.currentTarget.value)}
+                            class="w-full bg-fjord-inset border border-fjord-border rounded-lg px-2 py-1.5 text-fjord-fg-body"
+                          >
+                            {#each netGroups(networks, r.network) as g}
+                              <optgroup label={g.label}>
+                                {#if g.label === 'bridge'}
+                                  {@const blocked = bridgeAlone && (edits[s.name] ?? []).length > 1 && !builtin}
+                                  <option value="bridge" disabled={blocked}>
+                                    bridge — built in: NAT, published ports{blocked ? ' (only on its own on this engine)' : ''}
+                                  </option>
+                                  {#if offerPrivateSpec}
+                                    <option value="private">private — only this stack</option>
+                                  {/if}
+                                {/if}
+                                {#each g.nets as n}
+                                  <!-- Say when a network carries IPv6. Showing only
+                                       the v4 subnet made a dual-stack network read
+                                       exactly like a v4-only one. -->
+                                  {@const clash = sameBridgeAs(s.name, i, n)}
+                                  <option value={n.name} disabled={!!clash}>
+                                    {n.name}{n.subnet ? ` (${n.subnet}${n.subnet6 ? ' + IPv6' : ''})` : n.subnet6 ? ' (IPv6)' : ''}{clash
+                                      ? ` — same bridge as ${clash}`
+                                      : ''}
+                                  </option>
+                                {/each}
+                              </optgroup>
+                            {/each}
+                            <!-- Keeps a network the host no longer defines, so an
+                                 attachment is not silently lost. -->
+                            {#if r.network && !byName(r.network) && !isBuiltIn(r.network) && !(offerPrivateSpec && r.network === 'private')}
+                              <option value={r.network}>{r.network} (not on this host)</option>
+                            {/if}
+                          </select>
+                        </div>
                       </td>
                       <td class="py-1.5 pr-2">
+                        <!-- The built-in bridge's address is the engine's to give:
+                             pinning one needs a subnet compose's default has not got. -->
                         <input
-                          value={r.ip ?? ''}
+                          value={builtin ? '' : (r.ip ?? '')}
+                          disabled={builtin}
                           on:input={(e) => setField(s.name, i, 'ip', e.currentTarget.value)}
-                          placeholder={net?.addressSource === 'dhcp' ? 'from DHCP' : 'from the network'}
-                          class="w-full bg-fjord-inset border rounded-lg px-2 py-1.5 font-mono text-fjord-fg-body {problem
+                          placeholder={builtin ? 'from the engine' : net?.addressSource === 'dhcp' ? 'from DHCP' : 'from the network'}
+                          class="w-full bg-fjord-inset border rounded-lg px-2 py-1.5 font-mono text-fjord-fg-body disabled:opacity-60 {problem
                             ? 'border-fjord-danger'
                             : 'border-fjord-border'}"
                         />
                         <!-- Only where the network has a v6 segment: a box you
                              cannot put anything in is worse than no box. -->
                         {#if net && !net.subnet6 && r.network && !isBuiltIn(r.network)}
-                          <!-- The absence, stated. A row with no second box
-                               was indistinguishable from fjord not doing
-                               IPv6 -- the segment is what decides, and it is
-                               changed on the Networks page. -->
                           <div class="mt-1 text-[10px] text-fjord-fg-faint">IPv4 only — add an IPv6 segment on Networks</div>
                         {/if}
                         {#if net?.subnet6}
@@ -433,20 +474,24 @@
                         {/if}
                       </td>
                       <td class="py-1.5 pr-2">
-                        <div class="flex gap-1">
-                          <input
-                            value={r.mac ?? ''}
-                            on:input={(e) => setField(s.name, i, 'mac', e.currentTarget.value)}
-                            placeholder="auto"
-                            class="w-full bg-fjord-inset border border-fjord-border rounded-lg px-2 py-1.5 font-mono text-fjord-fg-body"
-                          />
-                          <button
-                            on:click={() => genMAC(s.name, i)}
-                            title="Generate a MAC"
-                            class="shrink-0 px-2 rounded-lg bg-fjord-inset border border-fjord-border text-fjord-fg-muted hover:text-fjord-fg"
-                            >Gen</button
-                          >
-                        </div>
+                        {#if builtin}
+                          <input disabled placeholder="—" class="w-full bg-fjord-inset border border-fjord-border rounded-lg px-2 py-1.5 font-mono disabled:opacity-60" />
+                        {:else}
+                          <div class="flex gap-1">
+                            <input
+                              value={r.mac ?? ''}
+                              on:input={(e) => setField(s.name, i, 'mac', e.currentTarget.value)}
+                              placeholder="auto"
+                              class="w-full bg-fjord-inset border border-fjord-border rounded-lg px-2 py-1.5 font-mono text-fjord-fg-body"
+                            />
+                            <button
+                              on:click={() => genMAC(s.name, i)}
+                              title="Generate a MAC"
+                              class="shrink-0 px-2 rounded-lg bg-fjord-inset border border-fjord-border text-fjord-fg-muted hover:text-fjord-fg"
+                              >Gen</button
+                            >
+                          </div>
+                        {/if}
                       </td>
                       <td class="py-1.5 text-right whitespace-nowrap">
                         {#if confirmRemove === `${s.name}:${i}`}
@@ -506,19 +551,18 @@
                   Put it back on a network one of them is also on.
                 </p>
               {/if}
-              {#if (replacedBy[s.name] ?? []).length}
-                <p class="text-xs text-fjord-warning mt-1">
-                  {(edits[s.name] ?? [])[0]?.network} is on its own — it replaced
-                  <span class="font-mono">{(replacedBy[s.name] ?? []).join(', ')}</span>,
-                  because a service on one of these holds no other interface.
-                </p>
+              <div class="mt-2 flex items-center gap-3">
+                <button
+                  on:click={() => addRow(s.name)}
+                  disabled={bridgeAlone && (edits[s.name] ?? []).some((r) => !r.network || r.network === 'bridge')}
+                  class="text-xs px-2.5 py-1 rounded-lg bg-fjord-inset border border-fjord-border text-fjord-fg-secondary hover:text-fjord-fg hover:border-fjord-accent/40 transition-colors disabled:opacity-40"
+                  >+ interface</button
+                >
+                {#if bridgeAlone && (edits[s.name] ?? []).some((r) => !r.network || r.network === 'bridge')}
+                  <span class="text-xs text-fjord-fg-dim">On this engine bridge stands alone — pick a network instead to add more.</span>
+                {/if}
+              </div>
               {/if}
-              <button
-                on:click={() => addRow(s.name)}
-                disabled={(edits[s.name] ?? []).some((r) => isBuiltIn(r.network))}
-                class="mt-2 text-xs px-2.5 py-1 rounded-lg bg-fjord-inset border border-fjord-border text-fjord-fg-secondary hover:text-fjord-fg hover:border-fjord-accent/40 transition-colors"
-                >+ interface</button
-              >
           </div>
 
           {#if !planning}
