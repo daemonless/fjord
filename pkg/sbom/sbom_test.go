@@ -71,6 +71,53 @@ func TestCosignCycloneDX(t *testing.T) {
 	}
 }
 
+// cosign 3's shape (daemonless arm64): the "sha256-<hex>" tag is an index of
+// Sigstore bundles; the predicate type is a manifest annotation and the
+// envelope sits under dsseEnvelope. A signature bundle and an SPDX bundle
+// share the tag; CycloneDX still wins.
+func TestCosignBundle(t *testing.T) {
+	m, cfg := image("1.4", "2026-09-28T19:01:44Z")
+	enc := func(pred any) string {
+		p, _ := json.Marshal(statement(pred))
+		return base64.StdEncoding.EncodeToString(p)
+	}
+	bundle := func(pred any) map[string]any {
+		return map[string]any{"mediaType": "application/vnd.dev.sigstore.bundle.v0.3+json", "dsseEnvelope": map[string]any{"payloadType": "application/vnd.in-toto+json", "payload": enc(pred)}}
+	}
+	const bt = "application/vnd.dev.sigstore.bundle.v0.3+json"
+	ref := func(predicateType, layer string) map[string]any {
+		ann := map[string]string{"dev.sigstore.bundle.content": "dsse-envelope"}
+		if predicateType != "" {
+			ann["dev.sigstore.bundle.predicateType"] = predicateType
+		}
+		return map[string]any{"artifactType": bt, "annotations": ann, "layers": []map[string]any{{"digest": layer}}}
+	}
+	fakeRegistry(t,
+		map[string]any{
+			"sha256:arm64": m,
+			"sha256-arm64": map[string]any{"manifests": []map[string]any{
+				{"digest": "sha256:ref-sig", "artifactType": bt},
+				{"digest": "sha256:ref-spdx", "artifactType": bt},
+				{"digest": "sha256:ref-cdx", "artifactType": bt},
+			}},
+			"sha256:ref-sig":  ref("", "sha256:sig"),
+			"sha256:ref-spdx": ref("https://spdx.dev/Document", "sha256:spdx"),
+			"sha256:ref-cdx":  ref("https://cyclonedx.org/bom", "sha256:cdx"),
+		},
+		map[string]any{
+			"sha256:cfg-1.4": cfg,
+			"sha256:spdx":    bundle(map[string]any{"packages": []map[string]string{{"name": "nginx", "versionInfo": "1.28.0"}}}),
+			"sha256:cdx":     bundle(map[string]any{"components": []map[string]string{{"name": "nginx", "version": "1.28.0"}, {"name": "pkg-cache", "version": "1.4"}}}),
+		})
+	d, err := For(context.Background(), "ghcr.io/x/pkg-cache:1.4", "sha256:index", "sha256:arm64")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Source != "cyclonedx" || d.Version != "1.4" || len(d.Packages) != 2 || d.Packages["nginx"] != "1.28.0" {
+		t.Errorf("doc = %+v", d)
+	}
+}
+
 // Docker Hub's shape: the attestation lives in the index, pointing back at
 // the platform manifest it describes, as an unsigned in-toto statement.
 func TestBuildKitSPDX(t *testing.T) {
