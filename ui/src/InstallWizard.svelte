@@ -928,7 +928,7 @@
                   <p class="text-xs text-fjord-fg-dim mb-3">
                     This app says which of its parts belongs where: the one you open goes on
                     <span class="font-mono">{exposedOn || joinableNets[0].name}</span>, and its
-                    database and cache go on a private segment only it can reach. Change any of it
+                    database and cache go on a network of their own, not reachable from your LAN. Change any of it
                     here, or after installing.
                   </p>
                 {:else}
