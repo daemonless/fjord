@@ -41,6 +41,32 @@ func privateNetworkName(stackID string) string {
 	return clean + privateNetSuffix
 }
 
+// isPrivateNetworkName says whether a name is one privateNetworkName made.
+// The engines' own networks (ajnet, podman) and LAN networks never carry the
+// suffix, so it is fjord's mark; the stack name itself cannot be recovered
+// from it (cleaned and truncated), only that there was one.
+func isPrivateNetworkName(name string) bool {
+	return strings.HasSuffix(name, privateNetSuffix) && name != privateNetSuffix
+}
+
+// labelPrivateNetworks says whose each private segment is. Named after its
+// stack, so the stack list is the ownership record; one named for a stack
+// that no longer exists is a leftover -- not the engine's own, which is what
+// an unowned engine network otherwise reads as.
+func labelPrivateNetworks(nets []engine.Network, stacks []string) {
+	ownerOf := map[string]string{}
+	for _, name := range stacks {
+		ownerOf[privateNetworkName(name)] = name
+	}
+	for i, n := range nets {
+		nets[i].OwnedBy = ownerOf[n.Name]
+		nets[i].Private = nets[i].OwnedBy != ""
+		if _, isConflist := hostnet.Get(n.Name); !nets[i].Private && !isConflist && isPrivateNetworkName(n.Name) {
+			nets[i].Private, nets[i].Leftover = true, true
+		}
+	}
+}
+
 // planServiceNetworks turns a manifest's networking declaration into one
 // attachment per service.
 //

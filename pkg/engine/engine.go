@@ -107,6 +107,11 @@ type Network struct {
 	// fires an unscoped one too, so whichever landed last decided whether the
 	// option existed at all.
 	OwnedBy string `json:"ownedBy,omitempty"`
+	// Leftover marks a private segment whose stack is gone: fjord's naming,
+	// no owner. Before stacks dropped their own network on delete, every
+	// multi-network install left one, and it showed as "the engine's own" with
+	// Delete greyed -- a network nothing needs, that nothing could remove.
+	Leftover bool `json:"leftover,omitempty"`
 	// WireWarning says the subnet this network claims is not the segment its
 	// bridge is on, as far as fjord can tell (the host's own address there, a
 	// DHCP server's answer, or the other networks on the same bridge). Such a

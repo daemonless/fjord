@@ -386,3 +386,30 @@ func TestPlanServiceNetworksModesOnly(t *testing.T) {
 	}
 	modes["immich-server"] = "host" // the assignment the handler makes
 }
+
+// A private segment is its stack's while the stack exists, a leftover once it
+// is gone, and the engines' own networks are neither.
+func TestLabelPrivateNetworks(t *testing.T) {
+	nets := []engine.Network{
+		{Name: "ajnet"},
+		{Name: "immich_priv"},
+		{Name: "zensical-a_priv"},
+		{Name: "_priv"},
+	}
+	labelPrivateNetworks(nets, []string{"immich", "syncthing"})
+	want := map[string]struct {
+		private, leftover bool
+		owner             string
+	}{
+		"ajnet":           {},
+		"immich_priv":     {private: true, owner: "immich"},
+		"zensical-a_priv": {private: true, leftover: true},
+		"_priv":           {},
+	}
+	for _, n := range nets {
+		w := want[n.Name]
+		if n.Private != w.private || n.Leftover != w.leftover || n.OwnedBy != w.owner {
+			t.Errorf("%s: private=%v leftover=%v owner=%q, want %+v", n.Name, n.Private, n.Leftover, n.OwnedBy, w)
+		}
+	}
+}
