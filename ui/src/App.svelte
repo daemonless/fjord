@@ -42,7 +42,7 @@
     address?: string; // the container's own IP on an attachable network
   };
   type StackStatus = { state: string; containers: ContainerStatus[] };
-  type StackState = { group?: string; desired_state?: string; engine?: string; order?: number; origin?: { type?: string; app_id?: string } };
+  type StackState = { group?: string; desired_state?: string; engine?: string; order?: number; origin?: { type?: string; app_id?: string }; pending_services?: string[] };
   type Stack = { name: string; displayName?: string; icon?: string; dir: string; compose: string; env: string; director?: string; makejail?: string; engine?: string; status?: StackStatus; state?: StackState; services?: any[]; composeHash?: string; busy?: string; linkHost?: string };
   // What the UI shows for a stack: its label, falling back to the id.
   const label = (s: { name: string; displayName?: string } | null | undefined) => s?.displayName || s?.name || '';
@@ -1279,6 +1279,8 @@
         if (statusLabel(selectedStack!.status) === 'running' || statusLabel(selectedStack!.status) === 'partial') {
           needsApply[selectedStack!.name] = true;
         }
+        applyDismissed[selectedStack!.name] = false;
+        await refreshState(selectedStack!.name);
         await loadStacks();
       } else if (res.status === 409) {
         saveConflict = selectedStack.name;
@@ -1540,7 +1542,22 @@
     // Only a bring-up that succeeded applied the saved config; after a
     // refused one (port taken) the running containers still have the old.
     if (execStatus[name] !== 'error') needsApply[name] = false;
+    await refreshState(name);
   };
+  // fjordd's own record of what a Save left unapplied (pending_services): it
+  // clears it only once the recreate is confirmed, so it is re-read after an
+  // action rather than guessed from how the stream ended.
+  async function refreshState(name: string) {
+    const r = await fetch(`/api/stacks/${encodeURIComponent(name)}`).catch(() => null);
+    if (!r?.ok) return;
+    const d = await r.json();
+    stacks = stacks.map((s) => (s.name === name ? { ...s, state: d.state } : s));
+    if (selectedStack?.name === name) selectedStack = { ...selectedStack, state: d.state };
+  }
+  // "Not now" on the banner, for this session.
+  let applyDismissed: Record<string, boolean> = {};
+  $: pendingApply = !!selectedStack && (selectedStack.state?.pending_services?.length ?? 0) > 0 &&
+    ['running', 'partial'].includes(statusLabel(selectedStack.status));
   const down = (name: string) => streamAction(name, 'down', 'Stopping…');
   const restart = (name: string) => streamAction(name, 'restart', 'Restarting…');
   // services: pull and recreate only those; none = the whole stack.
@@ -1551,6 +1568,7 @@
     // A whole-stack update recreates everything, so saved config is applied.
     // Updating some services leaves the rest on what they were started with.
     if (execStatus[name] !== 'error' && !some) needsApply[name] = false;
+    await refreshState(name);
     if (selectedStack?.name === name) checkForUpdate(name); // refresh the badge
     loadFleetUpdates(true); // fleet badges should reflect the applied update
   };
@@ -2383,7 +2401,7 @@
         <!-- HIG banner: persistent saved-but-unapplied state, with its action.
              Hidden while an action runs: that action applies the config, and a
              greyed-out Apply next to "Updating…" only read as broken. -->
-        {#if needsApply[selectedStack.name] && execStatus[selectedStack.name] !== 'running'}
+        {#if (needsApply[selectedStack.name] || pendingApply) && !applyDismissed[selectedStack.name] && execStatus[selectedStack.name] !== 'running'}
           <div
             class="flex items-center gap-3 mb-4 shrink-0 px-4 py-2.5 rounded-lg bg-fjord-warning/10 border border-fjord-warning/25 text-sm text-fjord-fg-body"
           >
@@ -2391,7 +2409,7 @@
               >The running containers still use the old configuration — apply the saved changes to recreate them.</span
             >
             <button
-              on:click={() => (needsApply[selectedStack!.name] = false)}
+              on:click={() => { needsApply[selectedStack!.name] = false; applyDismissed[selectedStack!.name] = true; }}
               title="Keep the running containers as-is; the saved config applies next time you Start/recreate"
               class="shrink-0 px-3 py-1.5 rounded-lg text-sm font-medium text-fjord-fg-muted hover:text-fjord-fg transition-colors"
               >Not now</button

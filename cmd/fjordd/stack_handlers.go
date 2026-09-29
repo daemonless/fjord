@@ -710,7 +710,9 @@ func (s *server) stackSave(w http.ResponseWriter, r *http.Request, name string) 
 	// If it's a new stack it might not exist on disk yet; use the payload.
 	st := &stack.Stack{Name: name, Compose: composeYAML, Env: payload.Env}
 	created := false
+	var oldCompose, oldEnv string
 	if existing, err := s.manager.Get(name); err == nil {
+		oldCompose, oldEnv = existing.Compose, existing.Env
 		existing.Compose = composeYAML
 		existing.Env = payload.Env
 		if existing.Director != "" {
@@ -772,6 +774,11 @@ func (s *server) stackSave(w http.ResponseWriter, r *http.Request, name string) 
 	// Record installed/updated timestamps; leaves desired_state alone.
 	if err := s.manager.EnsureState(name); err != nil {
 		log.Printf("save %s: persist state: %v", name, err)
+	}
+	// What this Save changed, for the next start or Apply to recreate. Director
+	// stacks come up whole, so there is nothing to name.
+	if !created && st.Director == "" {
+		s.recordPending(name, composepkg.ChangedServices(oldCompose, envMap(oldEnv), st.Compose, st.EnvMap()))
 	}
 	// Bind a new stack to its chosen engine (only if that engine is registered;
 	// unset means podman). Existing stacks keep theirs -- switching runtimes is
@@ -1082,7 +1089,19 @@ func (s *server) stackLifecycle(w http.ResponseWriter, r *http.Request, name, ac
 	var stream io.ReadCloser
 	switch action {
 	case "up":
-		stream, err = s.backendFor(st).Up(ctx, st)
+		// Changes a Save left pending are recreated first, by name and
+		// verified -- not left to podman-compose, which keeps the old container
+		// and exits 0 when the teardown is refused. Then the rest comes up.
+		be := s.backendFor(st)
+		pending := s.pendingFor(st)
+		if rec, ok := be.(engine.Recreator); ok && len(pending) > 0 {
+			var first io.ReadCloser
+			if first, err = rec.Recreate(ctx, st, pending); err == nil {
+				stream = s.clearPendingAfter(name, pending, thenStream(first, func() (io.ReadCloser, error) { return be.Up(ctx, st) }))
+			}
+		} else {
+			stream, err = be.Up(ctx, st)
+		}
 	case "down":
 		stream, err = s.backendFor(st).Down(ctx, st)
 	case "update":
@@ -1096,6 +1115,10 @@ func (s *server) stackLifecycle(w http.ResponseWriter, r *http.Request, name, ac
 		}
 		note := keptNote(s.keepAddresses(ctx, st))
 		stream, err = s.backendFor(st).Update(ctx, st, services)
+		if err == nil {
+			// An update recreates what it touches, from the saved config.
+			stream = s.clearPendingAfter(name, services, stream)
+		}
 		if err == nil && note != "" {
 			stream = struct {
 				io.Reader

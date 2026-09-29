@@ -65,6 +65,10 @@ type State struct {
 	// database can be stricter than the app in front of it.
 	UpdatePolicy  string            `json:"update_policy,omitempty"`
 	ServicePolicy map[string]string `json:"service_policy,omitempty"`
+	// PendingServices were changed by a Save and not yet recreated: the next
+	// start or Apply replaces exactly these, and clears them once it is sure
+	// it did. On disk, so "not applied yet" survives a reload.
+	PendingServices []string `json:"pending_services,omitempty"`
 }
 
 // RollbackImage is one service's image before an update.
