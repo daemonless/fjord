@@ -6,7 +6,7 @@
   import { toast } from './toast';
   import FixSnippet from './FixSnippet.svelte';
 
-  type Network = { name: string; driver: string; subnet?: string; gateway?: string; subnet6?: string; gateway6?: string; usedBy?: string[]; problem?: string; engines?: string[]; addressSource?: string; bridge?: string; private?: boolean; ownedBy?: string; wireWarning?: string };
+  type Network = { name: string; driver: string; subnet?: string; gateway?: string; subnet6?: string; gateway6?: string; usedBy?: string[]; problem?: string; engines?: string[]; addressSource?: string; bridge?: string; private?: boolean; ownedBy?: string; leftover?: boolean; wireWarning?: string };
   // A kind is the engine's own declaration of what it can create and which
   // fields that shape uses -- the form is built from this rather than from
   // anything the UI knows about a specific runtime.
@@ -201,25 +201,33 @@
   // and which every jail can use.
   //
   //   ownedBy   fjord made this FOR one stack, to hold its database
+  //   leftover  fjord made it for a stack that is gone; nothing needs it
   //   engine    the engine's own default NAT, shared by everything on it
   const stackOwned = (n: Network) => !!n.ownedBy;
-  const engineOwned = (n: Network) => !stackOwned(n) && n.addressSource === 'engine';
-  const isPrivateNet = (n: Network) => stackOwned(n) || engineOwned(n);
+  const leftover = (n: Network) => !stackOwned(n) && !!n.leftover;
+  const engineOwned = (n: Network) => !stackOwned(n) && !leftover(n) && n.addressSource === 'engine';
+  const isPrivateNet = (n: Network) => stackOwned(n) || leftover(n) || engineOwned(n);
   $: lanNets = networks.filter((n) => !isPrivateNet(n));
   $: privateNets = networks.filter(isPrivateNet);
   // What the disclosure says it is hiding, without claiming a stack made any
   // of it unless one did.
   $: privateSummary = (() => {
     const owned = privateNets.filter(stackOwned).length;
-    const engine = privateNets.length - owned;
+    const left = privateNets.filter(leftover).length;
+    const engine = privateNets.length - owned - left;
     const bits: string[] = [];
     if (owned) bits.push(`${owned} made by a stack`);
+    if (left) bits.push(`${left} left over from a deleted stack`);
     if (engine) bits.push(`${engine} the engine's own`);
     return bits.join(', ');
   })();
   // Whose it is, per row.
   const privateWhose = (n: Network) =>
-    stackOwned(n) ? `made by ${n.ownedBy}` : "the engine's own default network";
+    stackOwned(n)
+      ? `made by ${n.ownedBy}`
+      : leftover(n)
+        ? 'left over from a deleted stack — nothing needs it, safe to delete'
+        : "the engine's own default network";
   let showPrivate = false;
 
   // How a network hands out addresses, in the words the form uses. Read from
