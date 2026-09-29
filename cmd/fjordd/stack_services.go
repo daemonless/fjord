@@ -327,8 +327,15 @@ func attachStatus(views []serviceView, status engine.StackStatus) {
 func linkHost(views []serviceView, reachable func(string) bool) string {
 	for _, v := range views {
 		for _, n := range v.Networks {
-			if n.IP != "" && reachable(n.Network) {
-				return n.IP
+			// What it holds now, then a pin. Reading only the pin gave every
+			// DHCP stack no link, and the page fell back to the engine's
+			// first address -- zensical opened at its 10.89 bridge address.
+			ip := v.Live[n.Network]
+			if ip == "" {
+				ip = n.IP
+			}
+			if ip != "" && reachable(n.Network) {
+				return ip
 			}
 		}
 	}

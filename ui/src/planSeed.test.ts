@@ -35,6 +35,11 @@ describe('resolveDefault', () => {
 });
 
 describe('seedInterfaces', () => {
+  it('a one-service app on a LAN gets that network only, no private segment', () => {
+    expect(seedInterfaces(['zensical'], { zensical: 'lan-dhcp' })).toEqual({
+      zensical: [{ network: 'lan-dhcp', ip: '', mac: '' }],
+    });
+  });
   it('gives the exposed service its network AND the private one', () => {
     const seeded = seedInterfaces(services, resolveDefault(expand(immich), [{ name: 'lan' }], 'lan'));
     expect(seeded['immich-server'].map((r) => r.network)).toEqual(['lan', 'private']);
