@@ -1533,6 +1533,15 @@
     deleting: 'Deleting…',
   };
   $: busyNow = !!selectedStack && (execStatus[selectedStack.name] === 'running' || !!selectedStack.busy);
+  // Why the actions are greyed, in words: what fjordd is doing to the stack,
+  // or what this page started. Grey alone read as broken.
+  $: busyReason = !selectedStack
+    ? ''
+    : selectedStack.busy
+      ? `${BUSY_LABEL[selectedStack.busy] ?? 'Busy…'} — actions come back when it finishes`
+      : execStatus[selectedStack.name] === 'running'
+        ? `${execMessage[selectedStack.name] || 'Working…'} — actions come back when it finishes`
+        : '';
 
   // Stacks with saved-but-unapplied config changes (need a recreate via `up`).
   let needsApply: Record<string, boolean> = {};
@@ -2229,6 +2238,7 @@
               on:click={confirmPending}
               on:keydown={(e) => e.key === 'Escape' && (pendingAction = null)}
               disabled={busyNow}
+              title={busyReason || undefined}
               class="shrink-0 px-3 py-1.5 rounded-lg text-sm font-medium bg-fjord-danger text-white hover:bg-fjord-danger-hover transition-colors disabled:opacity-40"
               >{pendingAction.kind === 'delete'
                 ? deleteData
@@ -2364,6 +2374,7 @@
                         ? updatePicked(selectedStack!.name, picked)
                         : update(selectedStack!.name)}
                   disabled={(updateInfo.perService ? !picked.length : !updatable.length && !versionStep) || busyNow}
+                  title={busyReason || undefined}
                   class="shrink-0 px-3 py-1.5 rounded-lg text-sm font-medium bg-fjord-accent text-white hover:bg-fjord-accent-hover transition-colors disabled:opacity-40"
                   >{versionStep
                     ? `Update to v${versionStep.to}`
@@ -2417,6 +2428,7 @@
             <button
               on:click={() => up(selectedStack!.name)}
               disabled={busyNow}
+              title={busyReason || undefined}
               class="shrink-0 px-3 py-1.5 rounded-lg text-sm font-medium bg-fjord-warning/15 text-fjord-warning border border-fjord-warning/40 hover:bg-fjord-warning/25 transition-colors disabled:opacity-40"
               >Apply Changes</button
             >
@@ -2431,19 +2443,22 @@
           <button
             on:click={() => up(selectedStack!.name)}
             disabled={busyNow}
+            title={busyReason || undefined}
             class="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-fjord-border hover:bg-fjord-success/80 hover:text-white transition-colors disabled:opacity-40"
             ><Icon name="play" size={14} /> Start</button
           >
           <button
             on:click={() => (pendingAction = { kind: 'stop', stack: selectedStack!.name })}
             disabled={busyNow}
+            title={busyReason || undefined}
             class="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-fjord-border hover:bg-fjord-danger hover:text-white transition-colors disabled:opacity-40"
             ><Icon name="stop" size={14} /> Stop…</button
           >
           <button
             on:click={() => (updatePanel === selectedStack!.name ? (updatePanel = '') : openUpdatePanel(selectedStack!.name))}
             disabled={busyNow || !!updateButtonReason}
-            title={updateButtonReason ||
+            title={busyReason ||
+              updateButtonReason ||
               (updateInfo?.state === 'available'
                 ? `${updatable.map((s) => s.service).join(', ')} ${updatable.length === 1 ? 'has' : 'have'} an update`
                 : 'Check for updates')}
@@ -2486,12 +2501,15 @@
               ><Icon name="pin" size={12} /> Pinned</span
             >
           {/if}
+          {#if busyReason}
+            <span class="text-xs text-fjord-fg-dim">{busyReason}</span>
+          {/if}
           <div class="flex-1"></div>
           <div class="relative">
             <button
               on:click={() => (actionsMenuOpen = !actionsMenuOpen)}
               disabled={busyNow}
-              title="More Actions"
+              title={busyReason || 'More Actions'}
               class="flex items-center px-2.5 py-2 rounded-lg text-sm font-medium bg-fjord-border hover:bg-fjord-border/70 hover:text-fjord-fg transition-colors disabled:opacity-40"
               ><Icon name="menu" size={16} /></button
             >

@@ -429,7 +429,7 @@
                                     bridge — built in: NAT, published ports{blocked ? ' (only on its own on this engine)' : ''}
                                   </option>
                                   {#if offerPrivateSpec}
-                                    <option value="private">private — only this stack</option>
+                                    <option value="private">private — this stack's own network, not reachable from your LAN</option>
                                   {/if}
                                 {/if}
                                 {#each g.nets as n}
