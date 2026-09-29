@@ -295,6 +295,7 @@ func main() {
 		events:     newEventHub(),
 		seen:       newFirstSeen(fjordRoot),
 	}
+	busyEvents = srv.events
 	// One server-side loop pushes stack state-changes to all SSE clients.
 	go srv.runEventLoop()
 

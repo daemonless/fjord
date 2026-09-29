@@ -104,7 +104,7 @@ func (s *server) handleStacksList(w http.ResponseWriter, r *http.Request) {
 			nameIfaces(atts)
 		}
 		svcs := stackServices(st, status)
-		row := stackWithStatus{Stack: st, Status: status, Networks: atts,
+		row := stackWithStatus{Stack: st, Status: status, Networks: atts, Busy: busyWith(st.Name),
 			NetworkMode: composepkg.NetworkMode(st.Compose),
 			Services:    svcs,
 			LinkHost:    linkHost(svcs, ownAddress)}
@@ -293,7 +293,7 @@ func (s *server) stackDetail(w http.ResponseWriter, r *http.Request, name string
 	}
 	json.NewEncoder(w).Encode(stackWithStatus{
 		Stack: st, Status: status, ComposeHash: composeHash(st), Network: net, NetworkIP: ip, NetworkMAC: mac,
-		Networks: atts, OwnAddress: own, Services: svcs, LinkHost: linkHost(svcs, ownAddress),
+		Networks: atts, OwnAddress: own, Services: svcs, LinkHost: linkHost(svcs, ownAddress), Busy: busyWith(st.Name),
 		// A stack on a mode has no attachments, which on its own is
 		// indistinguishable from one on the bridge publishing ports.
 		NetworkMode:      composepkg.NetworkMode(st.Compose),
@@ -315,7 +315,7 @@ func (s *server) stackDetail(w http.ResponseWriter, r *http.Request, name string
 // client can name a path to remove. They go before the stack itself: if one
 // cannot be removed, the stack is still there to retry from.
 func (s *server) stackDelete(w http.ResponseWriter, name string, data bool) {
-	unlock, ok := lockStack(name)
+	unlock, ok := lockStackAs(name, "deleting")
 	if !ok {
 		http.Error(w, "another operation is already running on this stack; wait for it to finish", http.StatusConflict)
 		return
@@ -973,6 +973,46 @@ func (s *server) handleReorder(w http.ResponseWriter, r *http.Request) {
 // behind a ten-minute pull.
 var lifecycleLocks sync.Map
 
+// busyOps names what each locked stack is doing. While an install or up
+// pulls, podman shows no container, so the page read the stack as stopped --
+// a "problem" -- and offered Start, which ran a second up alongside the first.
+var busyOps sync.Map
+
+// busyEvents carries busy changes to open pages, next to the status loop's.
+var busyEvents *eventHub
+
+func publishBusy(name, action string) {
+	if busyEvents == nil {
+		return
+	}
+	if b, err := json.Marshal(map[string]string{"type": "stack-busy", "name": name, "busy": action}); err == nil {
+		busyEvents.publish(b)
+	}
+}
+
+// lockStackAs is lockStack that also says what the stack is busy with.
+func lockStackAs(name, action string) (unlock func(), ok bool) {
+	u, ok := lockStack(name)
+	if !ok {
+		return nil, false
+	}
+	busyOps.Store(name, action)
+	publishBusy(name, action)
+	return func() {
+		busyOps.Delete(name)
+		u()
+		publishBusy(name, "")
+	}, true
+}
+
+// busyWith is what a stack is busy with, or "".
+func busyWith(name string) string {
+	if v, ok := busyOps.Load(name); ok {
+		return v.(string)
+	}
+	return ""
+}
+
 func lockStack(name string) (unlock func(), ok bool) {
 	mu, _ := lifecycleLocks.LoadOrStore(name, &sync.Mutex{})
 	m := mu.(*sync.Mutex)
@@ -1015,9 +1055,9 @@ func (s *server) stackLifecycle(w http.ResponseWriter, r *http.Request, name, ac
 		return
 	}
 
-	unlock, ok := lockStack(name)
+	unlock, ok := lockStackAs(name, action)
 	if !ok {
-		http.Error(w, "another operation is already running on this stack; wait for it to finish", http.StatusConflict)
+		http.Error(w, anotherOperation(name), http.StatusConflict)
 		return
 	}
 	defer unlock()
@@ -1118,4 +1158,12 @@ func (s *server) dropPrivateNetwork(be engine.Backend, stackName string) {
 	default:
 		log.Printf("delete %s: could not remove its private network %s: %v", stackName, net, err)
 	}
+}
+
+// anotherOperation says what a stack is already doing, for the 409.
+func anotherOperation(name string) string {
+	if b := busyWith(name); b != "" {
+		return name + " is already busy (" + b + "); wait for it to finish"
+	}
+	return "another operation is already running on this stack; wait for it to finish"
 }

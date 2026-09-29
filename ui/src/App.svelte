@@ -43,7 +43,7 @@
   };
   type StackStatus = { state: string; containers: ContainerStatus[] };
   type StackState = { group?: string; desired_state?: string; engine?: string; order?: number; origin?: { type?: string; app_id?: string } };
-  type Stack = { name: string; displayName?: string; icon?: string; dir: string; compose: string; env: string; director?: string; makejail?: string; engine?: string; status?: StackStatus; state?: StackState; services?: any[]; composeHash?: string };
+  type Stack = { name: string; displayName?: string; icon?: string; dir: string; compose: string; env: string; director?: string; makejail?: string; engine?: string; status?: StackStatus; state?: StackState; services?: any[]; composeHash?: string; busy?: string; linkHost?: string };
   // What the UI shows for a stack: its label, falling back to the id.
   const label = (s: { name: string; displayName?: string } | null | undefined) => s?.displayName || s?.name || '';
 
@@ -1389,6 +1389,12 @@
     } catch {}
   }
   function applyStackEvent(ev: any) {
+    if (ev?.type === 'stack-busy') {
+      const busy = ev.busy || undefined;
+      stacks = stacks.map((s) => (s.name === ev.name ? { ...s, busy } : s));
+      if (selectedStack && selectedStack.name === ev.name) selectedStack = { ...selectedStack, busy };
+      return;
+    }
     if (ev?.type === 'stack-removed') {
       stacks = stacks.filter((s) => s.name !== ev.name);
       if (selectedStack?.name === ev.name) selectStack(null);
@@ -1399,9 +1405,10 @@
         loadStacks(); // a stack this tab doesn't know yet (installed elsewhere)
         return;
       }
-      // Status only -- never touch compose/env, so an open editor is safe.
-      stacks = stacks.map((s) => (s.name === ev.name ? { ...s, status: ev.status } : s));
-      if (selectedStack && selectedStack.name === ev.name) selectedStack = { ...selectedStack, status: ev.status };
+      // Status and where Open goes -- never compose/env, so an open editor is safe.
+      const linkHost = ev.linkHost ?? undefined;
+      stacks = stacks.map((s) => (s.name === ev.name ? { ...s, status: ev.status, linkHost } : s));
+      if (selectedStack && selectedStack.name === ev.name) selectedStack = { ...selectedStack, status: ev.status, linkHost };
     }
   }
 
@@ -1512,6 +1519,18 @@
   // A shell needs a live container/jail: exec into a stopped one fails
   // instantly ("Cannot find the jail") and would just reconnect in a loop.
   $: shellContainerUp = (shellContainers.find((c) => c.name === shellContainer)?.state ?? 'stopped') !== 'stopped';
+
+  // What fjordd says it is doing to a stack. An install or up shows no
+  // container for the whole pull; without this the page said "stopped".
+  const BUSY_LABEL: Record<string, string> = {
+    installing: 'Installing…',
+    up: 'Starting…',
+    update: 'Updating…',
+    restart: 'Restarting…',
+    down: 'Stopping…',
+    deleting: 'Deleting…',
+  };
+  $: busyNow = !!selectedStack && (execStatus[selectedStack.name] === 'running' || !!selectedStack.busy);
 
   // Stacks with saved-but-unapplied config changes (need a recreate via `up`).
   let needsApply: Record<string, boolean> = {};
@@ -2024,9 +2043,11 @@
             {/if}
             <span
               title={(selectedStack.status?.containers || []).filter((c) => c.detail).map((c) => `${c.name}: ${c.detail}`).join('\n') || ''}
-              class="shrink-0 px-2.5 py-0.5 border rounded-full text-[11px] font-semibold capitalize {statusStyle(
-                selectedStack.status,
-              )}">{statusLabel(selectedStack.status)}</span
+              class="shrink-0 px-2.5 py-0.5 border rounded-full text-[11px] font-semibold capitalize {selectedStack.busy
+                ? 'bg-fjord-accent/10 text-fjord-accent border-fjord-accent/30'
+                : statusStyle(selectedStack.status)}">{selectedStack.busy
+                ? BUSY_LABEL[selectedStack.busy] ?? 'Busy…'
+                : statusLabel(selectedStack.status)}</span
             >
             {#each (selectedStack.status?.containers || []).filter((c) => c.detail) as c}
               <span class="shrink-0 text-xs text-fjord-warning truncate" title={c.name}>{c.detail}</span>
@@ -2189,7 +2210,7 @@
               bind:this={pendingConfirmBtn}
               on:click={confirmPending}
               on:keydown={(e) => e.key === 'Escape' && (pendingAction = null)}
-              disabled={execStatus[selectedStack.name] === 'running'}
+              disabled={busyNow}
               class="shrink-0 px-3 py-1.5 rounded-lg text-sm font-medium bg-fjord-danger text-white hover:bg-fjord-danger-hover transition-colors disabled:opacity-40"
               >{pendingAction.kind === 'delete'
                 ? deleteData
@@ -2324,8 +2345,7 @@
                       : updateInfo?.perService
                         ? updatePicked(selectedStack!.name, picked)
                         : update(selectedStack!.name)}
-                  disabled={(updateInfo.perService ? !picked.length : !updatable.length && !versionStep) ||
-                    execStatus[selectedStack.name] === 'running'}
+                  disabled={(updateInfo.perService ? !picked.length : !updatable.length && !versionStep) || busyNow}
                   class="shrink-0 px-3 py-1.5 rounded-lg text-sm font-medium bg-fjord-accent text-white hover:bg-fjord-accent-hover transition-colors disabled:opacity-40"
                   >{versionStep
                     ? `Update to v${versionStep.to}`
@@ -2378,7 +2398,7 @@
             >
             <button
               on:click={() => up(selectedStack!.name)}
-              disabled={execStatus[selectedStack.name] === 'running'}
+              disabled={busyNow}
               class="shrink-0 px-3 py-1.5 rounded-lg text-sm font-medium bg-fjord-warning/15 text-fjord-warning border border-fjord-warning/40 hover:bg-fjord-warning/25 transition-colors disabled:opacity-40"
               >Apply Changes</button
             >
@@ -2392,19 +2412,19 @@
         <div class="flex flex-wrap items-center gap-2 mb-4 shrink-0">
           <button
             on:click={() => up(selectedStack!.name)}
-            disabled={execStatus[selectedStack.name] === 'running'}
+            disabled={busyNow}
             class="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-fjord-border hover:bg-fjord-success/80 hover:text-white transition-colors disabled:opacity-40"
             ><Icon name="play" size={14} /> Start</button
           >
           <button
             on:click={() => (pendingAction = { kind: 'stop', stack: selectedStack!.name })}
-            disabled={execStatus[selectedStack.name] === 'running'}
+            disabled={busyNow}
             class="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-fjord-border hover:bg-fjord-danger hover:text-white transition-colors disabled:opacity-40"
             ><Icon name="stop" size={14} /> Stop…</button
           >
           <button
             on:click={() => (updatePanel === selectedStack!.name ? (updatePanel = '') : openUpdatePanel(selectedStack!.name))}
-            disabled={execStatus[selectedStack.name] === 'running' || !!updateButtonReason}
+            disabled={busyNow || !!updateButtonReason}
             title={updateButtonReason ||
               (updateInfo?.state === 'available'
                 ? `${updatable.map((s) => s.service).join(', ')} ${updatable.length === 1 ? 'has' : 'have'} an update`
@@ -2452,7 +2472,7 @@
           <div class="relative">
             <button
               on:click={() => (actionsMenuOpen = !actionsMenuOpen)}
-              disabled={execStatus[selectedStack.name] === 'running'}
+              disabled={busyNow}
               title="More Actions"
               class="flex items-center px-2.5 py-2 rounded-lg text-sm font-medium bg-fjord-border hover:bg-fjord-border/70 hover:text-fjord-fg transition-colors disabled:opacity-40"
               ><Icon name="menu" size={16} /></button
