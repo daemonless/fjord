@@ -493,6 +493,12 @@ var writeData = func(f *os.File, b []byte) (int, error) { return f.Write(b) }
 // and fjord lost every image, port and volume it knew for the stack. Written
 // to a temp file in the same directory and renamed over the old one, a failed
 // save is an error and nothing else.
+// WriteFileAtomic is writeFileAtomic for fjord's own state files outside a
+// stack directory.
+func WriteFileAtomic(path string, data []byte, perm os.FileMode) error {
+	return writeFileAtomic(path, data, perm)
+}
+
 func writeFileAtomic(path string, data []byte, perm os.FileMode) error {
 	tmp, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".*.tmp")
 	if err != nil {

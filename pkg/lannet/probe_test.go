@@ -1,6 +1,7 @@
 package lannet
 
 import (
+	"fmt"
 	"strconv"
 	"testing"
 )
@@ -21,9 +22,19 @@ func TestParseLease(t *testing.T) {
 	}
 }
 
+// Stable per bridge, so a daily ask reuses one lease; distinct per bridge.
+func TestProbeMACIsStablePerBridge(t *testing.T) {
+	if probeMAC("lanbridge") != probeMAC("lanbridge") {
+		t.Error("probe MAC changes between asks")
+	}
+	if probeMAC("lanbridge") == probeMAC("lanbridge2") {
+		t.Error("two bridges share a probe MAC")
+	}
+}
+
 func TestProbeMACIsLocalUnicast(t *testing.T) {
 	for i := 0; i < 50; i++ {
-		m := probeMAC()
+		m := probeMAC(fmt.Sprintf("bridge%d", i))
 		b0, err := strconv.ParseUint(m[:2], 16, 8)
 		if err != nil {
 			t.Fatal(err)

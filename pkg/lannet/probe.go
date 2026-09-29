@@ -2,7 +2,7 @@ package lannet
 
 import (
 	"context"
-	"crypto/rand"
+	"crypto/sha256"
 	"fmt"
 	"net"
 	"os"
@@ -58,7 +58,7 @@ func ProbeSegment(ctx context.Context, bridge string) (engine.Segment, error) {
 	defer exec.Command("ifconfig", a, "destroy").Run()
 
 	steps := [][]string{
-		{b, "ether", probeMAC()},
+		{b, "ether", probeMAC(bridge)},
 		{bridge, "addm", a},
 		{a, "up"},
 		{b, "up"},
@@ -134,11 +134,14 @@ func parseLease(line string) (engine.Segment, error) {
 	return seg, nil
 }
 
-// probeMAC is a random locally administered unicast address, so the probe's
-// lease is never mistaken for a container's reservation.
-func probeMAC() string {
-	b := make([]byte, 6)
-	rand.Read(b)
+// probeMAC is this host's probe address for a bridge: locally administered
+// unicast, so it is never mistaken for a container's reservation, and the same
+// every time, so the DHCP server hands back the same lease instead of the
+// router's table gaining a new one per ask.
+func probeMAC(bridge string) string {
+	host, _ := os.Hostname()
+	sum := sha256.Sum256([]byte("fjord-probe\x00" + host + "\x00" + bridge))
+	b := sum[:6]
 	b[0] = (b[0] &^ 0x01) | 0x02
 	return net.HardwareAddr(b).String()
 }
