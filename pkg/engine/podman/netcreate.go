@@ -218,6 +218,12 @@ func (b *Backend) NetworkParents(ctx context.Context) ([]engine.NetworkParent, e
 	return lannet.Parents(ctx)
 }
 
+// ProbeSegment asks a bridge's wire which segment it is. Implements
+// engine.SegmentProber.
+func (b *Backend) ProbeSegment(ctx context.Context, parent string) (engine.Segment, error) {
+	return lannet.ProbeSegment(ctx, parent)
+}
+
 // ParentSetup re-renders one setup with the user's choices. Implements
 // engine.NetworkSetupper.
 func (b *Backend) ParentSetup(ctx context.Context, kind, nic, vlan string) (engine.ParentSetup, error) {

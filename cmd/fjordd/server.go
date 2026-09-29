@@ -34,6 +34,8 @@ type server struct {
 	seen       *firstSeen   // when each update candidate was first seen (soak)
 	events     *eventHub    // SSE pub/sub; fed by runEventLoop
 
+	segs segmentCache // what each bridge's wire said when probed (network_segment.go)
+
 	catalogAutoMu  sync.Mutex // last automatic catalog refresh (catalog_scheduler.go)
 	catalogAutoAt  time.Time
 	catalogAutoErr string
@@ -222,6 +224,7 @@ func (s *server) routes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/networks/suggest", s.handleNetworkSuggest)
 	mux.HandleFunc("/api/networks/kinds", s.handleNetworkKinds)
 	mux.HandleFunc("/api/networks/parents", s.handleNetworkParents)
+	mux.HandleFunc("/api/networks/probe", s.handleNetworkProbe)
 	mux.HandleFunc("/api/networks/setup", s.handleNetworkSetup)
 	mux.HandleFunc("/api/networks/", s.handleNetworkDelete)
 	mux.HandleFunc("/api/volumes", s.handleVolumes)

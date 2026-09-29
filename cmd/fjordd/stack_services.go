@@ -32,8 +32,12 @@ type serviceView struct {
 	HostNet   bool                    `json:"hostNetwork,omitempty"`
 	NoNet     bool                    `json:"noNetwork,omitempty"` // network_mode: none; else it read as bridge
 	Networks  []composepkg.Attachment `json:"networks,omitempty"`
-	Volumes   []serviceVolume         `json:"volumes,omitempty"`
-	Ports     []engine.Port           `json:"ports,omitempty"`
+	// Live is the address each network gave the running container. Kept apart
+	// from Networks[].IP, which is a pin: filling the pin with the lease made
+	// the editor save every DHCP address as a fixed one.
+	Live    map[string]string `json:"live,omitempty"`
+	Volumes []serviceVolume   `json:"volumes,omitempty"`
+	Ports   []engine.Port     `json:"ports,omitempty"`
 }
 
 // serviceVolume is one mount, named the way the person who set it up thinks of
@@ -209,10 +213,14 @@ func forEachOption(svc *yaml.Node, fn func(key string, val *yaml.Node)) {
 
 // reachableAddress is the address a service holds on a segment something off
 // this host can get to, or "" when it holds none.
-func reachableAddress(atts []composepkg.Attachment) string {
+func reachableAddress(atts []composepkg.Attachment, live map[string]string) string {
 	for _, a := range atts {
-		if a.IP != "" && ownAddress(a.Network) {
-			return a.IP
+		ip := live[a.Network]
+		if ip == "" {
+			ip = a.IP
+		}
+		if ip != "" && ownAddress(a.Network) {
+			return ip
 		}
 	}
 	return ""
@@ -278,9 +286,12 @@ func attachStatus(views []serviceView, status engine.StackStatus) {
 		}
 		// The address it actually holds on each network, which the config
 		// only knows when someone pinned one.
-		for j := range views[i].Networks {
-			if addr := c.Addresses[views[i].Networks[j].Network]; addr != "" {
-				views[i].Networks[j].IP = addr
+		for _, a := range views[i].Networks {
+			if addr := c.Addresses[a.Network]; addr != "" {
+				if views[i].Live == nil {
+					views[i].Live = map[string]string{}
+				}
+				views[i].Live[a.Network] = addr
 			}
 		}
 		// One address for the service, and it should be the one that is any
@@ -288,7 +299,7 @@ func attachStatus(views []serviceView, status engine.StackStatus) {
 		// immich-server was its private 10.100.x -- so the row said the app
 		// lived somewhere no browser can reach while the Open button, which
 		// asks a different question, said 192.168.4.114.
-		if a := reachableAddress(views[i].Networks); a != "" {
+		if a := reachableAddress(views[i].Networks, views[i].Live); a != "" {
 			views[i].Address = a
 		}
 	}

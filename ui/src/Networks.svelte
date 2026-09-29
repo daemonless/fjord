@@ -6,7 +6,7 @@
   import { toast } from './toast';
   import FixSnippet from './FixSnippet.svelte';
 
-  type Network = { name: string; driver: string; subnet?: string; gateway?: string; subnet6?: string; gateway6?: string; usedBy?: string[]; problem?: string; engines?: string[]; addressSource?: string; bridge?: string; private?: boolean; ownedBy?: string };
+  type Network = { name: string; driver: string; subnet?: string; gateway?: string; subnet6?: string; gateway6?: string; usedBy?: string[]; problem?: string; engines?: string[]; addressSource?: string; bridge?: string; private?: boolean; ownedBy?: string; wireWarning?: string };
   // A kind is the engine's own declaration of what it can create and which
   // fields that shape uses -- the form is built from this rather than from
   // anything the UI knows about a specific runtime.
@@ -412,10 +412,57 @@
       return;
     }
     applyParent();
+    // Looked up here: chosenParent is reactive and has not caught up with the
+    // selection yet inside this handler.
+    const p = parents.find((x) => x.name === form.parent);
+    if (p && !p.subnet) askWire(p.name);
+  }
+
+  // What a bridge's wire said when asked, for bridges the host holds no address
+  // on. Without it the form showed an example subnet, the operator typed one,
+  // and a network claiming 192.168.86.0/24 went onto a VLAN 4 wire.
+  let wire: Record<string, { subnet?: string; gateway?: string; asking?: boolean; reason?: string }> = {};
+  async function askWire(bridge: string) {
+    if (!bridge || wire[bridge]) return;
+    wire = { ...wire, [bridge]: { asking: true } };
+    try {
+      const r = await fetch('/api/networks/probe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ parent: bridge }),
+      });
+      const j = r.ok ? await r.json() : { found: false, reason: (await r.text()).trim() };
+      wire = { ...wire, [bridge]: j.found ? { subnet: j.subnet, gateway: j.gateway } : { reason: j.reason || 'no answer' } };
+    } catch (e: any) {
+      wire = { ...wire, [bridge]: { reason: e?.message || 'no answer' } };
+    }
+    if (form.parent === bridge) applyParent();
+  }
+  // The segment the chosen bridge is on, and who said so.
+  $: knownWire = chosenParent?.subnet
+    ? { subnet: chosenParent.subnet, from: 'this host' }
+    : wire[form.parent]?.subnet
+      ? { subnet: wire[form.parent].subnet as string, from: `${form.parent}'s DHCP server` }
+      : null;
+  // Whether subnet's base address is outside the wire's segment.
+  function offWire(sub: string, onWire: string): boolean {
+    const parse = (c: string) => {
+      const m = c.trim().match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)\/(\d+)$/);
+      if (!m) return null;
+      const ip = ((+m[1] << 24) >>> 0) + (+m[2] << 16) + (+m[3] << 8) + +m[4];
+      const bits = +m[5];
+      return { ip, mask: bits === 0 ? 0 : (~0 << (32 - bits)) >>> 0 };
+    };
+    const a = parse(sub);
+    const w = parse(onWire);
+    if (!a || !w) return false;
+    return ((a.ip & w.mask) >>> 0) !== ((w.ip & w.mask) >>> 0);
   }
 
   function applyParent() {
-    const p = chosenParent;
+    // Not chosenParent: called from the bridge's change handler, where the
+    // reactive value still names the previous bridge.
+    const p = parents.find((x) => x.name === form.parent);
     if (!p) return;
     if (!form.name.trim()) {
       const base = p.name.replace(/bridge$/, '') || p.name;
@@ -435,11 +482,11 @@
     // the host cannot see a segment for clears it back to empty, which is the
     // honest answer and the one the form then asks about.
     if (form.subnet.trim() === filled.subnet) {
-      form.subnet = p.subnet ?? '';
+      form.subnet = p.subnet || wire[p.name]?.subnet || '';
       filled.subnet = form.subnet;
     }
     if (form.gateway.trim() === filled.gateway) {
-      form.gateway = p.gateway ?? '';
+      form.gateway = p.gateway || wire[p.name]?.gateway || '';
       filled.gateway = form.gateway;
     }
     defaultRange();
@@ -470,7 +517,8 @@
   // wire supplies it. Everything else allocates, and cannot without one.
   $: needsSubnet = isPrivate || addressSource !== 'dhcp';
   $: canSubmit = form.name.trim() && !nameTaken && (!needsParent || form.parent) &&
-    (!needsSubnet || !!form.subnet.trim());
+    (!needsSubnet || !!form.subnet.trim()) &&
+    !(knownWire && form.subnet.trim() && offWire(form.subnet, knownWire.subnet));
   // A required field cannot hide: Subnet is in the form itself, not in
   // Advanced (which holds only optional fields and starts closed).
   // Said on the button too, for the moment before Advanced is noticed.
@@ -482,7 +530,9 @@
         ? 'Pick a bridge'
         : needsSubnet && !form.subnet.trim()
           ? 'This network allocates its own addresses -- give it a subnet'
-          : '';
+          : knownWire && form.subnet.trim() && offWire(form.subnet, knownWire.subnet)
+            ? `${form.parent} is on ${knownWire.subnet} (${knownWire.from} says so) -- ${form.subnet.trim()} is not on that wire`
+            : '';
 
   async function submitCreate() {
     if (!canSubmit) return;
@@ -773,6 +823,9 @@
               {#if n.problem}
                 <div class="text-xs text-fjord-warning mt-0.5">{n.problem}</div>
               {/if}
+              {#if n.wireWarning}
+                <div class="text-xs text-fjord-warning mt-0.5">{n.wireWarning}</div>
+              {/if}
             </div>
             {#if showEngines}{@render engines(n.engines ?? [])}{/if}
             {#if n.usedBy?.length}
@@ -1054,7 +1107,19 @@
                   {#if chosenParent.gateway}<span>gateway {chosenParent.gateway}</span>{/if}
                   {#if chosenParent.hostIp}<span>host {chosenParent.hostIp}</span>{/if}
                   {#if !chosenParent.subnet && !chosenParent.gateway && !chosenParent.hostIp}
-                    <span>no address on this host yet</span>
+                    {#if wire[chosenParent.name]?.asking}
+                      <span class="font-sans">asking {chosenParent.name}'s DHCP server what this network is…</span>
+                    {:else if wire[chosenParent.name]?.subnet}
+                      <span>{wire[chosenParent.name].subnet}</span>
+                      {#if wire[chosenParent.name].gateway}<span>gateway {wire[chosenParent.name].gateway}</span>{/if}
+                      <span class="font-sans">from {chosenParent.name}'s DHCP server</span>
+                    {:else if wire[chosenParent.name]?.reason}
+                      <span class="font-sans" title={wire[chosenParent.name].reason}
+                        >nothing answered DHCP on {chosenParent.name} — type the subnet; fjord could not check it</span
+                      >
+                    {:else}
+                      <span>no address on this host yet</span>
+                    {/if}
                   {/if}
                 </p>
               {/if}

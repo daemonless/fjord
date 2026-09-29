@@ -211,3 +211,30 @@ networks:
 		t.Fatalf("database: %+v, want its own eth0", db)
 	}
 }
+
+// A DHCP lease is reported as live, never as the pin: the editor saves
+// whatever sits in the pin, and zensical on netlab came back with its lease
+// written into the compose as a fixed ipv4_address.
+func TestAttachStatusKeepsLeasesOutOfThePin(t *testing.T) {
+	views := []serviceView{{
+		Name: "zensical",
+		Networks: []composepkg.Attachment{
+			{Network: "lan-dhcp", Service: "zensical", MAC: "58:9c:fc:10:7f:7e"},
+			{Network: "lan-static", Service: "zensical", IP: "192.168.4.228"},
+		},
+	}}
+	attachStatus(views, engine.StackStatus{Containers: []engine.ContainerStatus{{
+		Name: "zensical_zensical_1", State: "running",
+		Addresses: map[string]string{"lan-dhcp": "192.168.4.107", "lan-static": "192.168.4.228"},
+	}}})
+	v := views[0]
+	if v.Networks[0].IP != "" {
+		t.Errorf("lease became a pin: %q", v.Networks[0].IP)
+	}
+	if v.Networks[1].IP != "192.168.4.228" {
+		t.Errorf("real pin lost: %q", v.Networks[1].IP)
+	}
+	if v.Live["lan-dhcp"] != "192.168.4.107" {
+		t.Errorf("live lan-dhcp = %q, want the lease", v.Live["lan-dhcp"])
+	}
+}

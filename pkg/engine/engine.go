@@ -107,6 +107,11 @@ type Network struct {
 	// fires an unscoped one too, so whichever landed last decided whether the
 	// option existed at all.
 	OwnedBy string `json:"ownedBy,omitempty"`
+	// WireWarning says the subnet this network claims is not the segment its
+	// bridge is on, as far as fjord can tell (the host's own address there, a
+	// DHCP server's answer, or the other networks on the same bridge). Such a
+	// network hands out addresses that nothing on the wire can answer.
+	WireWarning string `json:"wireWarning,omitempty"`
 	// Problem is why the runtime will not use this network, when it is defined
 	// on the host but rejected. Such a network has to stay visible: fjord
 	// wrote it, so fjord has to let you see and remove it.
@@ -279,6 +284,19 @@ type NetworkParent struct {
 	Subnet  string `json:"subnet,omitempty"`
 	Gateway string `json:"gateway,omitempty"`
 	HostIP  string `json:"hostIp,omitempty"`
+}
+
+// Segment is what a wire says about itself when asked: its subnet and the
+// gateway its DHCP server hands out.
+type Segment struct {
+	Subnet  string `json:"subnet"`
+	Gateway string `json:"gateway,omitempty"`
+}
+
+// SegmentProber is a backend that can ask a parent's wire which segment it is
+// on -- the only way to know it when the host holds no address there.
+type SegmentProber interface {
+	ProbeSegment(ctx context.Context, parent string) (Segment, error)
 }
 
 // Volume is a runtime-managed named volume. Kind is the backend's
