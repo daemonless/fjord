@@ -296,6 +296,8 @@ func main() {
 		seen:       newFirstSeen(fjordRoot),
 	}
 	busyEvents = srv.events
+	srv.segs.load(filepath.Join(fjordRoot, "segments.json"))
+	go srv.runWireChecks()
 	// One server-side loop pushes stack state-changes to all SSE clients.
 	go srv.runEventLoop()
 

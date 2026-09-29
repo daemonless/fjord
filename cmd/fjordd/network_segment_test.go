@@ -1,8 +1,10 @@
 package main
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/daemonless/fjord/pkg/engine"
 )
@@ -78,5 +80,59 @@ func TestWireWarningSiblings(t *testing.T) {
 	}
 	if nets[2].WireWarning != "" {
 		t.Errorf("lone network flagged: %s", nets[2].WireWarning)
+	}
+}
+
+// What a wire said outlives the process: netlab's lan-range lost its warning
+// on a redeploy, and syncthing went onto it the same afternoon.
+func TestSegmentCacheSurvivesRestart(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "segments.json")
+	var before segmentCache
+	before.load(path)
+	before.put("lanbridge", engine.Segment{Subnet: "192.168.4.0/24", Gateway: "192.168.4.1"})
+
+	var after segmentCache
+	after.load(path)
+	seg, ok := after.get("lanbridge")
+	if !ok || seg.Subnet != "192.168.4.0/24" || seg.Gateway != "192.168.4.1" {
+		t.Fatalf("after restart: %+v, %v", seg, ok)
+	}
+	s := &server{}
+	s.segs.load(path)
+	nets := []engine.Network{{Name: "lan-range", Bridge: "lanbridge", Subnet: "192.168.86.0/24"}}
+	s.markWireWarnings(nets, nil)
+	if nets[0].WireWarning == "" {
+		t.Error("lan-range not flagged after a restart")
+	}
+}
+
+// An old answer is not evidence: a bridge moved to another VLAN must not be
+// judged by where it used to be.
+func TestWireAnswerGoesStale(t *testing.T) {
+	var c segmentCache
+	c.put("lanbridge", engine.Segment{Subnet: "192.168.4.0/24"})
+	if _, ok := c.get("lanbridge"); !ok {
+		t.Fatal("fresh answer not used")
+	}
+	a := c.m["lanbridge"]
+	a.At = time.Now().Add(-wireFresh - time.Hour)
+	c.m["lanbridge"] = a
+	if _, ok := c.get("lanbridge"); ok {
+		t.Error("stale answer still used")
+	}
+}
+
+// Only bridges that carry a network and that the host holds no address on:
+// lanbridge2 has the host's 192.168.4.103, so it needs no asking.
+func TestBridgesToAsk(t *testing.T) {
+	nets := []engine.Network{
+		{Name: "lan-range", Bridge: "lanbridge"},
+		{Name: "lan-dhcp", Bridge: "lanbridge"},
+		{Name: "t-dhcp", Bridge: "lanbridge2"},
+		{Name: "zensical_priv", Bridge: "cni-podman4"}, // podman's own, not a LAN wire
+	}
+	parents := []engine.NetworkParent{{Name: "lanbridge"}, {Name: "lanbridge2", Subnet: "192.168.4.0/24"}, {Name: "v6lab"}}
+	if got := bridgesToAsk(nets, parents); len(got) != 1 || got[0] != "lanbridge" {
+		t.Errorf("bridgesToAsk = %v, want [lanbridge]", got)
 	}
 }
