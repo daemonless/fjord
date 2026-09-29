@@ -1,6 +1,7 @@
 package main
 
 import (
+	"strings"
 	"testing"
 
 	composepkg "github.com/daemonless/fjord/pkg/compose"
@@ -259,5 +260,27 @@ func TestLinkHostUsesTheLease(t *testing.T) {
 	views[0].Networks[0].IP = "192.168.4.50"
 	if got := linkHost(views, reachable); got != "192.168.4.50" {
 		t.Errorf("stopped, pinned: linkHost = %q, want 192.168.4.50", got)
+	}
+}
+
+// A stack being brought up says so, and a second operation is refused naming
+// the first -- the page reads the one and shows the other.
+func TestLockStackAsReportsBusy(t *testing.T) {
+	unlock, ok := lockStackAs("t-busy", "installing")
+	if !ok {
+		t.Fatal("first lock refused")
+	}
+	if got := busyWith("t-busy"); got != "installing" {
+		t.Errorf("busyWith = %q, want installing", got)
+	}
+	if _, ok := lockStackAs("t-busy", "up"); ok {
+		t.Fatal("second operation was not refused")
+	}
+	if msg := anotherOperation("t-busy"); !strings.Contains(msg, "installing") {
+		t.Errorf("refusal does not say what is running: %q", msg)
+	}
+	unlock()
+	if got := busyWith("t-busy"); got != "" {
+		t.Errorf("still busy after unlock: %q", got)
 	}
 }

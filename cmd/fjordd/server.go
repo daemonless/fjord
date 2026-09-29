@@ -253,6 +253,10 @@ func (s *server) routes(mux *http.ServeMux) {
 type stackWithStatus struct {
 	*stack.Stack
 	Status engine.StackStatus `json:"status"`
+	// Busy is what fjord is doing to the stack right now (installing, up,
+	// update, restart, down, deleting), or empty. The engine's status alone
+	// reads "stopped" for the whole of a pull.
+	Busy string `json:"busy,omitempty"`
 	// ComposeHash identifies the compose (and director spec) this answer was
 	// read from; a save sends it back as baseHash. See composeHash.
 	ComposeHash string `json:"composeHash,omitempty"`

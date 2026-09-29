@@ -498,6 +498,16 @@ func (s *server) handleInstall(w http.ResponseWriter, r *http.Request) {
 	if err := s.manager.SaveState(id, st.State); err != nil {
 		log.Printf("install %s: persist state: %v", id, err)
 	}
+	// Held for the whole bring-up, pull included: a Start pressed meanwhile is
+	// refused instead of running a second up that races this one (jellyfin on
+	// army got two, one of which died on "name already in use").
+	unlock, ok := lockStackAs(id, "installing")
+	if !ok {
+		w.Header().Set("X-Fjord-Stack-Id", id)
+		http.Error(w, anotherOperation(id), http.StatusConflict)
+		return
+	}
+	defer unlock()
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Minute)
 	defer cancel()
 	// The client sent a display name but the stack's id was allocated here --

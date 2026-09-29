@@ -127,15 +127,20 @@ func (s *server) runEventLoop() {
 			if err == nil {
 				state = status.State
 			}
-			if last[full.Name] == state {
+			// Where Open goes changes without the state changing: a DHCP
+			// lease lands after "running". Sent with the status, or the page
+			// kept the empty link it saw mid-recreate and opened 10.89.x.
+			link := linkHost(stackServices(full, status), ownAddress)
+			if last[full.Name] == state+"|"+link {
 				continue
 			}
-			last[full.Name] = state
+			last[full.Name] = state + "|" + link
 			if b, err := json.Marshal(map[string]any{
-				"type":   "stack",
-				"name":   full.Name,
-				"state":  state,
-				"status": status,
+				"type":     "stack",
+				"name":     full.Name,
+				"state":    state,
+				"status":   status,
+				"linkHost": link,
 			}); err == nil {
 				s.events.publish(b)
 			}

@@ -45,11 +45,11 @@ export function appUrl(stack: AppUrlStack | null): string {
   // from the network's own definition; "is it attached" gets private
   // networks wrong.
   const attached = !!stack.ownAddress;
-  // The RUNTIME address first: an auto-assigned one exists nowhere else. The
-  // compose only carries ipv4_address when the user pinned it, which leaves
-  // every DHCP stack with nothing to build a link from.
-  const running = attached ? (stack.status?.containers || []).find((x: any) => x.address)?.address : undefined;
-  const ip = stack.linkHost || running || (attached ? (c.match(/ipv4_address:\s*([0-9.]+)/) || [])[1] : undefined);
+  // The daemon's answer, then a pinned address. Never the engine's own pick
+  // (status.address): on a stack that is also on the bridge or a private
+  // segment that is a 10.x address no browser reaches, and Open went there
+  // twice (zensical, syncthing) whenever linkHost was momentarily empty.
+  const ip = stack.linkHost || (attached ? (c.match(/ipv4_address:\s*([0-9.]+)/) || [])[1] : undefined);
   // Attached but address-less: the network gave it none, so there is no link
   // to offer -- the host would just time out. Say why instead (see noAddress).
   if (!ip && attached) return '';

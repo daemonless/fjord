@@ -7,11 +7,14 @@ export type HealthStack = {
   displayName?: string;
   status?: { state?: string; containers?: { name?: string; service?: string; state?: string; detail?: string }[] };
   state?: { desired_state?: string };
+  /** What fjord is doing to it right now. An install or up shows no container
+   *  for the whole pull, which read as "stopped" -- a problem -- until done. */
+  busy?: string;
 };
 
 /** problem says, in a few words, what is wrong with a stack meant to run -- or ''. */
 export function problem(s: HealthStack): string {
-  if (s.state?.desired_state === 'stopped') return '';
+  if (s.state?.desired_state === 'stopped' || s.busy) return '';
   const st = s.status?.state;
   if (!st || st === 'running') {
     // Running, but a container may still be crash-looping (restart: always
@@ -31,6 +34,7 @@ export type Health = 'running' | 'stopped' | 'problem';
 
 /** health buckets a stack for the filter. */
 export function health(s: HealthStack): Health {
+  if (s.busy) return s.busy === 'down' || s.busy === 'deleting' ? 'stopped' : 'running';
   if (problem(s)) return 'problem';
   return s.status?.state === 'running' || s.status?.state === 'partial' ? 'running' : 'stopped';
 }

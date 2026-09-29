@@ -16,6 +16,16 @@ describe('appUrl', () => {
     expect(url).toBe('http://192.168.4.106:8000');
   });
 
+  // syncthing on netlab, mid-update: on lan-dhcp and the bridge, the lease not
+  // back yet, podman reporting its 10.89 bridge address first. Open went to
+  // http://10.89.1.6:8384. No link beats a wrong one.
+  it('never links to the engine\'s own pick for a stack on a LAN', () => {
+    const compose = 'services:\n  syncthing:\n    ports:\n      - "8384:8384"\nx-fjord:\n  web_port: "8384"\n';
+    const midUpdate = { compose, ownAddress: true, status: { containers: [{ address: '10.89.1.6', ports: [] }] } };
+    expect(appUrl(midUpdate)).toBe('');
+    expect(appUrl({ ...midUpdate, linkHost: '192.168.4.142' })).toBe('http://192.168.4.142:8384');
+  });
+
   it('uses the host port when the link goes to the host', () => {
     vi.stubGlobal('location', { hostname: 'netlab' });
     const compose = 'services:\n  web:\n    ports:\n      - "8001:8000"\n';

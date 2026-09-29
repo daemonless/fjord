@@ -20,6 +20,15 @@ describe('stack health', () => {
     expect(health(stack('stopped', 'running'))).toBe('problem');
   });
 
+  // tautulli on army: no container for the whole pull of an up, so it read
+  // as stopped-while-meant-to-run and sat under Problems until it finished.
+  it('a stack fjord is busy with is not a problem', () => {
+    const pulling = { ...stack('stopped', 'running'), busy: 'up' };
+    expect(problem(pulling)).toBe('');
+    expect(health(pulling)).toBe('running');
+    expect(health({ ...stack('running', 'running'), busy: 'down' })).toBe('stopped');
+  });
+
   it('names what is down in a partly running stack', () => {
     const s = stack('partial', 'running', [
       { service: 'web', state: 'running' },
