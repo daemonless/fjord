@@ -373,12 +373,18 @@
     forEngine = '';
     advanced = false;
     createError = '';
-    creating = true;
-    await refreshHost();
-    kindID = kinds[0]?.id || '';
     // One allocator beats two on the same wire, so DHCP leads where the
     // plugin can do it. A pool is the fallback, not the default.
-    addressSource = kinds[0]?.supportsDhcp ? 'dhcp' : 'pool';
+    const seed = () => {
+      kindID = kinds[0]?.id || '';
+      addressSource = kinds[0]?.supportsDhcp ? 'dhcp' : 'pool';
+    };
+    // Seeded BEFORE the refresh: the dialog is live while it runs, and seeding
+    // after it threw away a Range or Static picked in the meantime.
+    seed();
+    creating = true;
+    await refreshHost();
+    if (!kinds.some((k) => k.id === kindID)) seed();
     // Offered when there is no bridge at all. It used to open whenever every
     // bridge already had a network, which told an operator to build a second
     // wire when all they wanted was a second network on the first one.

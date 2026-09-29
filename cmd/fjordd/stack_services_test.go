@@ -238,3 +238,26 @@ func TestAttachStatusKeepsLeasesOutOfThePin(t *testing.T) {
 		t.Errorf("live lan-dhcp = %q, want the lease", v.Live["lan-dhcp"])
 	}
 }
+
+// zensical on netlab: a DHCP lease on lan-dhcp, its private segment and the
+// bridge. The link is the lease; with only pins read it was nothing, and the
+// page opened the engine's first address, 10.89.0.6.
+func TestLinkHostUsesTheLease(t *testing.T) {
+	views := []serviceView{{
+		Name: "zensical",
+		Networks: []composepkg.Attachment{
+			{Network: "lan-dhcp"}, {Network: "zensical_priv"}, {Network: composepkg.Bridge},
+		},
+		Live: map[string]string{"lan-dhcp": "192.168.4.114", "zensical_priv": "10.100.0.5"},
+	}}
+	reachable := func(n string) bool { return n == "lan-dhcp" }
+	if got := linkHost(views, reachable); got != "192.168.4.114" {
+		t.Errorf("linkHost = %q, want the lease 192.168.4.114", got)
+	}
+	// A pin still counts when nothing is running.
+	views[0].Live = nil
+	views[0].Networks[0].IP = "192.168.4.50"
+	if got := linkHost(views, reachable); got != "192.168.4.50" {
+		t.Errorf("stopped, pinned: linkHost = %q, want 192.168.4.50", got)
+	}
+}
