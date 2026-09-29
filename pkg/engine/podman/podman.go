@@ -353,7 +353,27 @@ func (b *Backend) Update(ctx context.Context, s *stack.Stack, services []string)
 		}
 		started := time.Now()
 		b.bringUp(ctx, pw, s, true, recreate)
-		if b.verifyRecreated(ctx, pw, s, recreate, started) {
+		if b.verifyRecreated(ctx, pw, s, recreate, started, "updated", "on the image it had") {
+			b.watchHealthy(ctx, pw, s, recreate, healthWindow)
+		}
+	}()
+	return pr, nil
+}
+
+// Recreate replaces the named services (and what depends on them) with
+// containers built from the stack's current config -- Apply after a Save. The
+// same path as Update without the pull: a refused teardown (an open exec
+// session) is force-removed and retried, each container is checked to be new,
+// and the result is watched for the health window. Implements engine.Recreator.
+func (b *Backend) Recreate(ctx context.Context, s *stack.Stack, services []string) (io.ReadCloser, error) {
+	recreate := composepkg.WithDependents(s.Compose, services)
+	pr, pw := io.Pipe()
+	go func() {
+		defer pw.Close()
+		fmt.Fprintf(pw, "[fjord] applying the saved changes: recreating %s\n", strings.Join(recreate, ", "))
+		started := time.Now()
+		b.bringUp(ctx, pw, s, true, recreate)
+		if b.verifyRecreated(ctx, pw, s, recreate, started, "given the saved changes", "on its previous configuration") {
 			b.watchHealthy(ctx, pw, s, recreate, healthWindow)
 		}
 	}()
@@ -396,7 +416,7 @@ func (b *Backend) notRecreated(ctx context.Context, s *stack.Stack, services []s
 // containers" and "name already in use", starts the OLD container again, and
 // reports success. The exit code cannot say whether an update happened, so
 // the containers are asked instead. services empty = the whole stack.
-func (b *Backend) verifyRecreated(ctx context.Context, pw *io.PipeWriter, s *stack.Stack, services []string, since time.Time) bool {
+func (b *Backend) verifyRecreated(ctx context.Context, pw *io.PipeWriter, s *stack.Stack, services []string, since time.Time, done, still string) bool {
 	cs, err := b.listStackContainers(ctx, s.Name)
 	if err != nil {
 		fmt.Fprintf(pw, "\n[error] cannot confirm the update: %v\n", err)
@@ -417,13 +437,13 @@ func (b *Backend) verifyRecreated(ctx context.Context, pw *io.PipeWriter, s *sta
 			// A second of slack: podman's timestamp and ours come from
 			// different clocks' roundings, never from different hosts.
 			if c.Created.Before(since.Add(-time.Second)) {
-				fmt.Fprintf(pw, "\n[error] %s was not updated: it still runs the container from %s, on the image it had\n",
-					svc, c.Created.Local().Format("Jan 2 15:04"))
+				fmt.Fprintf(pw, "\n[error] %s was not %s: it still runs the container from %s, %s\n",
+					svc, done, c.Created.Local().Format("Jan 2 15:04"), still)
 				ok = false
 			}
 		}
 		if !found {
-			fmt.Fprintf(pw, "\n[error] %s has no container after the update\n", svc)
+			fmt.Fprintf(pw, "\n[error] %s has no container afterwards\n", svc)
 			ok = false
 		}
 	}

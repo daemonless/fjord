@@ -286,6 +286,14 @@ type NetworkParent struct {
 	HostIP  string `json:"hostIp,omitempty"`
 }
 
+// Recreator is a backend that can replace named services' containers with
+// ones built from the stack's current config, and confirm each was replaced.
+// Apply uses it so a Save's changes land even when podman-compose would
+// quietly keep the old container.
+type Recreator interface {
+	Recreate(ctx context.Context, s *stack.Stack, services []string) (io.ReadCloser, error)
+}
+
 // Segment is what a wire says about itself when asked: its subnet and the
 // gateway its DHCP server hands out.
 type Segment struct {
