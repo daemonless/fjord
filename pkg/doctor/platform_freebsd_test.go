@@ -84,3 +84,31 @@ func TestLocaltimeProbe(t *testing.T) {
 		t.Fatalf("dangling localtime: %s, want fail", st)
 	}
 }
+
+// appjail-dns is only "running" when dnsmasq answers with appjail's config;
+// each missing piece is named, in the order it gets fixed.
+func TestAppjailDNSStatus(t *testing.T) {
+	conf := appjailDNSMasqConf
+	cases := []struct {
+		name                                        string
+		installed, dnsmasqInstalled, dnsmasqRunning bool
+		dnsmasqConf, dnsmasqArgs                    string
+		appjailRunning                              bool
+		want                                        Status
+		saying                                      string
+	}{
+		{"nothing installed", false, false, false, "", "", false, Warn, "appjail-dns is not installed"},
+		{"no dnsmasq", true, false, false, "", "", true, Warn, "dnsmasq is not installed"},
+		{"dnsmasq stopped (fjordfresh, netlab)", true, true, false, "", "", true, Warn, "dnsmasq is not running"},
+		{"dnsmasq on its own config", true, true, true, "/usr/local/etc/dnsmasq.conf", "123 dnsmasq -C /usr/local/etc/dnsmasq.conf", true, Warn, "not with appjail's config"},
+		{"dnsmasq right, appjail-dns stopped", true, true, true, conf, "", false, Warn, "appjail-dns is not running"},
+		{"all there, by rc var", true, true, true, conf, "", true, OK, "running"},
+		{"all there, config on the command line", true, true, true, "", "123 dnsmasq -C " + conf, true, OK, "running"},
+	}
+	for _, c := range cases {
+		got, msg := appjailDNSStatus(c.installed, c.dnsmasqInstalled, c.dnsmasqRunning, c.dnsmasqConf, c.dnsmasqArgs, c.appjailRunning)
+		if got != c.want || !strings.Contains(msg, c.saying) {
+			t.Errorf("%s: %v %q, want %v saying %q", c.name, got, msg, c.want, c.saying)
+		}
+	}
+}

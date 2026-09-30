@@ -96,14 +96,15 @@ func platform(cfg Config) platformInfo {
 			Pkg:   map[string]string{"freebsd": "cni-dnsname"},
 		},
 		{
-			ID: "appjail-dns", Name: "jail name resolution (appjail-dns)", Engine: "appjail", HostOnly: true,
-			Group:    "networking",
-			Probe:    appjailDNSProbe,
-			Install:  enableService("appjail-dns", "appjail_dns_enable"),
-			Commands: serviceCommands("appjail-dns", "appjail_dns_enable"),
-			Action:   "Start appjail-dns",
-			Why:      "The appjail side of the same thing: jails on one network reach each other by name only while appjail-dns is running. Without it a director project's services have to address each other by IP.",
-			Fix:      "sysrc appjail_dns_enable=YES\nservice appjail-dns start",
+			ID: "appjail-dns", Name: "jail name resolution (appjail-dns + dnsmasq)", Engine: "appjail", HostOnly: true,
+			Group: "networking",
+			Probe: appjailDNSProbe,
+			// No Install button: this reconfigures the host's dnsmasq (appjail's
+			// config answers on every interface, with its own upstream servers),
+			// which is the operator's call to make by hand until 0.3.5 can prove
+			// the full setup.
+			Why: "Jails on one network find each other by name only when appjail-dns writes the names and dnsmasq answers with appjail's config. appjail-dns alone only keeps a hosts file, so it \"runs\" while no jail finds another and a director project's services have to address each other by IP. Note appjail's dnsmasq config listens on every interface and uses its own upstream resolvers.",
+			Fix: "pkg install -y dnsmasq\nsysrc dnsmasq_enable=YES\nsysrc dnsmasq_conf=" + appjailDNSMasqConf + "\nservice dnsmasq start\nsysrc appjail_dns_enable=YES\nservice appjail-dns restart",
 		},
 		{
 			ID: "appjail-git", Name: "git, for makejails on GitHub", Engine: "appjail", HostOnly: true,
@@ -539,16 +540,43 @@ func dnsnameProbe(ctx context.Context) (Status, string) {
 	return Warn, "not installed -- services in a stack cannot find each other by name"
 }
 
-// appjailDNSProbe reports whether appjail's own name resolution is running.
-// Installed but stopped is the common case: the package ships it disabled.
+// appjailDNSMasqConf is the dnsmasq config appjail ships: addn-hosts on the
+// file appjail-dns writes, so jail names resolve.
+const appjailDNSMasqConf = "/usr/local/share/appjail/files/dnsmasq.conf"
+
+// appjailDNSProbe reports whether appjail's name resolution WORKS, which
+// takes two services. appjail-dns(8) only keeps /var/tmp/appjail-hosts and
+// runs a hook that reloads dnsmasq; dnsmasq with appjail's config is what
+// answers. "appjail-dns is running" alone passed on fjordfresh and netlab
+// with dnsmasq installed and stopped: a check that lied.
 func appjailDNSProbe(ctx context.Context) (Status, string) {
-	if _, err := os.Stat("/usr/local/etc/rc.d/appjail-dns"); err != nil {
-		return Warn, "not installed -- jails cannot find each other by name"
+	_, rcErr := os.Stat("/usr/local/etc/rc.d/appjail-dns")
+	_, dnsmasqErr := os.Stat("/usr/local/sbin/dnsmasq")
+	dnsmasqRunning := exec.CommandContext(ctx, "service", "dnsmasq", "status").Run() == nil
+	appjailRunning := exec.CommandContext(ctx, "service", "appjail-dns", "status").Run() == nil
+	// What dnsmasq was started with: the rc var, else the running command
+	// line (a config set by hand still counts).
+	conf := strings.TrimSpace(firstLine(run(ctx, "sysrc", "-n", "dnsmasq_conf")))
+	args := strings.TrimSpace(run(ctx, "pgrep", "-fl", "dnsmasq"))
+	return appjailDNSStatus(rcErr == nil, dnsmasqErr == nil, dnsmasqRunning, conf, args, appjailRunning)
+}
+
+// appjailDNSStatus is the verdict from the facts, in the order an operator
+// would fix them.
+func appjailDNSStatus(installed, dnsmasqInstalled, dnsmasqRunning bool, dnsmasqConf, dnsmasqArgs string, appjailRunning bool) (Status, string) {
+	switch {
+	case !installed:
+		return Warn, "appjail-dns is not installed -- jails cannot find each other by name"
+	case !dnsmasqInstalled:
+		return Warn, "dnsmasq is not installed -- appjail-dns only writes a hosts file, dnsmasq is what answers; jails cannot find each other by name"
+	case !dnsmasqRunning:
+		return Warn, "dnsmasq is not running -- appjail-dns only writes a hosts file, dnsmasq is what answers; jails cannot find each other by name"
+	case dnsmasqConf != appjailDNSMasqConf && !strings.Contains(dnsmasqArgs, appjailDNSMasqConf):
+		return Warn, "dnsmasq is running, but not with appjail's config (" + appjailDNSMasqConf + ") -- the jail names are not in what it answers"
+	case !appjailRunning:
+		return Warn, "dnsmasq is ready, but appjail-dns is not running -- nothing writes the jail names for it"
 	}
-	if err := exec.CommandContext(ctx, "service", "appjail-dns", "status").Run(); err != nil {
-		return Warn, "installed but not running -- jails cannot find each other by name"
-	}
-	return OK, "running"
+	return OK, "running: appjail-dns writes the names, dnsmasq answers with appjail's config"
 }
 
 // podmanServiceStaleProbe reports a podman API service older than the podman
