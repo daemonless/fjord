@@ -42,7 +42,7 @@
     address?: string; // the container's own IP on an attachable network
   };
   type StackStatus = { state: string; containers: ContainerStatus[] };
-  type StackState = { group?: string; desired_state?: string; engine?: string; order?: number; origin?: { type?: string; app_id?: string }; pending_services?: string[] };
+  type StackState = { group?: string; desired_state?: string; engine?: string; order?: number; origin?: { type?: string; app_id?: string }; pending_services?: string[]; last_failure?: { action: string; at: string; message: string } };
   type Stack = { name: string; displayName?: string; icon?: string; dir: string; compose: string; env: string; director?: string; makejail?: string; engine?: string; status?: StackStatus; state?: StackState; services?: any[]; composeHash?: string; busy?: string; linkHost?: string };
   // What the UI shows for a stack: its label, falling back to the id.
   const label = (s: { name: string; displayName?: string } | null | undefined) => s?.displayName || s?.name || '';
@@ -1565,6 +1565,17 @@
   }
   // "Not now" on the banner, for this session.
   let applyDismissed: Record<string, boolean> = {};
+  // The last action that ended in an [error], as fjordd recorded it: the
+  // install that died on a full disk left "stopped" and a stream nobody was
+  // watching. Shown until the next action on the stack succeeds, or dismissed
+  // for this session.
+  let failureDismissed: Record<string, boolean> = {};
+  const FAILED: Record<string, string> = { install: 'Install failed', up: 'Start failed', update: 'Update failed', restart: 'Restart failed', down: 'Stop failed' };
+  const failedWhen = (at: string) => {
+    const d = new Date(at);
+    const sameDay = d.toDateString() === new Date().toDateString();
+    return sameDay ? d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : d.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  };
   $: pendingApply = !!selectedStack && (selectedStack.state?.pending_services?.length ?? 0) > 0 &&
     ['running', 'partial'].includes(statusLabel(selectedStack.status));
   const down = (name: string) => streamAction(name, 'down', 'Stopping…');
@@ -2405,6 +2416,21 @@
               on:click={() => reloadStack(selectedStack!.name)}
               class="shrink-0 px-3 py-1.5 rounded-lg text-sm font-medium bg-fjord-danger text-white hover:bg-fjord-danger-hover transition-colors"
               >Reload</button
+            >
+          </div>
+        {/if}
+
+        {#if selectedStack.state?.last_failure && !failureDismissed[selectedStack.name] && !busyNow}
+          {@const f = selectedStack.state.last_failure}
+          <div class="flex items-center gap-3 mb-4 shrink-0 px-4 py-2.5 rounded-lg bg-fjord-danger/10 border border-fjord-danger/25 text-sm text-fjord-fg-body">
+            <span class="flex-1 min-w-0"
+              ><b>{FAILED[f.action] ?? 'Failed'}</b> at {failedWhen(f.at)} — {f.message}</span
+            >
+            <button
+              on:click={() => (failureDismissed[selectedStack!.name] = true)}
+              title="Hide this until it happens again"
+              class="shrink-0 px-3 py-1.5 rounded-lg text-sm font-medium text-fjord-fg-muted hover:text-fjord-fg transition-colors"
+              >Dismiss</button
             >
           </div>
         {/if}

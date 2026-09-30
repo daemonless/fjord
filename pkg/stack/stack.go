@@ -69,6 +69,18 @@ type State struct {
 	// start or Apply replaces exactly these, and clears them once it is sure
 	// it did. On disk, so "not applied yet" survives a reload.
 	PendingServices []string `json:"pending_services,omitempty"`
+	// LastFailure is the most recent action that ended with an [error], kept
+	// until an action on the stack succeeds. An install that died on a full
+	// disk left the stack reading "stopped" with the reason in a stream
+	// nobody was watching any more.
+	LastFailure *Failure `json:"last_failure,omitempty"`
+}
+
+// Failure is one action's [error], as the stack page shows it.
+type Failure struct {
+	Action  string    `json:"action"` // install, up, update, restart, down
+	At      time.Time `json:"at"`
+	Message string    `json:"message"` // the first [error] line, without the tag
 }
 
 // RollbackImage is one service's image before an update.

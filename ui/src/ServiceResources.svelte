@@ -242,10 +242,14 @@
     setField(svc, i, 'mac', randomMAC());
   }
 
+  // No container at all (before the first start, during a pull, after a
+  // failed install) is grey and says so; every row yellow read as a warning
+  // about nothing. A state not listed here is the odd one, and stays yellow.
   const DOT: Record<string, string> = {
     running: 'bg-fjord-success',
     stopped: 'bg-fjord-neutral',
     crashed: 'bg-fjord-danger',
+    '': 'bg-fjord-neutral',
   };
   const dot = (s?: string) => DOT[s ?? ''] ?? 'bg-fjord-warning';
   const mountLabel = (v: ServiceVolume) => v.source || v.name || '—';
@@ -318,7 +322,7 @@
               >↶ roll back</button
             >
           {/if}
-          {#if !planning}<span class="shrink-0 text-xs text-fjord-fg-dim pl-3 pr-4">{s.state ?? ''}</span>{:else}<span class="pr-4"></span>{/if}
+          {#if !planning}<span class="shrink-0 text-xs text-fjord-fg-dim pl-3 pr-4">{s.state || 'no container'}</span>{:else}<span class="pr-4"></span>{/if}
         </div>
         {#if confirmRollback === s.name && rollbacks[s.name]}
           <div class="flex items-center gap-3 mx-4 mb-3 px-3 py-2 rounded-lg bg-fjord-warning/10 border border-fjord-warning/30 text-xs text-fjord-fg-body">

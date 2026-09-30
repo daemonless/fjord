@@ -284,3 +284,20 @@ func TestLockStackAsReportsBusy(t *testing.T) {
 		t.Errorf("still busy after unlock: %q", got)
 	}
 }
+
+// A container is its row's by the engine's service label first; a name that
+// fits is the fallback for containers made without one.
+func TestAttachStatusPrefersServiceLabel(t *testing.T) {
+	views := []serviceView{{Name: "immich-server"}, {Name: "redis"}, {Name: "database"}}
+	attachStatus(views, engine.StackStatus{Containers: []engine.ContainerStatus{
+		{Name: "immich-immich-server-1", Service: "immich-server", State: "running"}, // a name the name rules miss
+		{Name: "immich_redis_1", State: "running"},                                   // no label: by name
+		{Name: "immich_database_1", Service: "database", State: "exited"},
+	}})
+	want := map[string]string{"immich-server": "running", "redis": "running", "database": "exited"}
+	for _, v := range views {
+		if v.State != want[v.Name] {
+			t.Errorf("%s: state %q (container %q), want %q", v.Name, v.State, v.Container, want[v.Name])
+		}
+	}
+}
