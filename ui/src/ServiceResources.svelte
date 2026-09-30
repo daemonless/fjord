@@ -413,7 +413,11 @@
                       : addressProblem(r.ip ?? '', net) || address6Problem(r.ip6 ?? '', net)}
                     <tr class="border-t border-fjord-border/60 align-top">
                       {#if !planning}
-                        <td class="py-1.5 pr-2 font-mono text-fjord-fg-dim">{r.iface ?? 'on create'}</td>
+                        <!-- fjordd names interfaces per compose attachment. A service on
+                             the built-in bridge alone has no attachment, so this row is
+                             the page's, and its container's one interface is eth0 --
+                             "on create" on a running container read as pending (army). -->
+                        <td class="py-1.5 pr-2 font-mono text-fjord-fg-dim">{r.iface ?? (builtin && s.state && (edits[s.name] ?? []).length === 1 ? 'eth0' : 'on create')}</td>
                       {/if}
                       <td class="py-1.5 pr-2">
                         <div class="flex items-center gap-2">
