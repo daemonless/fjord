@@ -253,6 +253,15 @@ func attachStatus(views []serviceView, status engine.StackStatus) {
 		byName[status.Containers[i].Name] = &status.Containers[i]
 	}
 	find := func(v *serviceView) *engine.ContainerStatus {
+		// The engine's own record of which service a container is, when it
+		// has one (podman-compose's label). Names come second: a container
+		// named by an older compose, or by hand, still finds its row.
+		for i := range status.Containers {
+			c := &status.Containers[i]
+			if c.Service != "" && c.Service == v.Name && !taken[c.Name] {
+				return c
+			}
+		}
 		for _, cand := range []string{v.Container, v.Name} {
 			if cand == "" {
 				continue

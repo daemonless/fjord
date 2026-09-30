@@ -5,6 +5,7 @@ import (
 	"log"
 	"slices"
 	"strings"
+	"time"
 
 	composepkg "github.com/daemonless/fjord/pkg/compose"
 	"github.com/daemonless/fjord/pkg/stack"
@@ -76,22 +77,75 @@ func (s *server) clearPendingAfter(name string, done []string, stream io.ReadClo
 	}}
 }
 
-// errorWatch notices an "[error]" line in a stream, across chunk boundaries.
+// errorWatch notices an "[error]" line in a stream, across chunk boundaries,
+// and keeps the first one.
 type errorWatch struct {
-	tail []byte
+	tail []byte // the unfinished line so far, once an [error] is seen the line itself
 	seen bool
+	line string
 }
 
 func (e *errorWatch) Write(p []byte) (int, error) {
+	if e.line != "" {
+		return len(p), nil
+	}
+	buf := append(e.tail, p...)
 	if !e.seen {
-		buf := append(e.tail, p...)
-		e.seen = strings.Contains(string(buf), "[error]")
-		if len(buf) > 8 {
+		if i := strings.Index(string(buf), "[error]"); i >= 0 {
+			e.seen = true
+			buf = buf[i:]
+		} else if len(buf) > 8 {
 			buf = buf[len(buf)-8:]
 		}
-		e.tail = append([]byte(nil), buf...)
 	}
+	if e.seen {
+		if nl := strings.IndexByte(string(buf), '\n'); nl >= 0 {
+			e.line = strings.TrimSpace(strings.TrimPrefix(string(buf[:nl]), "[error]"))
+			buf = nil
+		} else if len(buf) > 512 {
+			e.line = strings.TrimSpace(strings.TrimPrefix(string(buf[:512]), "[error]"))
+			buf = nil
+		}
+	}
+	e.tail = append([]byte(nil), buf...)
 	return len(p), nil
+}
+
+// Message is the first [error] line seen, without its tag; "" when none.
+func (e *errorWatch) Message() string {
+	if e.line != "" {
+		return e.line
+	}
+	if e.seen {
+		return strings.TrimSpace(strings.TrimPrefix(string(e.tail), "[error]"))
+	}
+	return ""
+}
+
+// recordOutcome passes stream through and, once it ends, writes the outcome
+// on the stack: an [error] becomes LastFailure (and a log line), a clean end
+// clears one. The stream is what the page shows; this is what stays once
+// the page is gone.
+func (s *server) recordOutcome(name, action string, stream io.ReadCloser) io.ReadCloser {
+	watch := &errorWatch{}
+	return &thenReader{r: io.TeeReader(stream, watch), c: stream, after: func() string {
+		st, err := s.manager.LoadState(name)
+		if err != nil || st == nil {
+			return ""
+		}
+		if watch.seen {
+			st.LastFailure = &stack.Failure{Action: action, At: time.Now(), Message: watch.Message()}
+			log.Printf("%s %s failed: %s", action, name, watch.Message())
+		} else if st.LastFailure == nil {
+			return ""
+		} else {
+			st.LastFailure = nil
+		}
+		if err := s.manager.SaveState(name, st); err != nil {
+			log.Printf("%s %s: record outcome: %v", action, name, err)
+		}
+		return ""
+	}}
 }
 
 // thenStream reads first to its end, then starts next and reads that: the two
