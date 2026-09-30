@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"io"
 	"log"
 	"net/http"
@@ -20,7 +21,9 @@ import (
 // closures over main(). Handlers stay runtime-agnostic: everything they know
 // about the container runtime comes through engine.Backend.
 type server struct {
-	manager *stack.Manager
+	// platformsFn answers what a tag is built for; nil = the registry.
+	platformsFn func(ctx context.Context, image, tag string) ([]string, error)
+	manager     *stack.Manager
 	// The engine registry is swapped whole by rebuildBackends (an Extensions
 	// toggle) while other requests read it; mu makes that a clean handoff.
 	mu         sync.RWMutex
@@ -208,6 +211,7 @@ func (s *server) routes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/catalog/refresh", s.handleCatalogRefresh)
 	mux.HandleFunc("/api/registry/versions", s.handleRegistryVersions)
 	mux.HandleFunc("/api/registry/rolling", s.handleRegistryRolling)
+	mux.HandleFunc("/api/registry/platforms", s.handleRegistryPlatforms)
 	mux.HandleFunc("/api/compose/mounts", s.handleComposeMounts)
 	mux.HandleFunc("/api/settings/storage", s.handleStorageSettings)
 	mux.HandleFunc("/api/settings/wizard", s.handleWizardSettings)

@@ -73,6 +73,15 @@ func (b *Backend) Up(ctx context.Context, s *stack.Stack) (io.ReadCloser, error)
 func (b *Backend) bringUp(ctx context.Context, pw *io.PipeWriter, s *stack.Stack, forceRecreate bool, only []string) {
 	b.removeOrphanStorage(ctx, pw, s.Name)
 	b.releaseOrphanAddresses(ctx, pw, s)
+	// What compose up would pull, pulled first, so the images can be checked
+	// before anything is torn down or created: podman pulls a wrong-arch
+	// image with one WARNING and makes a container that cannot run. On a
+	// recreate the old container would already be gone by then.
+	b.pullMissing(ctx, pw, s, only)
+	if wrong := b.wrongPlatform(ctx, s, only); len(wrong) > 0 {
+		fmt.Fprintf(pw, "\n%s\n[error] not started: pick a version built for %s\n", strings.Join(wrong, "\n"), hostPlatform())
+		return
+	}
 	args := upArgs(forceRecreate, only)
 	started := time.Now()
 	// A copy of what compose says, to explain a failure its own words don't.
@@ -349,6 +358,14 @@ func (b *Backend) Update(ctx context.Context, s *stack.Stack, services []string)
 		}
 		if err := b.runStreaming(ctx, pw, s.Dir, "podman", append([]string{"compose", "pull"}, services...)...); err != nil {
 			fmt.Fprintf(pw, "\n[error] pull: %v\n", err)
+			return
+		}
+		// A pull that succeeded may still have fetched an image this host
+		// cannot run: podman says so in a WARNING and carries on. Checked on
+		// the pulled image, not the warning text, and before the recreate --
+		// the stack keeps the containers it has.
+		if wrong := b.wrongPlatform(ctx, s, services); len(wrong) > 0 {
+			fmt.Fprintf(pw, "\n%s\n[error] not recreating: the stack keeps what it runs\n", strings.Join(wrong, "\n"))
 			return
 		}
 		started := time.Now()

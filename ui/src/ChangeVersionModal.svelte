@@ -30,6 +30,25 @@
   // Enable Apply when the version changed, or the pin state was toggled.
   $: dirty = tag !== currentTag || pin !== currentlyPinned;
 
+  // Whether the tag picked is built for this host, asked per tag rather than
+  // for the whole list (each answer is a registry round trip). podman pulls a
+  // wrong-arch image with a warning and leaves a container that cannot run;
+  // this says so before, and the button stays disabled.
+  let noBuild = '';
+  let checkedTag = '';
+  $: if (!loading && tag && tag !== checkedTag) checkBuild(tag);
+  async function checkBuild(t: string) {
+    checkedTag = t;
+    noBuild = '';
+    try {
+      const r = await fetch(`/api/registry/platforms?image=${encodeURIComponent(repo)}&tag=${encodeURIComponent(t)}`);
+      if (!r.ok) return; // the registry could not say; fjordd checks the pulled image too
+      const d = await r.json();
+      if (t === checkedTag && d.runsHere === false)
+        noBuild = `:${t} has no build for this host (${d.host}) — it is built for ${(d.platforms || []).join(', ')}.`;
+    } catch {}
+  }
+
   onMount(async () => {
     try {
       const res = await fetch(`/api/registry/versions?image=${encodeURIComponent(repo)}`);
@@ -110,6 +129,9 @@
         />
         <span class="text-xs text-fjord-fg-dim shrink-0">→ <span class="font-mono text-fjord-fg-secondary">:{tag}</span></span>
       </div>
+      {#if noBuild}
+        <p class="text-xs text-fjord-warning mt-2">{noBuild}</p>
+      {/if}
     {/if}
 
     {#if !loading}
@@ -134,7 +156,8 @@
       >
       <button
         on:click={apply}
-        disabled={applying || !tag || !dirty}
+        disabled={applying || !tag || !dirty || !!noBuild}
+        title={noBuild || undefined}
         class="px-4 py-2 rounded-md font-medium text-white bg-fjord-accent hover:bg-fjord-accent-hover transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
         >{applying ? 'Applying…' : tag !== currentTag ? 'Change & Redeploy' : pin ? 'Pin' : 'Unpin'}</button
       >
