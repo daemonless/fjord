@@ -16,9 +16,10 @@
 #   after()    check from off-host and clean up (a published port must be
 #              reached from another machine: pf never redirects a host to
 #              itself), print PASS/FAIL lines like the script does
-#   main()     run the script itself, for a test that runs it more than once
+#   main()     run the script itself, for a test that runs it more than once;
+#              its own PASS/FAIL lines go through say, so they are counted
 #   UI_ENV     extra -e settings for the container
-# Helpers for them: on, answers, del_stack, del_net, run_js (below).
+# Helpers for them: on, answers, del_stack, del_net, run_js, say (below).
 #
 # Screenshots land in test/ui/out/<name>/. Exits 1 if any line failed or
 # anything named t-* is left on the host afterwards.
@@ -41,7 +42,7 @@ IMAGE=ghcr.io/daemonless/playwright:latest
 OUT=test/ui/out
 
 # The default order: cheap and read-only first, the long installs last.
-SUITE="open-link wording busy folders outcome arch leftover privdel apply wire type matrix multi extra"
+SUITE="open-link wording busy folders outcome arch leftover appjail-dns privdel apply wire type matrix multi extra"
 # Opt-in: image-specific, or needing something the default host lacks.
 OPT_IN="lnms-admin"
 
@@ -59,6 +60,9 @@ answers() {
 }
 # del_stack <name>... deletes stacks with their data through fjordd.
 del_stack() { for _s in "$@"; do curl -s -o /dev/null --max-time 180 -X DELETE -H "Origin: $FJORD" "$FJORD/api/stacks/$_s?data=1"; done; }
+# say prints a line and keeps it in the test's log, where PASS/FAIL are
+# counted (after()'s output is already kept; main() has to use this).
+say() { echo "$*" | tee -a "$LOG"; }
 # del_net <name> <engine> deletes a network through fjordd.
 del_net() { curl -s -o /dev/null --max-time 60 -X DELETE -H "Origin: $FJORD" "$FJORD/api/networks/$1?engine=$2"; }
 # run_js <name> [-e K=V ...] runs the script on the host; output goes to the

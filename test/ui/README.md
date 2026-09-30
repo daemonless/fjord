@@ -48,6 +48,7 @@ wire.
 | outcome | a failed install is said on the page and in the log; rows with no container say so | t-fail |
 | arch | a tag with no build for this host is refused before and after | t-arch |
 | leftover | a private network whose stack is gone reads as left over and can be deleted | |
+| appjail-dns | the Setup check for jail name resolution tells the truth: with dnsmasq stopped it is a terminal job with the commands on screen, and gone once they are run (leaves dnsmasq configured for appjail) | |
 | privdel | deleting a stack removes its private network | t-pd |
 | apply | Apply recreates what a Save changed, even with an exec session holding the old container | t-apply |
 | wire | New Network asks the wire; networks that do not fit it are flagged | |
