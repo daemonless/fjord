@@ -3,6 +3,7 @@
   import { onMount, createEventDispatcher } from 'svelte';
   import * as yaml from 'js-yaml';
   import Icon from './Icon.svelte';
+  import { defaultPath } from './pathDefaults';
   import Spinner from './Spinner.svelte';
   import DirPicker from './DirPicker.svelte';
   import { addressProblem, usableRange, randomMAC } from './network';
@@ -56,6 +57,24 @@
   // <app data>/<app folder>/<var-lowercased-sans-suffix>.
   const pathHint = (v: any) =>
     `${storageBase}/${slugOf(stackName, appId || 'app')}/${String(v.name).toLowerCase().replace(/[._]?path$/, '').replace(/[^a-z0-9]+/g, '-') || 'data'}`;
+  const seedPath = (v: any, slug: string) =>
+    defaultPath(v.default || '', { appId, locations: appDataLocations, base: storageBase, slug, hint: pathHint(v) });
+  // The folders follow the name while it is being typed: a default seeded
+  // for "librenms" is wrong the moment the name becomes "t-lnms". Only
+  // fields nobody has edited or filled from a folder set.
+  let seededSlug = '';
+  $: reseedPaths(slugOf(stackName, appId || 'app'));
+  function reseedPaths(slug: string) {
+    if (!variables.length || !seededSlug || slug === seededSlug) return;
+    for (const v of variables) {
+      if (v.type !== 'path' || touched.has(v.name) || defaultedFrom[v.name]) continue;
+      paths[v.name] = [seedPath(v, slug)];
+      formData[v.name] = paths[v.name][0];
+    }
+    seededSlug = slug;
+    paths = paths;
+    formData = formData;
+  }
   // {{stack}} / {{appdata}} placeholders in host paths are expanded server-side
   // at install ({{base}} is the older spelling); this previews the result.
   // Reactive on purpose: a `$:`-assigned function re-evaluates in the template
@@ -631,12 +650,13 @@
       if (parsed['x-fjord'] && parsed['x-fjord'].variables) {
         variables = parsed['x-fjord'].variables;
         variables.forEach((v) => {
-          // Path vars with no default get a sensible <App data>/<app>/... one
-          // so installs aren't blocked on an empty required field; still fully
-          // editable + browsable.
-          formData[v.name] = v.default || (v.type === 'path' ? pathHint(v) : '');
+          // Path vars get this stack's own <App data>/<stack>/... folder: a
+          // catalog default that names the app is re-rooted, none at all
+          // becomes a hint; still fully editable + browsable.
+          formData[v.name] = v.type === 'path' ? seedPath(v, slugOf(stackName, appId || 'app')) : v.default || '';
           if (v.type === 'path') paths[v.name] = [formData[v.name]];
         });
+        seededSlug = slugOf(stackName, appId || 'app');
         formData = formData; // seeding above mutates in place; reassign so missingRequired recomputes
         paths = paths;
         defaultedFrom = {};
