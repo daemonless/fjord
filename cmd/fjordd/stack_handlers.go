@@ -842,23 +842,23 @@ func (s *server) stackSetTag(w http.ResponseWriter, r *http.Request, name string
 			http.Error(w, "an appjail stack changes version for the whole stack", 400)
 			return
 		}
-		newCompose, err := composepkg.SetServiceTag(st.Compose, body.Service, body.Tag)
-		if err != nil {
-			http.Error(w, err.Error(), 400)
-			return
-		}
 		if why := s.noBuildForRetag(r.Context(), st.Compose, body.Service, body.Tag); why != "" {
 			http.Error(w, why, http.StatusConflict)
 			return
 		}
+		newCompose, newEnv, err := retag(st.Compose, st.Env, body.Service, body.Tag)
+		if err != nil {
+			http.Error(w, err.Error(), 400)
+			return
+		}
 		if body.Pin {
 			// This service only: PinImageDigests would freeze every image.
-			if newCompose, err = pinService(newCompose, body.Service); err != nil {
+			if newCompose, err = pinService(newCompose, body.Service, envMap(newEnv)); err != nil {
 				http.Error(w, err.Error(), 502)
 				return
 			}
 		}
-		st.Compose = newCompose
+		st.Compose, st.Env = newCompose, newEnv
 		if err := s.manager.Save(st); err != nil {
 			http.Error(w, err.Error(), 500)
 			return
@@ -874,27 +874,28 @@ func (s *server) stackSetTag(w http.ResponseWriter, r *http.Request, name string
 		http.Error(w, "multi-service stack: name the service to retag", 400)
 		return
 	}
-	newCompose, err := composepkg.SetImageTag(st.Compose, body.Tag)
-	if err != nil {
-		http.Error(w, err.Error(), 400)
-		return
-	}
 	if why := s.noBuildForRetag(r.Context(), st.Compose, "", body.Tag); why != "" {
 		http.Error(w, why, http.StatusConflict)
+		return
+	}
+	newCompose, newEnv, err := retag(st.Compose, st.Env, "", body.Tag)
+	if err != nil {
+		http.Error(w, err.Error(), 400)
 		return
 	}
 	if body.Pin {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
+		env := envMap(newEnv)
 		newCompose, err = composepkg.PinImageDigests(newCompose, func(ref string) (string, error) {
-			return registry.Digest(ctx, ref)
+			return registry.Digest(ctx, composepkg.ExpandEnv(ref, env))
 		})
 		if err != nil {
 			http.Error(w, err.Error(), 502)
 			return
 		}
 	}
-	st.Compose = newCompose
+	st.Compose, st.Env = newCompose, newEnv
 	// And where appjail will read it. Setting only the compose left the jail
 	// on whatever ${tag} defaults to, so the version on screen and the version
 	// running were different numbers.
@@ -913,9 +914,61 @@ func (s *server) stackSetTag(w http.ResponseWriter, r *http.Request, name string
 	w.Write([]byte(`{"status":"ok"}`))
 }
 
+// retag moves a service (every service when none is named) to tag: in the
+// compose when the tag is written there, in .env when the image takes its
+// tag from a variable ("${IMMICH_TAG:-latest}"). Rewriting the compose for
+// the latter cut the reference at the colon inside the braces and left immich
+// with "${IMMICH_TAG:3.2.2".
+func retag(composeYAML, env, service, tag string) (string, string, error) {
+	images, err := composepkg.ServiceImageList(composeYAML)
+	if err != nil {
+		return "", "", err
+	}
+	found := false
+	for _, im := range images {
+		if service != "" && im.Service != service {
+			continue
+		}
+		found = true
+		if name, isVar := composepkg.ImageTagVar(im.Image); isVar {
+			env = upsertEnv(env, name, tag)
+			continue
+		}
+		if service != "" {
+			composeYAML, err = composepkg.SetServiceTag(composeYAML, im.Service, tag)
+		} else {
+			composeYAML, err = composepkg.SetImageTag(composeYAML, tag)
+		}
+		if err != nil {
+			return "", "", err
+		}
+	}
+	if !found {
+		return "", "", fmt.Errorf("no service %q with an image", service)
+	}
+	return composeYAML, env, nil
+}
+
+// upsertEnv sets KEY=value in a .env text, replacing the line that has the
+// key or adding one at the end; everything else stays as written.
+func upsertEnv(env, key, value string) string {
+	lines := strings.Split(env, "\n")
+	for i, l := range lines {
+		if strings.HasPrefix(strings.TrimSpace(l), key+"=") {
+			lines[i] = key + "=" + value
+			return strings.Join(lines, "\n")
+		}
+	}
+	if env != "" && !strings.HasSuffix(env, "\n") {
+		env += "\n"
+	}
+	return env + key + "=" + value + "\n"
+}
+
 // pinService freezes one service's image to the digest its tag resolves to
-// now ("repo:tag" -> "repo:tag@sha256:...").
-func pinService(composeYAML, service string) (string, error) {
+// now ("repo:tag" -> "repo:tag@sha256:..."); env fills in a tag written as a
+// variable before the registry is asked.
+func pinService(composeYAML, service string, env map[string]string) (string, error) {
 	images, err := composepkg.ServiceImageList(composeYAML)
 	if err != nil {
 		return "", err
@@ -926,7 +979,7 @@ func pinService(composeYAML, service string) (string, error) {
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		digest, err := registry.Digest(ctx, im.Image)
+		digest, err := registry.Digest(ctx, composepkg.ExpandEnv(im.Image, env))
 		if err != nil {
 			return "", err
 		}

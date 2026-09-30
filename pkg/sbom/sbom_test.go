@@ -197,3 +197,50 @@ func TestDuplicatePackageNames(t *testing.T) {
 		t.Errorf("lodash = %q", m["lodash"])
 	}
 }
+
+// The shape ghcr serves for a cosign 3 attestation (syncthing 2.1.5,
+// 2026-09-30): the index entries carry the empty config type instead of the
+// bundle type, and every bundle is annotated "cosign/sign/v1", attestation
+// or not. The manifest and the statement inside the envelope say the truth.
+func TestCosignBundleAsGhcrServesIt(t *testing.T) {
+	m, cfg := image("2.1.5", "2026-09-29T20:23:46Z")
+	const bt = "application/vnd.dev.sigstore.bundle.v0.3+json"
+	enc := func(st any) string {
+		p, _ := json.Marshal(st)
+		return base64.StdEncoding.EncodeToString(p)
+	}
+	bundle := func(st any) map[string]any {
+		return map[string]any{"mediaType": bt, "dsseEnvelope": map[string]any{"payloadType": "application/vnd.in-toto+json", "payload": enc(st)}}
+	}
+	ref := func(layer string) map[string]any {
+		return map[string]any{
+			"artifactType": bt,
+			"config":       map[string]any{"mediaType": "application/vnd.oci.empty.v1+json"},
+			"annotations":  map[string]string{"dev.sigstore.bundle.content": "dsse-envelope", "dev.sigstore.bundle.predicateType": "https://sigstore.dev/cosign/sign/v1"},
+			"layers":       []map[string]any{{"digest": layer, "mediaType": bt}},
+		}
+	}
+	fakeRegistry(t,
+		map[string]any{
+			"sha256:amd64": m,
+			"sha256-amd64": map[string]any{"manifests": []map[string]any{
+				{"digest": "sha256:ref-sig", "artifactType": "application/vnd.oci.empty.v1+json"},
+				{"digest": "sha256:ref-cdx", "artifactType": "application/vnd.oci.empty.v1+json"},
+			}},
+			"sha256:ref-sig": ref("sha256:sig"),
+			"sha256:ref-cdx": ref("sha256:cdx"),
+		},
+		map[string]any{
+			"sha256:cfg-2.1.5": cfg,
+			// A real signature: a bundle whose statement is no SBOM.
+			"sha256:sig": bundle(map[string]any{"predicateType": "https://sigstore.dev/cosign/sign/v1", "predicate": map[string]any{}}),
+			"sha256:cdx": bundle(map[string]any{"predicateType": "https://cyclonedx.org/bom", "predicate": map[string]any{"components": []map[string]string{{"name": "syncthing", "version": "2.1.5"}, {"name": "openssl", "version": "3.5.4"}}}}),
+		})
+	d, err := For(context.Background(), "ghcr.io/x/syncthing:2.1.5", "sha256:amd64", "sha256:amd64")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Source != "cyclonedx" || len(d.Packages) != 2 || d.Packages["openssl"] != "3.5.4" {
+		t.Errorf("doc = %+v", d)
+	}
+}

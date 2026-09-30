@@ -205,11 +205,41 @@ func replaceTag(image, tag string) string {
 	if at := strings.LastIndex(ref, "@"); at >= 0 {
 		ref = ref[:at]
 	}
+	// A tag that is a variable ("${IMMICH_TAG:-latest}") lives in .env, and
+	// the last colon is the one inside the braces: cutting there wrote
+	// "${IMMICH_TAG:3.2.2" and broke the compose. It is the caller's to set
+	// the variable; the reference stays as written.
+	if _, isVar := ImageTagVar(ref); isVar {
+		return image
+	}
 	slash := strings.LastIndex(ref, "/")
 	if colon := strings.LastIndex(ref, ":"); colon > slash {
 		ref = ref[:colon]
 	}
 	return ref + ":" + tag
+}
+
+// ImageTagVar is the variable an image takes its tag from, when the tag is
+// written as one: "repo:${TAG}", "repo:${TAG:-latest}", "repo:${TAG-latest}".
+// The variable's value, not the compose, is then where a version change goes.
+func ImageTagVar(image string) (string, bool) {
+	ref := image
+	if at := strings.LastIndex(ref, "@"); at >= 0 {
+		ref = ref[:at]
+	}
+	slash := strings.LastIndex(ref, "/")
+	open := strings.Index(ref, ":${")
+	if open < 0 || open < slash || !strings.HasSuffix(ref, "}") {
+		return "", false
+	}
+	name := ref[open+3 : len(ref)-1]
+	if i := strings.IndexAny(name, ":-?+"); i >= 0 {
+		name = name[:i]
+	}
+	if name == "" {
+		return "", false
+	}
+	return name, true
 }
 
 // ImageTag is the tag of an image reference, or "" when it names none.

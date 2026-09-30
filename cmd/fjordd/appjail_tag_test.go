@@ -133,3 +133,46 @@ func TestSetDirectorModesUnknownService(t *testing.T) {
 		t.Fatal("accepted a mode for a service the director does not have")
 	}
 }
+
+// The bundle's project-level virtualnet applies to every jail on top of the
+// service's own: a bridge mode written per service met it twice ("ajnet
+// cannot be used again", exit 78; zensical on netlab, 2026-09-30). The
+// project keeps no networking options; a service given no mode inherits them
+// explicitly instead.
+func TestSetDirectorModesMovesProjectNetworkToServices(t *testing.T) {
+	const two = `options:
+  - virtualnet: ':<random> default'
+  - nat:
+services:
+  web:
+    name: app_web
+    options:
+      - expose: '8000:8000 proto:tcp'
+  db:
+    name: app_db
+`
+	out, err := setDirectorModes(two, map[string]string{"web": "bridge"})
+	if err != nil {
+		t.Fatalf("setDirectorModes: %v", err)
+	}
+	if strings.Count(out, "virtualnet:") != 2 {
+		t.Errorf("want exactly one virtualnet per service and none on the project:\n%s", out)
+	}
+	head := strings.SplitN(out, "services:", 2)[0]
+	if strings.Contains(head, "virtualnet") || strings.Contains(head, "nat:") {
+		t.Errorf("the project kept networking options:\n%s", out)
+	}
+	db := strings.SplitN(out, "  db:", 2)[1]
+	if !strings.Contains(db, "virtualnet: ':<random> default'") || !strings.Contains(db, "nat:") {
+		t.Errorf("the untouched service lost the project's network:\n%s", out)
+	}
+	// A service that names its own network is not handed the project's.
+	own := "options:\n  - virtualnet: ':<random> default'\n  - nat:\nservices:\n  web:\n    name: app_web\n  db:\n    name: app_db\n    options:\n      - bridge: 'epair:eb_db bridge:vlan6'\n"
+	out, err = setDirectorModes(own, map[string]string{"web": "bridge"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(out, "virtualnet:") != 1 || !strings.Contains(out, "bridge: 'epair:eb_db bridge:vlan6'") {
+		t.Errorf("a service on its own network changed:\n%s", out)
+	}
+}

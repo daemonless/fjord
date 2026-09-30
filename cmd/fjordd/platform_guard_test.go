@@ -57,3 +57,46 @@ func otherArch() string {
 	}
 	return "arm64"
 }
+
+// A version change on an image whose tag is a variable goes into .env; the
+// compose keeps the reference as written. Cutting the compose at the last
+// colon wrote "${IMMICH_TAG:3.2.2" (immich on netlab, 2026-09-30).
+func TestSetTagOnVariableTag(t *testing.T) {
+	s := &server{manager: stack.NewManager(t.TempDir())}
+	s.platformsFn = func(context.Context, string, string) ([]string, error) { return []string{registry.HostPlatform()}, nil }
+	compose := "services:\n  immich-server:\n    image: ghcr.io/x/immich-server:${IMMICH_TAG:-latest}\n  database:\n    image: ghcr.io/x/immich-postgres:latest\n"
+	if err := s.manager.Save(&stack.Stack{Name: "immich", Compose: compose, Env: "IMMICH_TAG=latest\nTZ=UTC\n"}); err != nil {
+		t.Fatal(err)
+	}
+	w := httptest.NewRecorder()
+	s.stackSetTag(w, httptest.NewRequest(http.MethodPost, "/api/stacks/immich/set-tag", bytes.NewBufferString(`{"tag":"3.2.2","service":"immich-server"}`)), "immich")
+	if w.Code != http.StatusOK {
+		t.Fatalf("%d %s", w.Code, w.Body.String())
+	}
+	st, _ := s.manager.Get("immich")
+	if st.Compose != compose {
+		t.Errorf("compose changed:\n%s", st.Compose)
+	}
+	if st.Env != "IMMICH_TAG=3.2.2\nTZ=UTC\n" {
+		t.Errorf("env = %q", st.Env)
+	}
+	// A literal tag still changes in the compose, and .env is left alone.
+	w = httptest.NewRecorder()
+	s.stackSetTag(w, httptest.NewRequest(http.MethodPost, "/api/stacks/immich/set-tag", bytes.NewBufferString(`{"tag":"17","service":"database"}`)), "immich")
+	st, _ = s.manager.Get("immich")
+	if w.Code != http.StatusOK || !strings.Contains(st.Compose, "immich-postgres:17") || st.Env != "IMMICH_TAG=3.2.2\nTZ=UTC\n" {
+		t.Errorf("%d: compose:\n%s\nenv %q", w.Code, st.Compose, st.Env)
+	}
+}
+
+func TestUpsertEnv(t *testing.T) {
+	if got := upsertEnv("A=1\nTAG=latest\n", "TAG", "3.2.2"); got != "A=1\nTAG=3.2.2\n" {
+		t.Errorf("replace: %q", got)
+	}
+	if got := upsertEnv("A=1", "TAG", "3.2.2"); got != "A=1\nTAG=3.2.2\n" {
+		t.Errorf("append without newline: %q", got)
+	}
+	if got := upsertEnv("", "TAG", "x"); got != "TAG=x\n" {
+		t.Errorf("empty: %q", got)
+	}
+}

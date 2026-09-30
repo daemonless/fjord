@@ -260,8 +260,7 @@ func bundleSBOM(ctx context.Context, image, platform string) (map[string]string,
 	}
 	var idx struct {
 		Manifests []struct {
-			Digest       string `json:"digest"`
-			ArtifactType string `json:"artifactType"`
+			Digest string `json:"digest"`
 		} `json:"manifests"`
 	}
 	if json.Unmarshal(body, &idx) != nil {
@@ -269,30 +268,39 @@ func bundleSBOM(ctx context.Context, image, platform string) (map[string]string,
 	}
 	var layers []sbomLayer
 	for _, m := range idx.Manifests {
-		// Other referrers can share the tag; a signature bundle has no
-		// predicate type, so it drops out at predicateKind below.
-		if !strings.HasPrefix(m.ArtifactType, "application/vnd.dev.sigstore.bundle") {
-			continue
-		}
+		// The entry's own artifactType is not trusted: ghcr writes the
+		// empty config type there ("application/vnd.oci.empty.v1+json") and
+		// syncthing 2.1.5's SBOMs were skipped on it. The manifest says what
+		// it is.
 		mb, _, err := manifest(ctx, image, m.Digest, acceptManifest)
 		if err != nil {
 			continue
 		}
 		var bm struct {
-			Annotations map[string]string `json:"annotations"`
-			Layers      []struct {
-				Digest string `json:"digest"`
+			ArtifactType string            `json:"artifactType"`
+			Annotations  map[string]string `json:"annotations"`
+			Layers       []struct {
+				Digest    string `json:"digest"`
+				MediaType string `json:"mediaType"`
 			} `json:"layers"`
 		}
 		if json.Unmarshal(mb, &bm) != nil || len(bm.Layers) == 0 {
 			continue
 		}
-		if k := predicateKind(bm.Annotations["dev.sigstore.bundle.predicateType"]); k != "" {
-			layers = append(layers, sbomLayer{bm.Layers[0].Digest, k})
+		if !strings.HasPrefix(bm.ArtifactType, bundleType) && !strings.HasPrefix(bm.Layers[0].MediaType, bundleType) {
+			continue // another referrer sharing the tag
 		}
+		// The predicate annotation is a hint, not the truth: cosign 3 wrote
+		// "cosign/sign/v1" on attestations too. An unknown kind is decided
+		// by the statement inside the envelope; a real signature drops out
+		// there, having no SBOM predicate.
+		layers = append(layers, sbomLayer{bm.Layers[0].Digest, predicateKind(bm.Annotations["dev.sigstore.bundle.predicateType"])})
 	}
 	return envelopeSBOM(ctx, image, layers)
 }
+
+// bundleType is the media type of a Sigstore bundle manifest and its layer.
+const bundleType = "application/vnd.dev.sigstore.bundle"
 
 // envelopeSBOM reads the first SBOM layer that parses: each a DSSE envelope,
 // bare (cosign 2) or wrapped in a Sigstore bundle (cosign 3), whose payload is
@@ -322,11 +330,29 @@ func envelopeSBOM(ctx context.Context, image string, layers []sbomLayer) (map[st
 		if err != nil || len(stmt) == 0 {
 			continue
 		}
-		if pkgs := parseStatement(stmt, l.kind); pkgs != nil {
-			return pkgs, l.kind
+		kind := l.kind
+		if kind == "" {
+			kind = statementKind(stmt)
+		}
+		if kind == "" {
+			continue
+		}
+		if pkgs := parseStatement(stmt, kind); pkgs != nil {
+			return pkgs, kind
 		}
 	}
 	return nil, ""
+}
+
+// statementKind is the SBOM kind an in-toto statement names for itself.
+func statementKind(raw []byte) string {
+	var st struct {
+		PredicateType string `json:"predicateType"`
+	}
+	if json.Unmarshal(raw, &st) != nil {
+		return ""
+	}
+	return predicateKind(st.PredicateType)
 }
 
 type sbomLayer struct{ digest, kind string }
