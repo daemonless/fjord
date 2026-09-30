@@ -238,6 +238,15 @@ func (s *server) handleInstall(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	perStackDirs := expandPathTemplates(req.Values, pathExpansions, pathVars, slug, base)
+	// A folder inside another stack's own directory is that stack's data.
+	// The wizard offered exactly that for a second copy of an app, and two
+	// stacks writing one database directory is not a thing to find out later.
+	if existing, err := s.manager.List(); err == nil {
+		if why := anotherStacksFolder(perStackDirs, base, slug, existing); why != "" {
+			http.Error(w, why, http.StatusConflict)
+			return
+		}
+	}
 
 	// Managed storage lives at <base>/<slug>/... -- a human, discoverable path
 	// (default /containers/tautulli/config, matching the common host convention)
@@ -652,4 +661,32 @@ func uniqueSubfolders(cands [][]string) []string {
 		out[i] = chosen
 	}
 	return out
+}
+
+// anotherStacksFolder names the first of dirs (this install's own folders,
+// under base) that sits in a different existing stack's folder, as a
+// refusal; "" when none does. A stack's folder is <base>/<its slug>.
+func anotherStacksFolder(dirs []manifest.ProvisionDir, base, slug string, existing []*stack.Stack) string {
+	owner := map[string]string{}
+	for _, st := range existing {
+		display := st.Name
+		if st.State != nil && st.State.DisplayName != "" {
+			display = st.State.DisplayName
+		}
+		if s := storageSlug(display, st.Name); s != slug {
+			owner[s] = display
+		}
+	}
+	root := strings.TrimRight(base, "/") + "/"
+	for _, d := range dirs {
+		rel := strings.TrimPrefix(d.Path, root)
+		if rel == d.Path {
+			continue
+		}
+		top, _, _ := strings.Cut(rel, "/")
+		if name, ok := owner[top]; ok {
+			return fmt.Sprintf("%s is inside %s's folder (%s%s) -- give this install a folder of its own", d.Path, name, root, top)
+		}
+	}
+	return ""
 }
