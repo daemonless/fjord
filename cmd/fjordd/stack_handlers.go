@@ -847,6 +847,10 @@ func (s *server) stackSetTag(w http.ResponseWriter, r *http.Request, name string
 			http.Error(w, err.Error(), 400)
 			return
 		}
+		if why := s.noBuildForRetag(r.Context(), st.Compose, body.Service, body.Tag); why != "" {
+			http.Error(w, why, http.StatusConflict)
+			return
+		}
 		if body.Pin {
 			// This service only: PinImageDigests would freeze every image.
 			if newCompose, err = pinService(newCompose, body.Service); err != nil {
@@ -873,6 +877,10 @@ func (s *server) stackSetTag(w http.ResponseWriter, r *http.Request, name string
 	newCompose, err := composepkg.SetImageTag(st.Compose, body.Tag)
 	if err != nil {
 		http.Error(w, err.Error(), 400)
+		return
+	}
+	if why := s.noBuildForRetag(r.Context(), st.Compose, "", body.Tag); why != "" {
+		http.Error(w, why, http.StatusConflict)
 		return
 	}
 	if body.Pin {
@@ -1189,4 +1197,20 @@ func anotherOperation(name string) string {
 		return name + " is already busy (" + b + "); wait for it to finish"
 	}
 	return "another operation is already running on this stack; wait for it to finish"
+}
+
+// noBuildForRetag is the refusal when the image a retag would put a service
+// on (every service when none is named) has no build for this host.
+func (s *server) noBuildForRetag(ctx context.Context, compose, service, tag string) string {
+	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	for _, svc := range composepkg.ParseServices(compose, nil) {
+		if service != "" && svc.Name != service {
+			continue
+		}
+		if why := s.noBuildHere(ctx, registry.Repo(svc.Image), tag); why != "" {
+			return why
+		}
+	}
+	return ""
 }

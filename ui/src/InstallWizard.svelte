@@ -196,6 +196,24 @@
   // train's rolling tag (which is the train id itself).
   $: tag = customTag.trim() || versionTag || train;
 
+  // Whether that tag is built for this host, asked per tag picked (a registry
+  // round trip each). Said here, before Install, rather than by a container
+  // that cannot run.
+  let noBuild = '';
+  let checkedTag = '';
+  $: if (tag && variants.length && tag !== checkedTag) checkBuild(tag);
+  async function checkBuild(t: string) {
+    checkedTag = t;
+    noBuild = '';
+    try {
+      const r = await fetch(`/api/registry/platforms?image=${encodeURIComponent(imageRepo())}&tag=${encodeURIComponent(t)}`);
+      if (!r.ok) return;
+      const d = await r.json();
+      if (t === checkedTag && d.runsHere === false)
+        noBuild = `:${t} has no build for this host (${d.host}) — it is built for ${(d.platforms || []).join(', ')}.`;
+    } catch {}
+  }
+
   // image_tag variables (stacks): each selects the tag of one component image.
   // Changing the train re-points every untouched one whose registry actually
   // publishes that train; the primary image's var follows the full tag pick
@@ -864,6 +882,7 @@
                   {/each}
                 </select>
                 {#if loadingVersions}<span class="text-xs text-fjord-fg-dim">Loading versions…</span>{/if}
+                {#if noBuild}<span class="text-xs text-fjord-warning">{noBuild}</span>{/if}
               </div>
             </div>
           {/if}
@@ -1088,9 +1107,11 @@
       {/if}
       <button
         on:click={deploy}
-        disabled={busy || loading || !!error || !validName || missingRequired.length > 0 || (ipRequired && !netIP.trim()) || !!ipProblem || needAddress.length > 0}
+        disabled={busy || loading || !!error || !validName || missingRequired.length > 0 || (ipRequired && !netIP.trim()) || !!ipProblem || needAddress.length > 0 || !!noBuild}
         title={!validName
           ? 'Enter a valid stack name'
+          : noBuild
+            ? noBuild
           : missingRequired.length
             ? `Fill required: ${missingRequired.map((v) => v.name).join(', ')}`
             : ipProblem

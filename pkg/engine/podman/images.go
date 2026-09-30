@@ -7,9 +7,12 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"runtime"
+	"slices"
 	"sort"
 	"strings"
 
+	composepkg "github.com/daemonless/fjord/pkg/compose"
 	"github.com/daemonless/fjord/pkg/engine"
 	"github.com/daemonless/fjord/pkg/stack"
 )
@@ -150,4 +153,75 @@ func (b *Backend) containerImage(ctx context.Context, id string) (imageID, ref, 
 		return "", "", "", fmt.Errorf("decode container inspect: %w", err)
 	}
 	return out.Image, out.ImageName, out.ImageDigest, nil
+}
+
+// ImagePlatform is a locally-present image's "os/arch" ("freebsd/amd64").
+// Not pulled yet -> "", nil.
+func (b *Backend) ImagePlatform(ctx context.Context, ref string) (string, error) {
+	u := "http://d/v4.0.0/libpod/images/" + url.PathEscape(ref) + "/json"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return "", err
+	}
+	resp, err := b.http.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("libpod images inspect: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound {
+		return "", nil
+	}
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("libpod images inspect: unexpected status %s", resp.Status)
+	}
+	var out struct {
+		Os           string `json:"Os"`
+		Architecture string `json:"Architecture"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return "", fmt.Errorf("decode image inspect: %w", err)
+	}
+	if out.Os == "" {
+		return "", nil
+	}
+	return out.Os + "/" + out.Architecture, nil
+}
+
+// hostPlatform is this host as an image names it.
+func hostPlatform() string { return runtime.GOOS + "/" + runtime.GOARCH }
+
+// wrongPlatform says which of a stack's services (all when none are named)
+// have a pulled image built for another platform, as "[error]" lines: podman
+// pulls such an image with one WARNING and creates a container that cannot
+// run. Empty when every image fits or is not pulled yet.
+func (b *Backend) wrongPlatform(ctx context.Context, s *stack.Stack, services []string) []string {
+	var out []string
+	for _, svc := range composepkg.ParseServices(s.Compose, s.EnvMap()) {
+		if len(services) > 0 && !slices.Contains(services, svc.Name) {
+			continue
+		}
+		p, err := b.ImagePlatform(ctx, svc.Image)
+		if err != nil || p == "" || p == hostPlatform() {
+			continue
+		}
+		out = append(out, fmt.Sprintf("[error] %s: %s is built for %s; this host is %s, so it cannot run here",
+			svc.Name, svc.Image, p, hostPlatform()))
+	}
+	return out
+}
+
+// pullMissing pulls each of a stack's images (all services when none are
+// named) that is not present yet -- what compose up would pull anyway, done
+// first so the image can be looked at before the stack is touched. A pull
+// that fails is left for compose up to report in its own words.
+func (b *Backend) pullMissing(ctx context.Context, pw io.Writer, s *stack.Stack, services []string) {
+	for _, svc := range composepkg.ParseServices(s.Compose, s.EnvMap()) {
+		if len(services) > 0 && !slices.Contains(services, svc.Name) || svc.Image == "" {
+			continue
+		}
+		if p, err := b.ImagePlatform(ctx, svc.Image); err != nil || p != "" {
+			continue
+		}
+		b.runStreaming(ctx, pw, s.Dir, "podman", "pull", svc.Image)
+	}
 }

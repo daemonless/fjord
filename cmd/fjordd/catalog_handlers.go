@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -154,4 +155,48 @@ func (s *server) handleRegistryRolling(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(out)
+}
+
+// handleRegistryPlatforms answers what one tag is built for and whether that
+// includes this host: GET /api/registry/platforms?image=…&tag=…. The version
+// pickers ask for the tag picked, so "no build for arm64" is said before the
+// install or update, not by a container that cannot start.
+func (s *server) handleRegistryPlatforms(w http.ResponseWriter, r *http.Request) {
+	image, tag := r.URL.Query().Get("image"), r.URL.Query().Get("tag")
+	if image == "" || tag == "" {
+		http.Error(w, "image and tag query params required", 400)
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
+	defer cancel()
+	ps, err := s.platformsOf(ctx, image, tag)
+	if err != nil {
+		http.Error(w, err.Error(), 502)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{
+		"platforms": ps, "host": registry.HostPlatform(), "runsHere": registry.RunsHere(ps),
+	})
+}
+
+// platformsOf is the registry lookup behind the platform checks, swapped in
+// tests.
+func (s *server) platformsOf(ctx context.Context, image, tag string) ([]string, error) {
+	if s.platformsFn != nil {
+		return s.platformsFn(ctx, image, tag)
+	}
+	return registry.CachedPlatforms(ctx, image, tag)
+}
+
+// noBuildHere is the refusal for a tag with no build for this host, or "" when
+// it has one -- or when the registry cannot say: a hiccup must not block a
+// version change, the engine checks the pulled image again anyway.
+func (s *server) noBuildHere(ctx context.Context, image, tag string) string {
+	ps, err := s.platformsOf(ctx, image, tag)
+	if err != nil || registry.RunsHere(ps) {
+		return ""
+	}
+	return fmt.Sprintf("%s:%s has no build for this host (%s) -- it is built for %s",
+		image, tag, registry.HostPlatform(), strings.Join(ps, ", "))
 }
