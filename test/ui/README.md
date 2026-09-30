@@ -42,6 +42,7 @@ wire.
 | name | what it proves | stacks |
 |---|---|---|
 | open-link | where every stack's Open link points (read-only) | |
+| keys | the keyboard reaches what was mouse-only: a store card opens on Enter, the stack name is a button, the sashes are sliders (read-only) | |
 | wording | the wizard says what "private" is; a busy stack says why its buttons are grey | t-word |
 | busy | installing reads as busy, not a problem; a second up is refused | t-busy |
 | folders | a second copy of an app gets folders of its own; one inside another stack's is refused | |

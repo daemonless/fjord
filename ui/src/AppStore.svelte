@@ -293,8 +293,16 @@
     <!-- columns from the available width, not the viewport: the sidebar eats a third of it -->
     <div class="grid grid-cols-[repeat(auto-fill,minmax(340px,1fr))] gap-6 overflow-y-auto pb-8 pr-2">
       {#each filtered as app}
-        <!-- svelte-ignore a11y-click-events-have-key-events -->
-        <div class="bg-fjord-card border border-fjord-border rounded-xl p-6 shadow-xl backdrop-blur-sm hover:border-fjord-accent/50 transition-colors flex flex-col group relative cursor-pointer" on:click={() => detailApp = app}>
+        <!-- A card is a button to its details, with real buttons inside it
+             (Install), so it cannot be a <button>: a role and a key handler
+             make it one for the keyboard. -->
+        <div
+          role="button"
+          tabindex="0"
+          class="bg-fjord-card border border-fjord-border rounded-xl p-6 shadow-xl backdrop-blur-sm hover:border-fjord-accent/50 focus:outline-none focus:border-fjord-accent transition-colors flex flex-col group relative cursor-pointer"
+          on:click={() => (detailApp = app)}
+          on:keydown={(e) => { if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); detailApp = app; } }}
+        >
             <div class="flex items-start gap-4 mb-4">
                 <div class="relative shrink-0">
                     <div class="w-12 h-12 rounded-lg bg-fjord-bg border border-fjord-border flex items-center justify-center overflow-hidden">

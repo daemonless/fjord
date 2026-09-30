@@ -2036,9 +2036,17 @@
 
   <!-- sidebar↔main sash: visible divider, widens + highlights on hover -->
   <div
-    class="group relative w-px shrink-0 bg-fjord-border cursor-col-resize"
+    role="slider"
+    aria-orientation="vertical"
+    aria-label="Sidebar width"
+    aria-valuenow={sidebarWidth}
+    aria-valuemin={200}
+    aria-valuemax={640}
+    tabindex="0"
+    class="group relative w-px shrink-0 bg-fjord-border cursor-col-resize focus:outline-none focus:bg-fjord-accent"
     use:resizer={{ axis: 'x', onMove: (d) => setSidebar(sidebarWidth + d) }}
     on:dblclick={() => setSidebar(288)}
+    on:keydown={(e) => { if (e.key === 'ArrowLeft') setSidebar(sidebarWidth - 16); else if (e.key === 'ArrowRight') setSidebar(sidebarWidth + 16); else if (e.key === 'Enter') setSidebar(288); }}
     title="Drag to resize · double-click to reset"
   >
     <div class="absolute inset-y-0 -left-1 -right-1 group-hover:bg-fjord-accent/60 transition-colors"></div>
@@ -2072,12 +2080,14 @@
                 class="text-2xl font-semibold text-fjord-fg bg-fjord-inset border rounded-md px-2 py-0.5 min-w-0 focus:outline-none {nameEdit && !nameEditValid ? 'border-fjord-danger/60' : 'border-fjord-accent'}"
               />
             {:else}
-              <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
-              <h2
-                on:click={() => { editingName = true; nameEdit = label(selectedStack); }}
-                title="Click to rename (id: {selectedStack.name})"
-                class="text-2xl font-semibold text-fjord-fg truncate cursor-text hover:bg-fjord-border/40 rounded px-1 -mx-1 transition-colors"
-              >{label(selectedStack)}</h2>
+              <!-- The heading stays a heading; the rename is a button inside it. -->
+              <h2 class="text-2xl font-semibold text-fjord-fg truncate">
+                <button
+                  on:click={() => { editingName = true; nameEdit = label(selectedStack); }}
+                  title="Click to rename (id: {selectedStack.name})"
+                  class="cursor-text hover:bg-fjord-border/40 focus:outline-none focus:bg-fjord-border/40 rounded px-1 -mx-1 transition-colors"
+                >{label(selectedStack)}</button>
+              </h2>
             {/if}
             <span
               title={(selectedStack.status?.containers || []).filter((c) => c.detail).map((c) => `${c.name}: ${c.detail}`).join('\n') || ''}
@@ -2792,9 +2802,17 @@
         {#if drawerOpen}
           <!-- editor↔drawer sash: drag up = taller, widens + highlights on hover -->
           <div
-            class="group relative h-px shrink-0 my-2 bg-fjord-border cursor-row-resize"
+            role="slider"
+            aria-orientation="horizontal"
+            aria-label="Output height"
+            aria-valuenow={drawerHeight}
+            aria-valuemin={120}
+            aria-valuemax={640}
+            tabindex="0"
+            class="group relative h-px shrink-0 my-2 bg-fjord-border cursor-row-resize focus:outline-none focus:bg-fjord-accent"
             use:resizer={{ axis: 'y', onMove: (d) => setDrawer(drawerHeight - d) }}
             on:dblclick={() => setDrawer(256)}
+            on:keydown={(e) => { if (e.key === 'ArrowUp') setDrawer(drawerHeight + 16); else if (e.key === 'ArrowDown') setDrawer(drawerHeight - 16); else if (e.key === 'Enter') setDrawer(256); }}
             title="Drag to resize · double-click to reset"
           >
             <div class="absolute inset-x-0 -top-1.5 -bottom-1.5 group-hover:bg-fjord-accent/60 transition-colors"></div>
