@@ -252,6 +252,10 @@
     const m = compose.match(/^\s*image:\s*["']?([^\s"'#]+)/m);
     return m ? m[1] : '';
   }
+  // The image as it runs, ${VAR}s filled in from .env: fjordd's services
+  // list has it. The raw compose line read ":${IMMICH_TAG:-latest}" as a
+  // tag called "-latest}".
+  const currentImage = (s: Stack) => s.services?.[0]?.image || stackImage(s.compose);
   // Multi-image stacks (e.g. app+db+redis) have no single version to change --
   // the Change Version modal would retag every service. Hidden for those.
   $: multiImage = (selectedStack?.compose.match(/^\s*image:/gm) || []).length > 1;
@@ -2516,7 +2520,7 @@
               on:click={() =>
                 (changeVersion = {
                   name: selectedStack!.name,
-                  image: stackImage(selectedStack!.compose),
+                  image: currentImage(selectedStack!),
                   suggest: updateInfo!.newTag,
                 })}
               class="text-xs text-fjord-warning self-center underline decoration-dotted hover:text-fjord-warning/80"
@@ -2578,7 +2582,7 @@
                       actionsMenuOpen = false;
                       changeVersion = {
                         name: selectedStack!.name,
-                        image: stackImage(selectedStack!.compose),
+                        image: currentImage(selectedStack!),
                         suggest: updateInfo?.state === 'upgrade' ? updateInfo.newTag : undefined,
                       };
                     }}

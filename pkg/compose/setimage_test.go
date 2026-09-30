@@ -53,3 +53,34 @@ func TestSetServiceTag(t *testing.T) {
 		t.Error("unknown service accepted")
 	}
 }
+
+// A tag written as a variable is not a tag to rewrite: cutting at the last
+// colon produced "${IMMICH_TAG:3.2.2" (immich on netlab, 2026-09-30). The
+// variable is named for the caller to set; the reference is left alone.
+func TestImageTagVar(t *testing.T) {
+	cases := map[string]string{
+		"ghcr.io/x/immich-server:${IMMICH_TAG:-latest}":           "IMMICH_TAG",
+		"ghcr.io/x/immich-server:${IMMICH_TAG}":                   "IMMICH_TAG",
+		"ghcr.io/x/immich-server:${IMMICH_TAG-latest}@sha256:abc": "IMMICH_TAG",
+		"ghcr.io/x/immich-server:latest":                          "",
+		"registry:5000/app":                                       "",
+		"ghcr.io/x/app":                                           "",
+	}
+	for image, want := range cases {
+		got, ok := ImageTagVar(image)
+		if got != want || ok != (want != "") {
+			t.Errorf("ImageTagVar(%q) = %q,%v want %q", image, got, ok, want)
+		}
+	}
+	in := "services:\n  a:\n    image: ghcr.io/x/immich-server:${IMMICH_TAG:-latest}\n"
+	out, err := SetServiceTag(in, "a", "3.2.2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "image: ghcr.io/x/immich-server:${IMMICH_TAG:-latest}") {
+		t.Errorf("a variable tag was rewritten:\n%s", out)
+	}
+	if out, _ := SetImageTag(in, "3.2.2"); !strings.Contains(out, "${IMMICH_TAG:-latest}") {
+		t.Errorf("SetImageTag rewrote a variable tag:\n%s", out)
+	}
+}

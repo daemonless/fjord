@@ -169,6 +169,26 @@ func setDirectorModes(directorYML string, modes map[string]string) (string, erro
 		// and the .net variant is exactly the copy with it removed.
 		retargetTemplates(node, false)
 	}
+	// The project's networking options apply to every jail on top of what
+	// its service says, so a service put on the bridge here met the bundle's
+	// own virtualnet a second time: "Virtual network `ajnet` cannot be used
+	// again", exit 78, and no AppJail install on the default network came up.
+	// The project keeps none of them; a service given no mode here and no
+	// network of its own is handed the project's, so it stays where the
+	// bundle put it.
+	if projectNet := projectNetOptions(root); len(projectNet.Content) > 0 {
+		for _, name := range names {
+			if _, ok := modes[name]; ok {
+				continue
+			}
+			node := directorService(root, name)
+			if hasNetOptions(node) {
+				continue
+			}
+			setServiceOptions(node, mergeServiceOptions(node, cloneSeq(projectNet)))
+		}
+		setDirectorOptions(root, mergeDirectorOptions(root, &yaml.Node{Kind: yaml.SequenceNode}))
+	}
 
 	var sb strings.Builder
 	enc := yaml.NewEncoder(&sb)
@@ -202,5 +222,42 @@ func servicesWithoutMakejail(director string) []string {
 		}
 	}
 	sort.Strings(out)
+	return out
+}
+
+// projectNetOptions is the project's networking options (directorNetOptions
+// keys), in order, as a sequence of their own.
+func projectNetOptions(root *yaml.Node) *yaml.Node {
+	out := &yaml.Node{Kind: yaml.SequenceNode}
+	if cur := mapKey(root, "options"); cur != nil && cur.Kind == yaml.SequenceNode {
+		for _, item := range cur.Content {
+			if item.Kind == yaml.MappingNode && len(item.Content) >= 1 && directorNetOptions[item.Content[0].Value] {
+				out.Content = append(out.Content, item)
+			}
+		}
+	}
+	return out
+}
+
+// hasNetOptions says whether a service declares any networking option itself.
+func hasNetOptions(svc *yaml.Node) bool {
+	if cur := mapKey(svc, "options"); cur != nil && cur.Kind == yaml.SequenceNode {
+		for _, item := range cur.Content {
+			if item.Kind == yaml.MappingNode && len(item.Content) >= 1 && directorNetOptions[item.Content[0].Value] {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// cloneSeq copies a sequence node so two services never share option nodes.
+func cloneSeq(seq *yaml.Node) *yaml.Node {
+	out := &yaml.Node{Kind: yaml.SequenceNode}
+	for _, item := range seq.Content {
+		c := *item
+		c.Content = append([]*yaml.Node(nil), item.Content...)
+		out.Content = append(out.Content, &c)
+	}
 	return out
 }
