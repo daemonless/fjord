@@ -42,7 +42,7 @@ func (b *Backend) Status(ctx context.Context, s *stack.Stack) (engine.StackStatu
 		// unknown rather than failing the whole stack list.
 		return engine.StackStatus{State: "unknown"}, nil
 	}
-	return aggregateStatus(containers), nil
+	return aggregateStatus(containers, func(c libpodContainer) (string, string) { return serviceHealth(ctx, c) }), nil
 }
 
 // listStackContainers returns all containers (running or not) labeled with the
@@ -135,14 +135,18 @@ func containerNames(cs []libpodContainer) []string {
 	return names
 }
 
-func aggregateStatus(containers []libpodContainer) engine.StackStatus {
+// aggregateStatus folds the containers into one stack state. health judges
+// each running container (see serviceHealth); a container that is up but not
+// serving makes the stack "partial", the same reading appjail gives a jail
+// whose app is not answering.
+func aggregateStatus(containers []libpodContainer, health func(libpodContainer) (state, detail string)) engine.StackStatus {
 	out := engine.StackStatus{Containers: make([]engine.ContainerStatus, 0, len(containers))}
 	if len(containers) == 0 {
 		out.State = "stopped"
 		return out
 	}
 
-	running := 0
+	running, up := 0, 0
 	for _, c := range containers {
 		name := ""
 		if len(c.Names) > 0 {
@@ -156,11 +160,17 @@ func aggregateStatus(containers []libpodContainer) engine.StackStatus {
 		}
 		cs := engine.ContainerStatus{Name: name, ID: c.ID, Service: c.Labels["io.podman.compose.service"], State: c.State, Ports: ports,
 			Address: containerAddress(c), Addresses: containerAddresses(c)}
+		if cs.State == "running" {
+			up++
+			if health != nil {
+				cs.State, cs.Detail = health(c)
+			}
+		}
 		// Attached but address-less: the CNI plugin failed and podman started
 		// the container anyway, so it is "running" with no interface at all.
 		// Without this the UI just shows a blank address, which reads as a
 		// broken address lookup rather than a network that answered nothing.
-		if cs.State == "running" && len(c.Networks) > 0 {
+		if cs.State == "running" && cs.Detail == "" && len(c.Networks) > 0 {
 			// Per network, not just the first: a container on two reported the
 			// reason for whichever came first, so a missing LAN lease was
 			// blamed on the private segment that was working fine.
@@ -179,7 +189,7 @@ func aggregateStatus(containers []libpodContainer) engine.StackStatus {
 			}
 		}
 		out.Containers = append(out.Containers, cs)
-		if c.State == "running" {
+		if cs.State == "running" {
 			running++
 		}
 	}
@@ -187,10 +197,10 @@ func aggregateStatus(containers []libpodContainer) engine.StackStatus {
 	switch {
 	case running == len(containers):
 		out.State = "running"
-	case running == 0:
+	case up == 0:
 		out.State = "stopped"
 	default:
-		out.State = "partial"
+		out.State = "partial" // something is up but not (yet) serving
 	}
 	return out
 }
