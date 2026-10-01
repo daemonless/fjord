@@ -49,6 +49,7 @@ wire.
 | open-link | where every stack's Open link points (read-only) | |
 | keys | the keyboard reaches what was mouse-only: a store card opens on Enter, the stack name is a button, the sashes are sliders (read-only) | |
 | default-install | the day-one path: install from the store with nothing changed but the name, on podman and on AppJail, on the engine's default network; the Open address answers from off-host | t-def-podman, t-def-appjail |
+| update | an update through the panel, end to end: syncthing 2.1.3 installed, the panel's sentence with a real package diff from the registry, Update taken, the container replaced and running 2.1.5, the health watch clean, Roll back offered, the port answering from off-host | t-upd |
 | wording | the wizard says what "private" is; a busy stack says why its buttons are grey | t-word |
 | busy | installing reads as busy, not a problem; a second up is refused | t-busy |
 | output-elsewhere | an update started over the API shows its output on a page opened mid-action, running until it is done | t-out |
