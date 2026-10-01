@@ -75,6 +75,8 @@
   let stacks: Stack[] = [];
   let logs: Record<string, string> = {};
   let execStatus: Record<string, 'idle' | 'running' | 'error'> = {};
+  // Set while the Output pane follows an action this page did not start.
+  let following: Record<string, boolean> = {};
   let execMessage: Record<string, string> = {};
   let selectedStack: Stack | null = null;
   let activeTab: 'compose' | 'makejail' | 'env' | 'net' = 'compose';
@@ -847,6 +849,7 @@
     } catch {}
     selectedStack = stack;
     currentView = 'stacks'; // selecting a stack always means the Stacks section
+    showActionOutput(stack!.name);
     originalCompose = stack!.compose;
     originalEnv = stack!.env;
     originalDirector = stack!.director ?? '';
@@ -1394,11 +1397,40 @@
       };
     } catch {}
   }
+  // The output of an action this page did not start (another tab, the API,
+  // start-on-boot) or lost to a reload: fjordd keeps the running or last
+  // action's output per stack. Shown when this page has nothing of its own,
+  // and followed while the stack is busy.
+  const followingOutput = new Set<string>();
+  async function showActionOutput(name: string) {
+    const streamingHere = () => execStatus[name] === 'running';
+    if (streamingHere() || followingOutput.has(name)) return;
+    followingOutput.add(name);
+    try {
+      for (;;) {
+        const r = await fetch(`/api/stacks/${encodeURIComponent(name)}/output`).catch(() => null);
+        if (!r?.ok) break;
+        const o = await r.json();
+        if (streamingHere()) break; // this page started one meanwhile
+        if (o.text && (!logs[name] || logs[name] !== o.text)) logs[name] = o.text;
+        if (o.text && !o.done) execMessage[name] = BUSY_LABEL[o.action] ?? `${o.action}…`;
+        following[name] = !!o.text && !o.done;
+        if (o.done || selectedStack?.name !== name) break;
+        await new Promise((res) => setTimeout(res, 1500));
+      }
+    } finally {
+      following[name] = false;
+      followingOutput.delete(name);
+    }
+  }
   function applyStackEvent(ev: any) {
     if (ev?.type === 'stack-busy') {
       const busy = ev.busy || undefined;
       stacks = stacks.map((s) => (s.name === ev.name ? { ...s, busy } : s));
-      if (selectedStack && selectedStack.name === ev.name) selectedStack = { ...selectedStack, busy };
+      if (selectedStack && selectedStack.name === ev.name) {
+        selectedStack = { ...selectedStack, busy };
+        if (busy) showActionOutput(ev.name); // started elsewhere: follow it
+      }
       return;
     }
     if (ev?.type === 'stack-removed') {
@@ -1537,6 +1569,8 @@
     deleting: 'Deleting…',
   };
   $: busyNow = !!selectedStack && (execStatus[selectedStack.name] === 'running' || !!selectedStack.busy);
+  // What the Output pane's badge shows: running while this page streams an action or follows another page's.
+  $: termStatus = !selectedStack ? 'idle' : execStatus[selectedStack.name] === 'running' || following[selectedStack.name] ? 'running' : execStatus[selectedStack.name] || 'idle';
   // Why the actions are greyed, in words: what fjordd is doing to the stack,
   // or what this page started. Grey alone read as broken.
   $: busyReason = !selectedStack
@@ -2928,7 +2962,7 @@
             {:else}
               <Terminal
                 bind:logs={logs[selectedStack.name]}
-                status={execStatus[selectedStack.name] || 'idle'}
+                status={termStatus}
                 statusMessage={execMessage[selectedStack.name] || ''}
               />
             {/if}
@@ -2939,7 +2973,7 @@
             class="shrink-0 mt-3 flex items-center gap-2 px-4 py-2 border border-fjord-border rounded-lg text-xs font-medium text-fjord-fg-muted hover:text-fjord-fg hover:border-fjord-accent/40 transition-colors"
           >
             <Icon name="chevron-up" size={12} /> Panel
-            {#if execStatus[selectedStack.name] === 'running'}
+            {#if termStatus === 'running'}
               <span class="w-1.5 h-1.5 rounded-full bg-fjord-warning animate-ping"></span>
             {:else if logs[selectedStack.name]}
               <span class="text-fjord-fg-dim">· last output</span>
