@@ -4,7 +4,9 @@
 #
 #   scripts/ui-tests.sh <host> [test...]
 #
-#   host   ssh destination running fjordd (root@192.168.4.103)
+#   host   ssh destination running fjordd (root@192.168.4.103), or `local`
+#          for this machine (podman through doas; `local@<ip>` names the
+#          address other machines reach it at, else the first LAN address)
 #   test   names from test/ui (open-link, wording, ...); default: the whole
 #          suite in order, without the opt-in ones (see OPT_IN below)
 #
@@ -35,25 +37,41 @@ HOST=$1
 shift
 cd "$(dirname "$0")/.."
 
-IP=${HOST#*@}
-FJORD="http://$IP:3567"
+LOCAL=0
+case "$HOST" in local|local@*) LOCAL=1 ;; esac
+if [ "$LOCAL" = 1 ]; then
+  IP=${HOST#local}; IP=${IP#@}
+  [ -n "$IP" ] || IP=$(ifconfig 2>/dev/null | awk '/inet /&&!/127\./{print $2; exit}')
+  SUDO=$(command -v doas || command -v sudo)
+  # fjordd listens on localhost here; $IP is only for the off-host checks.
+  FJORD="http://127.0.0.1:3567"
+else
+  IP=${HOST#*@}
+  FJORD="http://$IP:3567"
+fi
 REMOTE=/root/fjord-ui-tests
 IMAGE=ghcr.io/daemonless/playwright:latest
 OUT=test/ui/out
 
 # The default order: cheap and read-only first, the long installs last.
-SUITE="open-link keys default-install wording busy folders outcome arch retag-var leftover appjail-dns privdel apply wire type matrix multi extra"
+SUITE="open-link keys default-install wording busy output-elsewhere folders outcome arch retag-var leftover appjail-dns privdel apply wire type matrix multi extra"
 # Opt-in: image-specific, or needing something the default host lacks.
 OPT_IN="lnms-admin"
 
 step() { printf '\n==> %s\n' "$*"; }
-# on runs a command on the host.
-on() { ssh -o BatchMode=yes "$HOST" "$@"; }
-# answers <url> [tries] succeeds when the url answers 200 from HERE, off-host.
+# on runs a command on the host (as root either way).
+on() { if [ "$LOCAL" = 1 ]; then $SUDO sh -c "$*"; else ssh -o BatchMode=yes "$HOST" "$@"; fi; }
+# get <remote glob> <local dir> copies files back from the host.
+get() { if [ "$LOCAL" = 1 ]; then $SUDO sh -c "cp $1 '$2' && chown -R $(id -u) '$2'"; else scp -q "$HOST:$1" "$2"; fi; }
+# answers <url> [tries] succeeds when the url answers 200 from off-host: from
+# HERE, or from OFFHOST (an ssh destination) when the host is this machine,
+# since pf never redirects a host's published port to itself.
 answers() {
   _tries=${2:-12}
   while [ "$_tries" -gt 0 ]; do
-    [ "$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "$1")" = 200 ] && return 0
+    if [ -n "${OFFHOST:-}" ]; then _code=$(ssh -o BatchMode=yes "$OFFHOST" curl -s -o /dev/null -w "'%{http_code}'" --max-time 5 "$1")
+    else _code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "$1"); fi
+    [ "$_code" = 200 ] && return 0
     _tries=$((_tries - 1)); sleep 5
   done
   return 1
@@ -79,8 +97,9 @@ tests=$*
 for t in $tests; do [ -f "test/ui/$t.js" ] || { echo "no test/ui/$t.js" >&2; exit 2; }; done
 
 step "Copying test/ui to $HOST:$REMOTE"
-on "mkdir -p $REMOTE/out" || exit 1
-scp -q test/ui/*.js "$HOST:$REMOTE/" || exit 1
+on "mkdir -p $REMOTE/out && chmod 1777 $REMOTE/out" || exit 1   # the container writes screenshots as its PUID
+if [ "$LOCAL" = 1 ]; then $SUDO cp test/ui/*.js "$REMOTE/" || exit 1; else scp -q test/ui/*.js "$HOST:$REMOTE/" || exit 1; fi
+[ "$LOCAL" = 1 ] && [ -z "${OFFHOST:-}" ] && echo "note: OFFHOST is not set, so off-host checks run from this machine" >&2
 on "podman image exists $IMAGE" || { echo "$IMAGE is not on $HOST: podman pull it first" >&2; exit 1; }
 rm -rf "$OUT"; mkdir -p "$OUT"
 
@@ -96,7 +115,7 @@ for t in $tests; do
   fi
   if command -v main >/dev/null 2>&1; then main; else run_js "$t" $UI_ENV; fi
   if command -v after >/dev/null 2>&1; then after | tee -a "$LOG"; fi
-  mkdir -p "$OUT/$t" && scp -q "$HOST:$REMOTE/out/*.png" "$OUT/$t/" 2>/dev/null
+  mkdir -p "$OUT/$t" && get "$REMOTE/out/*.png" "$OUT/$t/" 2>/dev/null
   p=$(grep -c '^PASS' "$LOG"); f=$(grep -c '^FAIL' "$LOG")
   pass=$((pass + p)); fail=$((fail + f))
   [ "$f" -gt 0 ] && failed="$failed $t"

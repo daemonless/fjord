@@ -231,6 +231,9 @@ func (s *server) handleStackRoutes(w http.ResponseWriter, r *http.Request) {
 		case "logs":
 			s.stackLogs(w, r, parts[0])
 			return
+		case "output":
+			s.stackOutput(w, parts[0])
+			return
 		case "delete-preview":
 			s.stackDeletePreview(w, parts[0])
 			return
@@ -1065,8 +1068,10 @@ func lockStackAs(name, action string) (unlock func(), ok bool) {
 		return nil, false
 	}
 	busyOps.Store(name, action)
+	outputs.start(name, action) // kept from the first moment, before the stream exists
 	publishBusy(name, action)
 	return func() {
+		outputs.finish(name)
 		busyOps.Delete(name)
 		u()
 		publishBusy(name, "")

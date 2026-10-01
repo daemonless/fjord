@@ -128,7 +128,9 @@ func (e *errorWatch) Message() string {
 // the page is gone.
 func (s *server) recordOutcome(name, action string, stream io.ReadCloser) io.ReadCloser {
 	watch := &errorWatch{}
-	return &thenReader{r: io.TeeReader(stream, watch), c: stream, after: func() string {
+	kept := outputs.current(name, action)
+	return &thenReader{r: io.TeeReader(io.TeeReader(stream, watch), kept), c: stream, after: func() string {
+		kept.finish()
 		st, err := s.manager.LoadState(name)
 		if err != nil || st == nil {
 			return ""

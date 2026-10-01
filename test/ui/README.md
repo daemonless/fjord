@@ -6,6 +6,11 @@ the addresses, what answers. Every bug found by hand becomes one of these.
     scripts/ui-tests.sh root@192.168.4.103            # the suite
     scripts/ui-tests.sh root@192.168.4.103 wording    # one test
     ONLY=setup,adopt scripts/ui-tests.sh root@192.168.4.103 extra
+    OFFHOST=pluto scripts/ui-tests.sh local busy            # this machine
+
+`local` runs against the machine itself (podman through doas); `OFFHOST`
+names an ssh destination the published-port checks run from, since pf never
+redirects a host's own published port back to it.
 
 Each test is `<name>.js`, a Playwright script run in
 `ghcr.io/daemonless/playwright` on the host itself (`--network host`, so
@@ -46,6 +51,7 @@ wire.
 | default-install | the day-one path: install from the store with nothing changed but the name, on podman and on AppJail, on the engine's default network; the Open address answers from off-host | t-def-podman, t-def-appjail |
 | wording | the wizard says what "private" is; a busy stack says why its buttons are grey | t-word |
 | busy | installing reads as busy, not a problem; a second up is refused | t-busy |
+| output-elsewhere | an update started over the API shows its output on a page opened mid-action, running until it is done | t-out |
 | folders | a second copy of an app gets folders of its own; one inside another stack's is refused | |
 | outcome | a failed install is said on the page and in the log; rows with no container say so | t-fail |
 | arch | a tag with no build for this host is refused before and after | t-arch |
