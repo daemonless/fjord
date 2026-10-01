@@ -518,6 +518,7 @@ func (b *Backend) watchHealthy(ctx context.Context, pw *io.PipeWriter, s *stack.
 	}
 	type watched struct {
 		svc, id string
+		ctr     libpodContainer
 		first   containerHealth
 		failed  bool
 	}
@@ -527,7 +528,7 @@ func (b *Backend) watchHealthy(ctx context.Context, pw *io.PipeWriter, s *stack.
 		if err != nil {
 			continue
 		}
-		ws = append(ws, &watched{svc: c.Labels["io.podman.compose.service"], id: c.ID, first: h})
+		ws = append(ws, &watched{svc: c.Labels["io.podman.compose.service"], id: c.ID, ctr: c, first: h})
 	}
 	if len(ws) == 0 {
 		return
@@ -571,6 +572,17 @@ func (b *Backend) watchHealthy(ctx context.Context, pw *io.PipeWriter, s *stack.
 		case <-ctx.Done():
 			return
 		case <-time.After(2 * time.Second):
+		}
+	}
+	// Staying up is not serving: s6 restarts a faulting service inside a
+	// container whose RestartCount never moves. Ask the app at the end.
+	for _, w := range ws {
+		if w.failed {
+			continue
+		}
+		if state, _ := serviceHealth(ctx, w.ctr); state == "crashed" {
+			fmt.Fprintf(pw, "[error] %s keeps crashing inside its container since the update -- see its logs\n", w.svc)
+			w.failed = true
 		}
 	}
 	for _, w := range ws {

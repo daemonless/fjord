@@ -1,4 +1,4 @@
-package appjail
+package engine
 
 import "testing"
 
@@ -22,13 +22,13 @@ const faultingLog = `[init] Starting s6 supervision...
 [s6] Service 'app' crashed (Exit: 1, Signal: 0)`
 
 func TestCrashLogIgnoresDeliberateStop(t *testing.T) {
-	if crashedInLog(restartedLog) {
+	if CrashedInLog(restartedLog) {
 		t.Error("a SIGTERM stop was read as a crash")
 	}
-	if !crashedInLog(faultingLog) {
+	if !CrashedInLog(faultingLog) {
 		t.Error("a real crash loop was missed")
 	}
-	if crashedInLog("") {
+	if CrashedInLog("") {
 		t.Error("empty log reported a crash")
 	}
 }
