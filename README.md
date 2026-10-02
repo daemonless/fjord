@@ -61,6 +61,11 @@ LAN networks (a container with its own address) need the
 [cni-epair](https://github.com/daemonless/cni-epair) plugin; the **System**
 page says how to install it.
 
+AppJail stacks need appjail 5.5 or newer, and containers finding each other
+by name needs `cni-dnsname`. Until the 2026Q4 quarterly packages are built,
+both come from the `latest` package set
+(`/usr/local/etc/pkg/repos/FreeBSD.conf`: `url: "pkg+https://pkg.FreeBSD.org/${ABI}/latest"`).
+
 ## Build from source (FreeBSD host)
 
 ```sh
