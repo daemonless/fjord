@@ -132,8 +132,10 @@ plugins — lives in Settings and is persisted in `<fjord root>/settings.json`.
   ```
 - FreeBSD's built-in SMB client speaks SMB1 only, which most servers refuse:
   `smb://` folders and volumes work from Linux hosts; use NFS on FreeBSD.
-- AppJail has no named volumes or networks yet, so remote folders and
-  macvlan IPs need the podman engine.
+- On AppJail a jail can sit on a LAN network with its own address (DHCP or
+  static) or on a private one. DHCP needs the image to ship
+  `/etc/rc.d/dhclient`; without it, give the jail a static address. Named
+  volumes, and so remote folders, still need the podman engine.
 - Editing a folder set does not touch stacks already installed from it.
 
 ## Contributing
