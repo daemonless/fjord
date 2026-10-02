@@ -22,6 +22,56 @@ type Var struct {
 	Mode     string // octal, e.g. "755"
 }
 
+// A Choice is a question the stack asks at install (x-fjord.choices):
+// which database, with or without a part. The compose in the manifest is
+// the default answer; each Option says what to add, drop, set and ask for.
+type Choice struct {
+	ID      string
+	Kind    string // "database" | "part"
+	Label   string
+	Doc     string
+	Default string
+	Options []Option
+}
+
+// Option is one answer. Env is set on the stack's variables, Defaults seed
+// variables the added services need, Secrets are made up when left empty,
+// Services is a compose fragment to add, DependsOn makes the app wait for
+// what it brought, Drop removes services, Ask lists what the person must
+// give (a database they already run).
+type Option struct {
+	ID        string
+	Label     string
+	Doc       string
+	Env       map[string]string
+	Defaults  map[string]string
+	Secrets   []string
+	Services  string
+	DependsOn map[string][]string
+	Drop      []string
+	Ask       []Ask
+}
+
+// Ask is a value an option needs from the person: shown only when the
+// option is picked, required.
+type Ask struct {
+	Name    string
+	Label   string
+	Default string
+	Type    string // "string" | "secret"
+	Values  map[string]string
+}
+
+// Option returns a choice's option by id, or nil.
+func (c *Choice) Option(id string) *Option {
+	for i := range c.Options {
+		if c.Options[i].ID == id {
+			return &c.Options[i]
+		}
+	}
+	return nil
+}
+
 // Manifest is a parsed x-fjord manifest: the compose half (x-fjord stripped,
 // ${VAR} placeholders intact) plus the variable declarations. WebPort/WebHTTPS
 // carry the catalog's web-endpoint hint (from the image's cit config) -- may be
@@ -52,6 +102,8 @@ type Manifest struct {
 	// is right for a stack that shares one network stack and wrong the moment
 	// its parts are given their own.
 	Hostnames map[string]string
+	// Choices are the questions the stack asks; empty for most apps.
+	Choices []Choice
 }
 
 // Network specs a manifest may give a service.
@@ -187,6 +239,31 @@ func Parse(manifestYAML string) (*Manifest, error) {
 		Appjail    *AppjailBundle    `yaml:"appjail"`
 		Networking map[string]string `yaml:"networking"`
 		Hostnames  map[string]string `yaml:"hostnames"`
+		Choices    []struct {
+			ID      string `yaml:"id"`
+			Kind    string `yaml:"kind"`
+			Label   string `yaml:"label"`
+			Doc     string `yaml:"doc"`
+			Default string `yaml:"default"`
+			Options []struct {
+				ID        string              `yaml:"id"`
+				Label     string              `yaml:"label"`
+				Doc       string              `yaml:"doc"`
+				Env       map[string]string   `yaml:"env"`
+				Defaults  map[string]string   `yaml:"defaults"`
+				Secrets   []string            `yaml:"secrets"`
+				Services  string              `yaml:"services"`
+				DependsOn map[string][]string `yaml:"depends_on"`
+				Drop      []string            `yaml:"drop"`
+				Ask       []struct {
+					Name    string            `yaml:"name"`
+					Label   string            `yaml:"label"`
+					Default string            `yaml:"default"`
+					Type    string            `yaml:"type"`
+					Values  map[string]string `yaml:"values"`
+				} `yaml:"ask"`
+			} `yaml:"options"`
+		} `yaml:"choices"`
 	}
 	if err := xfNode.Decode(&xf); err != nil {
 		return nil, fmt.Errorf("decode x-fjord: %w", err)
@@ -208,9 +285,23 @@ func Parse(manifestYAML string) (*Manifest, error) {
 	}
 	enc.Close()
 
+	var choices []Choice
+	for _, c := range xf.Choices {
+		ch := Choice{ID: c.ID, Kind: c.Kind, Label: c.Label, Doc: c.Doc, Default: c.Default}
+		for _, o := range c.Options {
+			op := Option{ID: o.ID, Label: o.Label, Doc: o.Doc, Env: o.Env, Defaults: o.Defaults, Secrets: o.Secrets,
+				Services: o.Services, DependsOn: o.DependsOn, Drop: o.Drop}
+			for _, a := range o.Ask {
+				op.Ask = append(op.Ask, Ask{Name: a.Name, Label: a.Label, Default: a.Default, Type: a.Type, Values: a.Values})
+			}
+			ch.Options = append(ch.Options, op)
+		}
+		choices = append(choices, ch)
+	}
+
 	return &Manifest{compose: buf.String(), appjail: xf.Appjail, Variables: vars,
 		WebPort: xf.Info.WebPort, WebHTTPS: xf.Info.WebHTTPS,
-		Networking: xf.Networking, Hostnames: xf.Hostnames}, nil
+		Networking: xf.Networking, Hostnames: xf.Hostnames, Choices: choices}, nil
 }
 
 // stripContainerNames removes container_name from every service mapping.

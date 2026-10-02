@@ -156,6 +156,10 @@ type installRequest struct {
 	// NetworkModes is service -> built-in (host/bridge/none). A mode is set on
 	// the service rather than joined, so it cannot travel as an attachment.
 	NetworkModes map[string]string `json:"networkModes,omitempty"`
+	// Choices answers the manifest's choices (choice id -> option id); a
+	// choice left out takes its default, so an older client answers nothing
+	// and gets the compose as it stands.
+	Choices map[string]string `json:"choices,omitempty"`
 }
 
 // handleInstall installs a catalog app end-to-end: resolve wizard input,
@@ -203,6 +207,30 @@ func (s *server) handleInstall(w http.ResponseWriter, r *http.Request) {
 	if req.Values == nil {
 		req.Values = map[string]string{}
 	}
+	// The answers first: they add and drop services and set variables that
+	// everything below resolves. AppJail runs the bundle dbuild rendered,
+	// which is the default answer, so it takes nothing else yet.
+	answers, err := m.ApplyChoices(req.Choices, req.Values)
+	if err != nil {
+		http.Error(w, err.Error(), 400)
+		return
+	}
+	// A data folder an option seeds says {{base}}/{{stack}}/...: this stack's
+	// own directory, so two installs of one app never share a database dir.
+	slug, base := storageSlug(req.Name, id), chooseAppData(req.AppData, s.appDataLocations())
+	for k, v := range req.Values {
+		if strings.Contains(v, "{{") {
+			req.Values[k] = expandPathTemplate(v, slug, base)
+		}
+	}
+	if req.Engine == "appjail" {
+		for _, c := range m.Choices {
+			if answers[c.ID] != c.Default {
+				http.Error(w, c.Label+": only the default ("+c.Option(c.Default).Label+") can be installed on AppJail for now", 400)
+				return
+			}
+		}
+	}
 	// Remote folders (nfs:// / smb:// URLs) in a path list become named
 	// volumes attached after the compose is rendered; host paths go through
 	// the usual variable + multi-folder path. With one remote next to host
@@ -230,7 +258,6 @@ func (s *server) handleInstall(w http.ResponseWriter, r *http.Request) {
 	// resolve them now so Resolve sees concrete absolute paths, and queue the
 	// ones that land inside the storage base -- this stack's own dirs -- for
 	// provisioning alongside managed storage.
-	slug, base := storageSlug(req.Name, id), chooseAppData(req.AppData, s.appDataLocations())
 	pathVars := map[string]bool{}
 	for _, v := range m.Variables {
 		if v.Type == "path" {
@@ -500,6 +527,7 @@ func (s *server) handleInstall(w http.ResponseWriter, r *http.Request) {
 		DesiredState: "running",
 		Engine:       eng,
 		DisplayName:  strings.TrimSpace(req.Name),
+		Choices:      answers,
 		InstalledAt:  now,
 		UpdatedAt:    now,
 	}

@@ -42,7 +42,7 @@
     address?: string; // the container's own IP on an attachable network
   };
   type StackStatus = { state: string; containers: ContainerStatus[] };
-  type StackState = { group?: string; desired_state?: string; engine?: string; order?: number; origin?: { type?: string; app_id?: string }; pending_services?: string[]; last_failure?: { action: string; at: string; message: string } };
+  type StackState = { group?: string; desired_state?: string; engine?: string; order?: number; origin?: { type?: string; app_id?: string }; choices?: Record<string, string>; pending_services?: string[]; last_failure?: { action: string; at: string; message: string } };
   type Stack = { name: string; displayName?: string; icon?: string; dir: string; compose: string; env: string; director?: string; makejail?: string; engine?: string; status?: StackStatus; state?: StackState; services?: any[]; composeHash?: string; busy?: string; linkHost?: string };
   // What the UI shows for a stack: its label, falling back to the id.
   const label = (s: { name: string; displayName?: string } | null | undefined) => s?.displayName || s?.name || '';
@@ -1734,10 +1734,11 @@
     networks?: { network: string; service: string; ip: string; mac: string }[];
     /** service -> built-in mode (host/bridge/none). */
     networkModes?: Record<string, string>;
+    choices?: Record<string, string>;
     accepted?: () => void;
     refused?: (msg: string) => void;
   }>) {
-    const { name, appId, engine, manifest, values, paths, appData, tag, network, ip, mac, networkPlan, networks: netList, networkModes } = e.detail;
+    const { name, appId, engine, manifest, values, paths, appData, tag, network, ip, mac, networkPlan, networks: netList, networkModes, choices } = e.detail;
 
     // Nothing is torn down or navigated to until the daemon has taken the
     // install. It refuses some of these outright -- an address that is a
@@ -1751,7 +1752,7 @@
       const res = await fetch('/api/apps/install', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, manifest, values, ...(paths ? { paths } : {}), ...(appData ? { appData } : {}), ...(appId ? { app_id: appId } : {}), ...(engine ? { engine } : {}), ...(tag ? { tag } : {}), ...(network ? { network, ip, ...(mac ? { mac } : {}) } : {}), ...(networkPlan ? { networkPlan } : {}), ...(netList?.length ? { networks: netList } : {}), ...(networkModes ? { networkModes } : {}) }),
+        body: JSON.stringify({ name, manifest, values, ...(paths ? { paths } : {}), ...(appData ? { appData } : {}), ...(appId ? { app_id: appId } : {}), ...(engine ? { engine } : {}), ...(tag ? { tag } : {}), ...(network ? { network, ip, ...(mac ? { mac } : {}) } : {}), ...(networkPlan ? { networkPlan } : {}), ...(netList?.length ? { networks: netList } : {}), ...(networkModes ? { networkModes } : {}), ...(choices ? { choices } : {}) }),
       });
       // The server sends the id as soon as the stack exists on disk -- also
       // when it then refuses to start it. So the header, not the status, says
@@ -2144,6 +2145,11 @@
             {#each (selectedStack.status?.containers || []).filter((c) => c.detail) as c}
               <span class="shrink-0 text-xs text-fjord-warning truncate" title={c.name}>{c.detail}</span>
             {/each}
+            {#if selectedStack.state?.choices}
+              {#each Object.entries(selectedStack.state.choices) as [c, o] (c)}
+                <span class="text-xs px-2 py-0.5 rounded-full border border-fjord-border text-fjord-fg-muted" title="Chosen at install">{c.replace(/_/g, ' ')}: {o}</span>
+              {/each}
+            {/if}
             {#if selectedStack.state?.engine}
               <span class="shrink-0 flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-fjord-bg border border-fjord-border text-fjord-fg-muted" title="Runtime engine"
                 ><EngineMark engine={selectedStack.state.engine} size={12} strokeWidth={2.25} />{selectedStack.state.engine}</span
