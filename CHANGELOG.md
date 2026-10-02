@@ -3,7 +3,7 @@
 Releases are tagged on GitHub; each rc is a pre-release with the pull
 requests it carries. This file is the story per release.
 
-## 0.3.0 — unreleased (rc4 is main at #57, 2026-09-30)
+## 0.3.0 — 2026-10-02
 
 Networks that work, updates you can trust. Everything here was proven on a
 test host through the real pages: the containers, the addresses, what
@@ -79,17 +79,28 @@ answers (`test/ui`, `test/e2e`).
   Audiobooks and Ebooks folder sets (#23).
 - The keyboard reaches what was mouse-only: store cards, the stack name,
   the resize sashes. (#57)
+- The Output pane shows an action this page did not start (another tab, the
+  API, start on boot, a reload), and follows it until it is done. (#62)
+- A service whose app keeps crashing inside a container that stays up reads
+  as crashed, with the reason, not running; an update that leaves it so is a
+  failed update. (#64)
+- A service alone on the built-in bridge shows eth0 once it runs, not
+  "on create". (#60)
 
 ### Fixes
 - The App Store keeps the network picked in the wizard (#37); wizard,
   Services tab and Networks page fixes (#41); rc3 review fixes for adopt,
   pf and setup (#38); SBOM reads cosign 3 bundle attestations (#43); the
-  dev proxy no longer rewrites Host (#1).
+  dev proxy no longer rewrites Host (#1). From rc4: the SBOM diff reads
+  bundles as ghcr serves them, AppJail installs on the default network again,
+  and Change Version works on an image whose tag is a variable. (#59)
 
 ### Testing
 - `scripts/e2e.sh <host>` runs the Go end-to-end suite against a live fjordd
   and checks for leftovers (#19, #27, #29). `scripts/ui-tests.sh <host>`
-  runs the browser tests through the real pages (#55).
+  runs the browser tests through the real pages (#55), now with the day-one
+  install on each engine's default network (#61) and an update through the
+  panel end to end (#63).
 
 ### Known limitations in 0.3
 - **No authentication.** Anyone who can reach port 3567 can run containers
@@ -104,3 +115,7 @@ answers (`test/ui`, `test/e2e`).
 - IPv6: no SLAAC on DHCP networks; v6 segments on pool and static networks
   only. 0.3.6.
 - Linux hosts are not supported.
+- **Packages.** AppJail stacks need appjail 5.5 or newer and container name
+  resolution needs cni-dnsname. Until the 2026Q4 quarterly packages are
+  built, both come from the `latest` package set; on quarterly, fjord runs
+  podman stacks and Setup says what is missing for the rest.
