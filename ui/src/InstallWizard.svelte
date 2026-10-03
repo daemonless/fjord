@@ -239,6 +239,36 @@
   // (train/pin/custom). Hand-edited fields are never clobbered.
   let repoTrains: Record<string, Record<string, { version: string; tag: string }[]>> = {};
   const touched = new Set<string>();
+  // The stack's choices (x-fjord.choices): a question each, answered by a
+  // pick; the compose is the default answer. What an option asks for shows
+  // only when it is picked, and is required then.
+  type Ask = { name: string; label?: string; default?: string; type?: string; values?: Record<string, string> };
+  type ChoiceOption = { id: string; label: string; doc?: string; ask?: Ask[] };
+  type Choice = { id: string; label: string; doc?: string; default: string; options: ChoiceOption[] };
+  let choices: Choice[] = [];
+  let picks: Record<string, string> = {};
+  // picks is named here, not only inside picked(): legacy reactivity tracks
+  // what a statement mentions, and a helper hides it.
+  $: askedNow = choices.flatMap((c) => c.options.find((o) => o.id === picks[c.id])?.ask ?? []);
+  function pick(c: Choice, id: string) {
+    picks = { ...picks, [c.id]: id };
+    for (const a of c.options.find((o) => o.id === id)?.ask ?? []) {
+      if (formData[a.name] === undefined) formData[a.name] = a.default ?? '';
+    }
+    formData = formData;
+  }
+  // Not bind:value: a binding to formData[...] inside the asks loop makes the
+  // compiler tie formData to the loop variable, and every other write to
+  // formData (seeding defaults) then threw "a is not defined".
+  function setAsked(name: string, value: string) {
+    formData[name] = value;
+    formData = formData;
+  }
+  // Non-default answers, in words, for the summary line.
+  $: pickedWords = choices
+    .filter((c) => picks[c.id] && picks[c.id] !== c.default)
+    .map((c) => c.options.find((o) => o.id === picks[c.id])?.label ?? '')
+    .filter(Boolean);
   $: tagVars = variables.filter((v) => v.type === 'image_tag' && v.image);
 
   // Progressive disclosure, three levels (placement only; whether a field may
@@ -301,11 +331,14 @@
   // Host-path variables are folder LISTS (one row per folder); every other
   // variable is a single value in formData. Deps are spelled out (formData,
   // paths): a legacy-mode `$:` only tracks variables named in the statement.
-  $: missingRequired = variables.filter(
-    (v) =>
-      v.optional !== true &&
-      !(v.type === 'path' ? (paths[v.name] || []).some((p) => p.trim()) : String(formData[v.name] ?? '').trim()),
-  );
+  $: missingRequired = [
+    ...variables.filter(
+      (v) =>
+        v.optional !== true &&
+        !(v.type === 'path' ? (paths[v.name] || []).some((p) => p.trim()) : String(formData[v.name] ?? '').trim()),
+    ),
+    ...askedNow.filter((a) => !String(formData[a.name] ?? '').trim()).map((a) => ({ name: a.label || a.name })),
+  ];
 
   // Folder lists per host-path variable. One folder mounts as-is; several are
   // mounted as sub-folders of the app's own mount point (server-side expansion).
@@ -630,6 +663,8 @@
     versionTag = '';
     customTag = '';
     repoTrains = {};
+    choices = [];
+    picks = {};
     touched.clear();
     await storageReady;
     try {
@@ -647,6 +682,9 @@
         for (const n of svcNames) netPlan[n] = declared[n] ?? star ?? '';
         if (!Object.values(netPlan).some((v) => v)) netPlan = {};
       }
+      choices = parsed?.['x-fjord']?.choices ?? [];
+      for (const c of choices) picks[c.id] = c.default;
+      picks = picks;
       if (parsed['x-fjord'] && parsed['x-fjord'].variables) {
         variables = parsed['x-fjord'].variables;
         variables.forEach((v) => {
@@ -708,6 +746,7 @@
       // the install makes one.
       networks: plan?.networks,
       networkModes: plan?.modes,
+      choices: picks,
     });
   }
 
@@ -831,13 +870,70 @@
             </div>
           {/snippet}
 
+          {#each choices as c (c.id)}
+            {@const chosen = c.options.find((o) => o.id === picks[c.id])}
+            {@const asks = chosen?.ask ?? []}
+            <div class="space-y-2 border border-fjord-border rounded-lg p-3 bg-fjord-card/40">
+              <div class="flex flex-wrap items-baseline gap-x-2">
+                <span class="text-sm font-medium text-fjord-fg">{c.label}</span>
+                {#if c.doc}<span class="text-xs text-fjord-fg-muted">{c.doc}</span>{/if}
+              </div>
+              <div class="flex flex-wrap gap-1.5" role="radiogroup" aria-label={c.label}>
+                {#each c.options as o (o.id)}
+                  <button
+                    type="button"
+                    role="radio"
+                    aria-checked={picks[c.id] === o.id}
+                    title={o.doc || ''}
+                    on:click={() => pick(c, o.id)}
+                    class="px-3 py-1.5 rounded-full text-sm border transition-colors {picks[c.id] === o.id
+                      ? 'bg-fjord-accent text-white border-fjord-accent'
+                      : 'bg-fjord-inset text-fjord-fg-secondary border-fjord-border hover:text-fjord-fg'}">{o.label}</button
+                  >
+                {/each}
+              </div>
+              {#if chosen?.doc}
+                <p class="text-xs text-fjord-fg-muted">{chosen.doc}</p>
+              {/if}
+              {#if asks.length}
+                <div class="grid gap-3 sm:grid-cols-2 pt-1">
+                  {#each asks as a (a.name)}
+                    <div class="space-y-1">
+                      <label for="ask-{a.name}" class="block text-xs font-medium text-fjord-fg-secondary">{a.label || a.name}</label>
+                      {#if a.values && Object.keys(a.values).length}
+                        <select
+                          id="ask-{a.name}"
+                          value={formData[a.name] ?? ''}
+                          on:change={(e) => setAsked(a.name, e.currentTarget.value)}
+                          class="w-full bg-fjord-inset border border-fjord-border rounded-md px-3 py-2 text-fjord-fg-body focus:outline-none focus:border-fjord-accent"
+                        >
+                          <option value="">—</option>
+                          {#each Object.entries(a.values) as entry (entry[0])}<option value={entry[0]}>{entry[1]}</option>{/each}
+                        </select>
+                      {:else}
+                        <input
+                          id="ask-{a.name}"
+                          type={a.type === 'secret' ? 'password' : 'text'}
+                          value={formData[a.name] ?? ''}
+                          on:input={(e) => setAsked(a.name, e.currentTarget.value)}
+                          placeholder="required"
+                          class="w-full bg-fjord-inset border rounded-md px-3 py-2 text-fjord-fg-body focus:outline-none focus:border-fjord-accent transition-colors {String(formData[a.name] ?? '').trim() ? 'border-fjord-border' : 'border-fjord-danger/60'}"
+                        />
+                      {/if}
+                    </div>
+                  {/each}
+                </div>
+              {/if}
+            </div>
+          {/each}
+
           {#each primaryVars as v}{@render varField(v)}{/each}
 
           <!-- the defaults being accepted, in one line; Options is one click -->
           <div class="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-fjord-fg-muted border-t border-fjord-border pt-4">
             <span>
               Installs <b class="text-fjord-fg-body">{appName} {summaryVersion}</b>{#if summaryTrain}{' '}({summaryTrain}){/if}
-              on <b class="text-fjord-fg-body">{engineChoice || 'podman'}</b>
+              on <b class="text-fjord-fg-body">{engineChoice || 'podman'}</b>{#if pickedWords.length}, <b class="text-fjord-fg-body">{pickedWords.join(', ').toLowerCase()}</b>{/if}
               · data in <span class="font-mono text-fjord-fg-secondary">{storageBase}/{slugOf(stackName, appId || 'app')}</span>
             </span>
             <button
