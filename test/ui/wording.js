@@ -13,6 +13,7 @@ const note = (id, ok, msg) => console.log(`${ok ? 'PASS' : 'FAIL'} ${id}: ${msg}
     await page.goto(BASE + '/', { waitUntil: 'networkidle' });
     await page.getByText('App Store', { exact: true }).first().click();
     await page.getByPlaceholder(/Search apps/).fill('openspeedtest');
+    await page.waitForTimeout(800); // let the search filter, or Install opens another app
     await page.getByRole('button', { name: /^Install/ }).first().click();
     await page.getByRole('button', { name: 'Install', exact: true }).waitFor();
     await page.getByLabel('Name').fill('t-word');

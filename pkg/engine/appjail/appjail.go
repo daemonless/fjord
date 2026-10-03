@@ -73,17 +73,29 @@ func available() (ok bool, reason, warning string) {
 }
 
 var (
-	versionOnce sync.Once
-	versionVal  string
+	versionMu  sync.Mutex
+	versionVal string
+	// probe is probeVersion; a variable so tests can stand in.
+	probe = probeVersion
 )
 
 // Version returns the installed appjail version (e.g. "5.5.0"), or "".
-// Memoized: the engine list, the doctor and startup all ask, and `appjail
-// version` is a large shell script that takes seconds. pkg's database answers
-// in milliseconds, so it's asked first; the CLI is the fallback for a
-// port/git install. A version change needs a fjordd restart anyway.
+// Memoized once found: the engine list, the doctor and startup all ask, and
+// `appjail version` is a large shell script that takes seconds. pkg's
+// database answers in milliseconds, so it's asked first; the CLI is the
+// fallback for a port/git install.
+//
+// "Not installed" is not remembered: fjordd started before AppJail kept
+// answering "" after Setup's Install button put it there, until a restart.
+// Asking again while it is missing is cheap -- pkg answers at once and the
+// CLI is not there to run. An upgrade of an installed AppJail still needs a
+// fjordd restart to be seen.
 func Version() string {
-	versionOnce.Do(func() { versionVal = probeVersion() })
+	versionMu.Lock()
+	defer versionMu.Unlock()
+	if versionVal == "" {
+		versionVal = probe()
+	}
 	return versionVal
 }
 
