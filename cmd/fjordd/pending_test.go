@@ -2,6 +2,8 @@ package main
 
 import (
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"slices"
 	"strings"
 	"testing"
@@ -108,5 +110,34 @@ func TestRecordOutcome(t *testing.T) {
 	io.ReadAll(s.recordOutcome("app", "up", io.NopCloser(strings.NewReader("$ podman start web\n"))))
 	if failure() != nil {
 		t.Errorf("a clean start must clear the failure, got %+v", failure())
+	}
+}
+
+// Dismiss forgets the failure on disk, so it stays gone after a reload.
+func TestDismissFailureForgetsIt(t *testing.T) {
+	s := &server{manager: stack.NewManager(t.TempDir())}
+	if err := s.manager.Save(&stack.Stack{Name: "app", Compose: "services:\n  web:\n    image: x\n"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.manager.EnsureState("app"); err != nil {
+		t.Fatal(err)
+	}
+	st, _ := s.manager.LoadState("app")
+	st.LastFailure = &stack.Failure{Action: "update", Message: "web is gone since the update"}
+	if err := s.manager.SaveState("app", st); err != nil {
+		t.Fatal(err)
+	}
+	w := httptest.NewRecorder()
+	s.handleStackRoutes(w, httptest.NewRequest(http.MethodPost, "/api/stacks/app/dismiss-failure", nil))
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("status %d: %s", w.Code, w.Body)
+	}
+	if st, _ := s.manager.LoadState("app"); st.LastFailure != nil {
+		t.Errorf("failure still recorded: %+v", st.LastFailure)
+	}
+	w = httptest.NewRecorder()
+	s.handleStackRoutes(w, httptest.NewRequest(http.MethodPost, "/api/stacks/nope/dismiss-failure", nil))
+	if w.Code != http.StatusNotFound {
+		t.Errorf("unknown stack: status %d, want 404", w.Code)
 	}
 }
