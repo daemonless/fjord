@@ -2,5 +2,5 @@
 # arm64-only tag). The pulled arm64 image is removed afterwards.
 after() {
   del_stack t-arch
-  on 'podman rmi ghcr.io/daemonless/openspeedtest:latest-aarch64 >/dev/null 2>&1; true'
+  on 'podman untag ghcr.io/daemonless/openspeedtest:latest-aarch64 >/dev/null 2>&1; true'
 }

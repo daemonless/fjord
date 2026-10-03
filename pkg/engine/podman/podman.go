@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -496,11 +497,20 @@ func (b *Backend) inspectHealth(ctx context.Context, id string) (containerHealth
 		return h, err
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound {
+		return h, errContainerGone
+	}
 	if resp.StatusCode != http.StatusOK {
 		return h, fmt.Errorf("inspect %s: %s", id, resp.Status)
 	}
 	return h, json.NewDecoder(resp.Body).Decode(&h)
 }
+
+// errContainerGone is podman saying the container does not exist. Anything
+// else from an inspect (a timeout, a busy API) says nothing about the
+// container: radarr on jupiter read "gone since the update" for two days
+// because one inspect timed out while it ran fine.
+var errContainerGone = errors.New("no such container")
 
 // watchHealthy says whether updated containers stay up.
 //
@@ -521,6 +531,8 @@ func (b *Backend) watchHealthy(ctx context.Context, pw *io.PipeWriter, s *stack.
 		ctr     libpodContainer
 		first   containerHealth
 		failed  bool
+		unsure  int   // inspects in a row that answered nothing
+		lastErr error // the last of them
 	}
 	var ws []*watched
 	for _, c := range ofServices(cs, services) {
@@ -548,9 +560,17 @@ func (b *Backend) watchHealthy(ctx context.Context, pw *io.PipeWriter, s *stack.
 				continue
 			}
 			h, err := b.inspectHealth(ctx, w.id)
+			if err != nil && !errors.Is(err, errContainerGone) {
+				// No answer is not an answer: ask again next tick.
+				w.unsure++
+				w.lastErr = err
+				live++
+				continue
+			}
+			w.unsure = 0
 			switch {
 			case err != nil:
-				fmt.Fprintf(pw, "[error] %s is gone since the update: %v\n", w.svc, err)
+				fmt.Fprintf(pw, "[error] %s is gone since the update\n", w.svc)
 				w.failed = true
 			case !h.State.Running:
 				fmt.Fprintf(pw, "[error] %s stopped after the update (exit code %d) -- see its logs\n", w.svc, h.State.ExitCode)
@@ -572,6 +592,13 @@ func (b *Backend) watchHealthy(ctx context.Context, pw *io.PipeWriter, s *stack.
 		case <-ctx.Done():
 			return
 		case <-time.After(2 * time.Second):
+		}
+	}
+	// Never answered for the whole window: say so, but it is not a failed
+	// update -- the container may be fine and podman merely slow.
+	for _, w := range ws {
+		if !w.failed && w.unsure > 0 && w.unsure*2 >= int(window/time.Second) {
+			fmt.Fprintf(pw, "[warn] could not ask podman about %s while watching it (%v); check it on the page\n", w.svc, w.lastErr)
 		}
 	}
 	// Staying up is not serving: s6 restarts a faulting service inside a
