@@ -1608,6 +1608,12 @@
   // watching. Shown until the next action on the stack succeeds, or dismissed
   // for this session.
   let failureDismissed: Record<string, boolean> = {};
+  // Hidden at once; fjordd forgets it too, so a reload does not bring it back.
+  async function dismissFailure(name: string) {
+    failureDismissed[name] = true;
+    const res = await fetch(`/api/stacks/${name}/dismiss-failure`, { method: 'POST' }).catch(() => null);
+    if (!res?.ok) toast(`Could not dismiss: ${res ? await res.text() : 'fjordd did not answer'}`, { kind: 'error' });
+  }
   const FAILED: Record<string, string> = { install: 'Install failed', up: 'Start failed', update: 'Update failed', restart: 'Restart failed', down: 'Stop failed' };
   const failedWhen = (at: string) => {
     const d = new Date(at);
@@ -2475,7 +2481,7 @@
               ><b>{FAILED[f.action] ?? 'Failed'}</b> at {failedWhen(f.at)} — {f.message}</span
             >
             <button
-              on:click={() => (failureDismissed[selectedStack!.name] = true)}
+              on:click={() => dismissFailure(selectedStack!.name)}
               title="Hide this until it happens again"
               class="shrink-0 px-3 py-1.5 rounded-lg text-sm font-medium text-fjord-fg-muted hover:text-fjord-fg transition-colors"
               >Dismiss</button

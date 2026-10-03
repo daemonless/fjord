@@ -259,6 +259,8 @@ func (s *server) handleStackRoutes(w http.ResponseWriter, r *http.Request) {
 		s.stackRollback(w, r, name)
 	case "unpin":
 		s.stackUnpin(w, r, name)
+	case "dismiss-failure":
+		s.stackDismissFailure(w, name)
 	default:
 		s.stackLifecycle(w, r, name, action)
 	}
@@ -1272,4 +1274,27 @@ func (s *server) noBuildForRetag(ctx context.Context, compose, service, tag stri
 		}
 	}
 	return ""
+}
+
+// stackDismissFailure forgets the stack's last failure. Without it Dismiss
+// lasted only as long as the page: a failure no later action clears (a slow
+// inspect read as "gone") came back on every reload.
+func (s *server) stackDismissFailure(w http.ResponseWriter, name string) {
+	if _, err := s.manager.Get(name); err != nil {
+		http.Error(w, "Stack not found", 404)
+		return
+	}
+	st, err := s.manager.LoadState(name)
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	if st != nil && st.LastFailure != nil {
+		st.LastFailure = nil
+		if err := s.manager.SaveState(name, st); err != nil {
+			http.Error(w, err.Error(), 500)
+			return
+		}
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
