@@ -2147,11 +2147,6 @@
             {#each (selectedStack.status?.containers || []).filter((c) => c.detail) as c}
               <span class="shrink-0 text-xs text-fjord-warning truncate" title={c.name}>{c.detail}</span>
             {/each}
-            {#if selectedStack.state?.choices}
-              {#each Object.entries(selectedStack.state.choices) as [c, o] (c)}
-                <span class="text-xs px-2 py-0.5 rounded-full border border-fjord-border text-fjord-fg-muted" title="Chosen at install">{c.replace(/_/g, ' ')}: {o}</span>
-              {/each}
-            {/if}
             {#if selectedStack.state?.engine}
               <span class="shrink-0 flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-fjord-bg border border-fjord-border text-fjord-fg-muted" title="Runtime engine"
                 ><EngineMark engine={selectedStack.state.engine} size={12} strokeWidth={2.25} />{selectedStack.state.engine}</span
@@ -2806,6 +2801,15 @@
                   What each service holds, and where each one is on the network.
                   Changes apply to the stack on <b>Save</b>.
                 </p>
+                <!-- Answers given at install, not status: here with the
+                     services they decided, not as chips in the header. -->
+                {#if Object.keys(selectedStack.state?.choices ?? {}).length}
+                  <p class="text-xs text-fjord-fg-dim -mt-2 mb-3">
+                    Chosen at install: {Object.entries(selectedStack.state?.choices ?? {})
+                      .map(([c, o]) => `${c.replace(/_/g, ' ')} ${o}`)
+                      .join(' · ')}
+                  </p>
+                {/if}
                 <ServiceResources
                   services={selectedStack.services ?? []}
                   oneBridgePerService={(selectedStack.state?.engine || selectedStack.engine || defaultEngine) === 'appjail'}
