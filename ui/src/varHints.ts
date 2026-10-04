@@ -81,6 +81,11 @@ const theme = EditorView.baseTheme({
   '.cm-var-default': { color: '#8b93a1' },
   '.cm-var-empty': { color: '#8b93a1' },
   '.cm-var-unset': { color: '#e3a857', background: 'rgba(227,168,87,0.12)' },
+  // The colours above are for a dark editor; on white they wash out.
+  '&light .cm-var': { background: 'rgba(0,0,0,0.05)' },
+  '&light .cm-var-set': { color: '#26a269' },
+  '&light .cm-var-default, &light .cm-var-empty': { color: '#61616b' },
+  '&light .cm-var-unset': { color: '#9c6e03', background: 'rgba(229,165,10,0.15)' },
 });
 
 /** varHints: the labels, starting from env. With onClick, a label is a

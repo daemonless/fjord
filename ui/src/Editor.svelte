@@ -3,9 +3,10 @@
   import { basicSetup, EditorView } from 'codemirror';
   import { yaml } from '@codemirror/lang-yaml';
   import { oneDark } from '@codemirror/theme-one-dark';
-  import { EditorState } from '@codemirror/state';
+  import { EditorState, Compartment } from '@codemirror/state';
   import { keymap } from '@codemirror/view';
   import { varHints, setEnv } from './varHints';
+  import { pageIsLight, onThemeChange } from './theme';
 
   export let content = '';
   export let language: 'yaml' | 'env' = 'yaml';
@@ -19,6 +20,17 @@
   const dispatch = createEventDispatcher();
   let editorContainer: HTMLDivElement;
   let view: EditorView;
+
+  // The page's theme, swapped in place through a compartment: rebuilding the
+  // editor would drop the cursor and the undo history.
+  const themeSlot = new Compartment();
+  // Light is CodeMirror's own default look (basicSetup highlights for it);
+  // only the background is set, to sit on the card it is drawn in.
+  const editorTheme = () =>
+    pageIsLight()
+      ? EditorView.theme({ '.cm-scroller': { background: 'var(--color-fjord-card)' } })
+      : [oneDark, EditorView.theme({ '.cm-scroller': { background: '#161619' } }, { dark: true })];
+  let unwatchTheme: () => void;
 
   function initEditor() {
     if (view) view.destroy();
@@ -36,7 +48,7 @@
 
     const extensions = [
       basicSetup,
-      oneDark,
+      themeSlot.of(editorTheme()),
       saveKeymap,
       EditorView.updateListener.of((update) => {
         if (update.docChanged) {
@@ -83,9 +95,13 @@
 
   onMount(() => {
     initEditor();
+    unwatchTheme = onThemeChange(() => {
+      if (view) view.dispatch({ effects: themeSlot.reconfigure(editorTheme()) });
+    });
   });
 
   onDestroy(() => {
+    unwatchTheme?.();
     if (view) view.destroy();
   });
 </script>
@@ -100,6 +116,5 @@
   :global(.cm-scroller) {
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
     font-size: 14px;
-    background: #161619;
   }
 </style>

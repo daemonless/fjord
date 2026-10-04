@@ -148,13 +148,13 @@
   .chip {
     padding: 1px 7px;
     border-radius: 6px;
-    color: #94a3b8;
+    color: var(--color-fjord-fg-muted);
     border: 1px solid var(--color-fjord-border);
     white-space: nowrap;
     flex-shrink: 0;
   }
   .chip:hover {
-    color: #fff;
+    color: var(--color-fjord-fg);
   }
   .chip.on {
     background: color-mix(in srgb, var(--color-fjord-accent) 20%, transparent);

@@ -1,5 +1,7 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
+  import { onThemeChange } from './theme';
+  import { xtermTheme } from './termTheme';
   import { Terminal } from '@xterm/xterm';
   import { FitAddon } from '@xterm/addon-fit';
   import '@xterm/xterm/css/xterm.css';
@@ -12,6 +14,7 @@
   let fit: FitAddon;
   let ws: WebSocket | null = null;
   let ro: ResizeObserver;
+  let unwatchTheme: () => void;
   let state: 'connecting' | 'connected' | 'closed' | 'error' = 'connecting';
 
   function sendResize() {
@@ -88,6 +91,11 @@
       fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
       cursorBlink: true,
       scrollback: 5000,
+      // No theme meant xterm's own: pure black, whatever the page was.
+      theme: xtermTheme(el.parentElement!),
+    });
+    unwatchTheme = onThemeChange(() => {
+      if (term) term.options.theme = xtermTheme(el.parentElement!);
     });
     fit = new FitAddon();
     term.loadAddon(fit);
@@ -109,6 +117,7 @@
   });
 
   onDestroy(() => {
+    unwatchTheme?.();
     destroyed = true;
     if (reconnectTimer) clearTimeout(reconnectTimer);
     ro?.disconnect();
