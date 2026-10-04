@@ -32,8 +32,9 @@ func directorJailName(stackID, service string) string {
 // engine drives `appjail-director` for any stack whose dir has an
 // appjail-director.yml (the file's presence is the per-stack "use director"
 // switch; stacks without it stay on the legacy `appjail oci run` path). Returns
-// the .env text written, so the caller records it on the stack.
-func writeAppjailBundle(dir, stackID string, b *manifest.AppjailBundle, resolvedEnv map[string]string, composeYAML string, atts []composepkg.Attachment, modes map[string]string, noNetwork bool) (string, error) {
+// the .env text written, so the caller records it on the stack. stackMode is
+// the install's stack-wide network: only none and host change anything here.
+func writeAppjailBundle(dir, stackID string, b *manifest.AppjailBundle, resolvedEnv map[string]string, composeYAML string, atts []composepkg.Attachment, modes map[string]string, stackMode string) (string, error) {
 	if b.Director == "" {
 		return "", fmt.Errorf("appjail bundle has no director file")
 	}
@@ -68,9 +69,15 @@ func writeAppjailBundle(dir, stackID string, b *manifest.AppjailBundle, resolved
 	// in the caller, which does not have the director in hand until this has
 	// written it to disk.
 	switch {
-	case noNetwork:
+	case stackMode == composepkg.None:
 		if directorYML, err = disableDirectorNetworks(directorYML); err != nil {
 			return "", fmt.Errorf("network none: %w", err)
+		}
+	case stackMode == composepkg.Host:
+		// Every jail on the host's stack, which is a mode per service:
+		// setDirectorModes below writes it.
+		if modes, err = allHost(directorYML); err != nil {
+			return "", fmt.Errorf("network host: %w", err)
 		}
 	case len(atts) > 0:
 		if directorYML, err = setDirectorNetworks(context.Background(), directorYML, stackID, atts); err != nil {

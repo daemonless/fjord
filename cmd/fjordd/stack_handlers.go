@@ -24,7 +24,6 @@ import (
 	"github.com/daemonless/fjord/pkg/sbom"
 	"github.com/daemonless/fjord/pkg/stack"
 	"github.com/daemonless/fjord/pkg/updates"
-	"gopkg.in/yaml.v3"
 )
 
 // saveRequest is the /api/stacks/<n>/save payload: the editable stack fields
@@ -144,56 +143,6 @@ func nameIfaces(atts []composepkg.Attachment) {
 	}
 }
 
-// unsupportedModes lists the built-in network choices a stack cannot take.
-//
-// A director stack's networking is the director's -- appjail never reads its
-// compose for it -- and fjord has no way to PUT a director project on host:
-// that is a jail parameter rather than a director option.
-//
-// But a bundle can arrive already on it. dbuild writes `ip4_inherit` into the
-// director options and `ip4: inherit` into the jail template for a
-// host-networked app, which is exactly how immich's four services find each
-// other on 127.0.0.1. Calling host unsupported there told the operator their
-// stack was in a state it could not be in, and left the picker unable to show
-// the stack's own current mode -- every option greyed and the select holding a
-// value that was not among them.
-//
-// bridge is not in the list: for appjail that is its own NAT virtualnet, which
-// is what bridge means on every engine.
-func unsupportedModes(st *stack.Stack) []string {
-	if st.Director == "" {
-		return nil
-	}
-	if directorInheritsHost(st.Director) {
-		return nil
-	}
-	// none is NOT in the list: a director project takes it by having no
-	// network option at all, which is exactly what it means.
-	return []string{composepkg.Host}
-}
-
-// directorInheritsHost reports a director project whose options put its jails
-// on the host's stack (`ip4_inherit`, and `ip6_inherit` for the v6 half).
-func directorInheritsHost(directorYML string) bool {
-	var doc yaml.Node
-	if yaml.Unmarshal([]byte(directorYML), &doc) != nil || len(doc.Content) == 0 {
-		return false
-	}
-	opts := mapKey(doc.Content[0], "options")
-	if opts == nil || opts.Kind != yaml.SequenceNode {
-		return false
-	}
-	for _, item := range opts.Content {
-		if item.Kind == yaml.MappingNode && len(item.Content) >= 1 {
-			switch item.Content[0].Value {
-			case "ip4_inherit", "ip6_inherit":
-				return true
-			}
-		}
-	}
-	return false
-}
-
 // handleStackRoutes dispatches /api/stacks/<name>[/<action>].
 func (s *server) handleStackRoutes(w http.ResponseWriter, r *http.Request) {
 	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/stacks/"), "/")
@@ -301,9 +250,8 @@ func (s *server) stackDetail(w http.ResponseWriter, r *http.Request, name string
 		Networks: atts, OwnAddress: own, Services: svcs, LinkHost: linkHost(svcs, ownAddress), Busy: busyWith(st.Name),
 		// A stack on a mode has no attachments, which on its own is
 		// indistinguishable from one on the bridge publishing ports.
-		NetworkMode:      composepkg.NetworkMode(st.Compose),
-		NoNamedNetworks:  composepkg.NoNamedNetworks(st.Compose),
-		UnsupportedModes: unsupportedModes(st),
+		NetworkMode:     composepkg.NetworkMode(st.Compose),
+		NoNamedNetworks: composepkg.NoNamedNetworks(st.Compose),
 		// What it was on before the mode, so the picker can offer it back
 		// rather than making the user retype addresses that are still here.
 		StashedNetworks: composepkg.StashedNetworks(st.Compose),
@@ -690,13 +638,20 @@ func (s *server) stackSave(w http.ResponseWriter, r *http.Request, name string) 
 			// Not a director option -- the absence of one.
 			directorYML, err = disableDirectorNetworks(directorYML)
 		case payload.Network == composepkg.Host:
-			http.Error(w, "an appjail stack cannot be put on host: that is a jail parameter "+
-				"rather than a director option, and fjord does not set it yet -- use none, or a network", 400)
-			return
+			var modes map[string]string
+			if modes, err = allHost(directorYML); err == nil {
+				directorYML, err = setDirectorModes(directorYML, modes)
+			}
 		case payload.Network == composepkg.Bridge || (payload.Networks != nil && len(payload.Networks) == 0):
 			directorYML, err = clearDirectorNetworks(directorYML)
 		case len(payload.attachments()) > 0:
 			directorYML, err = setDirectorNetworks(r.Context(), directorYML, name, payload.attachments())
+		}
+		// Built-ins picked per service, after the attachments as install does:
+		// written only into the compose, a service set to host here stayed on
+		// whatever the director said.
+		if err == nil && len(payload.NetworkModes) > 0 {
+			directorYML, err = setDirectorModes(directorYML, payload.NetworkModes)
 		}
 		if err != nil {
 			http.Error(w, "network attach: "+err.Error(), 400)

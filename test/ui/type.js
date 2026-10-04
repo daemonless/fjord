@@ -183,7 +183,7 @@ async function saveBothWays(page) {
   note('answers on its t-lan address again', lan === 200, `${addr || 'no address'}:3000 -> ${lan}`);
 }
 
-// AppJail in the wizard: bridge stands alone, host is not offered for a bundle.
+// AppJail in the wizard: bridge stands alone.
 async function appjailLimits(page) {
   await openWizard(page, 't-tcj', 'appjail');
   await rowSels(page).first().selectOption('bridge');

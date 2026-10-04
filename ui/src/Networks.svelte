@@ -156,7 +156,7 @@
   // words: "bridge" is its NAT bridge, "host" is this host's own stack, "none"
   // is no network at all. Listed here because they are as real a choice as any
   // network the host defines -- and as valid a default for new installs.
-  const BUILT_IN = [
+  const BUILT_IN: { name: string; detail: string; not?: string[] }[] = [
     {
       name: 'bridge',
       // Not podman's: every engine has one. podman's is the network it calls
@@ -166,11 +166,8 @@
     },
     {
       name: 'host',
+      // podman's --network=host; appjail's alias + ip4_inherit + ip6_inherit.
       detail: "This host's own stack — no address and no port mapping of its own, so it binds host ports directly.",
-      // An appjail director project has no option for it: a jail parameter,
-      // not a director option. Shown in the engines column like every other
-      // row rather than as a badge of its own.
-      not: ['appjail'],
     },
     {
       name: 'none',
@@ -189,9 +186,8 @@
   // With one engine every row would say the same word, which is noise rather
   // than information. The column earns its place only when there is a choice.
   $: showEngines = allEngines.length > 1;
-  // And a built-in no engine here can use is not a row worth showing: host on
-  // an appjail-only host is not "unavailable", it is simply not a thing you
-  // can pick.
+  // And a built-in no engine here can use is not a row worth showing: it is
+  // not "unavailable", it is simply not a thing you can pick.
   $: visibleBuiltIn = BUILT_IN.filter((b) => enginesFor(b).length > 0);
 
   // Networks nothing on the LAN can reach. They go behind a disclosure rather

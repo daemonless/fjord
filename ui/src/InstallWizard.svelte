@@ -484,7 +484,7 @@
       // minus what this engine cannot attach. Re-seeding threw a network
       // chosen a moment before away as soon as the engine changed.
       const edited = app === seededApp && lastSeed !== '' && JSON.stringify(planEdits) !== lastSeed;
-      planEdits = edited ? keepAttachable(planEdits, fresh, networks, wizardUnsupported) : fresh;
+      planEdits = edited ? keepAttachable(planEdits, fresh, networks) : fresh;
       seededApp = app;
       lastSeed = JSON.stringify(fresh);
     }
@@ -498,11 +498,6 @@
   // What the blurb promises has to be what the rows say, or the screen gives
   // two answers.
   $: exposedOn = Object.entries(planEdits).find(([svc]) => netPlan[svc] === PLAN_DEFAULT)?.[1]?.[0]?.network ?? '';
-  // An appjail stack is a director project, and a director cannot put a jail
-  // on the host's stack: that is a jail parameter. The daemon refuses it, so
-  // the picker must not offer it.
-  $: isDirectorStack = /^\s{2,}appjail:\s*$/m.test(manifestText);
-  $: wizardUnsupported = engineChoice === 'appjail' && isDirectorStack ? ['host'] : [];
   const PLAN_PRIVATE = 'private';
   const PLAN_DEFAULT = 'default';
   const PLAN_NONE = 'none';
@@ -514,11 +509,9 @@
   type Network = { name: string; subnet?: string; static?: boolean; addressSource?: string };
   let networks: Network[] = [];
   let netChoice = '';
-  // appjail: false means a director project cannot take it -- both are jail
-  // parameters rather than director options, so install would refuse.
   const BUILT_IN = [
     { name: 'bridge', detail: 'A private address behind NAT, reached on the ports it publishes on this host.' },
-    { name: 'host', detail: "No address or port mapping of its own — it binds this host's ports directly.", appjail: false },
+    { name: 'host', detail: "No address or port mapping of its own — it binds this host's ports directly." },
     { name: 'none', detail: 'No network at all: nothing in and nothing out.' },
   ];
   const builtIn = (name: string) => BUILT_IN.some((b) => b.name === name);
@@ -527,14 +520,6 @@
   // appjail the app's bundle decides, and bundles ship on appjail's NAT bridge.
   $: shownChoice = netChoice || (hostNetworked && engineChoice !== 'appjail' ? 'host' : 'bridge');
   $: chosenBuiltIn = BUILT_IN.find((b) => b.name === shownChoice);
-  // A default of host or none is fine until the engine is appjail, which has
-  // no director option for either. The option was already grayed out, but it
-  // stayed SELECTED -- so the install went ahead and came back 400. Falling
-  // back to bridge keeps the operator's intent (no address of its own) on an
-  // engine that can honour it.
-  $: if (engineChoice === 'appjail' && BUILT_IN.some((b) => b.name === netChoice && b.appjail === false)) {
-    netChoice = 'bridge';
-  }
   let netIP = '';
   let netMAC = '';
   // How a network hands out addresses, in the words the form uses. Read from
@@ -1083,7 +1068,6 @@
                   planning
                   oneBridgePerService={engineChoice === 'appjail'}
                   bridgeAlone={engineChoice === 'appjail'}
-                  unsupportedModes={wizardUnsupported}
                   on:change={() => (planEdits = planEdits)}
                 />
               {:else}
@@ -1113,7 +1097,7 @@
                        page and each stack's own picker use. "" is the historic
                        value for bridge, from before it had a name. -->
                   {#each BUILT_IN as b}
-                    <option value={b.name} disabled={b.appjail === false && engineChoice === 'appjail'}>{b.name}</option>
+                    <option value={b.name}>{b.name}</option>
                   {/each}
                   {#each networks as n}
                     <!-- Name and detail, the same shape as the built-ins above

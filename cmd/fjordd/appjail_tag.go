@@ -165,6 +165,11 @@ func setDirectorModes(directorYML string, modes map[string]string) (string, erro
 			}
 		}
 		setServiceOptions(node, mergeServiceOptions(node, opts))
+		// expose is a NAT redirect: on the host's stack there is no NAT to
+		// redirect from, and the app already answers on the host's ports.
+		if mode == composepkg.Host {
+			dropExpose(node)
+		}
 		// Back to the template that carries ip4: a host-stack jail needs it,
 		// and the .net variant is exactly the copy with it removed.
 		retargetTemplates(node, false)
@@ -198,6 +203,24 @@ func setDirectorModes(directorYML string, modes map[string]string) (string, erro
 	}
 	enc.Close()
 	return sb.String(), nil
+}
+
+// allHost puts every service of a director project on the host's stack, in
+// the form setDirectorModes takes. The names are the director's own: it
+// refuses one it does not have, and they need not match the compose's.
+func allHost(directorYML string) (map[string]string, error) {
+	var doc yaml.Node
+	if err := yaml.Unmarshal([]byte(directorYML), &doc); err != nil {
+		return nil, fmt.Errorf("parse director: %w", err)
+	}
+	if len(doc.Content) == 0 || doc.Content[0].Kind != yaml.MappingNode {
+		return nil, fmt.Errorf("director is not a YAML mapping")
+	}
+	modes := map[string]string{}
+	for _, n := range directorServiceNames(doc.Content[0]) {
+		modes[n] = composepkg.Host
+	}
+	return modes, nil
 }
 
 // servicesWithoutMakejail lists the director services that build from the

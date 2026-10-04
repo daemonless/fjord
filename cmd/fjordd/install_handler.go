@@ -505,14 +505,7 @@ func (s *server) handleInstall(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "this app's catalog entry has no AppJail bundle (the catalog was built without dbuild, or the app opts out with appjail: false); install it on podman, or refresh the catalog", 400)
 			return
 		}
-		if req.Network == composepkg.Host {
-			_ = s.manager.Delete(id)
-			http.Error(w, "an appjail stack cannot be installed on host: that is a jail parameter "+
-				"rather than a director option, and fjord does not set it yet -- install it on none, "+
-				"on a network, or on podman", 400)
-			return
-		}
-		env, err := writeAppjailBundle(st.Dir, id, b, res.Env, composeYAML, req.attachments(), svcModes, req.Network == composepkg.None)
+		env, err := writeAppjailBundle(st.Dir, id, b, res.Env, composeYAML, req.attachments(), svcModes, req.Network)
 		if err != nil {
 			http.Error(w, "appjail bundle: "+err.Error(), 500)
 			return

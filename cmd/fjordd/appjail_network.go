@@ -496,20 +496,24 @@ func dropServiceExpose(root *yaml.Node) {
 		return
 	}
 	for i := 1; i < len(services.Content); i += 2 {
-		svc := services.Content[i]
-		opts := mapKey(svc, "options")
-		if opts == nil || opts.Kind != yaml.SequenceNode {
+		dropExpose(services.Content[i])
+	}
+}
+
+// dropExpose removes one service's `expose:` options.
+func dropExpose(svc *yaml.Node) {
+	opts := mapKey(svc, "options")
+	if opts == nil || opts.Kind != yaml.SequenceNode {
+		return
+	}
+	kept := opts.Content[:0]
+	for _, item := range opts.Content {
+		if item.Kind == yaml.MappingNode && len(item.Content) >= 1 && item.Content[0].Value == "expose" {
 			continue
 		}
-		kept := opts.Content[:0]
-		for _, item := range opts.Content {
-			if item.Kind == yaml.MappingNode && len(item.Content) >= 1 && item.Content[0].Value == "expose" {
-				continue
-			}
-			kept = append(kept, item)
-		}
-		opts.Content = kept
+		kept = append(kept, item)
 	}
+	opts.Content = kept
 }
 
 func mapKey(n *yaml.Node, key string) *yaml.Node {

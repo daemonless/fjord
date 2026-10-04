@@ -79,9 +79,8 @@
   /** Before install there is nothing running: no state, no image, no jail
    *  name, no volumes. Only the interfaces are real, so only they are shown. */
   export let planning = false;
-  /** Built-ins this stack cannot take. An appjail director project cannot be
-   *  put on the host's stack -- that is a jail parameter, not a director
-   *  option -- so offering it produced a choice the install then refused. */
+  /** Built-ins this stack cannot take, so the picker never offers a choice
+   *  the daemon would refuse. */
   export let unsupportedModes: string[] = [];
   /** Whose page this is. A private segment belonging to THIS stack is offered;
    *  every other stack's stays hidden. */
