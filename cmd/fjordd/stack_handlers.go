@@ -367,11 +367,17 @@ func (s *server) stackUpdateCheck(w http.ResponseWriter, name string) {
 	w.Header().Set("Content-Type", "application/json")
 	// perService: whether Update can take just the services that changed, so
 	// the panel offers that rather than a whole-stack recreate.
+	// pinServices: whether a service can be moved to a version or rolled
+	// back on its own.
 	// restartsWith: what depends on each service, so the panel can say an
 	// update of the database restarts the server too (it has to; see
 	// composepkg.WithDependents).
+	caps := s.backendFor(st).Capabilities()
 	restarts := map[string][]string{}
 	for _, sv := range status.Services {
+		if !caps.UpdateDependents {
+			break
+		}
 		if more := composepkg.WithDependents(st.Compose, []string{sv.Service}); len(more) > 1 {
 			restarts[sv.Service] = slices.DeleteFunc(more, func(n string) bool { return n == sv.Service })
 		}
@@ -383,7 +389,7 @@ func (s *server) stackUpdateCheck(w http.ResponseWriter, name string) {
 		At  string `json:"at"`
 	}
 	rollback := map[string]rollbackTo{}
-	if state, _ := s.manager.LoadState(name); state != nil && s.backendFor(st).Capabilities().UpdateServices {
+	if state, _ := s.manager.LoadState(name); state != nil && caps.PinServices {
 		for _, sv := range status.Services {
 			if rb, ok := state.Rollback[sv.Service]; ok && sv.Running != "" && sv.Running != rb.Digest {
 				rollback[sv.Service] = rollbackTo{rb.Ref, rb.At}
@@ -393,9 +399,10 @@ func (s *server) stackUpdateCheck(w http.ResponseWriter, name string) {
 	json.NewEncoder(w).Encode(struct {
 		updates.Status
 		PerService   bool                  `json:"perService"`
+		PinServices  bool                  `json:"pinServices"`
 		RestartsWith map[string][]string   `json:"restartsWith,omitempty"`
 		Rollback     map[string]rollbackTo `json:"rollback,omitempty"`
-	}{status, s.backendFor(st).Capabilities().UpdateServices, restarts, rollback})
+	}{status, caps.UpdateServices, caps.PinServices, restarts, rollback})
 }
 
 // stackChanges says what updating one service would change:
@@ -1055,8 +1062,10 @@ func lockStack(name string) (unlock func(), ok bool) {
 // requestedServices reads the optional {"services": [...]} body of an update:
 // which services to pull and recreate, none meaning all. Each must be one of
 // the stack's own -- compose would otherwise answer a typo with "no such
-// service" halfway through, after the pull.
-func requestedServices(r *http.Request, st *stack.Stack) ([]string, error) {
+// service" halfway through, after the pull. engineKnows covers a stack with
+// no compose to name them (a native appjail one), or whose engine names its
+// services differently.
+func requestedServices(r *http.Request, st *stack.Stack, engineKnows func() []string) ([]string, error) {
 	var req struct {
 		Services []string `json:"services"`
 	}
@@ -1069,8 +1078,15 @@ func requestedServices(r *http.Request, st *stack.Stack) ([]string, error) {
 		return nil, nil
 	}
 	known, _ := composepkg.ServiceImageList(st.Compose)
+	var more []string
 	for _, want := range req.Services {
-		if !slices.ContainsFunc(known, func(si composepkg.ServiceImage) bool { return si.Service == want }) {
+		if slices.ContainsFunc(known, func(si composepkg.ServiceImage) bool { return si.Service == want }) {
+			continue
+		}
+		if more == nil && engineKnows != nil {
+			more = append([]string{}, engineKnows()...)
+		}
+		if !slices.Contains(more, want) {
 			return nil, fmt.Errorf("%s has no service %q", st.Name, want)
 		}
 	}
@@ -1129,7 +1145,15 @@ func (s *server) stackLifecycle(w http.ResponseWriter, r *http.Request, name, ac
 		stream, err = s.backendFor(st).Down(ctx, st)
 	case "update":
 		var services []string
-		if services, err = requestedServices(r, st); err != nil {
+		be := s.backendFor(st)
+		if services, err = requestedServices(r, st, func() []string {
+			var names []string
+			ris, _ := be.RunningImages(ctx, st)
+			for _, ri := range ris {
+				names = append(names, ri.Service)
+			}
+			return names
+		}); err != nil {
 			http.Error(w, err.Error(), 400)
 			return
 		}

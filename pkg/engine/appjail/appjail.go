@@ -173,17 +173,21 @@ func (b *Backend) Restart(ctx context.Context, s *stack.Stack) (io.ReadCloser, e
 	return directorRestart(ctx, s)
 }
 
-// Update destroys and rebuilds the jails with a fresh image pull. Always the
-// whole project: director has no per-service rebuild that fjord has verified,
-// so a subset is refused rather than quietly widened to everything.
+// Update destroys and rebuilds jails with a fresh image pull: the whole
+// project, or only the named services (as appjail-director.yml names them)
+// while the rest keep running.
 func (b *Backend) Update(ctx context.Context, s *stack.Stack, services []string) (io.ReadCloser, error) {
-	if len(services) > 0 {
-		return nil, fmt.Errorf("appjail updates the whole stack; it cannot update only %s", strings.Join(services, ", "))
-	}
 	if directorFile(s) == "" {
 		return nil, errNoDirector(s)
 	}
-	return directorUpdate(ctx, s)
+	if len(services) == 0 {
+		return directorUpdate(ctx, s, b.serviceJails(s))
+	}
+	jails, err := jailsOf(b.serviceJails(s), services)
+	if err != nil {
+		return nil, fmt.Errorf("stack %s: %w", s.Name, err)
+	}
+	return directorUpdateServices(ctx, s, jails)
 }
 
 // Status reports each service jail's state. Ports come from the compose (appjail

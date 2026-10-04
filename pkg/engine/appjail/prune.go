@@ -26,6 +26,9 @@ func (b *Backend) Capabilities() engine.Capabilities {
 		RemoteVolumes: false,
 		NetworkKinds:  networkKinds(),
 		NetworkRemove: true,
+		// A subset, yes; pins and rollback, not yet: director never reads
+		// the compose they are written in.
+		UpdateServices: true,
 	}
 }
 

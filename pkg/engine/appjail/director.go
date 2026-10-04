@@ -132,15 +132,23 @@ func showDirectorLog(ctx context.Context, w io.Writer, dir string) {
 // /root, which then reported the project "not found"), and the bundle's
 // `template: !ENV '${PWD}/template.conf'` expanded to "//template.conf" on
 // every rebuild. exec sets the cwd but never PWD -- that is a shell habit.
+//
+// DIRECTOR_PROJECT is the stack's name unless its .env says otherwise. A
+// stack written in the editor has no .env, and director then makes up a new
+// project name on every run: each `up` rebuilt every jail as a new project,
+// and `down` found no project, so deleting the stack left its jails running.
 func directorEnv(dir string) []string {
 	out := make([]string, 0, len(os.Environ())+2)
 	for _, kv := range os.Environ() {
-		if !strings.HasPrefix(kv, "HOME=") && !strings.HasPrefix(kv, "PWD=") {
+		if !strings.HasPrefix(kv, "HOME=") && !strings.HasPrefix(kv, "PWD=") && !strings.HasPrefix(kv, "DIRECTOR_PROJECT=") {
 			out = append(out, kv)
 		}
 	}
 	if u, err := user.Current(); err == nil && u.HomeDir != "" {
 		out = append(out, "HOME="+u.HomeDir)
+	}
+	if raw, _ := os.ReadFile(filepath.Join(dir, ".env")); (&stack.Stack{Env: string(raw)}).EnvMap()["DIRECTOR_PROJECT"] == "" {
+		out = append(out, "DIRECTOR_PROJECT="+filepath.Base(dir))
 	}
 	return append(out, "PWD="+dir)
 }
@@ -191,10 +199,133 @@ func directorRestart(ctx context.Context, s *stack.Stack) (io.ReadCloser, error)
 // directorUpdate recreates the project with a fresh image pull: `down
 // --destroy` drops the jails, then `up` rebuilds from the Makejail, whose
 // director spec passes `--pull` to buildah.
-func directorUpdate(ctx context.Context, s *stack.Stack) (io.ReadCloser, error) {
+func directorUpdate(ctx context.Context, s *stack.Stack, jails []svcJail) (io.ReadCloser, error) {
 	return directorOp(ctx, s,
+		func(w io.Writer) error { return pullNamedImages(ctx, w, jails) },
 		func(w io.Writer) error { return downDestroy(ctx, stackDir(s.Dir), w) },
 		func(w io.Writer) error { return runDirector(ctx, w, s.Dir, false, "up") })
+}
+
+// directorUpdateServices rebuilds only the given services' jails.
+//
+// Director has no "rebuild this one" flag, but `up` creates any service whose
+// jail is missing and leaves a running, unchanged one alone (proven on netlab
+// 2026-10-04: the untouched jail kept its jid). So the jails are destroyed
+// here and `up` puts them back, pulling as it builds. Nothing is touched in
+// the Makejail to force it: services that name no makejail: of their own all
+// share that file, and director rebuilds every one of them when it is newer.
+func directorUpdateServices(ctx context.Context, s *stack.Stack, jails []svcJail) (io.ReadCloser, error) {
+	return directorOp(ctx, s,
+		func(w io.Writer) error { return pullNamedImages(ctx, w, jails) },
+		func(w io.Writer) error {
+			for _, sj := range jails {
+				if err := destroyJail(ctx, w, sj.jail); err != nil {
+					fmt.Fprintf(w, "[error] %s: could not remove its jail %s: %v\n", sj.svc.Name, sj.jail, err)
+					return err
+				}
+			}
+			return nil
+		},
+		func(w io.Writer) error { return runDirector(ctx, w, s.Dir, false, "up") },
+		func(w io.Writer) error {
+			// Director exits 0 on "Nothing to do." as well; ask the jails.
+			var down []string
+			for _, sj := range jails {
+				if exec.CommandContext(ctx, "appjail", "status", "-q", sj.jail).Run() != nil {
+					down = append(down, sj.svc.Name)
+				}
+			}
+			if len(down) > 0 {
+				fmt.Fprintf(w, "[error] not running after the update: %s\n", strings.Join(down, ", "))
+				return fmt.Errorf("not running: %s", strings.Join(down, ", "))
+			}
+			return nil
+		})
+}
+
+// pullNamedImages pulls the image of each service that names one (`from:`).
+//
+// A service built from the Makejail is pulled by buildah as it builds: the
+// bundle gives it `container: args:--pull`. One that names its own image --
+// every sidecar -- has no such option, so a rebuild reused whatever the host
+// already had and an update changed nothing. Pulled before anything is
+// destroyed: a pull that fails leaves the stack as it runs.
+func pullNamedImages(ctx context.Context, w io.Writer, jails []svcJail) error {
+	seen := map[string]bool{}
+	for _, sj := range jails {
+		if sj.from == "" || seen[sj.from] || strings.Contains(sj.from, "@") {
+			continue // a digest names one image for good: nothing newer to fetch
+		}
+		seen[sj.from] = true
+		fmt.Fprintf(w, "$ buildah pull --policy always %s\n", sj.from)
+		// --policy always: the default is "missing", which is satisfied by the
+		// stale copy this is here to replace.
+		cmd := exec.CommandContext(ctx, "buildah", "pull", "--policy", "always", sj.from)
+		cmd.Stdout, cmd.Stderr = w, w
+		if err := cmd.Run(); err != nil {
+			fmt.Fprintf(w, "[error] pull %s (%s): %v -- nothing was changed\n", sj.from, sj.svc.Name, err)
+			return err
+		}
+	}
+	return nil
+}
+
+// jailsOf picks the named services out of a stack's, in the order asked.
+func jailsOf(all []svcJail, services []string) ([]svcJail, error) {
+	var out []svcJail
+	for _, want := range services {
+		found := false
+		for _, sj := range all {
+			if sj.svc.Name == want {
+				out, found = append(out, sj), true
+				break
+			}
+		}
+		if !found {
+			return nil, fmt.Errorf("no service %q in its appjail-director.yml", want)
+		}
+	}
+	return out, nil
+}
+
+// destroyJail stops and removes one jail, as director's own destroy does. A
+// jail that does not exist is fine: `up` creates it either way.
+func destroyJail(ctx context.Context, w io.Writer, jail string) error {
+	if exec.CommandContext(ctx, "appjail", "jail", "get", "--", jail, "name").Run() != nil {
+		return nil
+	}
+	// Stopped before it is destroyed: destroying an OCI jail that is up
+	// leaves its buildah layer flagged incomplete, and every podman and
+	// buildah command on the host fails until it is repaired.
+	if exec.CommandContext(ctx, "appjail", "status", "-q", jail).Run() == nil {
+		if err := runAppjail(ctx, w, "stop", "--", jail); err != nil {
+			return err
+		}
+	}
+	var buf strings.Builder
+	err := runAppjail(ctx, io.MultiWriter(w, &buf), "jail", "destroy", "-f", "--", jail)
+	if err == nil || !containsBusyMount(buf.String()) {
+		return err
+	}
+	cleared, ferr := forceUnmountJail(ctx, jail)
+	if ferr != nil {
+		fmt.Fprintf(w, "[fjord] %v\n", ferr)
+	}
+	if len(cleared) == 0 {
+		return err
+	}
+	fmt.Fprintf(w, "[fjord] a volume was still mounted and would not come off; forced it and retrying: %s\n",
+		strings.Join(cleared, ", "))
+	return runAppjail(ctx, w, "jail", "destroy", "-f", "--", jail)
+}
+
+// runAppjail runs one `appjail <args>`, streaming its output without the
+// colour codes appjail writes.
+func runAppjail(ctx context.Context, w io.Writer, args ...string) error {
+	fmt.Fprintf(w, "$ appjail %s\n", strings.Join(args, " "))
+	out, err := exec.CommandContext(ctx, "appjail", args...).CombinedOutput()
+	w.Write(ansiColor.ReplaceAll(out, nil))
+	return err
 }
 
 // svcJail pairs a service (name + published ports, all Status/Logs need) with
@@ -202,6 +333,9 @@ func directorUpdate(ctx context.Context, s *stack.Stack) (io.ReadCloser, error) 
 type svcJail struct {
 	svc  composepkg.Service
 	jail string
+	// from is the image the service names itself (`from:`), "" when it takes
+	// the Makejail's.
+	from string
 }
 
 // serviceJails lists a stack's services and their jails from its director
@@ -249,9 +383,16 @@ func directorServices(path string, s *stack.Stack) []svcJail {
 			jail = n.Value
 		}
 		svc := composepkg.Service{Name: key}
+		from := ""
 		if opts := yamlMapValue(body, "options"); opts != nil && opts.Kind == yaml.SequenceNode {
 			for _, item := range opts.Content {
-				if item.Kind != yaml.MappingNode || len(item.Content) < 2 || item.Content[0].Value != "expose" {
+				if item.Kind != yaml.MappingNode || len(item.Content) < 2 {
+					continue
+				}
+				if item.Content[0].Value == "from" {
+					from = composepkg.ExpandEnv(item.Content[1].Value, env)
+				}
+				if item.Content[0].Value != "expose" {
 					continue
 				}
 				if p, ok := parseExpose(composepkg.ExpandEnv(item.Content[1].Value, env)); ok {
@@ -268,7 +409,7 @@ func directorServices(path string, s *stack.Stack) []svcJail {
 		if len(svc.Ports) == 0 {
 			svc.Ports = composePortsFor(s, key, env)
 		}
-		out = append(out, svcJail{svc: svc, jail: jail})
+		out = append(out, svcJail{svc: svc, jail: jail, from: from})
 	}
 	return out
 }
