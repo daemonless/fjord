@@ -463,6 +463,13 @@ type Capabilities struct {
 	// UpdateServices: Update can pull and recreate a subset of a stack's
 	// services, leaving the rest running untouched.
 	UpdateServices bool `json:"updateServices"`
+	// UpdateDependents: updating a subset also recreates the services that
+	// depend on them.
+	UpdateDependents bool `json:"updateDependents"`
+	// PinServices: the engine runs what the compose says per service, so a
+	// pin written there takes effect -- an image digest (rollback, a
+	// service's own version) or an address.
+	PinServices bool `json:"pinServices"`
 }
 
 // PruneReport summarizes a prune run: a human total and the raw command output.

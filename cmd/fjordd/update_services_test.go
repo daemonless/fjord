@@ -11,7 +11,7 @@ import (
 func TestRequestedServices(t *testing.T) {
 	st := &stack.Stack{Name: "immich", Compose: "services:\n  immich-server:\n    image: a\n  database:\n    image: b\n"}
 	req := func(body string) ([]string, error) {
-		return requestedServices(httptest.NewRequest("POST", "/api/stacks/immich/update", strings.NewReader(body)), st)
+		return requestedServices(httptest.NewRequest("POST", "/api/stacks/immich/update", strings.NewReader(body)), st, func() []string { return []string{"sidecar"} })
 	}
 	// No body is the whole stack, as every update was before.
 	if got, err := req(""); err != nil || got != nil {
@@ -19,6 +19,10 @@ func TestRequestedServices(t *testing.T) {
 	}
 	if got, err := req(`{"services":["database"]}`); err != nil || len(got) != 1 || got[0] != "database" {
 		t.Errorf("database: %v, %v", got, err)
+	}
+	// One only the engine names: a director service the compose does not have.
+	if got, err := req(`{"services":["sidecar"]}`); err != nil || len(got) != 1 {
+		t.Errorf("sidecar: %v, %v", got, err)
 	}
 	// A typo is refused up front, not after the pull when compose says so.
 	if _, err := req(`{"services":["databse"]}`); err == nil {

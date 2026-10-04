@@ -682,11 +682,14 @@
     if (!updateInfo || Date.now() - updateCheckedAt > UPDATE_FRESH_MS) checkForUpdate(name);
   }
   $: updatable = (updateInfo?.services ?? []).filter((s) => s.state === 'available');
-  // What the panel can take one service at a time: a new build, or a new
-  // version (the service is retagged first). All ticked by default; the ones
-  // unticked are remembered, so a re-check keeps the choice.
+  // What the panel can take one service at a time: a new build, or -- where
+  // a service can be retagged on its own (pinServices) -- a new version. All
+  // ticked by default; the ones unticked are remembered, so a re-check keeps
+  // the choice.
   $: offered = updateInfo?.perService
-    ? (updateInfo.services ?? []).filter((s) => s.state === 'available' || (s.state === 'upgrade' && !!s.newTag))
+    ? (updateInfo.services ?? []).filter(
+        (s) => s.state === 'available' || (s.state === 'upgrade' && !!s.newTag && !!updateInfo?.pinServices),
+      )
     : [];
   let unpicked: Record<string, boolean> = {};
   $: picked = offered.filter((s) => !unpicked[s.service]);
@@ -734,7 +737,7 @@
       ? 'Up to date — nothing to pull'
       : updateInfo?.state === 'pinned'
         ? 'Pinned to an exact image — nothing to pull'
-        : updateInfo?.state === 'upgrade' && multiImage && !updateInfo.perService
+        : updateInfo?.state === 'upgrade' && multiImage && !updateInfo.pinServices
           ? `A newer version is published (v${updateInfo.toVersion}) — set it in the compose editor`
           : '';
   // A single-image stack behind by a VERSION: Update takes it there. It used
@@ -742,7 +745,7 @@
   // update next to a greyed-out Update button. Multi-image stacks cannot be
   // retagged in one go (set-tag refuses them), so there it stays a note.
   $: versionStep =
-    updateInfo?.state === 'upgrade' && !multiImage && !updateInfo.perService && updateInfo.newTag
+    updateInfo?.state === 'upgrade' && !multiImage && !updateInfo.pinServices && updateInfo.newTag
       ? { tag: updateInfo.newTag, from: updateInfo.fromVersion, to: updateInfo.toVersion }
       : null;
   async function upgradeTo(name: string, tag: string) {
@@ -931,6 +934,7 @@
   };
   type UpdateInfo = {
     perService?: boolean;
+    pinServices?: boolean;
     rollback?: Record<string, { ref: string; at: string }>;
     restartsWith?: Record<string, string[]>;
     state: string;
@@ -1651,7 +1655,7 @@
     const curImage = changeVersion?.image ?? '';
     const service = changeVersion?.service;
     // Read before selectStack below clears updateInfo.
-    const perService = !!updateInfo?.perService;
+    const perService = !!updateInfo?.perService && !!updateInfo?.pinServices;
     changeVersion = null;
     if (!name) return;
     const tagChanged = e.detail.tag !== refTag(curImage);
@@ -2369,7 +2373,7 @@
                             <span class="font-sans" title="{shortDigest(s.running) || 'local'} → {shortDigest(s.latest)}">new build</span>
                           {:else if s.state === 'upgrade'}
                             v{s.fromVersion} → v{s.toVersion}
-                            {#if multiImage && !updateInfo.perService}<span class="font-sans text-fjord-fg-dim">(set in the compose)</span>{/if}
+                            {#if multiImage && !updateInfo.pinServices}<span class="font-sans text-fjord-fg-dim">(set in the compose)</span>{/if}
                           {:else if s.state === 'unknown'}
                             <span class="font-sans text-fjord-fg-dim">{s.detail ?? ''}</span>
                           {/if}
@@ -2442,7 +2446,7 @@
                       : updateInfo?.perService
                         ? updatePicked(selectedStack!.name, picked)
                         : update(selectedStack!.name)}
-                  disabled={(updateInfo.perService ? !picked.length : !updatable.length && !versionStep) || busyNow}
+                  disabled={(versionStep ? false : updateInfo.perService ? !picked.length : !updatable.length) || busyNow}
                   title={busyReason || undefined}
                   class="shrink-0 px-3 py-1.5 rounded-lg text-sm font-medium bg-fjord-accent text-white hover:bg-fjord-accent-hover transition-colors disabled:opacity-40"
                   >{versionStep

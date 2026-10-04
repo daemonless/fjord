@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	composepkg "github.com/daemonless/fjord/pkg/compose"
 	"github.com/daemonless/fjord/pkg/stack"
 )
 
@@ -65,5 +66,43 @@ func TestDirectorEnvPinsPWDAndHome(t *testing.T) {
 	}
 	if home == "/" || home == "" {
 		t.Fatalf("HOME = %q, want the user's real home", home)
+	}
+}
+
+// A per-service update takes only the jails asked for, and refuses a name the
+// spec does not have rather than rebuilding nothing and calling it done.
+func TestJailsOf(t *testing.T) {
+	all := []svcJail{
+		{svc: composepkg.Service{Name: "app"}, jail: "s_app"},
+		{svc: composepkg.Service{Name: "db"}, jail: "s_db"},
+	}
+	got, err := jailsOf(all, []string{"db"})
+	if err != nil || len(got) != 1 || got[0].jail != "s_db" {
+		t.Fatalf("db -> %+v, %v", got, err)
+	}
+	if _, err := jailsOf(all, []string{"db", "cache"}); err == nil || !strings.Contains(err.Error(), `"cache"`) {
+		t.Fatalf("an unknown service must be refused by name, got %v", err)
+	}
+}
+
+// A stack with no .env still gets one director project, named after it; a
+// .env that names the project has the say.
+func TestDirectorEnvNamesTheProject(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "t-native")
+	os.MkdirAll(dir, 0o755)
+	has := func(want string) bool {
+		for _, kv := range directorEnv(dir) {
+			if kv == want {
+				return true
+			}
+		}
+		return false
+	}
+	if !has("DIRECTOR_PROJECT=t-native") {
+		t.Error("no .env: the project must be the stack's name")
+	}
+	os.WriteFile(filepath.Join(dir, ".env"), []byte("DIRECTOR_PROJECT=mine\n"), 0o600)
+	if has("DIRECTOR_PROJECT=t-native") {
+		t.Error(".env names the project: the environment must not override it")
 	}
 }

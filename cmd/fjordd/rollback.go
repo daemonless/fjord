@@ -25,10 +25,10 @@ type isRollbackKey struct{}
 // container runs now. services empty = all of them.
 func (s *server) recordRollback(ctx context.Context, st *stack.Stack, services []string) {
 	// Rollback pins a service's image in the compose and updates just that
-	// service. An engine that updates the whole project (appjail director,
-	// whose spec names makejails) can do neither, so nothing is recorded and
-	// no rollback is offered.
-	if !s.backendFor(st).Capabilities().UpdateServices {
+	// service. An engine that does not run from the compose (appjail
+	// director, whose spec names makejails) cannot be pinned there, so
+	// nothing is recorded and no rollback is offered.
+	if !s.backendFor(st).Capabilities().PinServices {
 		return
 	}
 	ris, err := s.backendFor(st).RunningImages(ctx, st)

@@ -28,7 +28,7 @@ func (e liveEngine) Status(_ context.Context, st *stack.Stack) (engine.StackStat
 }
 
 func (e liveEngine) Capabilities() engine.Capabilities {
-	return engine.Capabilities{UpdateServices: true}
+	return engine.Capabilities{UpdateServices: true, PinServices: true}
 }
 
 // jupiter on 2026-09-25: smokeping pinned 192.168.5.19 on vlan5; seerr had no
