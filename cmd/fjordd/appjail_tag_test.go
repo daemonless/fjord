@@ -128,6 +128,49 @@ func TestSetDirectorModesRestoresTemplate(t *testing.T) {
 	}
 }
 
+// A whole stack on host: every jail shares the host's stack, and nothing of
+// the NAT network is left to clash with ip4_inherit -- not the project's
+// virtualnet, and not the service's expose, which redirects from a NAT that
+// is no longer there.
+func TestAllHost(t *testing.T) {
+	const two = `options:
+  - virtualnet: ':<random> default'
+  - nat:
+services:
+  web:
+    name: app_web
+    options:
+      - expose: '8000:8000 proto:tcp'
+      - container: 'args:--pull'
+  db:
+    name: app_db
+`
+	modes, err := allHost(two)
+	if err != nil {
+		t.Fatalf("allHost: %v", err)
+	}
+	if len(modes) != 2 || modes["web"] != composepkg.Host || modes["db"] != composepkg.Host {
+		t.Fatalf("modes = %v, want both services on host", modes)
+	}
+	out, err := setDirectorModes(two, modes)
+	if err != nil {
+		t.Fatalf("setDirectorModes: %v", err)
+	}
+	for _, want := range []string{"- alias:", "- ip4_inherit:", "- ip6_inherit:"} {
+		if strings.Count(out, want) != 2 {
+			t.Errorf("want %q on both services:\n%s", want, out)
+		}
+	}
+	for _, gone := range []string{"virtualnet", "nat:", "expose"} {
+		if strings.Contains(out, gone) {
+			t.Errorf("%q survived on a host stack:\n%s", gone, out)
+		}
+	}
+	if !strings.Contains(out, "container: 'args:--pull'") {
+		t.Errorf("lost the bundle's own option:\n%s", out)
+	}
+}
+
 func TestSetDirectorModesUnknownService(t *testing.T) {
 	if _, err := setDirectorModes(servicesDirector, map[string]string{"postgres": "host"}); err == nil {
 		t.Fatal("accepted a mode for a service the director does not have")

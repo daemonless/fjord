@@ -587,10 +587,8 @@
     savedSvcNets = JSON.stringify(svcNets);
   }
 
-  // Which built-ins this engine cannot give a service. An appjail director
-  // project takes bridge -- that is its own NAT virtualnet -- but not host or
-  // none, which are jail parameters rather than director options. The rows are
-  // where a mode is chosen now, so this goes to them.
+  // Which built-ins this engine cannot give a service, as the daemon says.
+  // The rows are where a mode is chosen now, so this goes to them.
   $: unsupportedModes = ((selectedStack as any)?.unsupportedModes ?? []) as string[];
 
   // svcNetsDirty belongs here: the interface table edits staged state rather

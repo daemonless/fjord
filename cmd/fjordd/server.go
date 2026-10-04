@@ -297,9 +297,8 @@ type stackWithStatus struct {
 	NoNamedNetworks bool `json:"noNamedNetworks,omitempty"`
 	// UnsupportedModes names the built-in choices this stack cannot take, so
 	// the picker can leave them out rather than letting Save come back 400.
-	// Not all-or-nothing: an appjail director stack cannot take host or none
-	// (both are jail parameters, not director options) but bridge is simply
-	// appjail's own NAT virtualnet, which is exactly what bridge means.
+	// Every engine takes all three today: appjail's host is alias plus
+	// ip4/ip6_inherit, set per service by setDirectorModes.
 	UnsupportedModes []string `json:"unsupportedModes,omitempty"`
 	// StashedNetworks is what the stack was attached to before it was put on
 	// a mode. Putting it on one does not throw the addresses away, the same
