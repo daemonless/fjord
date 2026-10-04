@@ -8,6 +8,7 @@
   import DirPicker from './DirPicker.svelte';
   import { addressProblem, usableRange, randomMAC } from './network';
   import ServiceResources from './ServiceResources.svelte';
+  import { chosenServices } from './choices';
   import { resolveDefault, seedInterfaces, splitPlan, joinable, keepAttachable, addressesNeeded, type Iface } from './planSeed';
 
   // sources: every catalog offering this app; the user picks one (Repository)
@@ -243,7 +244,7 @@
   // pick; the compose is the default answer. What an option asks for shows
   // only when it is picked, and is required then.
   type Ask = { name: string; label?: string; default?: string; type?: string; values?: Record<string, string> };
-  type ChoiceOption = { id: string; label: string; doc?: string; ask?: Ask[] };
+  type ChoiceOption = { id: string; label: string; doc?: string; ask?: Ask[]; drop?: string[]; services?: string };
   type Choice = { id: string; label: string; doc?: string; default: string; options: ChoiceOption[] };
   let choices: Choice[] = [];
   let picks: Record<string, string> = {};
@@ -442,8 +443,18 @@
   // on a network and the warning does not apply to it.
   // The app's services, and its own answer to where each belongs. The plan is
   // editable: what the app suggests is a default, not a decision.
-  let svcNames: string[] = [];
+  // The services the picks install (a choice drops some, adds others), and
+  // the app's declaration, "*" expanded so every service is a row the
+  // operator can see and change rather than a wildcard to reason about.
+  let baseSvcNames: string[] = [];
+  let declaredNet: Record<string, string> = {};
+  $: svcNames = chosenServices(baseSvcNames, choices, picks);
   let netPlan: Record<string, string> = {};
+  $: {
+    const plan: Record<string, string> = {};
+    for (const n of svcNames) plan[n] = declaredNet[n] ?? declaredNet['*'] ?? '';
+    netPlan = Object.values(plan).some((v) => v) ? plan : {};
+  }
   $: declaresNetworking = Object.keys(netPlan).length > 0;
   // A one-service app gets the same per-service editor as the stack page, so
   // networking reads the same before and after install. Seeded directly, not
@@ -466,8 +477,10 @@
     // "default" can only be resolved once the networks it has to become are
     // in hand, so the seed waits for them and re-runs if the engine (and so
     // the network list) changes.
-    const app = `${svcNames.join(',')}|${JSON.stringify(netPlan)}|${hostNetworked}`;
-    const key = `${app}|${engineChoice}|${netChoice}|${networksLoaded}`;
+    // app is the app, not the picks: a choice that adds or drops a service
+    // keeps the rows edited on the others.
+    const app = `${baseSvcNames.join(',')}|${JSON.stringify(declaredNet)}|${hostNetworked}`;
+    const key = `${app}|${svcNames.join(',')}|${JSON.stringify(netPlan)}|${engineChoice}|${netChoice}|${networksLoaded}`;
     if ((singleService || declaresNetworking) && networksLoaded && key !== seededFor) {
       seededFor = key;
       let fresh: Record<string, Iface[]>;
@@ -657,16 +670,8 @@
       if (!res.ok) throw new Error('Failed to fetch manifest');
       manifestText = await res.text();
       const parsed: any = yaml.load(manifestText);
-      svcNames = Object.keys(parsed?.services ?? {});
-      {
-        const declared: Record<string, string> = parsed?.['x-fjord']?.networking ?? {};
-        const star = declared['*'];
-        netPlan = {};
-        // "*" is expanded here so every service is a row the operator can see
-        // and change, rather than a wildcard they have to reason about.
-        for (const n of svcNames) netPlan[n] = declared[n] ?? star ?? '';
-        if (!Object.values(netPlan).some((v) => v)) netPlan = {};
-      }
+      baseSvcNames = Object.keys(parsed?.services ?? {});
+      declaredNet = parsed?.['x-fjord']?.networking ?? {};
       choices = parsed?.['x-fjord']?.choices ?? [];
       for (const c of choices) picks[c.id] = c.default;
       picks = picks;
