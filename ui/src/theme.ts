@@ -83,3 +83,20 @@ export function watchSystem(onChange?: (t: Theme) => void): () => void {
   mq.addEventListener('change', handler);
   return () => mq.removeEventListener('change', handler);
 }
+
+/** True while the page shows the light theme -- what <html data-theme> says. */
+export function pageIsLight(): boolean {
+  return document.documentElement.getAttribute('data-theme') === 'light';
+}
+
+/**
+ * Call onChange whenever the page's theme changes, however it changed: a
+ * choice, clearing it, or the OS flipping. Returns an unsubscribe function.
+ * For widgets that paint their own colours (CodeMirror, xterm) and so do not
+ * follow the CSS variables by themselves.
+ */
+export function onThemeChange(onChange: () => void): () => void {
+  const mo = new MutationObserver(onChange);
+  mo.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+  return () => mo.disconnect();
+}

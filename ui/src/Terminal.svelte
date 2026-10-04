@@ -3,6 +3,8 @@
   import { Terminal } from '@xterm/xterm';
   import { FitAddon } from '@xterm/addon-fit';
   import '@xterm/xterm/css/xterm.css';
+  import { onThemeChange } from './theme';
+  import { xtermTheme } from './termTheme';
 
   export let logs = '';
   export let status: 'idle' | 'running' | 'error' = 'idle';
@@ -14,6 +16,7 @@
   let written = 0; // how much of `logs` we've already written to the terminal
   let copied = false;
   let ro: ResizeObserver;
+  let unwatchTheme: () => void;
 
   onMount(() => {
     term = new Terminal({
@@ -23,7 +26,10 @@
       scrollback: 5000,
       disableStdin: true,
       cursorInactiveStyle: 'none',
-      theme: { background: '#161619', foreground: '#cbd5e1', selectionBackground: '#334155' },
+      theme: xtermTheme(el.parentElement!),
+    });
+    unwatchTheme = onThemeChange(() => {
+      if (term) term.options.theme = xtermTheme(el.parentElement!);
     });
     fit = new FitAddon();
     term.loadAddon(fit);
@@ -38,6 +44,7 @@
   });
 
   onDestroy(() => {
+    unwatchTheme?.();
     ro?.disconnect();
     term?.dispose();
   });
