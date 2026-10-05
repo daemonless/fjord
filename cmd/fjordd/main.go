@@ -174,6 +174,7 @@ func main() {
 		fPodmanSocket = flag.String("podman-socket", os.Getenv("FJORD_PODMAN_SOCKET"), "podman API socket")
 		fHostAddr     = flag.String("host-addr", os.Getenv("FJORD_HOST_ADDR"), "host address advertised to the UI")
 		fCatalogURL   = flag.String("catalog-url", os.Getenv("FJORD_CATALOG_URL"), "bootstrap catalog on first run")
+		fAllowedHosts = flag.String("allowed-hosts", os.Getenv("FJORD_ALLOWED_HOSTS"), "more names this host answers to, comma-separated (a reverse proxy's)")
 	)
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "fjordd %s\n\nUsage: fjordd [flags]\n\n"+
@@ -194,6 +195,7 @@ func main() {
 	os.Setenv("FJORD_PODMAN_SOCKET", *fPodmanSocket)
 	os.Setenv("FJORD_HOST_ADDR", *fHostAddr)
 	os.Setenv("FJORD_CATALOG_URL", *fCatalogURL)
+	os.Setenv("FJORD_ALLOWED_HOSTS", *fAllowedHosts)
 
 	fmt.Printf("Starting fjordd %s - Compose Manager MVP\n", version)
 
@@ -331,7 +333,9 @@ func main() {
 	// host daemon can narrow it to loopback via FJORD_LISTEN.
 	closeShellsOnExit()
 	fmt.Printf("Web UI listening on %s\n", addr)
-	log.Fatal(http.ListenAndServe(addr, nil))
+	hostname, _ := os.Hostname()
+	resolv, _ := os.ReadFile("/etc/resolv.conf")
+	log.Fatal(http.ListenAndServe(addr, guardHost(newHostAllow(hostname, string(resolv), *fAllowedHosts), http.DefaultServeMux)))
 }
 
 // logKept logs what start-on-boot pinned, and what it would not pin.
