@@ -1,0 +1,139 @@
+name: Nightly
+
+# A rolling pre-release of main, for anyone who wants what is merged before the
+# next tag: one GitHub release named "nightly", replaced each night, never
+# marked Latest (ports and "the latest fjord" stay on real releases).
+#
+# It publishes only a commit whose Test workflow passed -- that run already
+# booted the FreeBSD VM for the Go tests, so this one reads its result instead
+# of repeating it -- and skips a night when main has not moved.
+on:
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Publish even if main has not changed since the last nightly"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: nightly
+  cancel-in-progress: false
+
+jobs:
+  nightly:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+          fetch-depth: 0 # tags, and the commits since the last release
+
+      - name: Decide
+        id: decide
+        run: |
+          SHA="$(git rev-parse HEAD)"
+          SHORT="$(git rev-parse --short HEAD)"
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "short=$SHORT" >> "$GITHUB_OUTPUT"
+          # Unchanged since the last nightly: nothing to publish.
+          LAST="$(git rev-parse -q --verify 'refs/tags/nightly^{commit}' || true)"
+          if [ "$LAST" = "$SHA" ] && [ "${{ inputs.force }}" != "true" ]; then
+            echo "main is still $SHORT, the last nightly; skipping."
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Only a commit the Test workflow passed.
+          RESULT="$(gh run list --repo "$REPO" --workflow test.yml --branch main --commit "$SHA" \
+            --json conclusion,status --jq '.[0] | "\(.status)/\(.conclusion)"')"
+          if [ "$RESULT" != "completed/success" ]; then
+            echo "Test on $SHORT is '${RESULT:-no run}', not a pass; no nightly tonight."
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # 0.3.1-nightly.20261006+868d2be: the patch after the last real
+          # release (rc tags skipped), the date, the commit.
+          BASE="$(git tag -l 'v[0-9]*' --sort=-v:refname | grep -v '[-]' | head -1)"
+          BASE="${BASE#v}"
+          NEXT="${BASE%.*}.$(( ${BASE##*.} + 1 ))"
+          VERSION="${NEXT}-nightly.$(date -u +%Y%m%d)+${SHORT}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "base=v$BASE" >> "$GITHUB_OUTPUT"
+          echo "publish=true" >> "$GITHUB_OUTPUT"
+          echo "Publishing $VERSION"
+
+      - if: steps.decide.outputs.publish == 'true'
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - if: steps.decide.outputs.publish == 'true'
+        name: Build UI
+        working-directory: ui
+        run: |
+          npm ci
+          npm run build
+
+      - if: steps.decide.outputs.publish == 'true'
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - if: steps.decide.outputs.publish == 'true'
+        name: Cross-compile binaries (freebsd/amd64, freebsd/arm64)
+        env:
+          GOOS: freebsd
+          CGO_ENABLED: "0"
+          VERSION: ${{ steps.decide.outputs.version }}
+        run: |
+          for arch in amd64 arm64; do
+            GOARCH=$arch go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" \
+              -o "fjordd-freebsd-${arch}" ./cmd/fjordd
+          done
+          cp packaging/fjordd.rc fjordd.rc
+          sha256sum fjordd-freebsd-amd64 fjordd-freebsd-arm64 fjordd.rc > SHA256SUMS
+          cat SHA256SUMS
+
+      # Replace last night's release: move the tag, then a fresh release on it.
+      - if: steps.decide.outputs.publish == 'true'
+        name: Publish
+        env:
+          VERSION: ${{ steps.decide.outputs.version }}
+          SHA: ${{ steps.decide.outputs.sha }}
+          BASE: ${{ steps.decide.outputs.base }}
+        run: |
+          {
+            echo "Built from main at ${SHA}: **fjordd ${VERSION}**."
+            echo
+            echo "A nightly build for testing what is merged before the next release. Not for a host you depend on."
+            echo
+            echo "Install (as root):"
+            echo '```sh'
+            echo 'fetch -o /usr/local/sbin/fjordd https://github.com/'"${REPO}"'/releases/download/nightly/fjordd-freebsd-$(uname -m)'
+            echo 'chmod 755 /usr/local/sbin/fjordd && service fjordd restart'
+            echo '```'
+            echo
+            echo "### Since ${BASE}"
+            git log --format='- %s' "${BASE}..${SHA}"
+          } > notes.md
+          gh release delete nightly --repo "$REPO" --yes --cleanup-tag 2>/dev/null || true
+          git tag -f nightly "$SHA"
+          git push -f origin refs/tags/nightly
+          gh release create nightly --repo "$REPO" \
+            --title "fjord nightly ${VERSION}" \
+            --notes-file notes.md \
+            --prerelease \
+            --latest=false \
+            fjordd-freebsd-amd64 fjordd-freebsd-arm64 fjordd.rc SHA256SUMS
