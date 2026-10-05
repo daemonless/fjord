@@ -1,6 +1,8 @@
 package main
 
 import (
+	"fmt"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -74,4 +76,79 @@ func hasControlChars(s string) bool {
 		}
 	}
 	return false
+}
+
+// DNS rebinding: a page on evil.example points that name at this host, and
+// the browser then treats fjord as evil.example -- same origin, so Origin
+// and Referer match Host and sameOrigin passes, and reads (.env secrets)
+// were never checked at all. Only the Host header gives it away: it still
+// says evil.example. So every request must name this host in a way an
+// outsider cannot: an IP, localhost, the machine's own name (bare, FQDN,
+// .local or under the resolver's search domains), or a name the operator
+// listed for a reverse proxy.
+
+// hostAllow is the set of names fjord answers to.
+type hostAllow map[string]bool
+
+// newHostAllow builds the set from the machine's name, the resolver's search
+// domains (resolv.conf: "search" and "domain" lines) and extra, a comma list.
+func newHostAllow(hostname, resolvConf, extra string) hostAllow {
+	a := hostAllow{"localhost": true}
+	add := func(n string) {
+		if n = strings.TrimSuffix(strings.ToLower(strings.TrimSpace(n)), "."); n != "" {
+			a[n] = true
+		}
+	}
+	add(hostname)
+	short, _, _ := strings.Cut(strings.ToLower(hostname), ".")
+	if short != "" {
+		add(short)
+		add(short + ".local")
+		for _, line := range strings.Split(resolvConf, "\n") {
+			f := strings.Fields(line)
+			if len(f) > 1 && (f[0] == "search" || f[0] == "domain") {
+				for _, d := range f[1:] {
+					add(short + "." + d)
+				}
+			}
+		}
+	}
+	for _, n := range strings.Split(extra, ",") {
+		add(n)
+	}
+	return a
+}
+
+// allows reports whether a Host header (port optional) names this host.
+func (a hostAllow) allows(host string) bool {
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		host = h
+	}
+	host = strings.TrimSuffix(strings.ToLower(strings.Trim(host, "[]")), ".")
+	if host == "" {
+		return false
+	}
+	if net.ParseIP(host) != nil || strings.HasSuffix(host, ".localhost") {
+		return true
+	}
+	return a[host]
+}
+
+// guardHost refuses a request whose Host is not one of ours, saying how to
+// allow it. /healthz stays open: it tells nothing, and a reverse proxy's
+// health check may use any name.
+func guardHost(allow hostAllow, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/healthz" && !allow.allows(r.Host) {
+			name := r.Host
+			if h, _, err := net.SplitHostPort(name); err == nil {
+				name = h
+			}
+			http.Error(w, fmt.Sprintf("fjord does not answer to %q. If that is your name for this host, "+
+				"start fjordd with --allowed-hosts %s (rc.conf: fjordd_flags=\"--allowed-hosts %s\").", name, name, name),
+				http.StatusMisdirectedRequest)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }

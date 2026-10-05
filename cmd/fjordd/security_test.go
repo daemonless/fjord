@@ -81,3 +81,49 @@ func TestSameOriginForWebSocketUpgrade(t *testing.T) {
 		}
 	}
 }
+
+// DNS rebinding: evil.example resolves to this host, so the browser sends
+// Origin and Host both as evil.example and sameOrigin passes. Host is what
+// gives it away, on reads as well as writes.
+func TestGuardHost(t *testing.T) {
+	allow := newHostAllow("netlab.ahze.lan", "# resolver\nsearch lan home.arpa\nnameserver 192.168.4.1\n", "fjord.example.com, Photos.Example.COM.")
+	ok := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(200) })
+	h := guardHost(allow, ok)
+	cases := []struct {
+		host, path string
+		want       int
+	}{
+		{"192.168.4.103:3567", "/api/stacks", 200},
+		{"[fe80::1]:3567", "/", 200},
+		{"localhost:3567", "/", 200},
+		{"app.localhost", "/", 200},
+		{"netlab:3567", "/", 200},
+		{"netlab.ahze.lan", "/", 200},
+		{"NETLAB.lan.", "/", 200},
+		{"netlab.home.arpa:3567", "/", 200},
+		{"netlab.local", "/", 200},
+		{"fjord.example.com", "/", 200},
+		{"photos.example.com", "/", 200},
+		{"evil.example:3567", "/api/stacks/immich/env", 421},
+		{"evil.example:3567", "/api/stacks", 421},
+		{"netlab.evil.example", "/", 421},
+		{"", "/", 421},
+		{"evil.example", "/healthz", 200},
+	}
+	for _, c := range cases {
+		req := httptest.NewRequest("GET", "http://x"+c.path, nil)
+		req.Host = c.host
+		rr := httptest.NewRecorder()
+		h.ServeHTTP(rr, req)
+		if rr.Code != c.want {
+			t.Errorf("Host %q %s: got %d, want %d", c.host, c.path, rr.Code, c.want)
+		}
+	}
+	req := httptest.NewRequest("GET", "http://x/", nil)
+	req.Host = "evil.example:3567"
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+	if !strings.Contains(rr.Body.String(), "--allowed-hosts evil.example") {
+		t.Errorf("the refusal must say how to allow the name: %q", rr.Body.String())
+	}
+}
