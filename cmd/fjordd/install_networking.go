@@ -540,3 +540,17 @@ func (s *server) hostOnlyNetworks(ctx context.Context, engineName, private strin
 	}
 	return out
 }
+
+// loopbackHostnames is serviceHostnames for a stack whose every service is on
+// the host's network: each part the stack has is found at 127.0.0.1. A
+// variable whose service the stack does not have (a choice not taken) is
+// left alone.
+func loopbackHostnames(hostnames map[string]string, services []composepkg.Service) map[string]string {
+	out := map[string]string{}
+	for _, svc := range services {
+		if v := hostnames[svc.Name]; v != "" {
+			out[v] = "127.0.0.1"
+		}
+	}
+	return out
+}

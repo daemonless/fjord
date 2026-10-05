@@ -50,6 +50,9 @@ type Option struct {
 	DependsOn map[string][]string
 	Drop      []string
 	Ask       []Ask
+	// Hostnames is the option's share of the stack's hostnames: a service it
+	// adds -> the variable that carries its host name.
+	Hostnames map[string]string
 }
 
 // Ask is a value an option needs from the person: shown only when the
@@ -255,6 +258,7 @@ func Parse(manifestYAML string) (*Manifest, error) {
 				Services  string              `yaml:"services"`
 				DependsOn map[string][]string `yaml:"depends_on"`
 				Drop      []string            `yaml:"drop"`
+				Hostnames map[string]string   `yaml:"hostnames"`
 				Ask       []struct {
 					Name    string            `yaml:"name"`
 					Label   string            `yaml:"label"`
@@ -290,7 +294,7 @@ func Parse(manifestYAML string) (*Manifest, error) {
 		ch := Choice{ID: c.ID, Kind: c.Kind, Label: c.Label, Doc: c.Doc, Default: c.Default}
 		for _, o := range c.Options {
 			op := Option{ID: o.ID, Label: o.Label, Doc: o.Doc, Env: o.Env, Defaults: o.Defaults, Secrets: o.Secrets,
-				Services: o.Services, DependsOn: o.DependsOn, Drop: o.Drop}
+				Services: o.Services, DependsOn: o.DependsOn, Drop: o.Drop, Hostnames: o.Hostnames}
 			for _, a := range o.Ask {
 				op.Ask = append(op.Ask, Ask{Name: a.Name, Label: a.Label, Default: a.Default, Type: a.Type, Values: a.Values})
 			}

@@ -322,6 +322,15 @@ func (s *server) handleInstall(w http.ResponseWriter, r *http.Request) {
 		composeYAML, err = composepkg.DisableNetwork(composeYAML)
 	case netActionHost:
 		composeYAML, err = composepkg.HostNetwork(composeYAML)
+		// Every service shares the host's network: no container DNS, so a
+		// part is found at 127.0.0.1, not by its name. Vikunja's MariaDB
+		// choice sets VIKUNJA_DATABASE_HOST=mariadb -- right on a compose
+		// network, unresolvable here.
+		if err == nil {
+			for k, v := range loopbackHostnames(m.Hostnames, composepkg.ParseServices(composeYAML, res.Env)) {
+				res.Env[k] = v
+			}
+		}
 	case netActionAttach:
 		// Only when a stack-level network was named. An install that lists its
 		// interfaces per service sends none, and checking the empty string

@@ -38,6 +38,16 @@ func (m *Manifest) ApplyChoices(picks map[string]string, values map[string]strin
 		}
 		answers[c.ID] = o.ID
 		drop = append(drop, o.Drop...)
+		// The services it adds join the stack's hostnames, so the install
+		// can point their variables where they are reachable.
+		for svc, v := range o.Hostnames {
+			if m.Hostnames == nil {
+				m.Hostnames = map[string]string{}
+			}
+			if _, ok := m.Hostnames[svc]; !ok {
+				m.Hostnames[svc] = v
+			}
+		}
 		// The option's env is the answer itself (the database type, the
 		// host); it wins over anything typed.
 		for k, v := range o.Env {

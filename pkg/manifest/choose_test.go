@@ -54,6 +54,7 @@ x-fjord:
                 environment:
                   - POSTGRES_PASSWORD=${APP_DB_PASSWORD}
           depends_on: {app: [postgres]}
+          hostnames: {postgres: APP_DB_HOST}
         - id: external
           label: Your own
           ask:
@@ -148,5 +149,22 @@ func TestUnknownOptionIsRefused(t *testing.T) {
 	m, _ := Parse(choosy)
 	if _, err := m.ApplyChoices(map[string]string{"database": "oracle"}, map[string]string{}); err == nil {
 		t.Error("want an error naming the options")
+	}
+}
+
+// The picked option's hostnames join the stack's (so a host-network install
+// can point APP_DB_HOST at 127.0.0.1); one not picked adds nothing.
+func TestApplyChoicesMergesHostnames(t *testing.T) {
+	for pick, want := range map[string]string{"postgres": "APP_DB_HOST", "sqlite": ""} {
+		m, err := Parse(choosy)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := m.ApplyChoices(map[string]string{"database": pick}, map[string]string{}); err != nil {
+			t.Fatal(err)
+		}
+		if got := m.Hostnames["postgres"]; got != want {
+			t.Errorf("%s: hostnames[postgres] = %q, want %q", pick, got, want)
+		}
 	}
 }
