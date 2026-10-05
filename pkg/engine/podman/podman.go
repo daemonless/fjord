@@ -88,7 +88,10 @@ func (b *Backend) bringUp(ctx context.Context, pw *io.PipeWriter, s *stack.Stack
 	// A copy of what compose says, to explain a failure its own words don't.
 	seen := &lastBytes{}
 	out := io.MultiWriter(pw, seen)
-	err := b.runStreaming(ctx, out, s.Dir, "podman-compose", args...)
+	err := b.composeUp(ctx, out, s, args...)
+	if errors.Is(err, errDependencyFailed) {
+		return // starting the rest anyway would only hide it
+	}
 	// A plain up tolerates a failure here: compose can leave a container in
 	// "created" and the explicit `podman start` below recovers it. A recreate
 	// cannot -- if the teardown was refused the OLD container is still there,
@@ -115,7 +118,9 @@ func (b *Backend) bringUp(ctx context.Context, pw *io.PipeWriter, s *stack.Stack
 			fmt.Fprintf(pw, "\n[warn] recreate refused (%s); force-removing the containers being replaced and retrying\n", why)
 			b.forceRemoveStackContainers(ctx, pw, s, targets)
 			b.releaseOrphanAddresses(ctx, pw, s)
-			err = b.runStreaming(ctx, out, s.Dir, "podman-compose", args...)
+			if err = b.composeUp(ctx, out, s, args...); errors.Is(err, errDependencyFailed) {
+				return
+			}
 		}
 	}
 	if b.explainNoDHCP(ctx, pw, seen.String()) {
@@ -479,6 +484,7 @@ type containerHealth struct {
 	State        struct {
 		Running   bool      `json:"Running"`
 		ExitCode  int       `json:"ExitCode"`
+		Error     string    `json:"Error"` // why podman could not start it
 		StartedAt time.Time `json:"StartedAt"`
 		Health    *struct {
 			Status string `json:"Status"`
