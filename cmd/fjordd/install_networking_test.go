@@ -413,3 +413,13 @@ func TestLabelPrivateNetworks(t *testing.T) {
 		}
 	}
 }
+
+// Vikunja on MariaDB, installed on host networking: VIKUNJA_DATABASE_HOST is
+// "mariadb" from the choice, which no container DNS answers there.
+func TestLoopbackHostnames(t *testing.T) {
+	hostnames := map[string]string{"mariadb": "VIKUNJA_DATABASE_HOST", "postgres": "VIKUNJA_DATABASE_HOST", "redis": "REDIS_HOST"}
+	got := loopbackHostnames(hostnames, []composepkg.Service{{Name: "vikunja"}, {Name: "mariadb"}})
+	if len(got) != 1 || got["VIKUNJA_DATABASE_HOST"] != "127.0.0.1" {
+		t.Fatalf("got %v, want only VIKUNJA_DATABASE_HOST=127.0.0.1 (no redis: the stack has none)", got)
+	}
+}
