@@ -222,6 +222,6 @@ func (b *Backend) pullMissing(ctx context.Context, pw io.Writer, s *stack.Stack,
 		if p, err := b.ImagePlatform(ctx, svc.Image); err != nil || p != "" {
 			continue
 		}
-		b.runStreaming(ctx, pw, s.Dir, "podman", "pull", svc.Image)
+		b.pullNoticed(ctx, pw, s.Dir, svc.Image)
 	}
 }

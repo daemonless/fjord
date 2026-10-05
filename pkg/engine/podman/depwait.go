@@ -75,18 +75,31 @@ func (d *depWatch) observe(now time.Time, failed []failedContainer, lastOutput t
 	return stuck
 }
 
-// stampedWriter notes when anything was last written through it.
+// stampedWriter notes when the command last wrote, and when anything did
+// (the command or a fjord notice): the stuck-dependency watch needs the
+// command's own silence, which the notices must not hide.
 type stampedWriter struct {
-	w    io.Writer
-	mu   sync.Mutex
-	last time.Time
+	w       io.Writer
+	mu      sync.Mutex
+	last    time.Time // any line
+	lastCmd time.Time // the command's own output
 }
 
+// Write holds the lock across the write, so a fjord notice never lands in the
+// middle of a line the command is writing.
 func (s *stampedWriter) Write(p []byte) (int, error) {
 	s.mu.Lock()
-	s.last = time.Now()
-	s.mu.Unlock()
+	defer s.mu.Unlock()
+	s.last, s.lastCmd = time.Now(), time.Now()
 	return s.w.Write(p)
+}
+
+// note writes a fjord line without counting it as the command's output.
+func (s *stampedWriter) note(line string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.last = time.Now()
+	io.WriteString(s.w, line)
 }
 
 func (s *stampedWriter) lastWrite() time.Time {
@@ -95,11 +108,17 @@ func (s *stampedWriter) lastWrite() time.Time {
 	return s.last
 }
 
+func (s *stampedWriter) lastCmdWrite() time.Time {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.lastCmd
+}
+
 // composeUp runs `podman-compose <args>` like runStreaming, stopping it with
 // errDependencyFailed when it is stuck waiting on a service that failed.
 func (b *Backend) composeUp(ctx context.Context, w io.Writer, s *stack.Stack, args ...string) error {
 	fmt.Fprintf(w, "$ podman-compose %s\n", strings.Join(args, " "))
-	out := &stampedWriter{w: w, last: time.Now()}
+	out := &stampedWriter{w: w, last: time.Now(), lastCmd: time.Now()}
 	cmd := exec.CommandContext(ctx, "podman-compose", args...)
 	cmd.Dir = s.Dir
 	cmd.Stdout, cmd.Stderr = out, out
@@ -114,6 +133,8 @@ func (b *Backend) composeUp(ctx context.Context, w io.Writer, s *stack.Stack, ar
 	if err := cmd.Start(); err != nil {
 		return err
 	}
+	stopNotice := quietNotice(out, "waiting on podman-compose (it prints nothing while a container starts)")
+	defer stopNotice()
 	go func() {
 		watch := &depWatch{grace: depWaitGrace}
 		tick := time.NewTicker(2 * time.Second)
@@ -124,7 +145,7 @@ func (b *Backend) composeUp(ctx context.Context, w io.Writer, s *stack.Stack, ar
 				return
 			case <-tick.C:
 			}
-			got := watch.observe(time.Now(), b.failedContainers(ctx, s), out.lastWrite())
+			got := watch.observe(time.Now(), b.failedContainers(ctx, s), out.lastCmdWrite())
 			if len(got) == 0 {
 				continue
 			}

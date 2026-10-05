@@ -35,6 +35,7 @@ type server struct {
 	listenAddr string       // reported by /api/about
 	fleet      fleetUpdates // cached fleet-wide update state
 	seen       *firstSeen   // when each update candidate was first seen (soak)
+	live       *liveStatus  // status for the pages, never waiting long on the engine
 	events     *eventHub    // SSE pub/sub; fed by runEventLoop
 
 	segs segmentCache // what each bridge's wire said when probed (network_segment.go)

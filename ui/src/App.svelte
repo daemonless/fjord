@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { staleNote } from './staleNote';
   import { onMount, onDestroy, tick } from 'svelte';
   import RemoteFolderForm from './RemoteFolderForm.svelte';
   import { ensureRemoteVolume, remoteKind, type RemoteKind } from './remote';
@@ -41,7 +42,7 @@
     detail?: string; // one-line reason for a non-running state (appjail: crash-looping app)
     address?: string; // the container's own IP on an attachable network
   };
-  type StackStatus = { state: string; containers: ContainerStatus[] };
+  type StackStatus = { state: string; containers: ContainerStatus[]; staleSince?: string };
   type StackState = { group?: string; desired_state?: string; engine?: string; order?: number; origin?: { type?: string; app_id?: string }; choices?: Record<string, string>; pending_services?: string[]; last_failure?: { action: string; at: string; message: string } };
   type Stack = { name: string; displayName?: string; icon?: string; dir: string; compose: string; env: string; director?: string; makejail?: string; engine?: string; status?: StackStatus; state?: StackState; services?: any[]; composeHash?: string; busy?: string; linkHost?: string };
   // What the UI shows for a stack: its label, falling back to the id.
@@ -2144,6 +2145,13 @@
                 ? BUSY_LABEL[selectedStack.busy] ?? 'Busy…'
                 : statusLabel(selectedStack.status)}</span
             >
+            {#if staleNote(selectedStack.status, selectedStack.state?.engine || selectedStack.engine)}
+              <span
+                class="shrink-0 text-xs text-fjord-fg-dim"
+                title="The engine did not answer in time -- usually a pull writing an image to disk. The state updates as soon as it answers."
+                >{staleNote(selectedStack.status, selectedStack.state?.engine || selectedStack.engine)}</span
+              >
+            {/if}
             {#each (selectedStack.status?.containers || []).filter((c) => c.detail) as c}
               <span class="shrink-0 text-xs text-fjord-warning truncate" title={c.name}>{c.detail}</span>
             {/each}

@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"time"
 
 	"github.com/daemonless/fjord/pkg/stack"
 )
@@ -67,6 +68,9 @@ type ContainerStatus struct {
 type StackStatus struct {
 	State      string            `json:"state"`
 	Containers []ContainerStatus `json:"containers"`
+	// StaleSince is set when the engine did not answer in time: the status
+	// is the last one it gave, at that moment. Zero = asked just now.
+	StaleSince time.Time `json:"staleSince,omitzero"`
 }
 
 // Network describes a container network a stack can attach to so it gets its
