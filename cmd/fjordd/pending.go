@@ -17,17 +17,19 @@ func (s *server) recordPending(name string, changed []string) {
 	if len(changed) == 0 {
 		return
 	}
-	st, err := s.manager.LoadState(name)
-	if err != nil || st == nil {
-		return
-	}
-	for _, svc := range changed {
-		if !slices.Contains(st.PendingServices, svc) {
-			st.PendingServices = append(st.PendingServices, svc)
+	err := s.manager.UpdateState(name, func(st *stack.State) *stack.State {
+		if st == nil {
+			return nil
 		}
-	}
-	slices.Sort(st.PendingServices)
-	if err := s.manager.SaveState(name, st); err != nil {
+		for _, svc := range changed {
+			if !slices.Contains(st.PendingServices, svc) {
+				st.PendingServices = append(st.PendingServices, svc)
+			}
+		}
+		slices.Sort(st.PendingServices)
+		return st
+	})
+	if err != nil {
 		log.Printf("save %s: record changed services: %v", name, err)
 	}
 }
@@ -61,16 +63,18 @@ func (s *server) clearPendingAfter(name string, done []string, stream io.ReadClo
 		if watch.seen {
 			return ""
 		}
-		st, err := s.manager.LoadState(name)
-		if err != nil || st == nil || len(st.PendingServices) == 0 {
-			return ""
-		}
-		if done == nil {
-			st.PendingServices = nil
-		} else {
-			st.PendingServices = slices.DeleteFunc(st.PendingServices, func(svc string) bool { return slices.Contains(done, svc) })
-		}
-		if err := s.manager.SaveState(name, st); err != nil {
+		err := s.manager.UpdateState(name, func(st *stack.State) *stack.State {
+			if st == nil || len(st.PendingServices) == 0 {
+				return nil
+			}
+			if done == nil {
+				st.PendingServices = nil
+			} else {
+				st.PendingServices = slices.DeleteFunc(st.PendingServices, func(svc string) bool { return slices.Contains(done, svc) })
+			}
+			return st
+		})
+		if err != nil {
 			log.Printf("%s: clear applied changes: %v", name, err)
 		}
 		return ""
@@ -131,19 +135,21 @@ func (s *server) recordOutcome(name, action string, stream io.ReadCloser) io.Rea
 	kept := outputs.current(name, action)
 	return &thenReader{r: io.TeeReader(io.TeeReader(stream, watch), kept), c: stream, after: func() string {
 		kept.finish()
-		st, err := s.manager.LoadState(name)
-		if err != nil || st == nil {
-			return ""
-		}
 		if watch.seen {
-			st.LastFailure = &stack.Failure{Action: action, At: time.Now(), Message: watch.Message()}
 			log.Printf("%s %s failed: %s", action, name, watch.Message())
-		} else if st.LastFailure == nil {
-			return ""
-		} else {
-			st.LastFailure = nil
 		}
-		if err := s.manager.SaveState(name, st); err != nil {
+		err := s.manager.UpdateState(name, func(st *stack.State) *stack.State {
+			if st == nil || (!watch.seen && st.LastFailure == nil) {
+				return nil
+			}
+			if watch.seen {
+				st.LastFailure = &stack.Failure{Action: action, At: time.Now(), Message: watch.Message()}
+			} else {
+				st.LastFailure = nil
+			}
+			return st
+		})
+		if err != nil {
 			log.Printf("%s %s: record outcome: %v", action, name, err)
 		}
 		return ""

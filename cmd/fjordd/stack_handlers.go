@@ -1263,17 +1263,16 @@ func (s *server) stackDismissFailure(w http.ResponseWriter, name string) {
 		http.Error(w, "Stack not found", 404)
 		return
 	}
-	st, err := s.manager.LoadState(name)
+	err := s.manager.UpdateState(name, func(st *stack.State) *stack.State {
+		if st == nil || st.LastFailure == nil {
+			return nil
+		}
+		st.LastFailure = nil
+		return st
+	})
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
-	}
-	if st != nil && st.LastFailure != nil {
-		st.LastFailure = nil
-		if err := s.manager.SaveState(name, st); err != nil {
-			http.Error(w, err.Error(), 500)
-			return
-		}
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
