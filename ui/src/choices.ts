@@ -3,7 +3,15 @@ import * as yaml from 'js-yaml';
 // One option of a stack choice as the manifest carries it (x-fjord.choices).
 // drop names services the option removes; services is compose YAML for the
 // ones it adds.
-export type ChoiceOption = { id: string; drop?: string[]; services?: string };
+export type ChoiceOption = {
+  id: string;
+  drop?: string[];
+  services?: string;
+  env?: Record<string, string>;
+  defaults?: Record<string, string>;
+  secrets?: string[];
+  ask?: { name: string }[];
+};
 export type StackChoice = { id: string; default: string; options: ChoiceOption[] };
 
 /**
@@ -28,5 +36,25 @@ export function chosenServices(base: string[], choices: StackChoice[], picks: Re
   }
   const out = base.filter((s) => !dropped.has(s));
   for (const s of added) if (!out.includes(s)) out.push(s);
+  return out;
+}
+
+/**
+ * choiceVars are the variables a stack's choices set: what any option's env
+ * fixes, fills by default, makes up as a secret, or asks for. The choice row
+ * is their control. Listed again under Options they showed the catalog's
+ * default -- Vikunja on MariaDB read VIKUNJA_DATABASE_TYPE "sqlite" -- and
+ * took typing the option then overrode.
+ */
+export function choiceVars(choices: StackChoice[]): Set<string> {
+  const out = new Set<string>();
+  for (const c of choices) {
+    for (const o of c.options) {
+      for (const k of Object.keys(o.env ?? {})) out.add(k);
+      for (const k of Object.keys(o.defaults ?? {})) out.add(k);
+      for (const k of o.secrets ?? []) out.add(k);
+      for (const a of o.ask ?? []) out.add(a.name);
+    }
+  }
   return out;
 }
