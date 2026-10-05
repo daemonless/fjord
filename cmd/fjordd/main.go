@@ -296,6 +296,7 @@ func main() {
 		listenAddr: addr,
 		events:     newEventHub(),
 		seen:       newFirstSeen(fjordRoot),
+		live:       newLiveStatus(),
 	}
 	busyEvents = srv.events
 	srv.segs.load(filepath.Join(fjordRoot, "segments.json"))

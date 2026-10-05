@@ -85,14 +85,23 @@ func (s *server) handleStacksList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	enriched := make([]stackWithStatus, 0, len(stacks))
-	for _, st := range stacks {
+	// All at once: one by one, a busy engine cost the list statusWait per
+	// stack.
+	statuses := make([]engine.StackStatus, len(stacks))
+	var wg sync.WaitGroup
+	for i, st := range stacks {
 		if full, err := s.manager.Get(st.Name); err == nil {
-			st = full
+			stacks[i] = full
 		}
-		status, err := s.backendFor(st).Status(r.Context(), st)
-		if err != nil {
-			status = engine.StackStatus{State: "unknown"}
-		}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			statuses[i] = s.live.get(s.backendFor(stacks[i]), stacks[i], statusWait)
+		}()
+	}
+	wg.Wait()
+	for i, st := range stacks {
+		status := statuses[i]
 		// The list needs the networks too: without them its Open link cannot
 		// tell "publishes on the host" from "has its own address", and builds
 		// a host URL that times out.
@@ -224,10 +233,7 @@ func (s *server) stackDetail(w http.ResponseWriter, r *http.Request, name string
 		http.Error(w, "Stack not found", 404)
 		return
 	}
-	status, err := s.backendFor(st).Status(r.Context(), st)
-	if err != nil {
-		status = engine.StackStatus{State: "unknown"}
-	}
+	status := s.live.get(s.backendFor(st), st, statusWait)
 	w.Header().Set("Content-Type", "application/json")
 	// appjail never reads compose.yaml for networking, so for a director stack
 	// the compose's networks: block is a wish and the director is the fact.

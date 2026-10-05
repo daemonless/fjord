@@ -362,7 +362,7 @@ func (b *Backend) Update(ctx context.Context, s *stack.Stack, services []string)
 		if more := extra(recreate, services); len(more) > 0 {
 			fmt.Fprintf(pw, "[fjord] also recreating %s: it depends on %s\n", strings.Join(more, ", "), strings.Join(services, ", "))
 		}
-		if err := b.runStreaming(ctx, pw, s.Dir, "podman", append([]string{"compose", "pull"}, services...)...); err != nil {
+		if err := b.runNoticed(ctx, pw, s.Dir, "pulling the new images", "podman", append([]string{"compose", "pull"}, services...)...); err != nil {
 			fmt.Fprintf(pw, "\n[error] pull: %v\n", err)
 			return
 		}

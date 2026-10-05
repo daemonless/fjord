@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -120,21 +119,20 @@ func (s *server) runEventLoop() {
 				continue
 			}
 			seen[full.Name] = true
-			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-			status, err := s.backendFor(full).Status(ctx, full)
-			cancel()
-			state := "unknown"
-			if err == nil {
-				state = status.State
-			}
+			// Through liveStatus: a busy engine gives the last state, marked
+			// stale, where a timeout here used to publish "unknown" and then
+			// the real state again.
+			status := s.live.get(s.backendFor(full), full, statusWait)
+			state := status.State
 			// Where Open goes changes without the state changing: a DHCP
 			// lease lands after "running". Sent with the status, or the page
 			// kept the empty link it saw mid-recreate and opened 10.89.x.
 			link := linkHost(stackServices(full, status), ownAddress)
-			if last[full.Name] == state+"|"+link {
+			key := fmt.Sprintf("%s|%s|%t", state, link, !status.StaleSince.IsZero())
+			if last[full.Name] == key {
 				continue
 			}
-			last[full.Name] = state + "|" + link
+			last[full.Name] = key
 			if b, err := json.Marshal(map[string]any{
 				"type":     "stack",
 				"name":     full.Name,
@@ -149,6 +147,7 @@ func (s *server) runEventLoop() {
 		for name := range last {
 			if !seen[name] {
 				delete(last, name)
+				s.live.forget(name)
 				if b, err := json.Marshal(map[string]any{"type": "stack-removed", "name": name}); err == nil {
 					s.events.publish(b)
 				}
