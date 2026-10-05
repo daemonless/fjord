@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { staleNote } from './staleNote';
+  import { staleNote, statusKey } from './staleNote';
   import { onMount, onDestroy, tick } from 'svelte';
   import RemoteFolderForm from './RemoteFolderForm.svelte';
   import { ensureRemoteVolume, remoteKind, type RemoteKind } from './remote';
@@ -52,11 +52,14 @@
     running: 'bg-fjord-success/10 border-fjord-success/20 text-fjord-success',
     partial: 'bg-fjord-warning/10 border-fjord-warning/20 text-fjord-warning',
     stopped: 'bg-fjord-neutral/10 border-fjord-neutral/20 text-fjord-fg-muted',
-    unknown: 'bg-fjord-danger/10 border-fjord-danger/20 text-fjord-danger',
+    // Not known yet is not broken: grey, not red.
+    checking: 'bg-fjord-neutral/10 border-fjord-neutral/20 text-fjord-fg-dim',
+    // The engine answered and could not say (socket down): a host problem.
+    unknown: 'bg-fjord-warning/10 border-fjord-warning/20 text-fjord-warning',
   };
 
   function statusLabel(status: StackStatus | undefined): string {
-    return status?.state ?? 'unknown';
+    return statusKey(status);
   }
 
   function statusStyle(status: StackStatus | undefined): string {
@@ -67,7 +70,8 @@
     running: 'bg-fjord-success',
     partial: 'bg-fjord-warning',
     stopped: 'bg-fjord-neutral',
-    unknown: 'bg-fjord-danger',
+    checking: 'bg-fjord-neutral animate-pulse',
+    unknown: 'bg-fjord-warning',
   };
   function dot(status: StackStatus | undefined): string {
     return DOT[statusLabel(status)] ?? DOT.unknown;

@@ -1,5 +1,6 @@
 <script lang="ts">
   import { problem } from './stackHealth';
+  import { statusKey } from './staleNote';
   import { onMount, createEventDispatcher } from 'svelte';
   import Icon from './Icon.svelte';
   import EngineMark from './EngineMark.svelte';
@@ -35,9 +36,10 @@
     running: 'bg-fjord-success',
     partial: 'bg-fjord-warning',
     stopped: 'bg-fjord-neutral',
-    unknown: 'bg-fjord-danger',
+    checking: 'bg-fjord-neutral animate-pulse', // not known yet is not broken
+    unknown: 'bg-fjord-warning',
   };
-  const label = (s?: StackStatus) => s?.state ?? 'unknown';
+  const label = (s?: StackStatus) => statusKey(s);
   const running = (s?: StackStatus) => s?.state === 'running' || s?.state === 'partial';
 
   $: runningCount = stacks.filter((s) => running(s.status)).length;
