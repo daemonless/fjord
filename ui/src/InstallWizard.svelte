@@ -8,7 +8,7 @@
   import DirPicker from './DirPicker.svelte';
   import { addressProblem, usableRange, randomMAC } from './network';
   import ServiceResources from './ServiceResources.svelte';
-  import { chosenServices } from './choices';
+  import { chosenServices, choiceVars } from './choices';
   import { resolveDefault, seedInterfaces, splitPlan, joinable, keepAttachable, addressesNeeded, type Iface } from './planSeed';
 
   // sources: every catalog offering this app; the user picks one (Repository)
@@ -287,9 +287,13 @@
     if (v.advanced === false) return 'options';
     return v.type === 'path' || v.type === 'port' || v.type === 'image_tag' ? 'options' : 'advanced';
   };
-  $: primaryVars = variables.filter((v) => levelOf(v) === 'primary');
-  $: optionVars = variables.filter((v) => levelOf(v) === 'options');
-  $: advancedVars = variables.filter((v) => levelOf(v) === 'advanced');
+  // A variable a choice sets is the choice's to show (see choiceVars): the
+  // row above Options, and its asks when an option has them.
+  $: byChoice = choiceVars(choices);
+  $: listedVars = variables.filter((v) => !byChoice.has(v.name));
+  $: primaryVars = listedVars.filter((v) => levelOf(v) === 'primary');
+  $: optionVars = listedVars.filter((v) => levelOf(v) === 'options');
+  $: advancedVars = listedVars.filter((v) => levelOf(v) === 'advanced');
   let showOptions = false;
   let advancedOpen = false; // Settings → Advanced can pre-open these (wizard detail 2/3)
   // One line that states the defaults being accepted, so nobody has to open
@@ -333,7 +337,7 @@
   // variable is a single value in formData. Deps are spelled out (formData,
   // paths): a legacy-mode `$:` only tracks variables named in the statement.
   $: missingRequired = [
-    ...variables.filter(
+    ...listedVars.filter(
       (v) =>
         v.optional !== true &&
         !(v.type === 'path' ? (paths[v.name] || []).some((p) => p.trim()) : String(formData[v.name] ?? '').trim()),
