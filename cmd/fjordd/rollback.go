@@ -41,23 +41,25 @@ func (s *server) recordRollback(ctx context.Context, st *stack.Stack, services [
 			composeImage[si.Service] = si.Image
 		}
 	}
-	state, err := s.manager.LoadState(st.Name)
-	if err != nil || state == nil {
-		return
-	}
-	if state.Rollback == nil {
-		state.Rollback = map[string]stack.RollbackImage{}
-	}
 	now := time.Now().UTC().Format(time.RFC3339)
-	for _, ri := range ris {
-		if ri.Digest == "" || ri.Ref == "" || (len(services) > 0 && !slices.Contains(services, ri.Service)) {
-			continue
+	err = s.manager.UpdateState(st.Name, func(state *stack.State) *stack.State {
+		if state == nil {
+			return nil
 		}
-		state.Rollback[ri.Service] = stack.RollbackImage{
-			Compose: composeImage[ri.Service], Ref: ri.Ref, Digest: ri.Digest, At: now,
+		if state.Rollback == nil {
+			state.Rollback = map[string]stack.RollbackImage{}
 		}
-	}
-	if err := s.manager.SaveState(st.Name, state); err != nil {
+		for _, ri := range ris {
+			if ri.Digest == "" || ri.Ref == "" || (len(services) > 0 && !slices.Contains(services, ri.Service)) {
+				continue
+			}
+			state.Rollback[ri.Service] = stack.RollbackImage{
+				Compose: composeImage[ri.Service], Ref: ri.Ref, Digest: ri.Digest, At: now,
+			}
+		}
+		return state
+	})
+	if err != nil {
 		log.Printf("rollback record for %s: %v", st.Name, err)
 	}
 }

@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -161,6 +162,11 @@ func (s *Stack) EnvMap() map[string]string {
 // Manager handles CRUD operations for stacks on the filesystem.
 type Manager struct {
 	StacksDir string
+	// locks holds a *sync.Mutex per stack, taken across each state.json
+	// load-change-save: two changes at once (a rename while an update
+	// records its rollback) otherwise both load the old file and the second
+	// save drops the first one's field.
+	locks sync.Map
 }
 
 // NewManager initializes a new stack manager.
@@ -377,12 +383,16 @@ func (m *Manager) MigrateEngine(engine string) ([]string, error) {
 		if s.State != nil && s.State.Engine != "" {
 			continue
 		}
-		st := s.State
-		if st == nil {
-			st = &State{SchemaVersion: stateSchemaVersion}
-		}
-		st.Engine = engine
-		if err := m.SaveState(s.Name, st); err != nil {
+		err := m.UpdateState(s.Name, func(st *State) *State {
+			if st == nil {
+				st = &State{SchemaVersion: stateSchemaVersion}
+			}
+			if st.Engine == "" {
+				st.Engine = engine
+			}
+			return st
+		})
+		if err != nil {
 			return migrated, fmt.Errorf("%s: %w", s.Name, err)
 		}
 		migrated = append(migrated, s.Name)
@@ -394,46 +404,40 @@ func (m *Manager) MigrateEngine(engine string) ([]string, error) {
 // (state.json only). Identity (dir, compose project, containers, volumes) is
 // unchanged, so a rename never stops or recreates anything.
 func (m *Manager) SetDisplayName(id, name string) error {
-	st, err := m.LoadState(id)
-	if err != nil {
-		return err
-	}
-	if st == nil {
-		st = &State{SchemaVersion: stateSchemaVersion}
-	}
-	st.DisplayName = strings.TrimSpace(name)
-	return m.SaveState(id, st)
+	return m.UpdateState(id, func(st *State) *State {
+		if st == nil {
+			st = &State{SchemaVersion: stateSchemaVersion}
+		}
+		st.DisplayName = strings.TrimSpace(name)
+		return st
+	})
 }
 
 // SetUpdatePolicy records a stack's update policy and per-service overrides.
 // Validation is the caller's: this package does not know the policy names.
 func (m *Manager) SetUpdatePolicy(id, policy string, services map[string]string) error {
-	st, err := m.LoadState(id)
-	if err != nil {
-		return err
-	}
-	if st == nil {
-		st = &State{SchemaVersion: stateSchemaVersion}
-	}
-	st.UpdatePolicy = policy
-	st.ServicePolicy = services
-	if len(services) == 0 {
-		st.ServicePolicy = nil
-	}
-	return m.SaveState(id, st)
+	return m.UpdateState(id, func(st *State) *State {
+		if st == nil {
+			st = &State{SchemaVersion: stateSchemaVersion}
+		}
+		st.UpdatePolicy = policy
+		st.ServicePolicy = services
+		if len(services) == 0 {
+			st.ServicePolicy = nil
+		}
+		return st
+	})
 }
 
 // SetEngine records which runtime a stack runs on (set once at install).
 func (m *Manager) SetEngine(id, engine string) error {
-	st, err := m.LoadState(id)
-	if err != nil {
-		return err
-	}
-	if st == nil {
-		st = &State{SchemaVersion: stateSchemaVersion}
-	}
-	st.Engine = engine
-	return m.SaveState(id, st)
+	return m.UpdateState(id, func(st *State) *State {
+		if st == nil {
+			st = &State{SchemaVersion: stateSchemaVersion}
+		}
+		st.Engine = engine
+		return st
+	})
 }
 
 // SetAppID records the catalog app this stack was installed from, so the UI can
@@ -443,15 +447,13 @@ func (m *Manager) SetAppID(id, appID string) error {
 	if appID == "" {
 		return nil
 	}
-	st, err := m.LoadState(id)
-	if err != nil {
-		return err
-	}
-	if st == nil {
-		st = &State{SchemaVersion: stateSchemaVersion}
-	}
-	st.Origin.AppID = appID
-	return m.SaveState(id, st)
+	return m.UpdateState(id, func(st *State) *State {
+		if st == nil {
+			st = &State{SchemaVersion: stateSchemaVersion}
+		}
+		st.Origin.AppID = appID
+		return st
+	})
 }
 
 // displayName resolves what the UI shows: the stored label, else the id.
@@ -485,8 +487,36 @@ func (m *Manager) LoadState(name string) (*State, error) {
 }
 
 // SaveState atomically writes a stack's state.json via a temp file in the same
-// directory + rename, so a crash mid-write can't leave a truncated file.
+// directory + rename, so a crash mid-write can't leave a truncated file. It
+// replaces the whole file: to change a field, use UpdateState.
 func (m *Manager) SaveState(name string, st *State) error {
+	defer m.lock(name)()
+	return m.saveState(name, st)
+}
+
+// UpdateState changes a stack's state.json under that stack's lock: change
+// gets the state as it is on disk (nil when there is none) and returns the
+// state to write, or nil to write nothing.
+func (m *Manager) UpdateState(name string, change func(st *State) *State) error {
+	defer m.lock(name)()
+	st, err := m.LoadState(name)
+	if err != nil {
+		return err
+	}
+	if st = change(st); st == nil {
+		return nil
+	}
+	return m.saveState(name, st)
+}
+
+// lock takes the stack's state lock and returns its release.
+func (m *Manager) lock(name string) func() {
+	mu, _ := m.locks.LoadOrStore(name, &sync.Mutex{})
+	mu.(*sync.Mutex).Lock()
+	return mu.(*sync.Mutex).Unlock
+}
+
+func (m *Manager) saveState(name string, st *State) error {
 	if !validName.MatchString(name) {
 		return ErrInvalidName
 	}
@@ -553,52 +583,46 @@ func writeFileAtomic(path string, data []byte, perm os.FileMode) error {
 // stack's compose is saved, otherwise just bumps UpdatedAt. It never changes
 // a desired_state already set by up/down.
 func (m *Manager) EnsureState(name string) error {
-	st, err := m.LoadState(name)
-	if err != nil {
-		return err
-	}
-	now := time.Now().UTC().Format(time.RFC3339)
-	if st == nil {
-		st = &State{DesiredState: "stopped", InstalledAt: now}
-	}
-	if st.InstalledAt == "" {
-		st.InstalledAt = now
-	}
-	st.UpdatedAt = now
-	return m.SaveState(name, st)
+	return m.UpdateState(name, func(st *State) *State {
+		now := time.Now().UTC().Format(time.RFC3339)
+		if st == nil {
+			st = &State{DesiredState: "stopped", InstalledAt: now}
+		}
+		if st.InstalledAt == "" {
+			st.InstalledAt = now
+		}
+		st.UpdatedAt = now
+		return st
+	})
 }
 
 // SetDesiredState records the operator's intent ("running" after up, "stopped"
 // after down) so start-on-boot can restore it. Creates state.json if absent.
 func (m *Manager) SetDesiredState(name, desired string) error {
-	st, err := m.LoadState(name)
-	if err != nil {
-		return err
-	}
-	now := time.Now().UTC().Format(time.RFC3339)
-	if st == nil {
-		st = &State{InstalledAt: now}
-	}
-	if st.InstalledAt == "" {
-		st.InstalledAt = now
-	}
-	st.DesiredState = desired
-	st.UpdatedAt = now
-	return m.SaveState(name, st)
+	return m.UpdateState(name, func(st *State) *State {
+		now := time.Now().UTC().Format(time.RFC3339)
+		if st == nil {
+			st = &State{InstalledAt: now}
+		}
+		if st.InstalledAt == "" {
+			st.InstalledAt = now
+		}
+		st.DesiredState = desired
+		st.UpdatedAt = now
+		return st
+	})
 }
 
 // SetGroup sets a stack's optional sidebar grouping label (empty = ungrouped).
 func (m *Manager) SetGroup(name, group string) error {
-	st, err := m.LoadState(name)
-	if err != nil {
-		return err
-	}
-	if st == nil {
-		st = &State{InstalledAt: time.Now().UTC().Format(time.RFC3339)}
-	}
-	st.Group = group
-	st.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
-	return m.SaveState(name, st)
+	return m.UpdateState(name, func(st *State) *State {
+		if st == nil {
+			st = &State{InstalledAt: time.Now().UTC().Format(time.RFC3339)}
+		}
+		st.Group = group
+		st.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+		return st
+	})
 }
 
 // OrderItem is one stack's desired sidebar placement: its group and its
@@ -614,14 +638,16 @@ type OrderItem struct {
 // skipped so a stale client list can't error the whole batch.
 func (m *Manager) Reorder(items []OrderItem) error {
 	for i, it := range items {
-		st, err := m.LoadState(it.Name)
-		if err != nil || st == nil {
-			continue // stack vanished between the client's read and this write
-		}
-		st.Order = i + 1
-		st.Group = strings.TrimSpace(it.Group)
-		st.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
-		if err := m.SaveState(it.Name, st); err != nil {
+		err := m.UpdateState(it.Name, func(st *State) *State {
+			if st == nil {
+				return nil // stack vanished between the client's read and this write
+			}
+			st.Order = i + 1
+			st.Group = strings.TrimSpace(it.Group)
+			st.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+			return st
+		})
+		if err != nil {
 			return err
 		}
 	}
