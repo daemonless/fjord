@@ -107,7 +107,9 @@ func (b *Backend) bringUp(ctx context.Context, pw *io.PipeWriter, s *stack.Stack
 	// before anything is torn down or created: podman pulls a wrong-arch
 	// image with one WARNING and makes a container that cannot run. On a
 	// recreate the old container would already be gone by then.
-	b.pullMissing(ctx, pw, s, only)
+	if err := b.pullMissing(ctx, pw, s, only); err != nil {
+		return // said why: an image that cannot fit
+	}
 	if wrong := b.wrongPlatform(ctx, s, only); len(wrong) > 0 {
 		fmt.Fprintf(pw, "\n%s\n[error] not started: pick a version built for %s\n", strings.Join(wrong, "\n"), hostPlatform())
 		return
@@ -392,6 +394,7 @@ func (b *Backend) Update(ctx context.Context, s *stack.Stack, services []string)
 		if more := extra(recreate, services); len(more) > 0 {
 			fmt.Fprintf(pw, "[fjord] also recreating %s: it depends on %s\n", strings.Join(more, ", "), strings.Join(services, ", "))
 		}
+		b.checkPullSpace(ctx, pw, servicesImages(s, services), false)
 		seen := &lastBytes{}
 		if err := b.runNoticed(ctx, io.MultiWriter(pw, seen), s.Dir, "pulling the new images", "podman", append([]string{"compose", "pull"}, services...)...); err != nil {
 			fmt.Fprintf(pw, "\n[error] pull: %s\n", commandError(seen.String(), err))

@@ -214,7 +214,8 @@ func (b *Backend) wrongPlatform(ctx context.Context, s *stack.Stack, services []
 // named) that is not present yet -- what compose up would pull anyway, done
 // first so the image can be looked at before the stack is touched. A pull
 // that fails is left for compose up to report in its own words.
-func (b *Backend) pullMissing(ctx context.Context, pw io.Writer, s *stack.Stack, services []string) {
+func (b *Backend) pullMissing(ctx context.Context, pw io.Writer, s *stack.Stack, services []string) error {
+	var missing []string
 	for _, svc := range composepkg.ParseServices(s.Compose, s.EnvMap()) {
 		if len(services) > 0 && !slices.Contains(services, svc.Name) || svc.Image == "" {
 			continue
@@ -222,6 +223,13 @@ func (b *Backend) pullMissing(ctx context.Context, pw io.Writer, s *stack.Stack,
 		if p, err := b.ImagePlatform(ctx, svc.Image); err != nil || p != "" {
 			continue
 		}
-		b.pullNoticed(ctx, pw, s.Dir, svc.Image)
+		missing = append(missing, svc.Image)
 	}
+	if err := b.checkPullSpace(ctx, pw, missing, true); err != nil {
+		return err
+	}
+	for _, img := range missing {
+		b.pullNoticed(ctx, pw, s.Dir, img)
+	}
+	return nil
 }
