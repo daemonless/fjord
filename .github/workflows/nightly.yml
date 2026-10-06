@@ -52,11 +52,18 @@ jobs:
             echo "publish=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          # Only a commit the Test workflow passed.
+          # Only a commit the Test workflow passed. Still running (a run
+          # started right after a merge): wait for it rather than skip.
+          TEST="$(gh run list --repo "$REPO" --workflow test.yml --branch main --commit "$SHA" \
+            --json databaseId,status --jq '.[0] | "\(.databaseId) \(.status)"')"
+          if [ -n "$TEST" ] && [ "${TEST#* }" != "completed" ]; then
+            echo "Test on $SHORT is still running (run ${TEST% *}); waiting for it."
+            gh run watch "${TEST% *}" --repo "$REPO" --interval 30 > /dev/null || true
+          fi
           RESULT="$(gh run list --repo "$REPO" --workflow test.yml --branch main --commit "$SHA" \
             --json conclusion,status --jq '.[0] | "\(.status)/\(.conclusion)"')"
           if [ "$RESULT" != "completed/success" ]; then
-            echo "Test on $SHORT is '${RESULT:-no run}', not a pass; no nightly tonight."
+            echo "Test on $SHORT is '${RESULT:-no run}', not a pass; nothing published."
             echo "publish=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
