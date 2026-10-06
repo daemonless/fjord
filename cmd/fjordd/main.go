@@ -366,7 +366,9 @@ func startOnBoot(srv *server) {
 			log.Printf("start-on-boot: load %s: %v", s.Name, err)
 			continue
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		// Long enough for a pull: two minutes cut immich's install off
+		// mid-pull and left it half made (netlab, 2026-10-04).
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 		// A fjordd restart is not a host boot: a stack that is already running
 		// must be left alone. `podman-compose up` recreates its containers when
 		// the compose file has changed (killing open shells and restarting the
@@ -379,17 +381,44 @@ func startOnBoot(srv *server) {
 			cancel()
 			continue
 		}
+		// Held like any action: the page shows it starting, and a Start
+		// pressed meanwhile is refused instead of racing this one.
+		unlock, ok := lockStackAs(s.Name, "up")
+		if !ok {
+			cancel()
+			continue // something else is already acting on it
+		}
 		stream, err := srv.backendFor(full).Up(ctx, full)
 		if err != nil {
 			log.Printf("start-on-boot: up %s: %v", s.Name, err)
+			unlock()
 			cancel()
 			continue
 		}
-		io.Copy(io.Discard, stream) // wait for the bring-up to finish before the next
+		// Judged like any action: an [error] becomes the stack's failure
+		// banner. It used to be thrown away and "brought up" logged anyway --
+		// for a stack with nothing running (immich, 2026-10-05).
+		watch := &errorWatch{}
+		io.Copy(watch, srv.recordOutcome(s.Name, "start on boot", stream)) // wait before the next
 		stream.Close()
+		unlock()
 		kept, skipped := srv.keepAddresses(ctx, full)
 		logKept(s.Name, kept, skipped)
+		state := "unknown"
+		if st, err := srv.backendFor(full).Status(ctx, full); err == nil {
+			state = st.State
+		}
+		timedOut := ctx.Err() != nil
 		cancel()
-		log.Printf("start-on-boot: brought up %s", s.Name)
+		switch {
+		case watch.seen:
+			log.Printf("start-on-boot: %s did not come up: %s", s.Name, watch.Message())
+		case timedOut:
+			log.Printf("start-on-boot: %s: gave up after 10m (now %s)", s.Name, state)
+		case state != "running":
+			log.Printf("start-on-boot: %s is %s after its bring-up", s.Name, state)
+		default:
+			log.Printf("start-on-boot: brought up %s", s.Name)
+		}
 	}
 }
