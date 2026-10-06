@@ -5,6 +5,7 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/daemonless/fjord/pkg/engine"
 )
@@ -50,6 +51,19 @@ var (
 // service logs nothing new, so its tail can still show the crash it has
 // since recovered from.
 func serviceHealth(ctx context.Context, c libpodContainer) (state, detail string) {
+	return serviceHealthWithin(ctx, c, startGrace)
+}
+
+// startGrace is how long after its container starts an app's restarts read
+// as starting, not crashed. On first boot an app restarts under s6 while its
+// database initialises -- Vikunja on PostgreSQL, a few times in 20 s -- which
+// in the log is exactly a crash loop, and the page said "crashed" for a stack
+// that was coming up fine. Past this, the same signs are a crash.
+var startGrace = 60 * time.Second
+
+// serviceHealthWithin is serviceHealth with the grace given: the watches
+// after an update or install judge with none, at the end of their window.
+func serviceHealthWithin(ctx context.Context, c libpodContainer, grace time.Duration) (state, detail string) {
 	jid := jailID(ctx, c.ID)
 	if jid == "" {
 		return "running", ""
@@ -69,6 +83,9 @@ func serviceHealth(ctx context.Context, c libpodContainer) (state, detail string
 		}
 	}
 	if engine.CrashedInLog(logTail(ctx, c.ID)) {
+		if c.StartedAt > 0 && time.Since(time.Unix(c.StartedAt, 0)) < grace {
+			return "starting", "starting up -- the app restarted while it waits (for its database, say)"
+		}
 		return "crashed", "the app inside the container keeps crashing -- see Logs"
 	}
 	if probed {

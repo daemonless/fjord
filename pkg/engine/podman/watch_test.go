@@ -51,7 +51,7 @@ func watch(t *testing.T, b *Backend) string {
 	pr, pw := io.Pipe()
 	done := make(chan string)
 	go func() { out, _ := io.ReadAll(pr); done <- string(out) }()
-	b.watchHealthy(context.Background(), pw, &stack.Stack{Name: "app"}, []string{"web"}, 3*time.Second)
+	b.watchHealthy(context.Background(), pw, &stack.Stack{Name: "app"}, []string{"web"}, 3*time.Second, "the update")
 	pw.Close()
 	return <-done
 }

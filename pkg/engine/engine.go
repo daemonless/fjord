@@ -484,6 +484,12 @@ type PruneReport struct {
 
 // Backend defines the execution engine interface.
 // By coding to this interface, FJORD can easily swap out Podman for Docker or AppJail later.
+// InstallWatcher is an engine that can bring a fresh install up and watch
+// its services stay up, as after an update; install uses it when there.
+type InstallWatcher interface {
+	UpWatched(ctx context.Context, s *stack.Stack) (io.ReadCloser, error)
+}
+
 type Backend interface {
 	// Up spins up a stack and returns an io.ReadCloser streaming the terminal output.
 	Up(ctx context.Context, s *stack.Stack) (io.ReadCloser, error)

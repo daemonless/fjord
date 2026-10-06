@@ -22,7 +22,9 @@ type libpodContainer struct {
 	Networks []string          `json:"Networks"`
 	Labels   map[string]string `json:"Labels"`
 	Created  time.Time         `json:"Created"`
-	Ports    []struct {
+	// StartedAt is when the container last started, in Unix seconds.
+	StartedAt int64 `json:"StartedAt"`
+	Ports     []struct {
 		HostPort      int    `json:"host_port"`
 		ContainerPort int    `json:"container_port"`
 		Protocol      string `json:"protocol"`
