@@ -208,8 +208,8 @@ func (s *server) handleInstall(w http.ResponseWriter, r *http.Request) {
 		req.Values = map[string]string{}
 	}
 	// The answers first: they add and drop services and set variables that
-	// everything below resolves. AppJail runs the bundle dbuild rendered,
-	// which is the default answer, so it takes nothing else yet.
+	// everything below resolves. On AppJail the bundle gets the same change
+	// from each option's AppJail form, further down.
 	answers, err := m.ApplyChoices(req.Choices, req.Values)
 	if err != nil {
 		http.Error(w, err.Error(), 400)
@@ -224,11 +224,9 @@ func (s *server) handleInstall(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if req.Engine == "appjail" {
-		for _, c := range m.Choices {
-			if answers[c.ID] != c.Default {
-				http.Error(w, c.Label+": only the default ("+c.Option(c.Default).Label+") can be installed on AppJail for now", 400)
-				return
-			}
+		if msg := appjailRefusal(m); msg != "" {
+			http.Error(w, msg, 400)
+			return
 		}
 	}
 	// Remote folders (nfs:// / smb:// URLs) in a path list become named
@@ -513,6 +511,19 @@ func (s *server) handleInstall(w http.ResponseWriter, r *http.Request) {
 			_ = s.manager.Delete(id)
 			http.Error(w, "this app's catalog entry has no AppJail bundle (the catalog was built without dbuild, or the app opts out with appjail: false); install it on podman, or refresh the catalog", 400)
 			return
+		}
+		b, err := withAppjailChoices(b, m.Picked())
+		if err != nil {
+			_ = s.manager.Delete(id)
+			http.Error(w, "appjail bundle: "+err.Error(), 500)
+			return
+		}
+		// A picked option's jail is found by its name on the project's
+		// network -- on host networking 127.0.0.1, set above.
+		if req.networkAction() != netActionHost {
+			for k, v := range appjailHostnames(id, m.Picked()) {
+				res.Env[k] = v
+			}
 		}
 		env, err := writeAppjailBundle(st.Dir, id, b, res.Env, composeYAML, req.attachments(), svcModes, req.Network)
 		if err != nil {

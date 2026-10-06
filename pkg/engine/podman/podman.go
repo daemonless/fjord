@@ -779,8 +779,21 @@ func upArgs(forceRecreate bool, only []string) []string {
 // the full list of containers nothing is freed: an unreadable list would make
 // every reservation look orphaned.
 func (b *Backend) releaseOrphanAddresses(ctx context.Context, pw io.Writer, s *stack.Stack) {
-	atts := composepkg.AttachedNetworks(s.Compose)
-	if len(atts) == 0 {
+	// Every network any service is on. AttachedNetworks alone answers only
+	// for a stack whose services agree, and gives nothing for one whose app
+	// is on the LAN and its database on a private segment -- immich -- so
+	// these releases never ran for any stack with a private network.
+	perSvc := composepkg.ServiceAttachments(s.Compose)
+	var nets []string
+	for _, a := range composepkg.AttachedNetworks(s.Compose) {
+		nets = append(nets, a.Network)
+	}
+	for _, byNet := range perSvc {
+		for _, a := range byNet {
+			nets = append(nets, a.Network)
+		}
+	}
+	if len(nets) == 0 {
 		return
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://d/v4.0.0/libpod/containers/json?all=true", nil)
@@ -806,21 +819,34 @@ func (b *Backend) releaseOrphanAddresses(ctx context.Context, pw io.Writer, s *s
 	// Addresses this stack pins first, with no age guard: they are its own,
 	// and on a cni-epair that never releases they are still held by the
 	// container a recreate just removed.
-	for _, byNet := range composepkg.ServiceAttachments(s.Compose) {
+	for _, byNet := range perSvc {
 		for _, a := range byNet {
 			if a.IP != "" && hostnet.ReleaseAddress(a.Network, a.IP, isLive) {
 				fmt.Fprintf(pw, "[fjord] released %s on %s for its own service: held by a removed container\n", a.IP, a.Network)
 			}
 		}
 	}
+	// This stack's containers that are not running: the only ones a failed
+	// network setup can have left holding their own address.
+	stopped := map[string]bool{}
+	if cs, err := b.listStackContainers(ctx, s.Name); err == nil {
+		for _, c := range cs {
+			if c.State != "running" {
+				stopped[c.ID] = true
+			}
+		}
+	}
 	seen := map[string]bool{}
-	for _, a := range atts {
-		if seen[a.Network] {
+	for _, n := range nets {
+		if seen[n] {
 			continue
 		}
-		seen[a.Network] = true
-		for _, addr := range hostnet.ReleaseOrphans(a.Network, isLive, 2*time.Minute) {
-			fmt.Fprintf(pw, "[fjord] released %s on %s: held by a container that no longer exists\n", addr, a.Network)
+		seen[n] = true
+		for _, addr := range hostnet.ReleaseOrphans(n, isLive, 2*time.Minute) {
+			fmt.Fprintf(pw, "[fjord] released %s on %s: held by a container that no longer exists\n", addr, n)
+		}
+		for _, addr := range hostnet.ReleaseFailedAdds(n, func(id string) bool { return stopped[id] }) {
+			fmt.Fprintf(pw, "[fjord] released %s on %s: a failed start left it reserved to the container now retrying\n", addr, n)
 		}
 	}
 }

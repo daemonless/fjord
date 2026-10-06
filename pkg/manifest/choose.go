@@ -27,6 +27,7 @@ func (m *Manifest) ApplyChoices(picks map[string]string, values map[string]strin
 		known[m.Variables[i].Name] = &m.Variables[i]
 	}
 	var drop []string
+	m.picked = nil
 	for _, c := range m.Choices {
 		id := picks[c.ID]
 		if id == "" {
@@ -37,6 +38,7 @@ func (m *Manifest) ApplyChoices(picks map[string]string, values map[string]strin
 			return nil, fmt.Errorf("%s: no option %q (one of %s)", c.Label, id, optionIDs(c))
 		}
 		answers[c.ID] = o.ID
+		m.picked = append(m.picked, o)
 		drop = append(drop, o.Drop...)
 		// The services it adds join the stack's hostnames, so the install
 		// can point their variables where they are reachable.

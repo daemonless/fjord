@@ -437,3 +437,47 @@ func NoAddressReason(network string) string {
 		return "no address: " + network + " should have assigned one, so attaching it failed"
 	}
 }
+
+// ReleaseFailedAdds frees reservations a failed network setup left behind on
+// the very container that will retry: a start that failed in the bridge
+// plugin's add keeps host-local's reservation but caches no result, so every
+// later start runs add again and host-local refuses the address it already
+// gave that same container ("duplicate allocation"). Nothing undoes it --
+// teardown needs the cached result -- and the stack cannot start again until
+// the file is removed by hand (immich_database_1 on netlab, 2026-09-21).
+//
+// Freed only when the reservation names a container stopped (one of the
+// caller's, not running) and libcni has no result for it on this network: a
+// container that really holds the address always has its result cached.
+func ReleaseFailedAdds(network string, stopped func(id string) bool) []string {
+	if !NameRe.MatchString(network) {
+		return nil
+	}
+	dir := filepath.Join(ipamStateDir, network)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+	var freed []string
+	for _, e := range entries {
+		addr := e.Name()
+		if net.ParseIP(addr) == nil {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(dir, addr))
+		if err != nil {
+			continue
+		}
+		id, _, _ := strings.Cut(strings.TrimSpace(string(data)), "\n")
+		if id = strings.TrimSpace(id); id == "" || !stopped(id) {
+			continue
+		}
+		if cached, _ := filepath.Glob(filepath.Join(cniResultsDir, network+"-"+id+"-*")); len(cached) > 0 {
+			continue // the add completed: the address is really its
+		}
+		if os.Remove(filepath.Join(dir, addr)) == nil {
+			freed = append(freed, addr)
+		}
+	}
+	return freed
+}

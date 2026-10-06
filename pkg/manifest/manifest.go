@@ -53,6 +53,18 @@ type Option struct {
 	// Hostnames is the option's share of the stack's hostnames: a service it
 	// adds -> the variable that carries its host name.
 	Hostnames map[string]string
+	// Appjail is the option's AppJail form, nil when it adds no jails.
+	Appjail *OptionAppjail
+}
+
+// OptionAppjail is what an option adds to the AppJail bundle: director
+// services and volumes (YAML, as the bundle's director writes them), files
+// they reference beside director.yml, and director service -> the variable
+// that carries its host name.
+type OptionAppjail struct {
+	Director  string
+	Files     map[string]string
+	Hostnames map[string]string
 }
 
 // Ask is a value an option needs from the person: shown only when the
@@ -107,7 +119,13 @@ type Manifest struct {
 	Hostnames map[string]string
 	// Choices are the questions the stack asks; empty for most apps.
 	Choices []Choice
+	// picked are the options ApplyChoices chose, one per choice.
+	picked []*Option
 }
+
+// Picked are the options the last ApplyChoices chose, one per choice, in the
+// order of Choices.
+func (m *Manifest) Picked() []*Option { return m.picked }
 
 // Network specs a manifest may give a service.
 const (
@@ -259,7 +277,12 @@ func Parse(manifestYAML string) (*Manifest, error) {
 				DependsOn map[string][]string `yaml:"depends_on"`
 				Drop      []string            `yaml:"drop"`
 				Hostnames map[string]string   `yaml:"hostnames"`
-				Ask       []struct {
+				Appjail   *struct {
+					Director  string            `yaml:"director"`
+					Files     map[string]string `yaml:"files"`
+					Hostnames map[string]string `yaml:"hostnames"`
+				} `yaml:"appjail"`
+				Ask []struct {
 					Name    string            `yaml:"name"`
 					Label   string            `yaml:"label"`
 					Default string            `yaml:"default"`
@@ -295,6 +318,9 @@ func Parse(manifestYAML string) (*Manifest, error) {
 		for _, o := range c.Options {
 			op := Option{ID: o.ID, Label: o.Label, Doc: o.Doc, Env: o.Env, Defaults: o.Defaults, Secrets: o.Secrets,
 				Services: o.Services, DependsOn: o.DependsOn, Drop: o.Drop, Hostnames: o.Hostnames}
+			if o.Appjail != nil && o.Appjail.Director != "" {
+				op.Appjail = &OptionAppjail{Director: o.Appjail.Director, Files: o.Appjail.Files, Hostnames: o.Appjail.Hostnames}
+			}
 			for _, a := range o.Ask {
 				op.Ask = append(op.Ask, Ask{Name: a.Name, Label: a.Label, Default: a.Default, Type: a.Type, Values: a.Values})
 			}
