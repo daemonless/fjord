@@ -3,6 +3,7 @@ package podman
 import (
 	"context"
 	"testing"
+	"time"
 )
 
 // A container podman reports as running, with one published port.
@@ -74,5 +75,25 @@ func TestNoPortsAndNoJailStayRunning(t *testing.T) {
 	jailID = func(context.Context, string) string { return "" }
 	if state, _ := serviceHealth(context.Background(), upContainer("linux")); state != "running" {
 		t.Errorf("not a jail: got %q, want running", state)
+	}
+}
+
+// Vikunja on PostgreSQL, first boot: it restarts under s6 while the database
+// initialises -- in the log, a crash loop. Within startGrace of the container
+// starting the page says starting; past it, and for the watches (no grace),
+// the same log is a crash.
+func TestRestartsWhileStartingAreNotCrashed(t *testing.T) {
+	stubProbes(t, false, faultTail)
+	c := upContainer("vikunja")
+	c.StartedAt = time.Now().Add(-20 * time.Second).Unix()
+	if st, detail := serviceHealth(context.Background(), c); st != "starting" || detail == "" {
+		t.Fatalf("20 s after start: %q %q, want starting with a reason", st, detail)
+	}
+	if st, _ := serviceHealthWithin(context.Background(), c, 0); st != "crashed" {
+		t.Fatalf("no grace (the watches): %q, want crashed", st)
+	}
+	c.StartedAt = time.Now().Add(-2 * time.Minute).Unix()
+	if st, _ := serviceHealth(context.Background(), c); st != "crashed" {
+		t.Fatalf("2 min after start: %q, want crashed", st)
 	}
 }

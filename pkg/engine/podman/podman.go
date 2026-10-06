@@ -60,6 +60,35 @@ func (b *Backend) Up(ctx context.Context, s *stack.Stack) (io.ReadCloser, error)
 	return pr, nil
 }
 
+// installWindow is how long the services of a fresh install are watched. It
+// is longer than an update's: on first boot an app may restart under s6
+// while its database initialises, and is judged only at the end, with no
+// grace, so it has to have had the time.
+var installWindow = 60 * time.Second
+
+// UpWatched is Up for a fresh install: bring the stack up, then watch every
+// service as an update does. A crash loop at install used to raise nothing --
+// the bring-up had succeeded -- and the stack sat there failing with no
+// banner. Not watched when the bring-up itself already failed.
+func (b *Backend) UpWatched(ctx context.Context, s *stack.Stack) (io.ReadCloser, error) {
+	pr, pw := io.Pipe()
+	go func() {
+		defer pw.Close()
+		seen := &lastBytes{}
+		up, upw := io.Pipe()
+		go func() {
+			defer upw.Close()
+			b.bringUp(ctx, upw, s, false, nil)
+		}()
+		io.Copy(io.MultiWriter(pw, seen), up)
+		if strings.Contains(seen.String(), "[error]") {
+			return
+		}
+		b.watchHealthy(ctx, pw, s, nil, installWindow, "install")
+	}()
+	return pr, nil
+}
+
 // bringUp brings a stack up WITHOUT a pod (`podman-compose --in-pod=false`).
 // podman-compose's default pod-per-project needs an infra container, whose
 // init is catatonit; on a host without it the pod is created with no infra
@@ -379,7 +408,7 @@ func (b *Backend) Update(ctx context.Context, s *stack.Stack, services []string)
 		started := time.Now()
 		b.bringUp(ctx, pw, s, true, recreate)
 		if b.verifyRecreated(ctx, pw, s, recreate, started, "updated", "on the image it had") {
-			b.watchHealthy(ctx, pw, s, recreate, healthWindow)
+			b.watchHealthy(ctx, pw, s, recreate, healthWindow, "the update")
 		}
 	}()
 	return pr, nil
@@ -399,7 +428,7 @@ func (b *Backend) Recreate(ctx context.Context, s *stack.Stack, services []strin
 		started := time.Now()
 		b.bringUp(ctx, pw, s, true, recreate)
 		if b.verifyRecreated(ctx, pw, s, recreate, started, "given the saved changes", "on its previous configuration") {
-			b.watchHealthy(ctx, pw, s, recreate, healthWindow)
+			b.watchHealthy(ctx, pw, s, recreate, healthWindow, "the update")
 		}
 	}()
 	return pr, nil
@@ -528,10 +557,10 @@ var errContainerGone = errors.New("no such container")
 // container is watched for a window: it fails if it stops, if it restarts
 // (RestartCount or StartedAt moves), or if a HEALTHCHECK says unhealthy. The
 // failure is an [error] line, which the UI reads as a failed update.
-func (b *Backend) watchHealthy(ctx context.Context, pw *io.PipeWriter, s *stack.Stack, services []string, window time.Duration) {
+func (b *Backend) watchHealthy(ctx context.Context, pw *io.PipeWriter, s *stack.Stack, services []string, window time.Duration, after string) {
 	cs, err := b.listStackContainers(ctx, s.Name)
 	if err != nil {
-		fmt.Fprintf(pw, "\n[error] cannot watch the updated containers: %v\n", err)
+		fmt.Fprintf(pw, "\n[error] cannot watch the containers after %s: %v\n", after, err)
 		return
 	}
 	type watched struct {
@@ -578,16 +607,16 @@ func (b *Backend) watchHealthy(ctx context.Context, pw *io.PipeWriter, s *stack.
 			w.unsure = 0
 			switch {
 			case err != nil:
-				fmt.Fprintf(pw, "[error] %s is gone since the update\n", w.svc)
+				fmt.Fprintf(pw, "[error] %s is gone since %s\n", w.svc, after)
 				w.failed = true
 			case !h.State.Running:
-				fmt.Fprintf(pw, "[error] %s stopped after the update (exit code %d) -- see its logs\n", w.svc, h.State.ExitCode)
+				fmt.Fprintf(pw, "[error] %s stopped after %s (exit code %d) -- see its logs\n", w.svc, after, h.State.ExitCode)
 				w.failed = true
 			case h.RestartCount > w.first.RestartCount || !h.State.StartedAt.Equal(w.first.State.StartedAt):
-				fmt.Fprintf(pw, "[error] %s restarted since the update -- it is crash-looping; see its logs\n", w.svc)
+				fmt.Fprintf(pw, "[error] %s restarted since %s -- it is crash-looping; see its logs\n", w.svc, after)
 				w.failed = true
 			case h.State.Health != nil && h.State.Health.Status == "unhealthy":
-				fmt.Fprintf(pw, "[error] %s reports unhealthy since the update\n", w.svc)
+				fmt.Fprintf(pw, "[error] %s reports unhealthy since %s\n", w.svc, after)
 				w.failed = true
 			default:
 				live++
@@ -615,8 +644,8 @@ func (b *Backend) watchHealthy(ctx context.Context, pw *io.PipeWriter, s *stack.
 		if w.failed {
 			continue
 		}
-		if state, _ := serviceHealth(ctx, w.ctr); state == "crashed" {
-			fmt.Fprintf(pw, "[error] %s keeps crashing inside its container since the update -- see its logs\n", w.svc)
+		if state, _ := serviceHealthWithin(ctx, w.ctr, 0); state == "crashed" {
+			fmt.Fprintf(pw, "[error] %s keeps crashing inside its container since %s -- see its logs\n", w.svc, after)
 			w.failed = true
 		}
 	}

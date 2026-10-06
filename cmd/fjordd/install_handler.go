@@ -14,6 +14,7 @@ import (
 	"time"
 
 	composepkg "github.com/daemonless/fjord/pkg/compose"
+	"github.com/daemonless/fjord/pkg/engine"
 	"github.com/daemonless/fjord/pkg/manifest"
 	"github.com/daemonless/fjord/pkg/stack"
 )
@@ -571,7 +572,14 @@ func (s *server) handleInstall(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "pre-flight failed (stack saved, not started):\n  "+strings.Join(problems, "\n  "), 409)
 		return
 	}
-	stream, err := s.backendFor(st).Up(ctx, st)
+	// Watched where the engine can: a crash loop at install raises the
+	// failure banner, as it does after an update.
+	be := s.backendFor(st)
+	up := be.Up
+	if iw, ok := be.(engine.InstallWatcher); ok {
+		up = iw.UpWatched
+	}
+	stream, err := up(ctx, st)
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
