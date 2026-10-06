@@ -276,7 +276,7 @@ func (s *server) stackDetail(w http.ResponseWriter, r *http.Request, name string
 func (s *server) stackDelete(w http.ResponseWriter, name string, data bool) {
 	unlock, ok := lockStackAs(name, "deleting")
 	if !ok {
-		http.Error(w, "another operation is already running on this stack; wait for it to finish", http.StatusConflict)
+		http.Error(w, anotherOperation(name), http.StatusConflict)
 		return
 	}
 	defer unlock()
@@ -1019,6 +1019,12 @@ var lifecycleLocks sync.Map
 // a "problem" -- and offered Start, which ran a second up alongside the first.
 var busyOps sync.Map
 
+// busyOp is what a locked stack is doing, and since when.
+type busyOp struct {
+	action string
+	since  time.Time
+}
+
 // busyEvents carries busy changes to open pages, next to the status loop's.
 var busyEvents *eventHub
 
@@ -1037,7 +1043,7 @@ func lockStackAs(name, action string) (unlock func(), ok bool) {
 	if !ok {
 		return nil, false
 	}
-	busyOps.Store(name, action)
+	busyOps.Store(name, busyOp{action, time.Now()})
 	outputs.start(name, action) // kept from the first moment, before the stream exists
 	publishBusy(name, action)
 	return func() {
@@ -1051,7 +1057,7 @@ func lockStackAs(name, action string) (unlock func(), ok bool) {
 // busyWith is what a stack is busy with, or "".
 func busyWith(name string) string {
 	if v, ok := busyOps.Load(name); ok {
-		return v.(string)
+		return v.(busyOp).action
 	}
 	return ""
 }
@@ -1237,12 +1243,27 @@ func (s *server) dropPrivateNetwork(be engine.Backend, stackName string) {
 	}
 }
 
-// anotherOperation says what a stack is already doing, for the 409.
+// busyWords is an action as the 409 says it.
+var busyWords = map[string]string{
+	"up": "starting", "down": "stopping", "restart": "restarting", "update": "updating",
+	"install": "installing", "installing": "installing", "deleting": "being deleted",
+}
+
+// anotherOperation says what a stack is already doing and for how long, for
+// the 409. A bare "another operation is running" left a Delete refused with
+// no way to tell a pull still going from one stuck (immich, 2026-10-04).
 func anotherOperation(name string) string {
-	if b := busyWith(name); b != "" {
-		return name + " is already busy (" + b + "); wait for it to finish"
+	v, ok := busyOps.Load(name)
+	if !ok {
+		return "another operation is already running on this stack; wait for it to finish"
 	}
-	return "another operation is already running on this stack; wait for it to finish"
+	op := v.(busyOp)
+	what := busyWords[op.action]
+	if what == "" {
+		what = "busy (" + op.action + ")"
+	}
+	return fmt.Sprintf("%s is %s (for %s); wait for it to finish, or watch it in Output",
+		name, what, time.Since(op.since).Round(time.Second))
 }
 
 // noBuildForRetag is the refusal when the image a retag would put a service
