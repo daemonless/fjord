@@ -244,7 +244,7 @@
   // pick; the compose is the default answer. What an option asks for shows
   // only when it is picked, and is required then.
   type Ask = { name: string; label?: string; default?: string; type?: string; values?: Record<string, string> };
-  type ChoiceOption = { id: string; label: string; doc?: string; ask?: Ask[]; drop?: string[]; services?: string };
+  type ChoiceOption = { id: string; label: string; doc?: string; ask?: Ask[]; drop?: string[]; services?: string; appjail?: unknown };
   type Choice = { id: string; label: string; doc?: string; default: string; options: ChoiceOption[] };
   let choices: Choice[] = [];
   let picks: Record<string, string> = {};
@@ -264,6 +264,17 @@
   function setAsked(name: string, value: string) {
     formData[name] = value;
     formData = formData;
+  }
+  // An option that adds services runs on AppJail only with its AppJail form
+  // (the jails it adds); a catalog built before forms has none. Greyed, with
+  // the reason, rather than refused at Install.
+  $: noAppjail = (o: ChoiceOption) => engineChoice === 'appjail' && !!o.services && !o.appjail;
+  // Switched to AppJail with such an option picked: back to the default.
+  $: if (engineChoice === 'appjail') {
+    for (const c of choices) {
+      const o = c.options.find((x) => x.id === picks[c.id]);
+      if (o && noAppjail(o)) picks = { ...picks, [c.id]: c.default };
+    }
   }
   // Non-default answers, in words, for the summary line.
   $: pickedWords = choices
@@ -878,9 +889,10 @@
                     type="button"
                     role="radio"
                     aria-checked={picks[c.id] === o.id}
-                    title={o.doc || ''}
+                    disabled={noAppjail(o)}
+                    title={noAppjail(o) ? 'Not on AppJail with this catalog: it has no AppJail form for this option. Install on podman, or refresh the catalog.' : o.doc || ''}
                     on:click={() => pick(c, o.id)}
-                    class="px-3 py-1.5 rounded-full text-sm border transition-colors {picks[c.id] === o.id
+                    class="px-3 py-1.5 rounded-full text-sm border transition-colors disabled:opacity-40 disabled:cursor-not-allowed {picks[c.id] === o.id
                       ? 'bg-fjord-accent text-white border-fjord-accent'
                       : 'bg-fjord-inset text-fjord-fg-secondary border-fjord-border hover:text-fjord-fg'}">{o.label}</button
                   >
