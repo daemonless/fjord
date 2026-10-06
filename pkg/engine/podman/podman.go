@@ -127,7 +127,7 @@ func (b *Backend) bringUp(ctx context.Context, pw *io.PipeWriter, s *stack.Stack
 		return // `podman start` would fail the same way
 	}
 	if err != nil && forceRecreate {
-		fmt.Fprintf(pw, "\n[error] recreate failed, the stack still runs its previous image: %v\n", err)
+		fmt.Fprintf(pw, "\n[error] recreate failed, the stack still runs its previous image: %s\n", commandError(seen.String(), err))
 		return
 	}
 	cs, err := b.listStackContainers(ctx, s.Name)
@@ -146,7 +146,7 @@ func (b *Backend) bringUp(ctx context.Context, pw *io.PipeWriter, s *stack.Stack
 	seen.reset()
 	if err := b.runStreaming(ctx, out, s.Dir, "podman", append([]string{"start"}, names...)...); err != nil {
 		if !b.explainNoDHCP(ctx, pw, seen.String()) {
-			fmt.Fprintf(pw, "\n[error] start: %v\n", err)
+			fmt.Fprintf(pw, "\n[error] start: %s\n", commandError(seen.String(), err))
 		}
 	}
 }
@@ -328,8 +328,9 @@ func (b *Backend) Restart(ctx context.Context, s *stack.Stack) (io.ReadCloser, e
 		// stop, then the same create-then-start as Up: `podman compose start`
 		// alone can leave a container in "created" on FreeBSD (seen with
 		// sonarr), and bringUp's explicit `podman start` catches that.
-		if err := b.runStreaming(ctx, pw, s.Dir, "podman", "compose", "stop"); err != nil {
-			fmt.Fprintf(pw, "\n[error] stop: %v\n", err)
+		seen := &lastBytes{}
+		if err := b.runStreaming(ctx, io.MultiWriter(pw, seen), s.Dir, "podman", "compose", "stop"); err != nil {
+			fmt.Fprintf(pw, "\n[error] stop: %s\n", commandError(seen.String(), err))
 			return
 		}
 		b.bringUp(ctx, pw, s, false, nil)
@@ -362,8 +363,9 @@ func (b *Backend) Update(ctx context.Context, s *stack.Stack, services []string)
 		if more := extra(recreate, services); len(more) > 0 {
 			fmt.Fprintf(pw, "[fjord] also recreating %s: it depends on %s\n", strings.Join(more, ", "), strings.Join(services, ", "))
 		}
-		if err := b.runNoticed(ctx, pw, s.Dir, "pulling the new images", "podman", append([]string{"compose", "pull"}, services...)...); err != nil {
-			fmt.Fprintf(pw, "\n[error] pull: %v\n", err)
+		seen := &lastBytes{}
+		if err := b.runNoticed(ctx, io.MultiWriter(pw, seen), s.Dir, "pulling the new images", "podman", append([]string{"compose", "pull"}, services...)...); err != nil {
+			fmt.Fprintf(pw, "\n[error] pull: %s\n", commandError(seen.String(), err))
 			return
 		}
 		// A pull that succeeded may still have fetched an image this host
