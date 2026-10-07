@@ -2,8 +2,11 @@ package podman
 
 import (
 	"context"
+	"encoding/binary"
 	"testing"
 	"time"
+
+	"github.com/daemonless/fjord/pkg/engine"
 )
 
 // A container podman reports as running, with one published port.
@@ -95,5 +98,26 @@ func TestRestartsWhileStartingAreNotCrashed(t *testing.T) {
 	c.StartedAt = time.Now().Add(-2 * time.Minute).Unix()
 	if st, _ := serviceHealth(context.Background(), c); st != "crashed" {
 		t.Fatalf("2 min after start: %q, want crashed", st)
+	}
+}
+
+// The API's log stream for a container without a terminal is framed; the
+// crash check must see the text, not the headers.
+func TestDemuxLogs(t *testing.T) {
+	frame := func(stream byte, text string) []byte {
+		h := []byte{stream, 0, 0, 0, 0, 0, 0, 0}
+		binary.BigEndian.PutUint32(h[4:], uint32(len(text)))
+		return append(h, text...)
+	}
+	b := append(frame(1, "[INFO] Starting vikunja...\n"), frame(2, "[s6] Service 'vikunja' crashed (Exit: 1, Signal: 0)\n")...)
+	got := demuxLogs(b)
+	if got != "[INFO] Starting vikunja...\n[s6] Service 'vikunja' crashed (Exit: 1, Signal: 0)\n" {
+		t.Fatalf("framed: %q", got)
+	}
+	if !engine.CrashedInLog(got) {
+		t.Error("the crash line is not seen through the frames")
+	}
+	if got := demuxLogs([]byte("plain text from a tty\n")); got != "plain text from a tty\n" {
+		t.Errorf("tty: %q", got)
 	}
 }

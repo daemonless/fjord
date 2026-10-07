@@ -2,9 +2,14 @@ package podman
 
 import (
 	"context"
+	"encoding/binary"
+	"io"
+	"net/http"
+	"net/url"
 	"os/exec"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/daemonless/fjord/pkg/engine"
@@ -37,11 +42,28 @@ var (
 		// header + at least one socket
 		return err == nil && strings.Count(strings.TrimSpace(string(out)), "\n") >= 1
 	}
-	// logTail is the last few lines of the container's log.
+	// logTail is the last few lines of the container's log, from the API: the
+	// podman CLI it used to start took 0.3 s a container, and every status poll
+	// of a stack whose app publishes no host port read it -- 14 at once took
+	// 2.6 s on jupiter, past the page's wait, so every stack read "busy".
 	logTail = func(ctx context.Context, containerID string) string {
-		out, _ := exec.CommandContext(ctx, "podman", "logs", "--tail", "12", containerID).CombinedOutput()
-		return string(out)
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet,
+			"http://d/v4.0.0/libpod/containers/"+url.PathEscape(containerID)+"/logs?stdout=true&stderr=true&tail=12", nil)
+		if err != nil {
+			return ""
+		}
+		resp, err := logClient().Do(req)
+		if err != nil {
+			return ""
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			return ""
+		}
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
+		return demuxLogs(b)
 	}
+	logClient = sync.OnceValue(newSocketClient)
 )
 
 // serviceHealth judges a RUNNING container: "running" when a published port
@@ -92,4 +114,25 @@ func serviceHealthWithin(ctx context.Context, c libpodContainer, grace time.Dura
 		return "starting", "container is up but nothing is listening on its port yet"
 	}
 	return "running", ""
+}
+
+// demuxLogs is the text of a logs response: a container without a terminal
+// sends its output and errors as frames, an 8-byte header (stream, 0, 0, 0,
+// big-endian length) before each; one with a terminal sends plain text.
+func demuxLogs(b []byte) string {
+	var out []byte
+	framed := false
+	for len(b) >= 8 && b[0] <= 2 && b[1] == 0 && b[2] == 0 && b[3] == 0 {
+		framed = true
+		n := int(binary.BigEndian.Uint32(b[4:8]))
+		if n > len(b)-8 {
+			n = len(b) - 8
+		}
+		out = append(out, b[8:8+n]...)
+		b = b[8+n:]
+	}
+	if !framed {
+		return string(b)
+	}
+	return string(out)
 }
