@@ -105,3 +105,19 @@ func TestWithAppjailChoicesNothingPicked(t *testing.T) {
 		t.Fatalf("got %v, %v", got, err)
 	}
 }
+
+// LibreNMS: two services in the compose, one jail in the bundle. Refused
+// before anything is saved, naming the service with no jail.
+func TestAppjailShort(t *testing.T) {
+	compose := "services:\n  librenms:\n    image: a\n  librenms-mariadb:\n    image: b\n"
+	one := &manifest.AppjailBundle{Director: "services:\n  librenms:\n    name: librenms\n"}
+	if got := appjailShort(one, nil, compose); len(got) != 1 || got[0] != "librenms-mariadb" {
+		t.Fatalf("one jail for two services: %v", got)
+	}
+	// One jail per service, named differently (a choice's database is
+	// "mariadb" in the compose, "vikunja-mariadb" in the director): fine.
+	two := &manifest.AppjailBundle{Director: "services:\n  librenms:\n    name: a\n  librenms-db:\n    name: b\n"}
+	if got := appjailShort(two, nil, compose); got != nil {
+		t.Fatalf("one jail per service: %v", got)
+	}
+}
