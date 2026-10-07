@@ -2,10 +2,13 @@ package main
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
 	composepkg "github.com/daemonless/fjord/pkg/compose"
+	"github.com/daemonless/fjord/pkg/stack"
 
 	"gopkg.in/yaml.v3"
 )
@@ -97,15 +100,50 @@ func setServiceArgument(svc *yaml.Node, name, value string) {
 	args.Content = append(args.Content, entry)
 }
 
-// composeImageTag is the tag a stack's compose asks for, when every service
-// agrees on one. A multi-image stack has no single answer, and its services
-// name their own images anyway.
-func composeImageTag(composeYAML string) string {
+// composeImageTag is the tag a stack's compose asks for the image the
+// Makejail builds from. With one image, its tag; with more (a database a
+// choice added), the one whose repository the Makejail's `from=` names.
+func composeImageTag(composeYAML, makejail string) string {
 	images, err := composepkg.ServiceImages(composeYAML)
-	if err != nil || len(images) != 1 {
+	if err != nil || len(images) == 0 {
 		return ""
 	}
-	return composepkg.ImageTag(images[0])
+	if len(images) == 1 {
+		return composepkg.ImageTag(images[0])
+	}
+	repo := makejailRepo(makejail)
+	if repo == "" {
+		return ""
+	}
+	tag := ""
+	for _, img := range images {
+		if t := composepkg.ImageTag(img); imageRepo(img) == repo && t != "" {
+			if tag != "" && tag != t {
+				return ""
+			}
+			tag = t
+		}
+	}
+	return tag
+}
+
+// makejailRepo is the repository in a Makejail's `OPTION from=<repo>:...`.
+func makejailRepo(makejail string) string {
+	for _, line := range strings.Split(makejail, "\n") {
+		if ref, ok := strings.CutPrefix(strings.TrimSpace(line), "OPTION from="); ok {
+			return imageRepo(strings.TrimSpace(ref))
+		}
+	}
+	return ""
+}
+
+// imageRepo is an image reference without its tag or digest.
+func imageRepo(image string) string {
+	image, _, _ = strings.Cut(image, "@")
+	if t := composepkg.ImageTag(image); t != "" {
+		image = strings.TrimSuffix(image, ":"+t)
+	}
+	return image
 }
 
 // setDirectorModes puts named services on a built-in, in the director.
@@ -283,4 +321,24 @@ func cloneSeq(seq *yaml.Node) *yaml.Node {
 		out.Content = append(out.Content, &c)
 	}
 	return out
+}
+
+// isMakejailService says whether a director stack's service runs the image
+// its Makejail builds from, the one the director's tag argument sets.
+func isMakejailService(st *stack.Stack, service string) bool {
+	mj, err := os.ReadFile(filepath.Join(st.Dir, "Makejail"))
+	if err != nil {
+		return false
+	}
+	repo := makejailRepo(string(mj))
+	images, err := composepkg.ServiceImageList(st.Compose)
+	if err != nil || repo == "" {
+		return false
+	}
+	for _, im := range images {
+		if im.Service == service {
+			return imageRepo(im.Image) == repo
+		}
+	}
+	return false
 }

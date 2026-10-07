@@ -832,11 +832,11 @@ func (s *server) stackSetTag(w http.ResponseWriter, r *http.Request, name string
 		return
 	}
 	if body.Service != "" {
-		// A director stack's jails read the tag from the director file, which
-		// has no per-service form here; retagging the compose alone would
-		// show one version and run another.
-		if st.Director != "" {
-			http.Error(w, "an appjail stack changes version for the whole stack", 400)
+		// A director stack's jails read the tag from the director, which has
+		// one: the Makejail image's. Other services (a database a choice
+		// added) name their own image there and keep it.
+		if st.Director != "" && !isMakejailService(st, body.Service) {
+			http.Error(w, body.Service+" runs its own image on AppJail; its version comes with the app", 400)
 			return
 		}
 		if why := s.noBuildForRetag(r.Context(), st.Compose, body.Service, body.Tag); why != "" {
@@ -856,6 +856,12 @@ func (s *server) stackSetTag(w http.ResponseWriter, r *http.Request, name string
 			}
 		}
 		st.Compose, st.Env = newCompose, newEnv
+		if st.Director != "" {
+			if st.Director, err = setDirectorTag(st.Director, body.Tag); err != nil {
+				http.Error(w, "director tag: "+err.Error(), 500)
+				return
+			}
+		}
 		if err := s.manager.Save(st); err != nil {
 			http.Error(w, err.Error(), 500)
 			return

@@ -63,7 +63,7 @@ func writeAppjailBundle(dir, stackID string, b *manifest.AppjailBundle, resolved
 	}
 	// The version the user chose, put where appjail reads it. The compose
 	// carries it too, but nothing builds a jail from the compose.
-	if tag := composeImageTag(composeYAML); tag != "" {
+	if tag := composeImageTag(composeYAML, b.Makejail); tag != "" {
 		if directorYML, err = setDirectorTag(directorYML, tag); err != nil {
 			return "", fmt.Errorf("director tag: %w", err)
 		}

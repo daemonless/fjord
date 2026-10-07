@@ -2,10 +2,13 @@ package main
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	composepkg "github.com/daemonless/fjord/pkg/compose"
+	"github.com/daemonless/fjord/pkg/stack"
 )
 
 // zensical's shape: one service, no `from:` of its own, so its image is the
@@ -73,9 +76,20 @@ func TestComposeImageTag(t *testing.T) {
 		"services:\n  a:\n    image: ghcr.io/x/y:1.2\n  b:\n    image: r:3\n": "",
 	}
 	for compose, want := range cases {
-		if got := composeImageTag(compose); got != want {
+		if got := composeImageTag(compose, ""); got != want {
 			t.Errorf("composeImageTag(%q) = %q, want %q", compose, got, want)
 		}
+	}
+}
+
+// A choice's database is a second image; the tag is the one of the image the
+// Makejail builds from. Missed, the jail ran :pkg under a compose saying
+// :latest, and Update never cleared.
+func TestComposeImageTagMakejailImage(t *testing.T) {
+	compose := "services:\n  vikunja:\n    image: ghcr.io/daemonless/vikunja:latest\n  mariadb:\n    image: ghcr.io/daemonless/mariadb:11.4\n"
+	mj := "ARG tag=pkg\n\nOPTION container=boot\nOPTION from=ghcr.io/daemonless/vikunja:${tag}\n"
+	if got := composeImageTag(compose, mj); got != "latest" {
+		t.Fatalf("got %q", got)
 	}
 }
 
@@ -217,5 +231,18 @@ services:
 	}
 	if strings.Count(out, "virtualnet:") != 1 || !strings.Contains(out, "bridge: 'epair:eb_db bridge:vlan6'") {
 		t.Errorf("a service on its own network changed:\n%s", out)
+	}
+}
+
+// On AppJail only the Makejail's image changes version per service; the
+// database a choice added keeps its own.
+func TestIsMakejailService(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "Makejail"), []byte("OPTION from=ghcr.io/daemonless/vikunja:${tag}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	st := &stack.Stack{Dir: dir, Compose: "services:\n  vikunja:\n    image: ghcr.io/daemonless/vikunja:latest\n  mariadb:\n    image: ghcr.io/daemonless/mariadb:11.4\n"}
+	if !isMakejailService(st, "vikunja") || isMakejailService(st, "mariadb") {
+		t.Fatal("vikunja is the Makejail's image, mariadb is not")
 	}
 }
