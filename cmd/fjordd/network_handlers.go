@@ -228,15 +228,28 @@ func (s *server) handleDefaultNetwork(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, err.Error(), 500)
 				return
 			}
-			found := false
-			for _, n := range nets {
-				if n.Name == req.Network {
-					found = true
+			// Which are some stack's private segment is worked out here, as
+			// for the list: the engines' own records do not say.
+			var names []string
+			if stacks, err := s.manager.List(); err == nil {
+				for _, st := range stacks {
+					names = append(names, st.Name)
+				}
+			}
+			labelPrivateNetworks(nets, names)
+			var found *engine.Network
+			for i := range nets {
+				if nets[i].Name == req.Network {
+					found = &nets[i]
 					break
 				}
 			}
-			if !found {
+			if found == nil {
 				http.Error(w, "no network named "+req.Network+" on this host", 400)
+				return
+			}
+			if msg := notADefault(*found); msg != "" {
+				http.Error(w, msg, 400)
 				return
 			}
 		}
@@ -858,4 +871,18 @@ func (s *server) handleNetworkSuggest(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"subnet": subnet})
+}
+
+// notADefault says why a network cannot be where new installs go, "" when it
+// can: a stack's own private segment holds that stack's parts, and the page
+// offered every multi-service install's left-over segment as a default.
+func notADefault(n engine.Network) string {
+	if !n.Private {
+		return ""
+	}
+	owner := "a stack"
+	if n.OwnedBy != "" {
+		owner = n.OwnedBy
+	}
+	return n.Name + " is " + owner + "'s private network: it holds that stack's own parts and is not somewhere to put an app"
 }

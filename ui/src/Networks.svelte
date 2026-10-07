@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { joinable } from './planSeed';
   import { onMount } from 'svelte';
   import Icon from './Icon.svelte';
   import Spinner from './Spinner.svelte';
@@ -244,7 +245,11 @@
   $: defaultChoices = (e: string) => {
     const out = [
       ...visibleBuiltIn.filter((b) => enginesFor(b).includes(e)).map((b) => b.name),
-      ...networks.filter((n) => !n.problem && (n.engines ?? []).includes(e)).map((n) => n.name),
+      // What the install picker offers: a stack's own private segment holds
+      // its parts and is not somewhere to put an app.
+      ...joinable(networks)
+        .filter((n) => !n.problem && (n.engines ?? []).includes(e))
+        .map((n) => n.name),
     ];
     // Whatever is stored stays listed even when it no longer qualifies -- a
     // select whose value matches no option renders the first one instead, and

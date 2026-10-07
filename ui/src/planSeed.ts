@@ -22,7 +22,7 @@ export type Net = { name: string; private?: boolean; addressSource?: string };
  * first network on the host made an orphaned `immich_priv` the default the
  * next app was offered. It is the same rule the picker folds them away by.
  */
-export const joinable = (networks: Net[]) =>
+export const joinable = <T extends Net>(networks: T[]): T[] =>
   networks.filter((n) => !n.private && n.addressSource !== 'engine');
 
 export const isMode = (spec: string) => MODES.includes(spec);
