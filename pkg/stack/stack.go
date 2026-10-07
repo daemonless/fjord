@@ -69,6 +69,11 @@ type State struct {
 	// Choices are the stack's answers at install (choice id -> option id),
 	// the default included: what the install was told to run with.
 	Choices map[string]string `json:"choices,omitempty"`
+	// SecretSums are SHA-256 sums of the secrets the stack was set up with
+	// (never the secrets): a database keeps the password it was created with,
+	// so a Save that changes one is warned about, and one that puts it back
+	// is not.
+	SecretSums map[string]string `json:"secret_sums,omitempty"`
 	// PendingServices were changed by a Save and not yet recreated: the next
 	// start or Apply replaces exactly these, and clears them once it is sure
 	// it did. On disk, so "not applied yet" survives a reload.
