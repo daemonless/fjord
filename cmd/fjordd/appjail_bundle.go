@@ -44,15 +44,20 @@ func writeAppjailBundle(dir, stackID string, b *manifest.AppjailBundle, resolved
 	// BAZARR_CONFIG_PATH), but both derive the container path from the same
 	// x-daemonless volumes, so it is the one stable identifier.
 	container2host := map[string]string{}
+	bySvc := map[string]map[string]string{} // compose service -> container path -> host path
 	for _, svc := range composepkg.ParseServices(composeYAML, resolvedEnv) {
 		for _, vm := range svc.Volumes {
 			if vm.Source != "" {
 				container2host[vm.Dest] = vm.Source
+				if bySvc[svc.Name] == nil {
+					bySvc[svc.Name] = map[string]string{}
+				}
+				bySvc[svc.Name][vm.Dest] = vm.Source
 			}
 		}
 	}
 
-	directorYML, volPlaceholders, allVolVars, err := materializeDirector(b.Director, stackID, container2host)
+	directorYML, volPlaceholders, allVolVars, err := materializeDirector(b.Director, stackID, container2host, bySvc, resolvedEnv)
 	if err != nil {
 		return "", fmt.Errorf("director.yml: %w", err)
 	}
@@ -88,6 +93,9 @@ func writeAppjailBundle(dir, stackID string, b *manifest.AppjailBundle, resolved
 	// compose is invisible to appjail, which never reads it.
 	if directorYML, err = setDirectorModes(directorYML, modes); err != nil {
 		return "", fmt.Errorf("network mode: %w", err)
+	}
+	if directorYML, err = setDirectorResolv(context.Background(), directorYML, dir); err != nil {
+		return "", err
 	}
 
 	env := directorEnv(b.EnvDefaults, stackID, resolvedEnv, volPlaceholders, allVolVars)
@@ -141,7 +149,7 @@ func writeAppjailBundle(dir, stackID string, b *manifest.AppjailBundle, resolved
 // user left empty -- the same drop the compose path does, so director does not
 // try to mount a bogus default). Returns the rewritten YAML and the set of
 // volume placeholder -> host path that survived, for the .env.
-func materializeDirector(directorYML, stackID string, container2host map[string]string) (string, map[string]string, map[string]bool, error) {
+func materializeDirector(directorYML, stackID string, container2host map[string]string, bySvc map[string]map[string]string, env map[string]string) (string, map[string]string, map[string]bool, error) {
 	var doc yaml.Node
 	if err := yaml.Unmarshal([]byte(directorYML), &doc); err != nil {
 		return "", nil, nil, err
@@ -174,6 +182,7 @@ func materializeDirector(directorYML, stackID string, container2host map[string]
 
 	// volume name -> container path, from services.<svc>.volumes: [{name: path}]
 	volContainer := map[string]string{}
+	volSvc := map[string]string{} // volume name -> director service mounting it
 	if services := mapValue(root, "services"); services != nil {
 		for i := 1; i < len(services.Content); i += 2 {
 			svc := services.Content[i]
@@ -184,6 +193,7 @@ func materializeDirector(directorYML, stackID string, container2host map[string]
 			for _, item := range vols.Content {
 				if item.Kind == yaml.MappingNode && len(item.Content) >= 2 {
 					volContainer[item.Content[0].Value] = item.Content[1].Value
+					volSvc[item.Content[0].Value] = services.Content[i-1].Value
 				}
 			}
 		}
@@ -211,7 +221,7 @@ func materializeDirector(directorYML, stackID string, container2host map[string]
 				allVol[placeholder] = true
 			}
 			cpath := volContainer[volName]
-			host, resolved := container2host[cpath]
+			host, resolved := volumeHost(cpath, placeholder, volSvc[volName], container2host, bySvc, env)
 			if placeholder != "" && resolved {
 				placeholders[placeholder] = host
 				kept = append(kept, nameNode, body)
@@ -243,6 +253,15 @@ func materializeDirector(directorYML, stackID string, container2host map[string]
 			drop[volName] = true
 		}
 		volumes.Content = kept
+		// nullfs, as podman bind-mounts: appjail's default <pseudofs> copies the
+		// image's files out first and fails on an empty image folder.
+		for i := 1; i < len(kept); i += 2 {
+			if body := kept[i]; body.Kind == yaml.MappingNode && mapValue(body, "type") == nil {
+				body.Content = append(body.Content,
+					&yaml.Node{Kind: yaml.ScalarNode, Value: "type"},
+					&yaml.Node{Kind: yaml.ScalarNode, Value: "nullfs"})
+			}
+		}
 	}
 
 	// Rewrite each service's volume list: dropped volumes go, expanded ones are
@@ -284,6 +303,26 @@ func materializeDirector(directorYML, stackID string, container2host map[string]
 	}
 	enc.Close()
 	return buf.String(), placeholders, allVol, nil
+}
+
+// volumeHost is the host folder for a director volume. The service's own
+// mount first: an app and its database both mounting /config are two folders,
+// and the container path alone gave both the same one.
+func volumeHost(cpath, placeholder, svc string, container2host map[string]string, bySvc map[string]map[string]string, env map[string]string) (string, bool) {
+	if src, ok := bySvc[svc][cpath]; ok {
+		return src, true
+	}
+	// Named differently in the compose ("vikunja-mariadb" is "mariadb"): the
+	// volume's own variable, if the compose mounts it at this path.
+	if v := env[placeholder]; v != "" && placeholder != "" {
+		for _, m := range bySvc {
+			if m[cpath] == v {
+				return v, true
+			}
+		}
+	}
+	src, ok := container2host[cpath]
+	return src, ok
 }
 
 // deviceVar returns the placeholder name in a volume body's `device: !ENV
