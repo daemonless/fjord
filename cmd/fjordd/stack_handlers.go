@@ -666,6 +666,9 @@ func (s *server) stackSave(w http.ResponseWriter, r *http.Request, name string) 
 		if err == nil && len(payload.NetworkModes) > 0 {
 			directorYML, err = setDirectorModes(directorYML, payload.NetworkModes)
 		}
+		if err == nil {
+			directorYML, err = setDirectorResolv(r.Context(), directorYML, existing.Dir)
+		}
 		if err != nil {
 			http.Error(w, "network attach: "+err.Error(), 400)
 			return

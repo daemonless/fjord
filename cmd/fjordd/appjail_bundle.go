@@ -89,6 +89,9 @@ func writeAppjailBundle(dir, stackID string, b *manifest.AppjailBundle, resolved
 	if directorYML, err = setDirectorModes(directorYML, modes); err != nil {
 		return "", fmt.Errorf("network mode: %w", err)
 	}
+	if directorYML, err = setDirectorResolv(context.Background(), directorYML, dir); err != nil {
+		return "", err
+	}
 
 	env := directorEnv(b.EnvDefaults, stackID, resolvedEnv, volPlaceholders, allVolVars)
 
