@@ -29,7 +29,7 @@
   import { appUrl, noWebUI } from './appUrl';
   import { health } from './stackHealth';
   import { changeSentence } from './updateWords';
-  import { parseEnv, missingVars, setEnvVar, isSecret, usedVars } from './composeVars';
+  import { parseEnv, missingVars, unusedVars, setEnvVar, isSecret, usedVars } from './composeVars';
   import VarsPanel from './VarsPanel.svelte';
   import { currentTheme, setTheme, watchSystem, type Theme } from './theme';
   import { addressProblem, usableRange, networkLabel, HOST_NETWORK, DEFAULT_NETWORK, randomMAC } from './network';
@@ -459,8 +459,16 @@
   $: openUrl = appUrl(selectedStack);
   // The .env as the editors resolve ${VAR} against it, and what the compose
   // (or director file) uses that it never sets -- shown on the .env tab.
-  $: stackVars = parseEnv(selectedStack?.env ?? '');
+  // A director file's ${PWD} is the stack's folder: fjord sets it on every run.
+  let stackVars: Record<string, string> = {};
+  $: stackVars = {
+    ...parseEnv(selectedStack?.env ?? ''),
+    ...(selectedStack?.director ? { PWD: selectedStack.dir } : {}),
+  };
   $: unsetVars = missingVars((selectedStack?.director || selectedStack?.compose) ?? '', stackVars);
+  // .env lines nothing the engine runs uses: WEB_PORT once a stack has its
+  // own address, where no port is published. Edited, they changed nothing.
+  $: unusedEnv = unusedVars((selectedStack?.director || selectedStack?.compose) ?? '', parseEnv(selectedStack?.env ?? ''));
   // Variables on the compose tab. Each ${VAR} carries its value in the
   // editor (Values), and clicking one sets it in a small box right there.
   // The Variables panel lists them all, missing first; with it open, a
@@ -2778,6 +2786,14 @@
               />
             {:else if activeTab === 'env'}
               <div class="h-full flex flex-col">
+                {#if unusedEnv.length}
+                  <div class="shrink-0 px-4 py-2 text-xs bg-fjord-card border-b border-fjord-border text-fjord-fg-secondary">
+                    <span class="font-mono text-fjord-fg-body">{unusedEnv.join(', ')}</span>
+                    {unusedEnv.length === 1 ? 'is' : 'are'} not used by this stack{#if (selectedStack as any).ownAddress}:
+                      it has its own address on {(selectedStack as any).network}, so nothing is published on this host's
+                      ports, and the app answers on its own port there{:else}, so changing {unusedEnv.length === 1 ? 'it' : 'them'} has no effect{/if}.
+                  </div>
+                {/if}
                 {#if unsetVars.length}
                   <div class="shrink-0 flex items-center gap-3 px-4 py-2 text-xs bg-fjord-warning/10 border-b border-fjord-warning/30 text-fjord-fg-body">
                     <span class="flex-1">
