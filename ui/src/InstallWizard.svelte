@@ -1,5 +1,6 @@
 <script lang="ts">
   import { setFor } from './folderMatch';
+  import { insidePort, ownAddress } from './ownPort';
   import { onMount, createEventDispatcher } from 'svelte';
   import * as yaml from 'js-yaml';
   import Icon from './Icon.svelte';
@@ -535,6 +536,10 @@
   // What the blurb promises has to be what the rows say, or the screen gives
   // two answers.
   $: exposedOn = Object.entries(planEdits).find(([svc]) => netPlan[svc] === PLAN_DEFAULT)?.[1]?.[0]?.network ?? '';
+  // The network the app's web service lands on. With an address of its own
+  // there, its port variables publish nothing (see ownPort.ts).
+  $: webNet = perService ? exposedOn || planEdits[svcNames[0]]?.[0]?.network || '' : netChoice;
+  $: webOwnAddress = ownAddress(webNet, networks);
   const PLAN_PRIVATE = 'private';
   const PLAN_DEFAULT = 'default';
   const PLAN_NONE = 'none';
@@ -543,7 +548,7 @@
   // Attachable networks (empty on hosts without them). A network with no
   // subnet gets its addresses from DHCP -- nothing here needs to know the
   // segment, and no address has to be supplied.
-  type Network = { name: string; subnet?: string; static?: boolean; addressSource?: string };
+  type Network = { name: string; driver?: string; subnet?: string; static?: boolean; addressSource?: string };
   let networks: Network[] = [];
   let netChoice = '';
   const BUILT_IN = [
@@ -801,6 +806,17 @@
           </div>
 
           {#snippet varField(v: any)}
+            {#if v.type === 'port' && webOwnAddress && insidePort(manifestText, v.name)}
+              <div class="flex flex-col gap-1">
+                <span class="text-sm font-semibold text-fjord-fg-secondary font-mono text-fjord-accent/90">{v.name}</span>
+                <div class="text-sm text-fjord-fg-body">
+                  Port <span class="font-mono">{insidePort(manifestText, v.name)}</span>, the app's own, at its address on {webNet}.
+                </div>
+                <div class="text-xs text-fjord-fg-dim">
+                  With an address of its own nothing is published on this host, so there is no port to choose here.
+                </div>
+              </div>
+            {:else}
             <div class="flex flex-col gap-1">
               <label class="text-sm font-semibold text-fjord-fg-secondary flex items-center gap-2" for={v.name}>
                 <span class="font-mono text-fjord-accent/90">{v.name}</span>
@@ -882,6 +898,7 @@
                 />
               {/if}
             </div>
+            {/if}
           {/snippet}
 
           {#each choices as c (c.id)}
