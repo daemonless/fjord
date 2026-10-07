@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"log"
@@ -86,6 +87,8 @@ func (s *server) preflight(ctx context.Context, st *stack.Stack) []string {
 	}
 
 	used, _ := s.primaryBackend().UsedPorts(ctx) // best-effort; nil on error
+	// The default engine only knows its own containers.
+	taken := s.otherStackPorts(st)
 	project := strings.ToLower(st.Name) + "_"
 	hostAddr := os.Getenv("FJORD_HOST_ADDR")
 	if hostAddr == "" {
@@ -102,6 +105,11 @@ func (s *server) preflight(ctx context.Context, st *stack.Stack) []string {
 				fmt.Sprintf("port %s is already published by container %q -- stop it or change this stack's port", key, holder))
 			continue
 		}
+		if other, ok := taken[key]; ok {
+			problems = append(problems,
+				fmt.Sprintf("port %s is already used by the stack %q -- stop it or change this stack's port", key, other))
+			continue
+		}
 		if p.Proto == "tcp" && tcpInUse(hostAddr, p.Host) {
 			problems = append(problems,
 				fmt.Sprintf("port %s is already in use by a process on the host -- free it or change this stack's port", key))
@@ -116,6 +124,11 @@ func (s *server) preflight(ctx context.Context, st *stack.Stack) []string {
 		if holder, ok := used[hp.key]; ok && !strings.HasPrefix(holder, project) {
 			problems = append(problems,
 				fmt.Sprintf("port %s (%s, network_mode: host) is already published by container %q", hp.key, hp.service, holder))
+			continue
+		}
+		if other, ok := taken[hp.key]; ok {
+			problems = append(problems,
+				fmt.Sprintf("port %s (%s, network_mode: host) is already used by the stack %q", hp.key, hp.service, other))
 			continue
 		}
 		if hp.proto == "tcp" && tcpInUse(hostAddr, hp.port) {
@@ -228,4 +241,31 @@ func (s *server) provisionBindDirs(st *stack.Stack, env map[string]string) []str
 		log.Printf("preflight %s: provisioned %s (uid %d)", st.Name, clean, uid)
 	}
 	return problems
+}
+
+// otherStackPorts are the host ports the other stacks set to run publish
+// ("3456/tcp" -> stack), from their config: a jail's port is a pf redirect
+// nothing can probe, and a live status may not have arrived yet.
+func (s *server) otherStackPorts(st *stack.Stack) map[string]string {
+	out := map[string]string{}
+	stacks, err := s.manager.List()
+	if err != nil {
+		return out
+	}
+	for _, o := range stacks {
+		if o.Name == st.Name || o.State == nil || o.State.DesiredState != "running" {
+			continue
+		}
+		o, err := s.manager.Get(o.Name) // List carries no compose or env
+		if err != nil {
+			continue
+		}
+		if net, _ := composepkg.AttachedNetwork(o.Compose); net != "" {
+			continue // its ports are on its own address
+		}
+		for _, p := range composepkg.PublishedPorts(o.Compose, o.EnvMap()) {
+			out[fmt.Sprintf("%d/%s", p.Host, cmp.Or(p.Proto, "tcp"))] = o.Name
+		}
+	}
+	return out
 }
