@@ -34,7 +34,7 @@ func TestMaterializeDirectorExpandsMultiFolder(t *testing.T) {
 		"/movies/other": "/mnt/other/movies",
 		// /tv unresolved -> pruned
 	}
-	out, placeholders, allVol, err := materializeDirector(testDirector, "7", container2host)
+	out, placeholders, allVol, err := materializeDirector(testDirector, "7", container2host, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -146,4 +146,46 @@ func TestDirectorEnvKeepsDeclaredKeys(t *testing.T) {
 		}
 	}
 	t.Errorf("no TZ line at all:\n%s", out)
+}
+
+// Every kept volume is nullfs, sub-mounts included; appjail's default
+// <pseudofs> fails on an image folder that is empty (MariaDB's log/mysql).
+func TestMaterializeDirectorNullfs(t *testing.T) {
+	out, _, _, err := materializeDirector(testDirector, "7", map[string]string{
+		"/config": "/c", "/movies/a": "/m/a", "/movies/b": "/m/b"}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := strings.Count(out, "type: nullfs"); n != 3 {
+		t.Fatalf("want 3 nullfs volumes, got %d:\n%s", n, out)
+	}
+}
+
+// An app and its database both mount /config: two folders, not one.
+func TestMaterializeDirectorSameContainerPath(t *testing.T) {
+	director := `services:
+  vikunja:
+    volumes:
+      - VIKUNJA_CONFIG_PATH: /config
+  vikunja-mariadb:
+    volumes:
+      - database: /config
+volumes:
+  VIKUNJA_CONFIG_PATH:
+    device: !ENV '${VIKUNJA_CONFIG_PATH}'
+  database:
+    device: !ENV '${DATABASE_LOCATION}'
+`
+	bySvc := map[string]map[string]string{
+		"vikunja": {"/config": "/s/config"},
+		"mariadb": {"/config": "/s/mariadb"},
+	}
+	_, ph, _, err := materializeDirector(director, "7", map[string]string{"/config": "/s/mariadb"},
+		bySvc, map[string]string{"DATABASE_LOCATION": "/s/mariadb"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ph["VIKUNJA_CONFIG_PATH"] != "/s/config" || ph["DATABASE_LOCATION"] != "/s/mariadb" {
+		t.Fatalf("got %v", ph)
+	}
 }
