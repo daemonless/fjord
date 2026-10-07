@@ -56,6 +56,7 @@
   let catalog: Catalog | null = null;
   let loading = true;
   let error: string | null = null;
+  export let stackIds: string[] = [];
   let installingApp: CatalogApp | null = null;
   // The wizard stays mounted while the daemon decides. A refusal it can do
   // something about -- a bad address, a name in use -- has to land back in the
@@ -442,6 +443,7 @@
       appClass={installingApp.class}
       busy={installBusy}
       submitError={installError}
+      {stackIds}
       on:close={() => { installingApp = null; installBusy = false; installError = ''; }}
       on:deploy={handleDeploy}
     />

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -57,8 +58,8 @@ func chooseAppData(requested string, locations []string) string {
 	return locations[0]
 }
 
-// storageSlug is the App data folder name for a stack: its display name
-// slugged, the id as fallback (see stack.Slug).
+// storageSlug is a name slugged, the id as fallback (see stack.Slug); a new
+// stack's App data folder is its id.
 func storageSlug(name, id string) string { return stack.Slug(name, id) }
 
 // installRequest is the /api/apps/install payload: a catalog manifest plus the
@@ -213,14 +214,20 @@ func (s *server) handleInstall(w http.ResponseWriter, r *http.Request) {
 	// The answers first: they add and drop services and set variables that
 	// everything below resolves. On AppJail the bundle gets the same change
 	// from each option's AppJail form, further down.
+	// A data folder an option seeds says {{base}}/{{stack}}/...: this stack's
+	// own directory, so two installs of one app never share a database dir.
+	// Named by the id, unique among stacks: by display name, a second
+	// "zensical" shared the first one's folder.
+	slug, base := id, chooseAppData(req.AppData, s.appDataLocations())
+	// Data kept from an earlier install under this name was set up with that
+	// install's secrets; new made-up ones lock the app out of its database.
+	dataDir := filepath.Join(base, slug)
+	reused := reuseSecrets(dataDir, req.Values)
 	answers, err := m.ApplyChoices(req.Choices, req.Values)
 	if err != nil {
 		http.Error(w, err.Error(), 400)
 		return
 	}
-	// A data folder an option seeds says {{base}}/{{stack}}/...: this stack's
-	// own directory, so two installs of one app never share a database dir.
-	slug, base := storageSlug(req.Name, id), chooseAppData(req.AppData, s.appDataLocations())
 	for k, v := range req.Values {
 		if strings.Contains(v, "{{") {
 			req.Values[k] = expandPathTemplate(v, slug, base)
@@ -571,6 +578,9 @@ func (s *server) handleInstall(w http.ResponseWriter, r *http.Request) {
 	if err := s.manager.SaveState(id, st.State); err != nil {
 		log.Printf("install %s: persist state: %v", id, err)
 	}
+	if err := saveSecrets(dataDir, m, res.Env); err != nil {
+		log.Printf("install %s: keep secrets with the data: %v", id, err)
+	}
 	installed = true
 	// Held for the whole bring-up, pull included: a Start pressed meanwhile is
 	// refused instead of running a second up that races this one (jellyfin on
@@ -606,6 +616,14 @@ func (s *server) handleInstall(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
+	}
+	if len(reused) > 0 {
+		note := fmt.Sprintf("[fjord] Existing data in %s: kept the passwords it was set up with (%s).\n",
+			dataDir, strings.Join(reused, ", "))
+		stream = struct {
+			io.Reader
+			io.Closer
+		}{io.MultiReader(strings.NewReader(note), stream), stream}
 	}
 	streamOutput(w, s.recordOutcome(id, "install", s.keepAfter(ctx, st, stream)))
 }
@@ -745,8 +763,11 @@ func anotherStacksFolder(dirs []manifest.ProvisionDir, base, slug string, existi
 		if st.State != nil && st.State.DisplayName != "" {
 			display = st.State.DisplayName
 		}
-		if s := storageSlug(display, st.Name); s != slug {
-			owner[s] = display
+		// Its id, and its display name (how older installs named the folder).
+		for _, s := range []string{st.Name, storageSlug(display, st.Name)} {
+			if s != slug {
+				owner[s] = display
+			}
 		}
 	}
 	root := strings.TrimRight(base, "/") + "/"
