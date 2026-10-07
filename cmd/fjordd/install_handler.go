@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -200,6 +201,7 @@ func (s *server) handleInstall(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	id := s.manager.AllocateName(req.Name, req.AppID)
+	installed := false // saved for good; see the network cleanup below
 	m, err := manifest.Parse(req.Manifest)
 	if err != nil {
 		http.Error(w, "manifest: "+err.Error(), 400)
@@ -228,6 +230,13 @@ func (s *server) handleInstall(w http.ResponseWriter, r *http.Request) {
 		if msg := appjailRefusal(m); msg != "" {
 			http.Error(w, msg, 400)
 			return
+		}
+		if b := m.Appjail(); b != nil {
+			if missing := appjailShort(b, m.Picked(), m.Compose()); len(missing) > 0 {
+				http.Error(w, fmt.Sprintf("%s can't run on AppJail yet: its AppJail bundle has no jail for %s. Install it on podman.",
+					req.AppID, strings.Join(missing, ", ")), 400)
+				return
+			}
 		}
 	}
 	// Remote folders (nfs:// / smb:// URLs) in a path list become named
@@ -359,6 +368,15 @@ func (s *server) handleInstall(w http.ResponseWriter, r *http.Request) {
 		for _, svc := range composepkg.ParseServices(composeYAML, res.Env) {
 			names = append(names, svc.Name)
 		}
+		// A refusal from here on leaves no stack, so the private network made
+		// for it goes too.
+		defer func() {
+			if !installed {
+				if be, ok := s.backend(cmp.Or(req.Engine, s.defaultEngine())); ok {
+					s.dropPrivateNetwork(be, id)
+				}
+			}
+		}()
 		plan := installNetworkPlan(req, m.Networking)
 		atts, modes, planErr := planServiceNetworks(r.Context(), plan, req.attachments(), names,
 			func() (string, error) { return s.ensurePrivateNetwork(r.Context(), req.Engine, id) })
@@ -528,6 +546,9 @@ func (s *server) handleInstall(w http.ResponseWriter, r *http.Request) {
 		}
 		env, err := writeAppjailBundle(st.Dir, id, b, res.Env, composeYAML, req.attachments(), svcModes, req.Network)
 		if err != nil {
+			// Gone again, as above: a stack left with a compose and no bundle
+			// is listed with no engine and can never start.
+			_ = s.manager.Delete(id)
 			http.Error(w, "appjail bundle: "+err.Error(), 500)
 			return
 		}
@@ -550,6 +571,7 @@ func (s *server) handleInstall(w http.ResponseWriter, r *http.Request) {
 	if err := s.manager.SaveState(id, st.State); err != nil {
 		log.Printf("install %s: persist state: %v", id, err)
 	}
+	installed = true
 	// Held for the whole bring-up, pull included: a Start pressed meanwhile is
 	// refused instead of running a second up that races this one (jellyfin on
 	// army got two, one of which died on "name already in use").

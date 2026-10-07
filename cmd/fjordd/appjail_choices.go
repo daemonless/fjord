@@ -4,10 +4,12 @@ import (
 	"fmt"
 	"maps"
 	"regexp"
+	"slices"
 	"strings"
 
 	"gopkg.in/yaml.v3"
 
+	composepkg "github.com/daemonless/fjord/pkg/compose"
 	"github.com/daemonless/fjord/pkg/manifest"
 )
 
@@ -181,4 +183,34 @@ func pruneUnmountedVolumes(root *yaml.Node) {
 		}
 		i += 2
 	}
+}
+
+// appjailShort names the services of a stack that its AppJail bundle (the
+// picked options applied) has no jail for, nil when it has one per service.
+// Counted, not matched by name: a database a choice adds is "mariadb" in the
+// compose and "vikunja-mariadb" in the director.
+func appjailShort(b *manifest.AppjailBundle, picked []*manifest.Option, composeYAML string) []string {
+	bb, err := withAppjailChoices(b, picked)
+	if err != nil {
+		return nil // reported on its own at install
+	}
+	var doc yaml.Node
+	if yaml.Unmarshal([]byte(bb.Director), &doc) != nil || len(doc.Content) == 0 {
+		return nil
+	}
+	jails := directorServiceNames(doc.Content[0])
+	var services []string
+	for _, svc := range composepkg.ParseServices(composeYAML, nil) {
+		services = append(services, svc.Name)
+	}
+	if len(jails) >= len(services) {
+		return nil
+	}
+	var missing []string
+	for _, s := range services {
+		if !slices.Contains(jails, s) {
+			missing = append(missing, s)
+		}
+	}
+	return missing
 }
