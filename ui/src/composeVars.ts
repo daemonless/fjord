@@ -102,3 +102,29 @@ export function usedVars(text: string, env: Record<string, string>): VarRef[] {
   const all = [...byName.values()];
   return [...all.filter((r) => r.state === 'unset'), ...all.filter((r) => r.state !== 'unset')];
 }
+
+/**
+ * unusedVars: .env variables nothing the engine runs refers to -- WEB_PORT
+ * on a stack with its own LAN address, where no port is published. fjord's
+ * own x-fjord keys are notes, not config, so a mention there does not count.
+ * A compose with env_file hands the whole .env to a container: all used.
+ */
+export function unusedVars(text: string, env: Record<string, string>): string[] {
+  if (/^\s*env_file:/m.test(text)) return [];
+  const kept: string[] = [];
+  let skip = -1;
+  for (const line of text.split('\n')) {
+    const indent = line.search(/\S/);
+    if (skip >= 0 && (indent < 0 || indent > skip)) continue;
+    skip = -1;
+    if (/^\s*x-fjord[\w-]*:/.test(line)) {
+      skip = indent;
+      continue;
+    }
+    kept.push(line);
+  }
+  const used = new Set(refs(kept.join('\n'), env).map((r) => r.name));
+  // Read by the tools themselves, not through ${...}.
+  for (const n of ['DIRECTOR_PROJECT', 'COMPOSE_PROJECT_NAME', 'COMPOSE_PROFILES']) used.add(n);
+  return Object.keys(env).filter((n) => !used.has(n));
+}

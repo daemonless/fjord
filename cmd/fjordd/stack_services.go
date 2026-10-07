@@ -303,6 +303,11 @@ func attachStatus(views []serviceView, status engine.StackStatus) {
 				views[i].Live[a.Network] = addr
 			}
 		}
+		// An engine with one address per container (a jail) and a service on
+		// one network: that address is its address there.
+		if views[i].Live == nil && len(views[i].Networks) == 1 && c.Address != "" {
+			views[i].Live = map[string]string{views[i].Networks[0].Network: c.Address}
+		}
 		// One address for the service, and it should be the one that is any
 		// use. The engine reports whichever it resolved first, which for
 		// immich-server was its private 10.100.x -- so the row said the app

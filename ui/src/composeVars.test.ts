@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseEnv, refs, missingVars, isSecret, setEnvVar, usedVars } from './composeVars';
+import { parseEnv, refs, missingVars, isSecret, setEnvVar, usedVars, unusedVars } from './composeVars';
 
 describe('parseEnv', () => {
   it('reads KEY=VALUE, skips comments, strips one pair of quotes', () => {
@@ -71,5 +71,26 @@ describe('setEnvVar', () => {
 describe('usedVars', () => {
   it('lists each variable once, unset first', () => {
     expect(usedVars('${A} ${B} ${A} ${C:-1}', { A: '1' }).map((r) => r.name)).toEqual(['B', 'A', 'C']);
+  });
+});
+
+describe('unusedVars', () => {
+  it('names what nothing the engine runs refers to', () => {
+    // zensical-2 on the LAN: its port only survives in x-fjord notes.
+    const compose = `services:
+  zensical:
+    image: z:\${TAG}
+    x-fjord-published:
+      - "\${WEB_PORT}:8000"
+x-fjord:
+  web_port: "\${WEB_PORT}"
+`;
+    expect(unusedVars(compose, { TAG: 'latest', WEB_PORT: '346', COMPOSE_PROJECT_NAME: 'z' })).toEqual(['WEB_PORT']);
+  });
+  it('counts everything used when the compose passes the .env in', () => {
+    expect(unusedVars('services:\n  a:\n    env_file: .env\n', { X: '1' })).toEqual([]);
+  });
+  it('keeps the director project, which the director reads itself', () => {
+    expect(unusedVars("expose: !ENV '${WEB_PORT}:8000'", { WEB_PORT: '1', DIRECTOR_PROJECT: 'p' })).toEqual([]);
   });
 });
