@@ -999,7 +999,7 @@
   const slugOfName = (name: string) =>
     name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
   function expandSetPath(p: string): string {
-    const slug = slugOfName(label(selectedStack)) || selectedStack?.name || 'app';
+    const slug = selectedStack?.name || 'app'; // its folder is named by its id
     return p.replace(/\{\{\s*stack\s*\}\}/g, slug).replace(/\{\{\s*(appdata|base)\s*\}\}/g, appDataDefault || '/containers');
   }
   async function loadFolderSets() {
@@ -3016,7 +3016,7 @@
       </div>
     {:else if currentView === 'store'}
       <div class="p-6 h-full overflow-hidden">
-        <AppStore on:install={handleInstall} />
+        <AppStore stackIds={stacks.map((s) => s.name)} on:install={handleInstall} />
       </div>
     {:else if currentView === 'volumes'}
       <div class="p-6 h-full overflow-hidden">

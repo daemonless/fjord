@@ -42,3 +42,16 @@ func TestAnotherStacksFolder(t *testing.T) {
 		t.Errorf("own name: %q", why)
 	}
 }
+
+// A second "zensical" (id zensical-2) gets its own folder: the first one's,
+// named by the same display name, is refused.
+func TestAnotherStacksFolderSameDisplayName(t *testing.T) {
+	existing := []*stack.Stack{{Name: "zensical", State: &stack.State{DisplayName: "zensical"}}}
+	dirs := func(p string) []manifest.ProvisionDir { return []manifest.ProvisionDir{{Path: p}} }
+	if why := anotherStacksFolder(dirs("/containers/zensical/config"), "/containers", "zensical-2", existing); !strings.Contains(why, "zensical's folder") {
+		t.Fatalf("shared the first one's folder: %q", why)
+	}
+	if why := anotherStacksFolder(dirs("/containers/zensical-2/config"), "/containers", "zensical-2", existing); why != "" {
+		t.Fatalf("its own folder refused: %q", why)
+	}
+}

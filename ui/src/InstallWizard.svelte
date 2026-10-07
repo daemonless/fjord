@@ -29,6 +29,7 @@
   // costs every answer in it, not just the one that was wrong.
   export let busy = false;
   export let submitError = '';
+  export let stackIds: string[] = []; // existing stacks: the new one's folder is its id
 
   // App data locations (Settings): the first is the default; with more than one
   // the wizard shows a picker. The choice drives path hints + {{appdata}}.
@@ -54,17 +55,25 @@
   // lowercase, runs of non-alphanumerics collapsed to "-", app id as fallback.
   const slugOf = (name: string, fallback: string) =>
     name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || fallback;
+  // The new stack's id, as the server allocates it (stack.AllocateName): the
+  // slug, or "<slug>-2", "-3" ... while one exists. Its folder is named by it.
+  const folderOf = (name: string, fallback: string) => {
+    const base = slugOf(name, fallback);
+    let id = base;
+    for (let n = 2; stackIds.includes(id); n++) id = `${base}-${n}`;
+    return id;
+  };
   // Suggested host directory for a path variable:
   // <app data>/<app folder>/<var-lowercased-sans-suffix>.
   const pathHint = (v: any) =>
-    `${storageBase}/${slugOf(stackName, appId || 'app')}/${String(v.name).toLowerCase().replace(/[._]?path$/, '').replace(/[^a-z0-9]+/g, '-') || 'data'}`;
+    `${storageBase}/${folderOf(stackName, appId || 'app')}/${String(v.name).toLowerCase().replace(/[._]?path$/, '').replace(/[^a-z0-9]+/g, '-') || 'data'}`;
   const seedPath = (v: any, slug: string) =>
     defaultPath(v.default || '', { appId, locations: appDataLocations, base: storageBase, slug, hint: pathHint(v) });
   // The folders follow the name while it is being typed: a default seeded
   // for "librenms" is wrong the moment the name becomes "t-lnms". Only
   // fields nobody has edited or filled from a folder set.
   let seededSlug = '';
-  $: reseedPaths(slugOf(stackName, appId || 'app'));
+  $: reseedPaths(folderOf(stackName, appId || 'app'));
   function reseedPaths(slug: string) {
     if (!variables.length || !seededSlug || slug === seededSlug) return;
     for (const v of variables) {
@@ -92,7 +101,7 @@
   const remoteKind = (p: string) => (/^(nfs|smb):\/\//i.exec(p || '')?.[1] || '').toUpperCase();
   $: previewOf = (p: string) =>
     (p || '')
-      .replace(/\{\{\s*stack\s*\}\}/g, slugOf(stackName, appId || 'app'))
+      .replace(/\{\{\s*stack\s*\}\}/g, folderOf(stackName, appId || 'app'))
       .replace(/\{\{\s*(appdata|base)\s*\}\}/g, storageBase);
 
   // Host-mode fjordd can browse the host filesystem; a container can't.
@@ -696,10 +705,10 @@
           // Path vars get this stack's own <App data>/<stack>/... folder: a
           // catalog default that names the app is re-rooted, none at all
           // becomes a hint; still fully editable + browsable.
-          formData[v.name] = v.type === 'path' ? seedPath(v, slugOf(stackName, appId || 'app')) : v.default || '';
+          formData[v.name] = v.type === 'path' ? seedPath(v, folderOf(stackName, appId || 'app')) : v.default || '';
           if (v.type === 'path') paths[v.name] = [formData[v.name]];
         });
-        seededSlug = slugOf(stackName, appId || 'app');
+        seededSlug = folderOf(stackName, appId || 'app');
         formData = formData; // seeding above mutates in place; reassign so missingRequired recomputes
         paths = paths;
         defaultedFrom = {};
@@ -940,7 +949,7 @@
             <span>
               Installs <b class="text-fjord-fg-body">{appName} {summaryVersion}</b>{#if summaryTrain}{' '}({summaryTrain}){/if}
               on <b class="text-fjord-fg-body">{engineChoice || 'podman'}</b>{#if pickedWords.length}, <b class="text-fjord-fg-body">{pickedWords.join(', ').toLowerCase()}</b>{/if}
-              · data in <span class="font-mono text-fjord-fg-secondary">{storageBase}/{slugOf(stackName, appId || 'app')}</span>
+              · data in <span class="font-mono text-fjord-fg-secondary">{storageBase}/{folderOf(stackName, appId || 'app')}</span>
             </span>
             <button
               type="button"
@@ -1011,7 +1020,7 @@
           {#if appDataLocations.length > 1}
             <div class="flex flex-col gap-1">
               <label class="text-sm font-semibold text-fjord-fg-secondary" for="appdata">App data</label>
-              <p class="text-xs text-fjord-fg-dim">Where this app's own folders go — <span class="font-mono">{storageBase}/{slugOf(stackName, appId || 'app')}/…</span></p>
+              <p class="text-xs text-fjord-fg-dim">Where this app's own folders go — <span class="font-mono">{storageBase}/{folderOf(stackName, appId || 'app')}/…</span></p>
               <select
                 id="appdata"
                 bind:value={appDataChoice}
