@@ -1287,6 +1287,9 @@
         originalDirector = selectedStack!.director ?? '';
         originalMakejail = selectedStack!.makejail ?? '';
         toast('Changes saved', { kind: 'success' });
+        // A secret changed on a stack that has run: its database kept the
+        // old one, and the app may be refused with no other explanation.
+        for (const w of (saved.warnings ?? []) as string[]) toast(w, { kind: 'error', timeout: 20000 });
         // A running container keeps its creation-time config (ports, env) --
         // saved changes only apply on a recreate (`up`), NOT on restart. Flag
         // it so the UI can offer "Apply".

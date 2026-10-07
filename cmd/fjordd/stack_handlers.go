@@ -775,7 +775,28 @@ func (s *server) stackSave(w http.ResponseWriter, r *http.Request, name string) 
 		hash = composeHash(saved)
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "saved", "composeHash": hash})
+	resp := map[string]any{"status": "saved", "composeHash": hash}
+	if oldEnv != "" {
+		if st, err := s.manager.Get(name); err == nil {
+			secrets := s.secretVars(r.Context(), st)
+			var baseline map[string]string
+			if len(secrets) > 0 {
+				s.manager.UpdateState(name, func(state *stack.State) *stack.State {
+					if state == nil {
+						return nil
+					}
+					baseline = secretBaseline(state.SecretSums, envMap(oldEnv), secrets)
+					state.SecretSums = baseline
+					return state
+				})
+			}
+			hasRun := len(s.live.get(s.backendFor(st), st, statusWait).Containers) > 0
+			if warns := secretChangeWarnings(baseline, st.EnvMap(), secrets, hasRun); len(warns) > 0 {
+				resp["warnings"] = warns
+			}
+		}
+	}
+	json.NewEncoder(w).Encode(resp)
 }
 
 // composeHash identifies what a stack's runtime spec says: the compose, and

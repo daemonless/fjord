@@ -542,6 +542,7 @@ func (s *server) handleInstall(w http.ResponseWriter, r *http.Request) {
 		Engine:       eng,
 		DisplayName:  strings.TrimSpace(req.Name),
 		Choices:      answers,
+		SecretSums:   installSecretSums(m, res.Env),
 		InstalledAt:  now,
 		UpdatedAt:    now,
 	}
@@ -738,4 +739,19 @@ func anotherStacksFolder(dirs []manifest.ProvisionDir, base, slug string, existi
 		}
 	}
 	return ""
+}
+
+// installSecretSums are the sums of the secrets an install sets up with: the
+// baseline a later Save is compared against (see secretChangeWarnings).
+func installSecretSums(m *manifest.Manifest, env map[string]string) map[string]string {
+	out := map[string]string{}
+	for _, v := range m.Variables {
+		if v.Type == "secret" && env[v.Name] != "" {
+			out[v.Name] = secretSum(env[v.Name])
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
