@@ -597,6 +597,9 @@ func podmanServiceStaleProbe(ctx context.Context) (Status, string) {
 	if pid == "" {
 		return OK, "" // not running: the socket check is the one that says so
 	}
+	if !podmanInstalled() {
+		return OK, "" // podman removed: the podman and socket checks say so, and an install date to compare with is gone
+	}
 	// etimes is elapsed SECONDS, which needs no date parsing and no locale.
 	etimes, err := strconv.Atoi(strings.TrimSpace(firstLine(run(ctx, "ps", "-o", "etimes=", "-p", pid))))
 	if err != nil {
