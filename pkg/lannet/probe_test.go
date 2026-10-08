@@ -44,3 +44,12 @@ func TestProbeMACIsLocalUnicast(t *testing.T) {
 		}
 	}
 }
+
+// The probe asks under its own name: with the host's, the router moved the
+// host's name to the probe's lease, on every probe.
+func TestProbeConfSendsItsOwnName(t *testing.T) {
+	got := probeConf("epair9b", "/tmp/p/script")
+	if want := `interface "epair9b" { send host-name "fjord-probe"; script "/tmp/p/script"; }` + "\n"; got != want {
+		t.Fatalf("got %q", got)
+	}
+}
