@@ -104,9 +104,12 @@ func serviceHealthWithin(ctx context.Context, c libpodContainer, grace time.Dura
 			return "running", ""
 		}
 	}
-	if engine.CrashedInLog(logTail(ctx, c.ID)) {
+	if tail := logTail(ctx, c.ID); engine.CrashedInLog(tail) {
 		if c.StartedAt > 0 && time.Since(time.Unix(c.StartedAt, 0)) < grace {
 			return "starting", "starting up -- the app restarted while it waits (for its database, say)"
+		}
+		if why := engine.CrashReason(tail); why != "" {
+			return "crashed", "the app keeps crashing: " + why
 		}
 		return "crashed", "the app inside the container keeps crashing -- see Logs"
 	}

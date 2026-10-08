@@ -251,16 +251,24 @@ func serviceHealth(ctx context.Context, jail string, svc composepkg.Service) (st
 	// s6 restarting the service in the last few log lines. Only a fallback:
 	// a healthy but quiet service logs nothing new, so its tail still shows
 	// the last crash before it recovered -- a listening port must override it.
+	why := ""
 	crashing := func() bool {
 		f := latestLog(jail)
 		if f == "" {
 			return false
 		}
 		tail, err := exec.CommandContext(ctx, "tail", "-n", "12", f).Output()
-		if err != nil {
+		if err != nil || !engine.CrashedInLog(string(tail)) {
 			return false
 		}
-		return engine.CrashedInLog(string(tail))
+		why = engine.CrashReason(string(tail))
+		return true
+	}
+	crashed := func() (string, string) {
+		if why != "" {
+			return "crashed", "the app keeps crashing: " + why
+		}
+		return "crashed", "the app inside the jail keeps crashing -- see Logs"
 	}
 
 	// A listening published port is definitive proof the app is serving, so
@@ -283,7 +291,7 @@ func serviceHealth(ctx context.Context, jail string, svc composepkg.Service) (st
 		// Nothing listening yet: a crash in the log means it's failing, else
 		// it is still booting.
 		if crashing() {
-			return "crashed", "the app inside the jail keeps crashing -- see Logs"
+			return crashed()
 		}
 		return "starting", "jail is up but nothing is listening on its port yet"
 	}
@@ -291,7 +299,7 @@ func serviceHealth(ctx context.Context, jail string, svc composepkg.Service) (st
 	// No published ports (host-network stacks, databases): the crash log is
 	// the only signal we have.
 	if crashing() {
-		return "crashed", "the app inside the jail keeps crashing -- see Logs"
+		return crashed()
 	}
 	return "running", ""
 }

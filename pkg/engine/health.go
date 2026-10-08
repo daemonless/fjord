@@ -1,6 +1,9 @@
 package engine
 
-import "strings"
+import (
+	"regexp"
+	"strings"
+)
 
 // CrashedInLog reports whether a container log tail shows s6 restarting a
 // service after a genuine fault.
@@ -23,4 +26,33 @@ func CrashedInLog(t string) bool {
 		return true
 	}
 	return false
+}
+
+// errLine is an app's own error report: slog's level=ERROR, Python's
+// ModuleNotFoundError, a Go panic.
+var errLine = regexp.MustCompile(`(?i)(error|fatal|panic|exception)`)
+
+// slogMsg is the msg="..." of a structured log line.
+var slogMsg = regexp.MustCompile(`msg="((?:[^"\\]|\\.)*)"`)
+
+// CrashReason is the app's last error line in t (a log tail), "" when it
+// wrote none, so a crash says why instead of "see Logs".
+func CrashReason(t string) string {
+	var reason string
+	for _, ln := range strings.Split(t, "\n") {
+		ln = strings.TrimSpace(ln)
+		if ln == "" || strings.HasPrefix(ln, "[s6]") || strings.Contains(ln, "] Service '") {
+			continue
+		}
+		if errLine.MatchString(ln) {
+			reason = ln
+		}
+	}
+	if m := slogMsg.FindStringSubmatch(reason); m != nil {
+		reason = strings.ReplaceAll(m[1], `\"`, `"`)
+	}
+	if len(reason) > 200 {
+		reason = reason[:199] + "…"
+	}
+	return reason
 }
