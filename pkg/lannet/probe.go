@@ -83,7 +83,7 @@ func ProbeSegment(ctx context.Context, bridge string) (engine.Segment, error) {
 	if err := os.WriteFile(filepath.Join(dir, "script"), []byte(script), 0o755); err != nil {
 		return engine.Segment{}, err
 	}
-	conf := fmt.Sprintf("interface %q { script %q; }\n", b, filepath.Join(dir, "script"))
+	conf := probeConf(b, filepath.Join(dir, "script"))
 	if err := os.WriteFile(filepath.Join(dir, "conf"), []byte(conf), 0o644); err != nil {
 		return engine.Segment{}, err
 	}
@@ -109,6 +109,14 @@ func ProbeSegment(ctx context.Context, bridge string) (engine.Segment, error) {
 		case <-time.After(250 * time.Millisecond):
 		}
 	}
+}
+
+// probeHost is the name the probe's DHCP request carries. dhclient sends the
+// host's name otherwise, and the router points that name at the probe's lease.
+const probeHost = "fjord-probe"
+
+func probeConf(iface, script string) string {
+	return fmt.Sprintf("interface %q { send host-name %q; script %q; }\n", iface, probeHost, script)
 }
 
 // parseLease reads the probe script's "<address> <mask> <routers>" line.
