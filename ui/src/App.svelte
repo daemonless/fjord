@@ -29,6 +29,8 @@
   import { appUrl, noWebUI } from './appUrl';
   import { health } from './stackHealth';
   import { changeSentence } from './updateWords';
+  import { firstLine } from './errorLine';
+  import { startError } from './adopt';
   import { parseEnv, missingVars, unusedVars, setEnvVar, isSecret, usedVars } from './composeVars';
   import VarsPanel from './VarsPanel.svelte';
   import { currentTheme, setTheme, watchSystem, type Theme } from './theme';
@@ -1343,9 +1345,10 @@
       );
       if (res.ok) onStart?.();
       if (!res.ok) {
+        const why = (await res.text()).trim() || res.statusText;
         execStatus[name] = 'error';
-        execMessage[name] = `HTTP ${res.status}`;
-        logs[name] += `[ERROR]: ${(await res.text()).trim() || res.statusText}\n`;
+        execMessage[name] = firstLine(why) || `HTTP ${res.status}`;
+        logs[name] += `[ERROR]: ${why}\n`;
         return;
       }
       const reader = res.body?.getReader();
@@ -1362,7 +1365,7 @@
       // Reading only the status made a failed update look like a success.
       if (/^\[error\]/m.test(logs[name])) {
         execStatus[name] = 'error';
-        execMessage[name] = 'Failed — see Output';
+        execMessage[name] = startError(logs[name]) || 'Failed — see Output';
         if (watching) drawerOpen = true;
       } else {
         execStatus[name] = 'idle';
@@ -1375,7 +1378,7 @@
       // running/stopped as the containers finish -- no polling needed.
     } catch (err: any) {
       execStatus[name] = 'error';
-      execMessage[name] = 'Failed';
+      execMessage[name] = firstLine(String(err?.message || err)) || 'Failed';
       logs[name] += `[ERROR]: ${err?.message || err}\n`;
     }
   }
@@ -1801,7 +1804,7 @@
         // is real, so land on it with the reason in its output.
         const msg = (await res.text()).trim();
         execStatus[key] = 'error';
-        execMessage[key] = `HTTP ${res.status}`;
+        execMessage[key] = firstLine(msg) || `HTTP ${res.status}`;
         logs[key] += `[ERROR]: ${msg}\n`;
         await loadStacks();
         const saved = stacks.find((s) => s.name === key) || null;
@@ -1854,7 +1857,7 @@
         return;
       }
       execStatus[key] = 'error';
-      execMessage[key] = 'Failed';
+      execMessage[key] = firstLine(String(err?.message || err)) || 'Failed';
       logs[key] += `[ERROR]: ${err?.message || err}\n`;
     }
   }
@@ -2523,11 +2526,11 @@
             class="flex items-center gap-3 mb-4 shrink-0 px-4 py-2.5 rounded-lg bg-fjord-warning/10 border border-fjord-warning/25 text-sm text-fjord-fg-body"
           >
             <span class="flex-1"
-              >The running containers still use the old configuration — apply the saved changes to recreate them.</span
+              >The running services still use the old configuration — apply the saved changes to recreate them.</span
             >
             <button
               on:click={() => { needsApply[selectedStack!.name] = false; applyDismissed[selectedStack!.name] = true; }}
-              title="Keep the running containers as-is; the saved config applies next time you Start/recreate"
+              title="Keep the running services as they are; the saved changes apply the next time the stack starts"
               class="shrink-0 px-3 py-1.5 rounded-lg text-sm font-medium text-fjord-fg-muted hover:text-fjord-fg transition-colors"
               >Not now</button
             >
@@ -2638,7 +2641,7 @@
                     actionsMenuOpen = false;
                     pendingAction = { kind: 'recreate', stack: selectedStack!.name };
                   }}
-                  title="Pull every image and recreate every container, even ones already up to date"
+                  title="Pull every image and recreate every service, even ones already up to date"
                   class="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-fjord-fg-body hover:bg-fjord-border transition-colors"
                   ><Icon name="update" size={14} class="text-fjord-fg-muted" /> Pull &amp; recreate all…</button
                 >
@@ -2973,7 +2976,7 @@
                 <select
                   value={shellContainer}
                   on:change={(e) => (shellPick = e.currentTarget.value)}
-                  title="Container to open a shell in"
+                  title="Service to open a shell in"
                   class="ml-1 bg-fjord-bg border border-fjord-border rounded px-2 py-0.5 text-[11px] text-fjord-fg-secondary font-mono focus:outline-none focus:border-fjord-accent"
                 >
                   {#each shellContainers as c}
@@ -3162,7 +3165,7 @@
       </div>
       <div>
         <h3 class="text-lg font-bold text-fjord-fg">Deleting {deleting}</h3>
-        <p class="text-sm text-fjord-fg-muted mt-1">Stopping and removing its containers. This can take a few seconds…</p>
+        <p class="text-sm text-fjord-fg-muted mt-1">Stopping and removing its services. This can take a few seconds…</p>
       </div>
     </div>
   </div>
