@@ -647,8 +647,12 @@ func (b *Backend) watchHealthy(ctx context.Context, pw *io.PipeWriter, s *stack.
 		if w.failed {
 			continue
 		}
-		if state, _ := serviceHealthWithin(ctx, w.ctr, 0); state == "crashed" {
-			fmt.Fprintf(pw, "[error] %s keeps crashing inside its container since %s -- see its logs\n", w.svc, after)
+		if state, detail := serviceHealthWithin(ctx, w.ctr, 0); state == "crashed" {
+			if why, ok := strings.CutPrefix(detail, "the app keeps crashing: "); ok {
+				fmt.Fprintf(pw, "[error] %s keeps crashing since %s: %s\n", w.svc, after, why)
+			} else {
+				fmt.Fprintf(pw, "[error] %s keeps crashing inside its container since %s -- see its logs\n", w.svc, after)
+			}
 			w.failed = true
 		}
 	}
