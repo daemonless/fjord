@@ -107,7 +107,10 @@
           {statusMessage || 'Executing…'}
         </span>
       {:else if status === 'error'}
-        <span class="text-fjord-danger bg-fjord-danger/10 px-2 py-0.5 rounded text-[10px] font-mono font-normal">
+        <span
+          class="text-fjord-danger bg-fjord-danger/10 px-2 py-0.5 rounded text-[10px] font-mono font-normal truncate max-w-[60ch]"
+          title={statusMessage || 'Error'}
+        >
           {statusMessage || 'Error'}
         </span>
       {:else if logs}
