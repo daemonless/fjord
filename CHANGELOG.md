@@ -3,6 +3,105 @@
 Releases are tagged on GitHub; each rc is a pre-release with the pull
 requests it carries. This file is the story per release.
 
+## 0.3.1 — unreleased
+
+Stack choices, AppJail catching up, and fjord saying what is wrong instead
+of making you find it. Proven on a test host through the real pages and the
+install API, on both engines (`test/ui`, `test/e2e`).
+
+### Stack choices
+- An app can ask a question at install: which **database** (SQLite,
+  PostgreSQL, MariaDB or your own), or which **parts** (Immich's machine
+  learning, its public sharing proxy). The default answer is selected; the
+  wizard's networks and options follow the pick, and the database's
+  password is made up for you. (#69, #72, #79)
+- Choices work on **AppJail** too: each option carries its AppJail form, the
+  jails it adds find each other by name, and an install the bundle cannot
+  run is refused before anything is saved. (#84, #92, #93)
+
+### AppJail
+- Host networking is a choice like any other. (#71)
+- Update one service without restarting the whole stack. (#73)
+- Jails on one network resolve each other by name (appjail-dns and dnsmasq;
+  Setup checks both). (#93)
+- Folders mount as podman's do: no copy-out that failed on an empty image
+  folder, and each service gets its own folder. (#93)
+- The version you pick reaches the jail when a choice adds a database, and
+  Change Version works on such a stack. (#96)
+- A jail with an address on your LAN gets its Open link. (#97)
+
+### Install and your data
+- A stack's data folder is named after the stack, so a second copy of an app
+  never shares the first one's folder. Reinstalling under the same name finds
+  the kept data and reuses its passwords instead of locking the app out of
+  its database. (#94)
+- A port another running stack publishes is refused at install, whatever
+  the engine. (#95)
+- On a network that gives an app its own address, the wizard shows the app's
+  own port instead of a port field that would do nothing. (#99)
+- A **public URL** field (the address an app is opened at, for the links in
+  the mail it sends) is suggested from where the app lands and checked
+  before install. (#103)
+- A host-network stack finds its parts at 127.0.0.1. (#78)
+
+### fjord says what is wrong
+- A failed start says why, not "exit status 125"; podman's errors are in
+  plain words. (#82, #83, #85)
+- A crash loop shows the app's own error line ("service.publicurl must
+  include http:// or https://"), in the output, on the service and in the
+  failure banner. (#102)
+- The status beside a failed action carries the reason instead of "HTTP 409"
+  or "see Output"; the stack page says services, not containers. (#101)
+- No false "crashed" while an app waits for its database on first boot, and
+  a crash loop at install raises the failure banner. (#86)
+- A pull that cannot fit is refused before it starts, with the space it
+  needs. (#88)
+- Start on boot says what came up; a busy stack says what it is doing and
+  for how long. (#87)
+- Changing a password the stack was set up with warns that the database
+  still has the old one. (#91)
+- A status not known yet is a grey "checking", not a red failure. (#80)
+- Setup no longer calls a podman API socket "ok" after podman was removed. (#90)
+
+### Faster pages
+- Pages never wait on a busy engine: they show the last known state, marked,
+  while a pull holds podman. (#77)
+- A container's last log lines come from podman's API, not a command per
+  container. (#98)
+
+### Networks
+- A stack's private network is not offered as the default for new installs.
+  (#89)
+- fjord's network probe no longer takes the host's name in your router's DNS
+  (it asked DHCP under the host's name; the matching cni-epair fix is
+  v1.1.3). (#100)
+- An up stuck waiting on a service that failed is stopped, with the
+  service's error. (#76)
+
+### Security
+- fjordd answers only to this host's own names (DNS rebinding). (#74)
+- One lock per stack around its state, so two actions cannot interleave.
+  (#75)
+
+### Also
+- Editors, Output and Shell follow light mode (#70); Dismiss on a failure
+  banner lasts past a reload (#68); a slow inspect during the health watch
+  is not a container that is gone (#67); docs for 0.3.0 and AppJail LAN
+  networks (#65, #66).
+- A nightly pre-release of main, published only when its tests pass. (#81)
+
+### Known limitations in 0.3.1
+- **No authentication.** Anyone who can reach port 3567 can run containers
+  as root. Keep it on a trusted LAN. Authentication is 0.4.1; Linux comes
+  first, in 0.4.0.
+- AppJail: no rollback or health watch after an update yet; the built-in
+  bridge cannot sit next to a LAN network on one jail. 0.3.5.
+- A private network is not isolated from other stacks on the same host, only
+  unreachable from your LAN. 0.3.6.
+- **Packages.** AppJail stacks need appjail 5.5 or newer and container name
+  resolution needs cni-dnsname; until the 2026Q4 quarterly packages are
+  built, both come from the `latest` package set.
+
 ## 0.3.0 — 2026-10-02
 
 Networks that work, updates you can trust. Everything here was proven on a
