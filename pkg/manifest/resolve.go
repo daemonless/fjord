@@ -3,6 +3,7 @@ package manifest
 import (
 	"fmt"
 	composepkg "github.com/daemonless/fjord/pkg/compose"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -95,6 +96,17 @@ func (m *Manifest) Resolve(values map[string]string, slug, storageBase string) (
 			}
 			if !filepath.IsAbs(val) {
 				return nil, fmt.Errorf("path %q must be absolute, got %q", v.Name, val)
+			}
+			res.Env[v.Name] = val
+
+		case "public_url":
+			if val == "" && !v.Optional {
+				return nil, fmt.Errorf("required value %q is empty", v.Name)
+			}
+			if val != "" {
+				if u, err := url.Parse(val); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+					return nil, fmt.Errorf("%s must be an address like http://host:port, got %q", v.Name, val)
+				}
 			}
 			res.Env[v.Name] = val
 
