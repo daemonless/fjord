@@ -1,6 +1,7 @@
 <script lang="ts">
   import { setFor } from './folderMatch';
   import { insidePort, ownAddress } from './ownPort';
+  import { publicUrlProblem, suggestedPublicUrl } from './publicUrl';
   import { onMount, createEventDispatcher } from 'svelte';
   import * as yaml from 'js-yaml';
   import Icon from './Icon.svelte';
@@ -540,6 +541,34 @@
   // there, its port variables publish nothing (see ownPort.ts).
   $: webNet = perService ? exposedOn || planEdits[svcNames[0]]?.[0]?.network || '' : netChoice;
   $: webOwnAddress = ownAddress(webNet, networks);
+  // public_url fields follow where the app lands until someone types in one.
+  let webPortHint = '';
+  let webHttps = false;
+  $: webIP = perService
+    ? (Object.entries(planEdits).find(([svc]) => netPlan[svc] === PLAN_DEFAULT)?.[1] ?? planEdits[svcNames[0]] ?? [])[0]?.ip ?? ''
+    : netIP;
+  $: fillPublicUrls(variables, formData, webPortHint, webHttps, webOwnAddress, webIP);
+  // Only a value this put there is replaced: anything else was typed.
+  let suggestedUrl: Record<string, string> = {};
+  function fillPublicUrls(vars: any[], values: Record<string, string>, port: string, https: boolean, own: boolean, ip: string) {
+    let changed = false;
+    for (const v of vars) {
+      if (v.type !== 'public_url' || touched.has(v.name)) continue;
+      if ((values[v.name] ?? '') !== (suggestedUrl[v.name] ?? v.default ?? '')) continue;
+      const portVar = port.match(/^\$\{([A-Za-z_][A-Za-z0-9_]*)/)?.[1] ?? '';
+      const url = suggestedPublicUrl({
+        webPort: port, https, values, host: location.hostname, ownAddress: own, ownIP: ip,
+        insidePort: portVar ? insidePort(manifestText, portVar) : '',
+      });
+      suggestedUrl[v.name] = url;
+      if (values[v.name] !== url) {
+        values[v.name] = url;
+        changed = true;
+      }
+    }
+    if (changed) formData = formData;
+  }
+  $: badUrls = variables.filter((v) => v.type === 'public_url' && publicUrlProblem(formData[v.name] ?? ''));
   const PLAN_PRIVATE = 'private';
   const PLAN_DEFAULT = 'default';
   const PLAN_NONE = 'none';
@@ -702,6 +731,8 @@
       baseSvcNames = Object.keys(parsed?.services ?? {});
       declaredNet = parsed?.['x-fjord']?.networking ?? {};
       choices = parsed?.['x-fjord']?.choices ?? [];
+      webPortHint = String(parsed?.['x-fjord']?.info?.web_port ?? '');
+      webHttps = parsed?.['x-fjord']?.info?.web_https === true;
       for (const c of choices) picks[c.id] = c.default;
       picks = picks;
       if (parsed['x-fjord'] && parsed['x-fjord'].variables) {
@@ -888,14 +919,23 @@
                   {/if}
                 </div>
               {:else}
+                {#if v.type === 'public_url'}
+                  <div class="text-xs text-fjord-fg-dim">
+                    Filled in from where this app will be reachable{#if webOwnAddress && !webIP} (its address on {webNet} is only known once it starts){/if}.
+                    Change it if you open it another way, a domain or a reverse proxy.
+                  </div>
+                {/if}
                 <input
                   id={v.name}
                   type="text"
                   bind:value={formData[v.name]}
                   on:input={() => touched.add(v.name)}
                   placeholder={v.default || (v.optional !== true ? 'required' : '')}
-                  class="w-full bg-fjord-inset border rounded-md px-3 py-2 text-fjord-fg-body focus:outline-none focus:border-fjord-accent transition-colors {v.optional !== true && isEmpty(v) ? 'border-fjord-danger/60' : 'border-fjord-border'}"
+                  class="w-full bg-fjord-inset border rounded-md px-3 py-2 text-fjord-fg-body focus:outline-none focus:border-fjord-accent transition-colors {(v.optional !== true && isEmpty(v)) || (v.type === 'public_url' && publicUrlProblem(formData[v.name] ?? '')) ? 'border-fjord-danger/60' : 'border-fjord-border'}"
                 />
+                {#if v.type === 'public_url' && publicUrlProblem(formData[v.name] ?? '')}
+                  <div class="text-xs text-fjord-danger">{publicUrlProblem(formData[v.name] ?? '')}</div>
+                {/if}
               {/if}
             </div>
             {/if}
@@ -1254,13 +1294,15 @@
       {/if}
       <button
         on:click={deploy}
-        disabled={busy || loading || !!error || !validName || missingRequired.length > 0 || (ipRequired && !netIP.trim()) || !!ipProblem || needAddress.length > 0 || !!noBuild}
+        disabled={busy || loading || !!error || !validName || missingRequired.length > 0 || badUrls.length > 0 || (ipRequired && !netIP.trim()) || !!ipProblem || needAddress.length > 0 || !!noBuild}
         title={!validName
           ? 'Enter a valid stack name'
           : noBuild
             ? noBuild
           : missingRequired.length
             ? `Fill required: ${missingRequired.map((v) => v.name).join(', ')}`
+          : badUrls.length
+            ? `Fix the address: ${badUrls.map((v) => v.name).join(', ')}`
             : ipProblem
               ? ipProblem
               : ipRequired && !netIP.trim()
