@@ -29,6 +29,8 @@ install API, on both engines (`test/ui`, `test/e2e`).
 - The version you pick reaches the jail when a choice adds a database, and
   Change Version works on such a stack. (#96)
 - A jail with an address on your LAN gets its Open link. (#97)
+- An install says how many jails it will build (AppJail builds them one at
+  a time) and counts them off as it goes. (#109)
 
 ### Install and your data
 - A stack's data folder is named after the stack, so a second copy of an app
@@ -43,6 +45,11 @@ install API, on both engines (`test/ui`, `test/e2e`).
   the mail it sends) is suggested from where the app lands and checked
   before install. (#103)
 - A host-network stack finds its parts at 127.0.0.1. (#78)
+- A part that is on or off (Immich's machine learning, its sharing proxy) is
+  one switch. With bridge, host or none as the default network, the app
+  installs as it ships instead of on the first LAN. (#107)
+- Immich with its sharing proxy switched off installs; the network plan
+  named the part that was off. (#110)
 
 ### fjord says what is wrong
 - A failed start says why, not "exit status 125"; podman's errors are in
@@ -72,6 +79,8 @@ install API, on both engines (`test/ui`, `test/e2e`).
 ### Networks
 - A stack's private network is not offered as the default for new installs.
   (#89)
+- A jail on two networks shows its address on each, so the stack page has
+  the right link to open. (#108)
 - fjord's network probe no longer takes the host's name in your router's DNS
   (it asked DHCP under the host's name; the matching cni-epair fix is
   v1.1.3). (#100)
@@ -89,6 +98,12 @@ install API, on both engines (`test/ui`, `test/e2e`).
   is not a container that is gone (#67); docs for 0.3.0 and AppJail LAN
   networks (#65, #66).
 - A nightly pre-release of main, published only when its tests pass. (#81)
+- A stack of several apps has a menu beside Open listing each one; the
+  dashboard says how many more. (#106)
+- The Update panel compares like with like: an app's own new version is one
+  change, not one package removed and another added. (#111)
+- A delete cut short by a fjordd restart is finished when fjordd starts,
+  instead of the stack coming back up. (#105)
 
 ### Known limitations in 0.3.1
 - **No authentication.** Anyone who can reach port 3567 can run containers
