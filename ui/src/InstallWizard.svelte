@@ -11,7 +11,7 @@
   import DirPicker from './DirPicker.svelte';
   import { addressProblem, usableRange, randomMAC } from './network';
   import ServiceResources from './ServiceResources.svelte';
-  import { chosenServices, choiceVars, isToggle, pickedPhrase } from './choices';
+  import { askValue, chosenServices, choiceVars, isToggle, pickedPhrase } from './choices';
   import { resolveDefault, seedInterfaces, splitPlan, joinable, keepAttachable, addressesNeeded, type Iface } from './planSeed';
 
   // sources: every catalog offering this app; the user picks one (Repository)
@@ -265,9 +265,7 @@
   $: askedNow = choices.flatMap((c) => c.options.find((o) => o.id === picks[c.id])?.ask ?? []);
   function pick(c: Choice, id: string) {
     picks = { ...picks, [c.id]: id };
-    for (const a of c.options.find((o) => o.id === id)?.ask ?? []) {
-      if (formData[a.name] === undefined) formData[a.name] = a.default ?? '';
-    }
+    for (const a of c.options.find((o) => o.id === id)?.ask ?? []) formData[a.name] = askValue(a, formData[a.name]);
     formData = formData;
   }
   // Not bind:value: a binding to formData[...] inside the asks loop makes the
@@ -1000,7 +998,7 @@
                           on:change={(e) => setAsked(a.name, e.currentTarget.value)}
                           class="w-full bg-fjord-inset border border-fjord-border rounded-md px-3 py-2 text-fjord-fg-body focus:outline-none focus:border-fjord-accent"
                         >
-                          <option value="">—</option>
+                          {#if Object.keys(a.values).length > 1}<option value="">—</option>{/if}
                           {#each Object.entries(a.values) as entry (entry[0])}<option value={entry[0]}>{entry[1]}</option>{/each}
                         </select>
                       {:else}

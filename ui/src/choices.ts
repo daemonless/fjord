@@ -78,3 +78,15 @@ export function pickedPhrase(
   const other = changed.filter((c) => !isToggle(c)).map((c) => c.options.find((o) => o.id === picks[c.id])?.label ?? '').filter(Boolean);
   return [...other, ...(on.length ? [`with ${and(on)}`] : []), ...(off.length ? [`without ${and(off)}`] : [])].join(', ');
 }
+
+/**
+ * askValue is what a field an option asks for starts as. A list with one
+ * entry is no question: "Your own" database offering only PostgreSQL showed
+ * a blank Kind to pick it from. Otherwise what was typed stays, and an
+ * untouched field takes the manifest's default.
+ */
+export function askValue(a: { default?: string; values?: Record<string, string> }, current: string | undefined): string {
+  const only = Object.keys(a.values ?? {});
+  if (only.length === 1 && current !== only[0]) return only[0];
+  return current ?? a.default ?? '';
+}
