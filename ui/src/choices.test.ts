@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { chosenServices, choiceVars, isToggle, pickedPhrase, type StackChoice } from './choices';
+import { askValue, chosenServices, choiceVars, isToggle, pickedPhrase, type StackChoice } from './choices';
 
 // immich's choices, as the catalog carries them.
 const base = ['immich-server', 'immich-machine-learning', 'redis', 'database'];
@@ -82,5 +82,21 @@ describe('pickedPhrase', () => {
   it('treats only an on/off part as a toggle', () => {
     expect(isToggle(part('x', 'X'))).toBe(true);
     expect(isToggle(db)).toBe(false);
+  });
+});
+
+describe('askValue', () => {
+  const kind = { values: { postgres: 'PostgreSQL' } };
+  it('selects the only value there is', () => {
+    expect(askValue(kind, undefined)).toBe('postgres');
+    expect(askValue(kind, '')).toBe('postgres');
+    expect(askValue(kind, 'sqlite')).toBe('postgres'); // left from another pick
+  });
+  it('leaves a real question unanswered', () => {
+    expect(askValue({ values: { postgres: 'PostgreSQL', mariadb: 'MariaDB' } }, undefined)).toBe('');
+  });
+  it('keeps what was typed, else the default', () => {
+    expect(askValue({ default: '5432' }, '5433')).toBe('5433');
+    expect(askValue({ default: '5432' }, undefined)).toBe('5432');
   });
 });
