@@ -195,6 +195,23 @@ func (b *Backend) Update(ctx context.Context, s *stack.Stack, services []string)
 func (b *Backend) Status(ctx context.Context, s *stack.Stack) (engine.StackStatus, error) {
 	svcs := b.serviceJails(s)
 	attached, _ := composepkg.AttachedNetwork(s.Compose)
+	// Each jail's address on each of its networks, as podman reports them: a
+	// jail on lan and a private network had one address and no network for
+	// it, so the stack page had no link to open.
+	atts := composepkg.AttachedNetworks(s.Compose)
+	var vnets map[string]string // virtualnet -> subnet, asked once
+	subnetOf := func(n string) string {
+		if sub := hostnet.DefinedSubnet(n); sub != "" {
+			return sub
+		}
+		if vnets == nil {
+			vnets = map[string]string{}
+			for _, v := range listVirtualnets(ctx) {
+				vnets[v.Name] = v.Subnet
+			}
+		}
+		return vnets[n]
+	}
 	var containers []engine.ContainerStatus
 	up := 0
 	jailsUp := 0
@@ -209,6 +226,16 @@ func (b *Backend) Status(ctx context.Context, s *stack.Stack) (engine.StackStatu
 			// "up" jail. Ask the app itself.
 			cs.State, cs.Detail = serviceHealth(ctx, name, svc)
 			cs.Address = hostnet.JailAddress(ctx, name)
+			var nets []string
+			for _, at := range atts {
+				if at.Service == "" || at.Service == svc.Name {
+					nets = append(nets, at.Network)
+				}
+			}
+			if len(nets) > 0 {
+				cs.Addresses = map[string]string{}
+				hostnet.MatchAddresses(hostnet.JailAddresses(ctx, name), nets, cs.Addresses, subnetOf)
+			}
 			// The jail is up and the app answers, but it holds no address:
 			// its interface is on the bridge with nothing configured on it.
 			// A link to it cannot work, and saying nothing makes that look
