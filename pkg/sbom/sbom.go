@@ -302,12 +302,17 @@ func bundleSBOM(ctx context.Context, image, platform string) (map[string]string,
 // bundleType is the media type of a Sigstore bundle manifest and its layer.
 const bundleType = "application/vnd.dev.sigstore.bundle"
 
-// envelopeSBOM reads the first SBOM layer that parses: each a DSSE envelope,
-// bare (cosign 2) or wrapped in a Sigstore bundle (cosign 3), whose payload is
-// an in-toto statement.
+// envelopeSBOM reads the image's SBOM layers -- each a DSSE envelope, bare
+// (cosign 2) or wrapped in a Sigstore bundle (cosign 3), whose payload is an
+// in-toto statement -- and returns the CycloneDX one when there is one, else
+// the first that parses. Always the same kind for every image, so two images
+// compare like for like.
 func envelopeSBOM(ctx context.Context, image string, layers []sbomLayer) (map[string]string, string) {
-	// CycloneDX first: it names the app itself as well as its packages.
+	// Known CycloneDX first. A cosign 3 bundle's annotation often names no
+	// kind at all, so those are read until one turns out to be CycloneDX.
 	sort.SliceStable(layers, func(i, j int) bool { return layers[i].kind == "cyclonedx" && layers[j].kind != "cyclonedx" })
+	var first map[string]string
+	firstKind := ""
 	for _, l := range layers {
 		raw, err := blob(ctx, image, l.digest, sbomLimit)
 		if err != nil {
@@ -337,11 +342,18 @@ func envelopeSBOM(ctx context.Context, image string, layers []sbomLayer) (map[st
 		if kind == "" {
 			continue
 		}
-		if pkgs := parseStatement(stmt, kind); pkgs != nil {
+		pkgs := parseStatement(stmt, kind)
+		if pkgs == nil {
+			continue
+		}
+		if kind == "cyclonedx" {
 			return pkgs, kind
 		}
+		if first == nil {
+			first, firstKind = pkgs, kind
+		}
 	}
-	return nil, ""
+	return first, firstKind
 }
 
 // statementKind is the SBOM kind an in-toto statement names for itself.
@@ -407,16 +419,24 @@ func parseStatement(raw []byte, kind string) map[string]string {
 }
 
 func parseCycloneDX(raw []byte) map[string]string {
+	type component struct {
+		Name    string `json:"name"`
+		Version string `json:"version"`
+	}
 	var bom struct {
-		Components []struct {
-			Name    string `json:"name"`
-			Version string `json:"version"`
-		} `json:"components"`
+		Metadata struct {
+			Component component `json:"component"`
+		} `json:"metadata"`
+		Components []component `json:"components"`
 	}
 	if json.Unmarshal(raw, &bom) != nil {
 		return nil
 	}
 	out := map[string]string{}
+	// The app itself is the document's subject, not one of its components;
+	// SPDX lists it as a package. Without it an update from an image read as
+	// one kind to one read as the other showed the app as added or removed.
+	add(out, bom.Metadata.Component.Name, bom.Metadata.Component.Version)
 	for _, c := range bom.Components {
 		add(out, c.Name, c.Version)
 	}
