@@ -44,6 +44,13 @@ describe('seedInterfaces', () => {
       zensical: [{ network: 'lan-dhcp', ip: '', mac: '' }],
     });
   });
+  it('adds no private segment when no service is private', () => {
+    const crafting = ['photocraft', 'vectorcraft'];
+    expect(seedInterfaces(crafting, { photocraft: 'lan', vectorcraft: 'lan' })).toEqual({
+      photocraft: [{ network: 'lan', ip: '', mac: '' }],
+      vectorcraft: [{ network: 'lan', ip: '', mac: '' }],
+    });
+  });
   it('gives the exposed service its network AND the private one', () => {
     const seeded = seedInterfaces(services, resolveDefault(expand(immich), [{ name: 'lan' }], 'lan'));
     expect(seeded['immich-server'].map((r) => r.network)).toEqual(['lan', 'private']);
