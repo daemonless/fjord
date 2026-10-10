@@ -244,3 +244,48 @@ func TestCosignBundleAsGhcrServesIt(t *testing.T) {
 		t.Errorf("doc = %+v", d)
 	}
 }
+
+// ghcr lists an image's SPDX and CycloneDX bundles in either order, both
+// annotated cosign/sign/v1. The CycloneDX one is read whichever comes first,
+// and its subject -- the app -- is a package, as SPDX has it: an update
+// between two images read as different kinds showed pdfcraft as removed.
+func TestUnannotatedBundlesPickCycloneDX(t *testing.T) {
+	m, cfg := image("0.5.0", "2026-10-10T06:58:35Z")
+	const bt = "application/vnd.dev.sigstore.bundle.v0.3+json"
+	bundle := func(st any) map[string]any {
+		p, _ := json.Marshal(st)
+		return map[string]any{"mediaType": bt, "dsseEnvelope": map[string]any{"payload": base64.StdEncoding.EncodeToString(p)}}
+	}
+	ref := func(layer string) map[string]any {
+		return map[string]any{
+			"artifactType": bt,
+			"annotations":  map[string]string{"dev.sigstore.bundle.predicateType": "https://sigstore.dev/cosign/sign/v1"},
+			"layers":       []map[string]any{{"digest": layer, "mediaType": bt}},
+		}
+	}
+	fakeRegistry(t,
+		map[string]any{
+			"sha256:amd64": m,
+			"sha256-amd64": map[string]any{"manifests": []map[string]any{
+				{"digest": "sha256:ref-spdx"}, {"digest": "sha256:ref-cdx"},
+			}},
+			"sha256:ref-spdx": ref("sha256:spdx"),
+			"sha256:ref-cdx":  ref("sha256:cdx"),
+		},
+		map[string]any{
+			"sha256:cfg-0.5.0": cfg,
+			"sha256:spdx": bundle(map[string]any{"predicateType": "https://spdx.dev/Document", "predicate": map[string]any{
+				"packages": []map[string]string{{"name": "pdfcraft", "versionInfo": "0.5.0"}, {"name": "nginx", "versionInfo": "1.28.0"}}}}),
+			"sha256:cdx": bundle(map[string]any{"predicateType": "https://cyclonedx.org/bom", "predicate": map[string]any{
+				"metadata":   map[string]any{"component": map[string]string{"name": "pdfcraft", "version": "0.5.0", "type": "container"}},
+				"components": []map[string]string{{"name": "nginx", "version": "1.28.0"}}}}),
+		})
+	d, err := For(context.Background(), "ghcr.io/x/pdfcraft:latest", "sha256:index", "sha256:amd64")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{"pdfcraft": "0.5.0", "nginx": "1.28.0"}
+	if d.Source != "cyclonedx" || !reflect.DeepEqual(d.Packages, want) {
+		t.Errorf("doc = %+v, packages %v", d, d.Packages)
+	}
+}
