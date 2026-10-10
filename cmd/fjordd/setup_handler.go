@@ -38,7 +38,8 @@ func (s *server) handleSetup(w http.ResponseWriter, r *http.Request) {
 			engines = append(engines, name)
 		}
 	}
-	report := doctor.Run(ctx, doctor.Config{Engines: engines, FjordRoot: s.fjordRoot})
+	// ?tz= is the browser's zone, for the timezone check to offer.
+	report := doctor.Run(ctx, doctor.Config{Engines: engines, FjordRoot: s.fjordRoot, TimeZone: r.URL.Query().Get("tz")})
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(report)
 }
@@ -56,7 +57,8 @@ func (s *server) handleSetupInstall(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		ID string `json:"id"`
+		ID       string `json:"id"`
+		TimeZone string `json:"timezone"` // the browser's, for the timezone check
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.ID == "" {
 		http.Error(w, "id required", 400)
@@ -65,7 +67,7 @@ func (s *server) handleSetupInstall(w http.ResponseWriter, r *http.Request) {
 	// Outlives the request: a closed tab must not SIGKILL pkg mid-transaction.
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 5*time.Minute)
 	defer cancel()
-	cfg := doctor.Config{Engines: s.doctorEngines(), FjordRoot: s.fjordRoot}
+	cfg := doctor.Config{Engines: s.doctorEngines(), FjordRoot: s.fjordRoot, TimeZone: req.TimeZone}
 	if r.URL.Query().Get("stream") == "1" {
 		w.Header().Set("Content-Type", "text/plain")
 		w.WriteHeader(http.StatusOK)

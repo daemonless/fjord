@@ -6,6 +6,7 @@
   import InstallCheckButton from './InstallCheckButton.svelte';
   import FixSnippet from './FixSnippet.svelte';
   import { toast } from './toast';
+  import { browserZone } from './setupPlan';
 
   type CheckResult = {
     id: string;
@@ -34,7 +35,7 @@
     error = '';
     try {
       const [setupRes, engineRes, aboutRes] = await Promise.all([
-        fetch('/api/setup'),
+        fetch(`/api/setup?tz=${encodeURIComponent(browserZone())}`),
         fetch('/api/engine'),
         fetch('/api/about'),
       ]);
