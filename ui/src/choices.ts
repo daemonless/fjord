@@ -58,3 +58,23 @@ export function choiceVars(choices: StackChoice[]): Set<string> {
   }
   return out;
 }
+
+/** isToggle: a part that is just on or off, shown as one checkbox. */
+export function isToggle(c: { kind?: string; options: { id: string }[] }): boolean {
+  const ids = c.options.map((o) => o.id).sort();
+  return c.kind === 'part' && ids.length === 2 && ids[0] === 'off' && ids[1] === 'on';
+}
+
+/** pickedPhrase: the non-default answers for the summary line, in words:
+ *  "without EffectCraft and DesignCraft", "with Public sharing", "MariaDB". */
+export function pickedPhrase(
+  choices: { id: string; kind?: string; label: string; default: string; options: { id: string; label: string }[] }[],
+  picks: Record<string, string>,
+): string {
+  const and = (xs: string[]) => (xs.length < 2 ? xs.join('') : `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}`);
+  const changed = choices.filter((c) => picks[c.id] && picks[c.id] !== c.default);
+  const off = changed.filter((c) => isToggle(c) && picks[c.id] === 'off').map((c) => c.label);
+  const on = changed.filter((c) => isToggle(c) && picks[c.id] === 'on').map((c) => c.label);
+  const other = changed.filter((c) => !isToggle(c)).map((c) => c.options.find((o) => o.id === picks[c.id])?.label ?? '').filter(Boolean);
+  return [...other, ...(on.length ? [`with ${and(on)}`] : []), ...(off.length ? [`without ${and(off)}`] : [])].join(', ');
+}
