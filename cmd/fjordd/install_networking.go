@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"maps"
 	"net"
 	"regexp"
 	"sort"
@@ -551,6 +552,24 @@ func loopbackHostnames(hostnames map[string]string, services []composepkg.Servic
 		if v := hostnames[svc.Name]; v != "" {
 			out[v] = "127.0.0.1"
 		}
+	}
+	return out
+}
+
+// withoutDropped leaves out of a plan the services the picked options took
+// out of the stack. immich names its public proxy in networking:, and with
+// that part switched off the plan named a service the stack no longer has.
+func withoutDropped(plan map[string]string, picked []*manifest.Option) map[string]string {
+	var drop []string
+	for _, o := range picked {
+		drop = append(drop, o.Drop...)
+	}
+	if len(drop) == 0 || plan == nil {
+		return plan
+	}
+	out := maps.Clone(plan)
+	for _, svc := range drop {
+		delete(out, svc)
 	}
 	return out
 }

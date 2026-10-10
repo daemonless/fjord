@@ -10,6 +10,7 @@ import (
 
 	composepkg "github.com/daemonless/fjord/pkg/compose"
 	"github.com/daemonless/fjord/pkg/engine"
+	"github.com/daemonless/fjord/pkg/manifest"
 )
 
 // immich's declaration: the server on whatever the install chose, everything
@@ -421,5 +422,19 @@ func TestLoopbackHostnames(t *testing.T) {
 	got := loopbackHostnames(hostnames, []composepkg.Service{{Name: "vikunja"}, {Name: "mariadb"}})
 	if len(got) != 1 || got["VIKUNJA_DATABASE_HOST"] != "127.0.0.1" {
 		t.Fatalf("got %v, want only VIKUNJA_DATABASE_HOST=127.0.0.1 (no redis: the stack has none)", got)
+	}
+}
+
+// A part switched off is gone from the stack; the plan naming it is not a typo.
+func TestPlanSkipsDroppedParts(t *testing.T) {
+	plan := map[string]string{"immich-server": "default", "immich-public-proxy": "default", "*": "private"}
+	off := []*manifest.Option{{ID: "off", Drop: []string{"immich-public-proxy"}}}
+	got := withoutDropped(plan, off)
+	if _, ok := got["immich-public-proxy"]; ok || len(plan) != 3 {
+		t.Fatalf("got %v, plan %v", got, plan)
+	}
+	if _, _, err := planServiceNetworks(context.Background(), got, nil, immichServices,
+		func() (string, error) { return "immich_private", nil }); err != nil {
+		t.Fatal(err)
 	}
 }
