@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/daemonless/fjord/pkg/engine"
 	"github.com/daemonless/fjord/pkg/stack"
 )
 
@@ -83,5 +84,38 @@ func TestWatchReportsAContainerThatIsGone(t *testing.T) {
 	})
 	if out := watch(t, b); !strings.Contains(out, "[error] web is gone since the update") {
 		t.Fatalf("want gone:\n%s", out)
+	}
+}
+
+// Ended by whoever takes over, the watch says so and fails nothing -- even
+// if the container then stops, which is what the action taking over does.
+func TestWatchEndedEarlyIsNoVerdict(t *testing.T) {
+	var stopped atomic.Bool
+	b := fakeAPI(t, func(n int32) (int, string) {
+		if stopped.Load() {
+			return 200, `{"RestartCount":0,"State":{"Running":false,"ExitCode":137,"StartedAt":"2026-10-02T10:00:00Z"}}`
+		}
+		return 200, upBody
+	})
+	jailID = func(context.Context, string) string { return "" }
+	pr, pw := io.Pipe()
+	done := make(chan string)
+	go func() { out, _ := io.ReadAll(pr); done <- string(out) }()
+	ctx := engine.WithWatchHook(context.Background(), func(stop func()) {
+		go func() { time.Sleep(300 * time.Millisecond); stopped.Store(true); stop() }()
+	})
+	start := time.Now()
+	b.watchHealthy(ctx, pw, &stack.Stack{Name: "app"}, []string{"web"}, 30*time.Second, "the update")
+	pw.Close()
+	out := <-done
+	if d := time.Since(start); d > 5*time.Second {
+		t.Errorf("the watch took %s to end", d)
+	}
+	// The page enables actions on this line: it is a contract.
+	if !strings.Contains(out, "\n"+engine.WatchStartPrefix+"web stays up for 30s\n") {
+		t.Errorf("no start line:\n%s", out)
+	}
+	if strings.Contains(out, "[error]") || !strings.Contains(out, engine.WatchEndedLine) {
+		t.Errorf("want the ended line and no [error]:\n%s", out)
 	}
 }

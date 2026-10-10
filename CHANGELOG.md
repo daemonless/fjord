@@ -107,6 +107,9 @@ install API, on both engines (`test/ui`, `test/e2e`).
   change, not one package removed and another added. (#111)
 - A delete cut short by a fjordd restart is finished when fjordd starts,
   instead of the stack coming back up. (#105)
+- The check that an updated or installed app stays up no longer holds the
+  stack: the actions come back as it starts, and using one ends the check,
+  like Ctrl-C. An app that crashes on its own still fails the update.
 
 ### Known limitations in 0.3.1
 - **No authentication.** Anyone who can reach port 3567 can run containers

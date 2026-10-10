@@ -490,6 +490,32 @@ type InstallWatcher interface {
 	UpWatched(ctx context.Context, s *stack.Stack) (io.ReadCloser, error)
 }
 
+// A health watch -- the check that containers stay up after an update or an
+// install -- is the last thing such an operation does, and nothing needs it to
+// finish: an action taken meanwhile ends it, as Ctrl-C would on a terminal.
+type watchHookKey struct{}
+
+// WithWatchHook puts on ctx what to call when a watch starts, given the
+// function that ends that watch early.
+func WithWatchHook(ctx context.Context, hook func(stop func())) context.Context {
+	return context.WithValue(ctx, watchHookKey{}, hook)
+}
+
+// WatchStarted tells ctx's hook, if it has one, that a watch began.
+func WatchStarted(ctx context.Context, stop func()) {
+	if hook, ok := ctx.Value(watchHookKey{}).(func(stop func())); ok {
+		hook(stop)
+	}
+}
+
+// WatchEndedLine is what a watch ended early prints. Not an [error]: the
+// operation worked, and the check was stopped by whoever took over.
+const WatchEndedLine = "[fjord] stopped checking: another action took over"
+
+// WatchStartPrefix starts the line a watch prints as it begins. Pages read it
+// as "only the check is left", so actions come back: a contract, like [error].
+const WatchStartPrefix = "[fjord] checking "
+
 type Backend interface {
 	// Up spins up a stack and returns an io.ReadCloser streaming the terminal output.
 	Up(ctx context.Context, s *stack.Stack) (io.ReadCloser, error)

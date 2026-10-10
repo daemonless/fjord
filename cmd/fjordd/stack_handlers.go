@@ -1074,7 +1074,48 @@ var busyOps sync.Map
 type busyOp struct {
 	action string
 	since  time.Time
+
+	mu   sync.Mutex
+	stop func() // set once only a health watch is left: ends it early
 }
+
+// watching says the op is down to its health watch, which the next action
+// may end and take over from.
+func (op *busyOp) watching() bool {
+	op.mu.Lock()
+	defer op.mu.Unlock()
+	return op.stop != nil
+}
+
+func loadBusy(name string) *busyOp {
+	if v, ok := busyOps.Load(name); ok {
+		return v.(*busyOp)
+	}
+	return nil
+}
+
+// watchable lets the operation holding name's lock be taken over once it is
+// down to its health watch: the stack reads as idle from then on, and the next
+// action ends the watch instead of being refused (see lockStackAs). Only for
+// operations whose watch is their last step -- an up that recreates and then
+// starts the rest would start them after the action that took over.
+func watchable(ctx context.Context, name string) context.Context {
+	op := loadBusy(name)
+	if op == nil {
+		return ctx
+	}
+	return engine.WithWatchHook(ctx, func(stop func()) {
+		op.mu.Lock()
+		op.stop = stop
+		op.mu.Unlock()
+		publishBusy(name, "")
+	})
+}
+
+// handover is how long an action waits for a watched operation to wind down
+// once its watch is ended: the end of the watch, keeping addresses, and
+// recording the outcome.
+var handover = 15 * time.Second
 
 // busyEvents carries busy changes to open pages, next to the status loop's.
 var busyEvents *eventHub
@@ -1092,23 +1133,56 @@ func publishBusy(name, action string) {
 func lockStackAs(name, action string) (unlock func(), ok bool) {
 	u, ok := lockStack(name)
 	if !ok {
+		u, ok = takeOver(name)
+	}
+	if !ok {
 		return nil, false
 	}
-	busyOps.Store(name, busyOp{action, time.Now()})
+	busyOps.Store(name, &busyOp{action: action, since: time.Now()})
 	outputs.start(name, action) // kept from the first moment, before the stream exists
 	publishBusy(name, action)
 	return func() {
 		outputs.finish(name)
 		busyOps.Delete(name)
-		u()
+		// Before the unlock: after it, a taker's own busy could go out first
+		// and this would clear it.
 		publishBusy(name, "")
+		u()
 	}, true
 }
 
-// busyWith is what a stack is busy with, or "".
+// takeOver ends the health watch of the operation holding name's lock and
+// waits for it to wind down. Refused, as before, when the holder is not down
+// to its watch, or when another action took over first: a second click must
+// not queue behind the first one's pull.
+func takeOver(name string) (unlock func(), ok bool) {
+	op := loadBusy(name)
+	if op == nil {
+		return nil, false
+	}
+	op.mu.Lock()
+	stop := op.stop
+	op.mu.Unlock()
+	if stop == nil {
+		return nil, false
+	}
+	stop()
+	for deadline := time.Now().Add(handover); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
+		if u, ok := lockStack(name); ok {
+			return u, true
+		}
+		if cur := loadBusy(name); cur != nil && cur != op {
+			return nil, false
+		}
+	}
+	return nil, false
+}
+
+// busyWith is what a stack is busy with, or "". An operation down to its
+// health watch is not: the next action takes over from it.
 func busyWith(name string) string {
-	if v, ok := busyOps.Load(name); ok {
-		return v.(busyOp).action
+	if op := loadBusy(name); op != nil && !op.watching() {
+		return op.action
 	}
 	return ""
 }
@@ -1224,7 +1298,7 @@ func (s *server) stackLifecycle(w http.ResponseWriter, r *http.Request, name, ac
 			s.recordRollback(ctx, st, services)
 		}
 		note := keptNote(s.keepAddresses(ctx, st))
-		stream, err = s.backendFor(st).Update(ctx, st, services)
+		stream, err = s.backendFor(st).Update(watchable(ctx, name), st, services)
 		if err == nil {
 			// An update recreates what it touches, from the saved config.
 			stream = s.clearPendingAfter(name, services, stream)
@@ -1304,11 +1378,10 @@ var busyWords = map[string]string{
 // the 409. A bare "another operation is running" left a Delete refused with
 // no way to tell a pull still going from one stuck (immich, 2026-10-04).
 func anotherOperation(name string) string {
-	v, ok := busyOps.Load(name)
-	if !ok {
+	op := loadBusy(name)
+	if op == nil {
 		return "another operation is already running on this stack; wait for it to finish"
 	}
-	op := v.(busyOp)
 	what := busyWords[op.action]
 	if what == "" {
 		what = "busy (" + op.action + ")"
