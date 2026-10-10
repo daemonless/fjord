@@ -176,7 +176,7 @@ func directorOp(ctx context.Context, s *stack.Stack, steps ...func(io.Writer) er
 // idempotent: an unchanged, already-running project is "Nothing to do.", so
 // start-on-boot re-running Up never churns a running stack.
 func directorUp(ctx context.Context, s *stack.Stack) (io.ReadCloser, error) {
-	return directorOp(ctx, s, func(w io.Writer) error { return runDirector(ctx, w, s.Dir, false, "up") })
+	return directorOp(ctx, s, directorUpStep(ctx, s))
 }
 
 // directorDown tears the project down. `--destroy` removes the jails (not just
@@ -193,7 +193,7 @@ func directorDown(ctx context.Context, s *stack.Stack) (io.ReadCloser, error) {
 func directorRestart(ctx context.Context, s *stack.Stack) (io.ReadCloser, error) {
 	return directorOp(ctx, s,
 		func(w io.Writer) error { return runDirector(ctx, w, s.Dir, true, "down") },
-		func(w io.Writer) error { return runDirector(ctx, w, s.Dir, false, "up") })
+		directorUpStep(ctx, s))
 }
 
 // directorUpdate recreates the project with a fresh image pull: `down
@@ -203,7 +203,7 @@ func directorUpdate(ctx context.Context, s *stack.Stack, jails []svcJail) (io.Re
 	return directorOp(ctx, s,
 		func(w io.Writer) error { return pullNamedImages(ctx, w, jails) },
 		func(w io.Writer) error { return downDestroy(ctx, stackDir(s.Dir), w) },
-		func(w io.Writer) error { return runDirector(ctx, w, s.Dir, false, "up") })
+		directorUpStep(ctx, s))
 }
 
 // directorUpdateServices rebuilds only the given services' jails.
@@ -226,7 +226,7 @@ func directorUpdateServices(ctx context.Context, s *stack.Stack, jails []svcJail
 			}
 			return nil
 		},
-		func(w io.Writer) error { return runDirector(ctx, w, s.Dir, false, "up") },
+		directorUpStep(ctx, s),
 		func(w io.Writer) error {
 			// Director exits 0 on "Nothing to do." as well; ask the jails.
 			var down []string
