@@ -384,7 +384,7 @@ func (s *server) handleInstall(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}()
-		plan := installNetworkPlan(req, m.Networking)
+		plan := withoutDropped(installNetworkPlan(req, m.Networking), m.Picked())
 		atts, modes, planErr := planServiceNetworks(r.Context(), plan, req.attachments(), names,
 			func() (string, error) { return s.ensurePrivateNetwork(r.Context(), req.Engine, id) })
 		if planErr != nil {
