@@ -280,9 +280,36 @@ func (s *server) stackDelete(w http.ResponseWriter, name string, data bool) {
 		return
 	}
 	defer unlock()
+	if code, msg := s.removeStack(name, data); code != 0 {
+		http.Error(w, msg, code)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Write([]byte(`{"status":"deleted"}`))
+}
+
+// desiredDeleting marks a stack whose delete has begun. A fjordd restart
+// part way through used to leave it "running", and start-on-boot brought it
+// back up; startOnBoot finishes the delete instead.
+const desiredDeleting = "deleting"
+
+// removeStack tears a stack down and removes it, with its app data when data
+// is set. The caller holds the stack's lock. Returns an HTTP status and
+// message on failure, 0 when it is gone.
+func (s *server) removeStack(name string, data bool) (int, string) {
 	var be engine.Backend
 	if st, err := s.manager.Get(name); err == nil {
+		if err := s.manager.SetDesiredState(name, desiredDeleting); err != nil {
+			log.Printf("delete %s: record deleting: %v", name, err)
+		}
+		// Not deleted after all: it is down, so it stays down.
+		keep := func() {
+			if err := s.manager.SetDesiredState(name, "stopped"); err != nil {
+				log.Printf("delete %s: record stopped: %v", name, err)
+			}
+		}
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
 		be = s.backendFor(st)
 		if stream, err := be.Down(ctx, st); err == nil {
 			io.Copy(io.Discard, stream) // block until teardown finishes
@@ -296,39 +323,33 @@ func (s *server) stackDelete(w http.ResponseWriter, name string, data bool) {
 				}
 			}
 			if len(alive) > 0 {
-				cancel()
-				http.Error(w, "not deleted: containers are still up after the stop attempt -- "+strings.Join(alive, ", ")+". Check Output/Logs, stop them, then delete again.", http.StatusConflict)
-				return
+				keep()
+				return http.StatusConflict, "not deleted: containers are still up after the stop attempt -- " + strings.Join(alive, ", ") + ". Check Output/Logs, stop them, then delete again."
 			}
 		}
 		if data {
 			for _, d := range s.planDelete(ctx, st).AppData {
 				if err := os.RemoveAll(d.Path); err != nil {
-					cancel()
-					http.Error(w, "not deleted: could not remove its app data "+d.Path+": "+err.Error()+
-						" -- the stack is stopped and still listed; fix that and delete again", 500)
-					return
+					keep()
+					return 500, "not deleted: could not remove its app data " + d.Path + ": " + err.Error() +
+						" -- the stack is stopped and still listed; fix that and delete again"
 				}
 				log.Printf("delete %s: removed app data %s", name, d.Path)
 			}
 		}
-		cancel()
 	}
 	if err := s.manager.Delete(name); err != nil {
 		if os.IsNotExist(err) {
-			http.Error(w, "Stack not found", 404)
-		} else {
-			http.Error(w, err.Error(), 500)
+			return 404, "Stack not found"
 		}
-		return
+		return 500, err.Error()
 	}
 	log.Printf("delete %s", name)
 	if be != nil {
 		s.dropPrivateNetwork(be, name)
 	}
 	s.fleet.forget(name) // no lingering "update available" for a gone stack
-	w.Header().Set("Content-Type", "application/json")
-	w.Write([]byte(`{"status":"deleted"}`))
+	return 0, ""
 }
 
 // stackRename sets a stack's display name -- an instant metadata edit. The

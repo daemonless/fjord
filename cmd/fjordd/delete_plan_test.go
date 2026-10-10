@@ -123,3 +123,22 @@ func TestDeleteWithData(t *testing.T) {
 		}
 	}
 }
+
+// A delete cut short by a restart is finished at start, not brought back up;
+// its app data stays, since whether to take it was not recorded.
+func TestStartFinishesCutShortDelete(t *testing.T) {
+	s, root := deleteFixture(t)
+	if err := s.manager.SetDesiredState("notes", desiredDeleting); err != nil {
+		t.Fatal(err)
+	}
+	startOnBoot(s)
+	if _, err := os.Stat(filepath.Join(root, "stacks/notes")); err == nil {
+		t.Error("stack still listed after start")
+	}
+	if _, err := os.Stat(filepath.Join(root, "apps/notes/db/ibdata1")); err != nil {
+		t.Error("app data removed")
+	}
+	if _, err := os.Stat(filepath.Join(root, "stacks/pair-a")); err != nil {
+		t.Error("another stack was removed")
+	}
+}

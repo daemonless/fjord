@@ -351,6 +351,22 @@ func logKept(name string, kept, skipped []string) {
 
 // startOnBoot brings up every stack whose recorded desired_state is "running",
 // one at a time, so running stacks survive a fjordd or host restart.
+// finishDelete completes a delete that a fjordd restart cut short. Its app
+// data is kept: whether the delete was to take it is not recorded, and data
+// left behind can still be removed by hand where data removed cannot come back.
+func finishDelete(srv *server, name string) {
+	unlock, ok := lockStackAs(name, "deleting")
+	if !ok {
+		return
+	}
+	defer unlock()
+	if code, msg := srv.removeStack(name, false); code != 0 {
+		log.Printf("start-on-boot: %s: finishing its delete: %s", name, msg)
+		return
+	}
+	log.Printf("start-on-boot: %s: finished a delete that a restart cut short (its app data, if any, is kept)", name)
+}
+
 func startOnBoot(srv *server) {
 	stacks, err := srv.manager.List()
 	if err != nil {
@@ -358,6 +374,10 @@ func startOnBoot(srv *server) {
 		return
 	}
 	for _, s := range stacks {
+		if s.State != nil && s.State.DesiredState == desiredDeleting {
+			finishDelete(srv, s.Name)
+			continue
+		}
 		if s.State == nil || s.State.DesiredState != "running" {
 			continue
 		}
