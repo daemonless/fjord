@@ -29,6 +29,7 @@ func platform(cfg Config) platformInfo {
 		mode = "container"
 	}
 	_, pkgErr := exec.LookPath("pkg")
+	zone := hostZone("/usr/share/zoneinfo", cfg.TimeZone)
 	checks := []Check{
 		{
 			ID: "podman", Name: "podman CLI", Engine: "podman",
@@ -122,9 +123,13 @@ func platform(cfg Config) platformInfo {
 		},
 		{
 			ID: "timezone", Name: "host timezone", Engine: "appjail", HostOnly: true,
-			Probe: localtimeProbe("/etc/localtime"),
-			Why:   "AppJail copies the host's /etc/localtime into every jail, and FreeBSD's VM images ship without one: every AppJail app then fails to start.",
-			Fix:   "# pick your zone from the menu\ntzsetup\n# or set it directly, e.g.: tzsetup America/New_York",
+			Probe:    localtimeProbe("/etc/localtime"),
+			Install:  setZone(zone),
+			Commands: []string{"tzsetup " + zone},
+			Action:   "Set the timezone to " + zone,
+			Why:      "AppJail copies the host's /etc/localtime into every jail, and FreeBSD's VM images ship without one: every AppJail app then fails to start. For another zone, run `tzsetup` on its own and pick from its menu.",
+			// Never the bare tzsetup: its menu eats the rest of a pasted block.
+			Fix: "tzsetup " + zone,
 		},
 		{
 			ID: "pf", Name: "pf firewall", Engine: "podman",
@@ -728,6 +733,27 @@ func enableService(service, rcvar string) func(context.Context, io.Writer) error
 // serviceCommands are enableService's commands, for the setup page.
 func serviceCommands(service, rcvar string) []string {
 	return []string{"sysrc " + rcvar + "=YES", "service " + service + " onerestart"}
+}
+
+// hostZone is the zone the timezone check sets: the one asked for when this
+// host has it, else UTC. Only plain zone names pass, so nothing reaches
+// tzsetup as an option or a path outside zoneinfo.
+func hostZone(zoneinfo, want string) string {
+	if zoneName.MatchString(want) {
+		if fi, err := os.Stat(filepath.Join(zoneinfo, want)); err == nil && fi.Mode().IsRegular() {
+			return want
+		}
+	}
+	return "UTC"
+}
+
+var zoneName = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_+-]*(/[A-Za-z0-9_+-]+)*$`)
+
+// setZone installs a zone by name, which skips tzsetup's menu.
+func setZone(zone string) func(context.Context, io.Writer) error {
+	return func(ctx context.Context, w io.Writer) error {
+		return runShown(ctx, w, nil, "tzsetup", zone)
+	}
 }
 
 // localtimeProbe: a dangling localtime symlink counts as none (os.Stat follows it).

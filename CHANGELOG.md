@@ -69,6 +69,9 @@ install API, on both engines (`test/ui`, `test/e2e`).
   still has the old one. (#91)
 - A status not known yet is a grey "checking", not a red failure. (#80)
 - Setup no longer calls a podman API socket "ok" after podman was removed. (#90)
+- Setup sets the host's timezone (the one your browser is in) with the rest,
+  and its by-hand fix pastes cleanly: it used to start `tzsetup`'s menu,
+  which swallowed the rest of the pasted block.
 
 ### Faster pages
 - Pages never wait on a busy engine: they show the last known state, marked,

@@ -5,6 +5,7 @@
   import { createEventDispatcher } from 'svelte';
   import { toast } from './toast';
   import Spinner from './Spinner.svelte';
+  import { browserZone } from './setupPlan';
 
   export let id: string;
   export let name: string;
@@ -18,7 +19,7 @@
       const res = await fetch('/api/setup/install', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id }),
+        body: JSON.stringify({ id, timezone: browserZone() }),
       });
       if (!res.ok) throw new Error((await res.text()).trim() || `HTTP ${res.status}`);
       toast(`Installed: ${name}`, { kind: 'success' });

@@ -85,6 +85,28 @@ func TestLocaltimeProbe(t *testing.T) {
 	}
 }
 
+// The timezone check sets the browser's zone only when it is a plain name
+// this host has; anything else falls back to UTC rather than reaching tzsetup.
+func TestHostZone(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "America"), 0o755)
+	os.WriteFile(filepath.Join(dir, "America", "New_York"), []byte("TZif"), 0o644)
+	os.WriteFile(filepath.Join(dir, "UTC"), []byte("TZif"), 0o644)
+	for _, c := range []struct{ want, got string }{
+		{"America/New_York", "America/New_York"},
+		{"", "UTC"},
+		{"Mars/Olympus_Mons", "UTC"}, // not on this host
+		{"America", "UTC"},           // a directory, not a zone
+		{"-n", "UTC"},                // an option
+		{"../../etc/passwd", "UTC"},
+		{"/etc/passwd", "UTC"},
+	} {
+		if got := hostZone(dir, c.want); got != c.got {
+			t.Errorf("hostZone(%q) = %q, want %q", c.want, got, c.got)
+		}
+	}
+}
+
 // appjail-dns is only "running" when dnsmasq answers with appjail's config;
 // each missing piece is named, in the order it gets fixed.
 func TestAppjailDNSStatus(t *testing.T) {

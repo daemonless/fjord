@@ -111,6 +111,9 @@ type Config struct {
 	// the default, on a host where stacks could be installed on either.
 	Engines   []string
 	FjordRoot string
+	// TimeZone is the zone the operator's browser reports: the timezone
+	// check's fix and installer set it. "" or unknown here = UTC.
+	TimeZone string
 }
 
 // forEngine reports whether a check tied to an engine should run.
