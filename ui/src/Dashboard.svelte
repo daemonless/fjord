@@ -7,6 +7,7 @@
   import EmptyState from './EmptyState.svelte';
   import { expandVars } from './expand';
   import { appUrl } from './appUrl';
+  import { serviceLinks } from './serviceLinks';
 
   type ContainerStatus = {
     name: string;
@@ -15,7 +16,7 @@
     address?: string; // the container's own IP on an attachable network
   };
   type StackStatus = { state: string; containers: ContainerStatus[] };
-  type Stack = { name: string; displayName?: string; icon?: string; compose?: string; env?: string; status?: StackStatus; state?: { origin?: { type?: string; app_id?: string }; engine?: string; desired_state?: string } };
+  type Stack = { name: string; displayName?: string; icon?: string; compose?: string; env?: string; services?: { name: string; address?: string }[]; status?: StackStatus; state?: { origin?: { type?: string; app_id?: string }; engine?: string; desired_state?: string } };
   export let stacks: Stack[] = [];
   // Fleet-wide update state, fetched once by the app shell (server-cached).
   export let fleet: Record<string, any> = {};
@@ -30,7 +31,7 @@
   import { appIcons, loadAppIcons, iconFor, tile } from './appIcons';
   // Resolve a stack's catalog icon: by its stored app_id first (stable), then by
   $: iconOf = (s: Stack) => iconFor($appIcons, s);
-  let info: Record<string, { tag?: string; link?: string }> = {};
+  let info: Record<string, { tag?: string; link?: string; more?: string[] }> = {};
 
   const DOT: Record<string, string> = {
     running: 'bg-fjord-success',
@@ -72,12 +73,18 @@
   // The list carries compose + .env, so tags and links come from the data
   // already here -- one request for the whole dashboard, not one per tile.
   $: {
-    const next: Record<string, { tag?: string; link?: string }> = {};
+    const next: Record<string, { tag?: string; link?: string; more?: string[] }> = {};
     for (const s of stacks) {
       // Resolve ${VAR:-default} tags (e.g. immich's ${IMMICH_TAG:-latest})
       // before splitting, or the tag reads back as "-latest}".
       const img = expandVars(firstImage(s.compose || ''), envMap(s.env || ''));
-      next[s.name] = { tag: img ? imgTag(img) : '', link: appUrl(s) };
+      // A stack of several apps: the rest are named in the "+N" beside the link.
+      const all = serviceLinks(s.compose || '', envMap(s.env || ''), s.services || [], location.hostname);
+      next[s.name] = {
+        tag: img ? imgTag(img) : '',
+        link: appUrl(s),
+        more: all.length > 1 ? all.map((l) => `${l.service}  ${l.url.replace(/^https?:\/\//, '')}`) : [],
+      };
     }
     info = next;
   }
@@ -215,6 +222,11 @@
                   ><span class="truncate">{(info[s.name]?.link || '').replace(/^https?:\/\//, '')}</span>
                   <Icon name="external" size={11} /></a
                 >
+                {#if info[s.name]?.more?.length}
+                  <span class="text-[11px] text-fjord-fg-muted" title={info[s.name].more?.join('\n')}
+                    >+{(info[s.name].more?.length ?? 1) - 1} more apps</span
+                  >
+                {/if}
               {/if}
             </div>
             <!-- actions -->

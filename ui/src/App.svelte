@@ -32,6 +32,7 @@
   import { firstLine } from './errorLine';
   import { startError } from './adopt';
   import { parseEnv, missingVars, unusedVars, setEnvVar, isSecret, usedVars } from './composeVars';
+  import { serviceLinks } from './serviceLinks';
   import VarsPanel from './VarsPanel.svelte';
   import { currentTheme, setTheme, watchSystem, type Theme } from './theme';
   import { addressProblem, usableRange, networkLabel, HOST_NETWORK, DEFAULT_NETWORK, randomMAC } from './network';
@@ -459,6 +460,12 @@
   // port. Empty when the stack publishes nothing web-ish.
 
   $: openUrl = appUrl(selectedStack);
+  // A stack of several apps opens each at its own address: Open is the main
+  // one, the menu beside it the rest.
+  $: links = selectedStack
+    ? serviceLinks(selectedStack.compose ?? '', parseEnv(selectedStack.env ?? ''), selectedStack.services ?? [], location.hostname)
+    : [];
+  let linksOpen = false;
   // The .env as the editors resolve ${VAR} against it, and what the compose
   // (or director file) uses that it never sets -- shown on the .env tab.
   // A director file's ${PWD} is the stack's folder: fjord sets it on every run.
@@ -1863,6 +1870,9 @@
   }
 </script>
 
+<!-- The app menu beside Open closes on a click anywhere else. -->
+<svelte:window on:click={(e) => linksOpen && !(e.target as HTMLElement)?.closest?.('.svc-links') && (linksOpen = false)} />
+
 {#if setupOpen}
   <SetupWizard on:done={setupDone} />
 {:else}
@@ -2197,6 +2207,31 @@
                   ? ''
                   : 'opacity-40 pointer-events-none'}"><Icon name="external" size={13} /> Open</a
               >
+            {/if}
+            {#if openUrl && links.length > 1}
+              <details
+                class="svc-links relative shrink-0 {statusLabel(selectedStack.status) === 'running' ? '' : 'opacity-40 pointer-events-none'}"
+                bind:open={linksOpen}
+              >
+                <summary
+                  class="list-none cursor-pointer text-sm font-medium text-fjord-accent hover:text-fjord-accent-hover"
+                  title="Open another of this stack's {links.length} apps">▾ {links.length}</summary
+                >
+                <div class="absolute z-30 left-0 mt-1 min-w-72 bg-fjord-card border border-fjord-border rounded-lg shadow-xl py-1">
+                  {#each links as l}
+                    <a
+                      href={l.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      on:click={() => (linksOpen = false)}
+                      class="flex items-center justify-between gap-4 px-3 py-1.5 text-sm hover:bg-fjord-border/50"
+                      ><span class="font-medium text-fjord-fg-body">{l.service}</span><span class="font-mono text-xs text-fjord-fg-muted"
+                        >{l.url.replace(/^https?:\/\//, '')}</span
+                      ></a
+                    >
+                  {/each}
+                </div>
+              </details>
             {/if}
             <input
               list="fjord-groups"
