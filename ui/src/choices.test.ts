@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { chosenServices, choiceVars, type StackChoice } from './choices';
+import { chosenServices, choiceVars, isToggle, pickedPhrase, type StackChoice } from './choices';
 
 // immich's choices, as the catalog carries them.
 const base = ['immich-server', 'immich-machine-learning', 'redis', 'database'];
@@ -58,5 +58,29 @@ describe('choiceVars', () => {
   });
   it('is empty without choices', () => {
     expect(choiceVars([]).size).toBe(0);
+  });
+});
+
+describe('pickedPhrase', () => {
+  const part = (id: string, label: string, def = 'on') => ({
+    id, kind: 'part', label, default: def,
+    options: [{ id: 'on', label: 'Included' }, { id: 'off', label: 'Left out' }],
+  });
+  const db = { id: 'database', kind: 'database', label: 'Database', default: 'sqlite',
+    options: [{ id: 'sqlite', label: 'SQLite' }, { id: 'postgres', label: 'PostgreSQL' }] };
+
+  it('names the parts left out, not "left out, left out"', () => {
+    const cs = [part('effect', 'EffectCraft'), part('design', 'DesignCraft'), part('photo', 'PhotoCraft')];
+    expect(pickedPhrase(cs, { effect: 'off', design: 'off', photo: 'on' })).toBe('without EffectCraft and DesignCraft');
+  });
+  it('says what was added, and a database by its name', () => {
+    expect(pickedPhrase([db, part('proxy', 'Public sharing', 'off')], { database: 'postgres', proxy: 'on' })).toBe(
+      'PostgreSQL, with Public sharing',
+    );
+    expect(pickedPhrase([db], { database: 'sqlite' })).toBe('');
+  });
+  it('treats only an on/off part as a toggle', () => {
+    expect(isToggle(part('x', 'X'))).toBe(true);
+    expect(isToggle(db)).toBe(false);
   });
 });

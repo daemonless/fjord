@@ -88,7 +88,10 @@ export function resolveDefault(
 ): Record<string, string> {
   if (!Object.values(plan).includes('default')) return plan;
   const real = joinable(networks).map((n) => n.name);
-  const pick = real.includes(configured) ? configured : real[0] || '';
+  // A built-in default (bridge) means "no LAN network for new installs": the
+  // app goes as it ships. Read as "not a network", it fell to the first LAN.
+  const builtin = ['bridge', 'host', 'none'].includes(configured);
+  const pick = builtin ? '' : real.includes(configured) ? configured : real[0] || '';
   if (!pick) {
     return Object.fromEntries(Object.keys(plan).map((k) => [k, shipped]));
   }

@@ -5,12 +5,13 @@
   import { onMount, createEventDispatcher } from 'svelte';
   import * as yaml from 'js-yaml';
   import Icon from './Icon.svelte';
+  import Switch from './Switch.svelte';
   import { defaultPath } from './pathDefaults';
   import Spinner from './Spinner.svelte';
   import DirPicker from './DirPicker.svelte';
   import { addressProblem, usableRange, randomMAC } from './network';
   import ServiceResources from './ServiceResources.svelte';
-  import { chosenServices, choiceVars } from './choices';
+  import { chosenServices, choiceVars, isToggle, pickedPhrase } from './choices';
   import { resolveDefault, seedInterfaces, splitPlan, joinable, keepAttachable, addressesNeeded, type Iface } from './planSeed';
 
   // sources: every catalog offering this app; the user picks one (Repository)
@@ -288,10 +289,7 @@
     }
   }
   // Non-default answers, in words, for the summary line.
-  $: pickedWords = choices
-    .filter((c) => picks[c.id] && picks[c.id] !== c.default)
-    .map((c) => c.options.find((o) => o.id === picks[c.id])?.label ?? '')
-    .filter(Boolean);
+  $: pickedWords = pickedPhrase(choices, picks);
   $: tagVars = variables.filter((v) => v.type === 'image_tag' && v.image);
 
   // Progressive disclosure, three levels (placement only; whether a field may
@@ -537,6 +535,12 @@
   // What the blurb promises has to be what the rows say, or the screen gives
   // two answers.
   $: exposedOn = Object.entries(planEdits).find(([svc]) => netPlan[svc] === PLAN_DEFAULT)?.[1]?.[0]?.network ?? '';
+  // The networking blurb says what the rows below do, for this app: which of
+  // its parts go where. It used to promise "its database and cache" for every
+  // app, seven web apps with neither included.
+  $: openParts = svcNames.filter((n) => netPlan[n] === PLAN_DEFAULT);
+  $: privateParts = svcNames.filter((n) => netPlan[n] === PLAN_PRIVATE);
+  const listed = (xs: string[]) => (xs.length < 2 ? xs.join('') : `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}`);
   // The network the app's web service lands on. With an address of its own
   // there, its port variables publish nothing (see ownPort.ts).
   $: webNet = perService ? exposedOn || planEdits[svcNames[0]]?.[0]?.network || '' : netChoice;
@@ -945,6 +949,22 @@
             {@const chosen = c.options.find((o) => o.id === picks[c.id])}
             {@const asks = chosen?.ask ?? []}
             <div class="space-y-2 border border-fjord-border rounded-lg p-3 bg-fjord-card/40">
+              {#if isToggle(c)}
+                {@const onOpt = c.options.find((o) => o.id === 'on')}
+                <div class="flex items-center gap-4">
+                  <div class="flex-1 min-w-0">
+                    <div class="text-sm font-medium text-fjord-fg">{c.label}</div>
+                    {#if c.doc}<div class="text-xs text-fjord-fg-muted">{c.doc}</div>{/if}
+                  </div>
+                  <Switch
+                    checked={picks[c.id] === 'on'}
+                    label={c.label}
+                    disabled={picks[c.id] !== 'on' && !!onOpt && noAppjail(onOpt)}
+                    title={picks[c.id] !== 'on' && onOpt && noAppjail(onOpt) ? 'Not on AppJail with this catalog: it has no AppJail form for this part.' : ''}
+                    on:change={(e) => pick(c, e.detail ? 'on' : 'off')}
+                  />
+                </div>
+              {:else}
               <div class="flex flex-wrap items-baseline gap-x-2">
                 <span class="text-sm font-medium text-fjord-fg">{c.label}</span>
                 {#if c.doc}<span class="text-xs text-fjord-fg-muted">{c.doc}</span>{/if}
@@ -964,6 +984,7 @@
                   >
                 {/each}
               </div>
+              {/if}
               {#if chosen?.doc}
                 <p class="text-xs text-fjord-fg-muted">{chosen.doc}</p>
               {/if}
@@ -1005,7 +1026,7 @@
           <div class="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-fjord-fg-muted border-t border-fjord-border pt-4">
             <span>
               Installs <b class="text-fjord-fg-body">{appName} {summaryVersion}</b>{#if summaryTrain}{' '}({summaryTrain}){/if}
-              on <b class="text-fjord-fg-body">{engineChoice || 'podman'}</b>{#if pickedWords.length}, <b class="text-fjord-fg-body">{pickedWords.join(', ').toLowerCase()}</b>{/if}
+              on <b class="text-fjord-fg-body">{engineChoice || 'podman'}</b>{#if pickedWords}, <b class="text-fjord-fg-body">{pickedWords}</b>{/if}
               · data in <span class="font-mono text-fjord-fg-secondary">{storageBase}/{folderOf(stackName, appId || 'app')}</span>
             </span>
             <button
@@ -1133,10 +1154,16 @@
                   {/if}
                 {:else if joinableNets.length}
                   <p class="text-xs text-fjord-fg-dim mb-3">
-                    This app says which of its parts belongs where: the one you open goes on
-                    <span class="font-mono">{exposedOn || joinableNets[0].name}</span>, and its
-                    database and cache go on a network of their own, not reachable from your LAN. Change any of it
-                    here, or after installing.
+                    {#if builtIn(exposedOn)}
+                      New installs use <span class="font-mono">{exposedOn}</span>, so this app goes as it ships.
+                    {:else if openParts.length}
+                      {listed(openParts)}
+                      {openParts.length === 1 ? 'goes' : 'go'} on <span class="font-mono">{exposedOn || joinableNets[0].name}</span>{#if privateParts.length},
+                        and {listed(privateParts)} on a network of their own, not reachable from your LAN{/if}.
+                    {:else if privateParts.length}
+                      {listed(privateParts)} {privateParts.length === 1 ? 'goes' : 'go'} on a network of its own, not reachable from your LAN.
+                    {/if}
+                    Change any of it here, or after installing.
                   </p>
                 {:else}
                   <!-- Promising a private segment while every row below says
