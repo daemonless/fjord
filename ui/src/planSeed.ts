@@ -106,6 +106,8 @@ export function resolveDefault(
  * A service on a real network also joins the private one -- it still has to
  * reach the rest of its own stack. Not when it IS the stack: a one-service app
  * has nothing to reach, and zensical came up with a pointless 10.100 address.
+ * Nor when no service is private: crafting-apps puts every app on the LAN and
+ * none talks to another, so each got a segment nothing else was on.
  * A service on a MODE gets exactly that one row: a mode is the whole answer,
  * and showing it as a row is what makes it visible and changeable. Never an
  * empty list, which reads as "broken".
@@ -115,13 +117,14 @@ export function seedInterfaces(
   plan: Record<string, string>,
 ): Record<string, Iface[]> {
   const out: Record<string, Iface[]> = {};
+  const anyPrivate = services.some((svc) => (plan[svc] || PRIVATE) === PRIVATE);
   for (const svc of services) {
     const spec = plan[svc] || PRIVATE;
     if (isMode(spec)) {
       out[svc] = [{ network: spec }];
     } else if (spec === PRIVATE) {
       out[svc] = [{ network: PRIVATE, ip: '', mac: '' }];
-    } else if (services.length === 1) {
+    } else if (services.length === 1 || !anyPrivate) {
       out[svc] = [{ network: spec, ip: '', mac: '' }];
     } else {
       out[svc] = [
