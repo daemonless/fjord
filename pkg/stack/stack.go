@@ -50,7 +50,7 @@ type State struct {
 	Variables     map[string]string `json:"variables,omitempty"`
 	ComposeSHA256 string            `json:"compose_sha256"`
 	Modified      bool              `json:"modified"`
-	DesiredState  string            `json:"desired_state"`          // "running" | "stopped"
+	DesiredState  string            `json:"desired_state"`          // "running" | "stopped" | "deleting" (a delete in progress)
 	Engine        string            `json:"engine,omitempty"`       // runtime this stack runs on; "" = podman
 	DisplayName   string            `json:"display_name,omitempty"` // friendly label; identity stays the dir id
 	Group         string            `json:"group,omitempty"`        // optional sidebar grouping label
