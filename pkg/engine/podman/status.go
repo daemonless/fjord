@@ -249,42 +249,7 @@ func containerAddresses(c libpodContainer) map[string]string {
 				}
 			}
 		}
-		addrs := hostnet.JailAddresses(ctx, c.ID)
-		claimed := map[string]bool{}
-		for _, a := range out {
-			claimed[a] = true
-		}
-		// First by subnet, where the network records one.
-		for _, n := range c.Networks {
-			if _, known := out[n]; known {
-				continue
-			}
-			def, ok := hostnet.Get(n)
-			if !ok || def.Subnet == "" {
-				continue
-			}
-			for _, a := range addrs {
-				if !claimed[a] && hostnet.InSubnet(a, def.Subnet) {
-					out[n], claimed[a] = a, true
-					break
-				}
-			}
-		}
-		// Then by elimination. A DHCP network records no subnet -- the lease
-		// carries it -- so there is nothing to match against; what is left
-		// after every subnet-bearing network has taken its own is its.
-		for _, n := range c.Networks {
-			if _, known := out[n]; known {
-				continue
-			}
-			for _, a := range addrs {
-				if claimed[a] || inAnyOther(a, c.Networks, n) {
-					continue
-				}
-				out[n], claimed[a] = a, true
-				break
-			}
-		}
+		hostnet.MatchAddresses(hostnet.JailAddresses(ctx, c.ID), c.Networks, out, hostnet.DefinedSubnet)
 	}
 	return out
 }
@@ -311,14 +276,3 @@ func containerAddress(c libpodContainer) string {
 // inAnyOther reports whether addr belongs to one of the container's OTHER
 // networks by subnet, so elimination never hands a network an address that
 // demonstrably came from a different one.
-func inAnyOther(addr string, networks []string, self string) bool {
-	for _, n := range networks {
-		if n == self {
-			continue
-		}
-		if def, ok := hostnet.Get(n); ok && def.Subnet != "" && hostnet.InSubnet(addr, def.Subnet) {
-			return true
-		}
-	}
-	return false
-}

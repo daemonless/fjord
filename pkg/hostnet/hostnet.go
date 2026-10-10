@@ -481,3 +481,60 @@ func ReleaseFailedAdds(network string, stopped func(id string) bool) []string {
 	}
 	return freed
 }
+
+// MatchAddresses assigns a jail's addresses to the networks it is on, given
+// the ones already known (out, changed in place). A jail lists its addresses
+// and not which interface each came from: first each network takes the
+// address in its own subnet (subnetOf, "" when it records none), then a
+// network with no subnet (DHCP: the lease carries it) takes what is left.
+func MatchAddresses(addrs, networks []string, out map[string]string, subnetOf func(string) string) {
+	claimed := map[string]bool{}
+	for _, a := range out {
+		claimed[a] = true
+	}
+	for _, n := range networks {
+		if _, known := out[n]; known {
+			continue
+		}
+		sub := subnetOf(n)
+		if sub == "" {
+			continue
+		}
+		for _, a := range addrs {
+			if !claimed[a] && InSubnet(a, sub) {
+				out[n], claimed[a] = a, true
+				break
+			}
+		}
+	}
+	inOther := func(a, self string) bool {
+		for _, n := range networks {
+			if n != self {
+				if sub := subnetOf(n); sub != "" && InSubnet(a, sub) {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	for _, n := range networks {
+		if _, known := out[n]; known {
+			continue
+		}
+		for _, a := range addrs {
+			if claimed[a] || inOther(a, n) {
+				continue
+			}
+			out[n], claimed[a] = a, true
+			break
+		}
+	}
+}
+
+// DefinedSubnet is the subnet a network fjord defines records, "" when none.
+func DefinedSubnet(network string) string {
+	if def, ok := Get(network); ok {
+		return def.Subnet
+	}
+	return ""
+}
