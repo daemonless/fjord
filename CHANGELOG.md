@@ -125,6 +125,9 @@ install API, on both engines (`test/ui`, `test/e2e`).
   named in the output; it was the catalog's placeholder ("changeme",
   "your-encryption-key-here"). Secrets only you have (a tunnel token) say
   `generate: false` and are asked for as before.
+- Why Install is greyed out is written beside it, not only in its tooltip. A
+  required address that can't be filled in yet (the app's own address on a
+  DHCP network is known once it starts) says to type it, or to use bridge.
 - The version or channel picked at install moves only the app's own image. A
   database a choice added lost its pin: postgres:17 came up as
   postgres:latest, a later major than its data.
