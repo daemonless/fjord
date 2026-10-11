@@ -119,6 +119,8 @@ install API, on both engines (`test/ui`, `test/e2e`).
 - The check that an updated or installed app stays up no longer holds the
   stack: the actions come back as it starts, and using one ends the check,
   like Ctrl-C. An app that crashes on its own still fails the update.
+- Updating a stopped stack leaves it stopped: the new images are pulled and
+  Start runs them. It used to start the stack (tailscale came up on its own).
 
 ### Known limitations in 0.3.1
 - **No authentication.** Anyone who can reach port 3567 can run containers

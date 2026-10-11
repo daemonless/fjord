@@ -388,10 +388,13 @@ func (b *Backend) Update(ctx context.Context, s *stack.Stack, services []string)
 	if len(services) > 0 {
 		recreate = composepkg.WithDependents(s.Compose, services)
 	}
+	// Asked before anything changes: whether the stack was up is what the
+	// update has to leave it as.
+	stopped := b.notRunning(ctx, s, recreate)
 	pr, pw := io.Pipe()
 	go func() {
 		defer pw.Close()
-		if more := extra(recreate, services); len(more) > 0 {
+		if more := extra(recreate, services); len(more) > 0 && !stopped {
 			fmt.Fprintf(pw, "[fjord] also recreating %s: it depends on %s\n", strings.Join(more, ", "), strings.Join(services, ", "))
 		}
 		b.checkPullSpace(ctx, pw, servicesImages(s, services), false)
@@ -408,6 +411,14 @@ func (b *Backend) Update(ctx context.Context, s *stack.Stack, services []string)
 			fmt.Fprintf(pw, "\n%s\n[error] not recreating: the stack keeps what it runs\n", strings.Join(wrong, "\n"))
 			return
 		}
+		// A stopped stack stays stopped: updating tailscale while it was down
+		// brought it up. Its old containers go (fjord's own Stop leaves none),
+		// so Start builds them from the image just pulled, not the old one.
+		if stopped {
+			b.forceRemoveStackContainers(ctx, pw, s, recreate)
+			fmt.Fprintf(pw, "\n[fjord] updated and left stopped, as it was: Start runs the new image\n")
+			return
+		}
 		started := time.Now()
 		b.bringUp(ctx, pw, s, true, recreate)
 		if b.verifyRecreated(ctx, pw, s, recreate, started, "updated", "on the image it had") {
@@ -415,6 +426,22 @@ func (b *Backend) Update(ctx context.Context, s *stack.Stack, services []string)
 		}
 	}()
 	return pr, nil
+}
+
+// notRunning reports whether none of the named services (all of them when
+// services is empty) has a running container. Not knowing counts as running:
+// an update that cannot ask podman does what it always did.
+func (b *Backend) notRunning(ctx context.Context, s *stack.Stack, services []string) bool {
+	cs, err := b.listStackContainers(ctx, s.Name)
+	if err != nil {
+		return false
+	}
+	for _, c := range ofServices(cs, services) {
+		if c.State == "running" {
+			return false
+		}
+	}
+	return true
 }
 
 // Recreate replaces the named services (and what depends on them) with

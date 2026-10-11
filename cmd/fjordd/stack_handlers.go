@@ -1330,8 +1330,9 @@ func (s *server) stackLifecycle(w http.ResponseWriter, r *http.Request, name, ac
 
 	// Record operator intent so start-on-boot can restore it after a
 	// fjordd/host restart. Best-effort: a state write failure must not abort
-	// the lifecycle op the user asked for. (update leaves it running.)
-	if desired := map[string]string{"up": "running", "down": "stopped", "update": "running", "restart": "running"}[action]; desired != "" {
+	// the lifecycle op the user asked for. An update leaves the intent as it
+	// was: a stopped stack is updated without being started.
+	if desired := map[string]string{"up": "running", "down": "stopped", "restart": "running"}[action]; desired != "" {
 		if err := s.manager.SetDesiredState(name, desired); err != nil {
 			log.Printf("%s %s: persist desired_state: %v", action, name, err)
 		}
