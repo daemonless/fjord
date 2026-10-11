@@ -180,14 +180,32 @@ func (b *Backend) Update(ctx context.Context, s *stack.Stack, services []string)
 	if directorFile(s) == "" {
 		return nil, errNoDirector(s)
 	}
-	if len(services) == 0 {
-		return directorUpdate(ctx, s, b.serviceJails(s))
+	jails := b.serviceJails(s)
+	if len(services) > 0 {
+		var err error
+		if jails, err = jailsOf(jails, services); err != nil {
+			return nil, fmt.Errorf("stack %s: %w", s.Name, err)
+		}
 	}
-	jails, err := jailsOf(b.serviceJails(s), services)
-	if err != nil {
-		return nil, fmt.Errorf("stack %s: %w", s.Name, err)
+	// A stopped stack stays stopped: pull, and drop any jail left from
+	// before so Start builds it from the new image (fjord's Stop leaves none).
+	if noneRunning(ctx, jails) {
+		return directorUpdateStopped(ctx, s, jails)
+	}
+	if len(services) == 0 {
+		return directorUpdate(ctx, s, jails)
 	}
 	return directorUpdateServices(ctx, s, jails)
+}
+
+// noneRunning reports whether none of the jails is up.
+func noneRunning(ctx context.Context, jails []svcJail) bool {
+	for _, sj := range jails {
+		if exec.CommandContext(ctx, "appjail", "status", "-q", sj.jail).Run() == nil {
+			return false
+		}
+	}
+	return true
 }
 
 // Status reports each service jail's state. Ports come from the compose (appjail

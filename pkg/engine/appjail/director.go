@@ -206,6 +206,24 @@ func directorUpdate(ctx context.Context, s *stack.Stack, jails []svcJail) (io.Re
 		directorUpStep(ctx, s))
 }
 
+// directorUpdateStopped is an update of a stack that is not running: the new
+// images are pulled and any jail left from before is removed, so the next
+// Start builds from what was pulled. Nothing is started.
+func directorUpdateStopped(ctx context.Context, s *stack.Stack, jails []svcJail) (io.ReadCloser, error) {
+	return directorOp(ctx, s,
+		func(w io.Writer) error { return pullNamedImages(ctx, w, jails) },
+		func(w io.Writer) error {
+			for _, sj := range jails {
+				if err := destroyJail(ctx, w, sj.jail); err != nil {
+					fmt.Fprintf(w, "[error] %s: could not remove its jail %s: %v\n", sj.svc.Name, sj.jail, err)
+					return err
+				}
+			}
+			fmt.Fprintf(w, "\n[fjord] updated and left stopped, as it was: Start builds from the new image\n")
+			return nil
+		})
+}
+
 // directorUpdateServices rebuilds only the given services' jails.
 //
 // Director has no "rebuild this one" flag, but `up` creates any service whose
