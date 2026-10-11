@@ -551,7 +551,17 @@ func (s *server) handleInstall(w http.ResponseWriter, r *http.Request) {
 				res.Env[k] = v
 			}
 		}
-		env, err := writeAppjailBundle(st.Dir, id, b, res.Env, composeYAML, req.attachments(), svcModes, req.Network)
+		// Written whether or not the bundle's .env lists them: the director
+		// substitutes its 127.0.0.1 default for a variable that is missing.
+		hostEnv := jailHostnames(id, serviceHostnames(m.Hostnames, plannedAtts, svcModes))
+		// What the plan made of the request, as the compose got: one network
+		// named for the whole stack is per service by now (immich's database
+		// private), and the raw request put every jail on the LAN.
+		atts := plannedAtts
+		if len(atts) == 0 {
+			atts = req.attachments()
+		}
+		env, err := writeAppjailBundle(st.Dir, id, b, res.Env, hostEnv, composeYAML, atts, svcModes, req.Network)
 		if err != nil {
 			// Gone again, as above: a stack left with a compose and no bundle
 			// is listed with no engine and can never start.

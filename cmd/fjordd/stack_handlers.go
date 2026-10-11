@@ -655,7 +655,11 @@ func (s *server) stackSave(w http.ResponseWriter, r *http.Request, name string) 
 		// separate addresses. Install rewrites these; save did not, so moving
 		// a stack off the host's stack left DB_HOSTNAME=localhost and the app
 		// came up unable to reach its own database.
-		payload.Env = rewriteHostnames(payload.Env, s.appHostnames(r.Context(), name), atts, modes)
+		nameOf := func(svc string) string { return svc }
+		if eng == "appjail" {
+			nameOf = func(svc string) string { return directorJailName(name, svc) }
+		}
+		payload.Env = rewriteHostnames(payload.Env, s.appHostnames(r.Context(), name), atts, modes, nameOf)
 	}
 	// A director stack's networking is the director's, and nothing was
 	// regenerating it on save: the Resources tab edited a compose appjail does

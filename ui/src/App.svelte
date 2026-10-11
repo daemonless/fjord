@@ -2839,6 +2839,7 @@
                     <VarsPanel
                       text={varsFile}
                       env={selectedStack.env ?? ''}
+                      builtins={selectedStack.director ? { PWD: selectedStack.dir } : {}}
                       bind:focus={varsFocus}
                       on:set={(e) => setStackVar(e.detail.name, e.detail.value)}
                       on:close={() => (varsPanelOpen = false)}
@@ -2858,7 +2859,7 @@
                 {#if unusedEnv.length}
                   <div class="shrink-0 px-4 py-2 text-xs bg-fjord-card border-b border-fjord-border text-fjord-fg-secondary">
                     <span class="font-mono text-fjord-fg-body">{unusedEnv.join(', ')}</span>
-                    {unusedEnv.length === 1 ? 'is' : 'are'} not used by this stack{#if (selectedStack as any).ownAddress}:
+                    {unusedEnv.length === 1 ? 'is' : 'are'} not used by this stack{#if (selectedStack as any).ownAddress && unusedEnv.every((n) => /PORT$/.test(n))}:
                       it has its own address on {(selectedStack as any).network}, so nothing is published on this host's
                       ports, and the app answers on its own port there{:else}, so changing {unusedEnv.length === 1 ? 'it' : 'them'} has no effect{/if}.
                   </div>

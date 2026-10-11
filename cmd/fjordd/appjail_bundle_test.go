@@ -83,7 +83,7 @@ func TestWriteAppjailBundleWritesExtras(t *testing.T) {
 		TemplateConf: "persist\n",
 		Extras:       map[string]string{"immich-postgres-template.conf": tmpl},
 	}
-	if _, err := writeAppjailBundle(dir, "immich", b, map[string]string{}, "services:\n  bazarr:\n    image: x\n", nil, nil, ""); err != nil {
+	if _, err := writeAppjailBundle(dir, "immich", b, map[string]string{}, nil, "services:\n  bazarr:\n    image: x\n", nil, nil, ""); err != nil {
 		t.Fatal(err)
 	}
 	got, err := os.ReadFile(filepath.Join(dir, "immich-postgres-template.conf"))
@@ -109,7 +109,7 @@ func TestWriteAppjailBundleRefusesEscapingExtra(t *testing.T) {
 			Director: testDirector,
 			Extras:   map[string]string{bad: "x\n"},
 		}
-		if _, err := writeAppjailBundle(t.TempDir(), "immich", b, map[string]string{}, "services:\n  bazarr:\n    image: x\n", nil, nil, ""); err == nil {
+		if _, err := writeAppjailBundle(t.TempDir(), "immich", b, map[string]string{}, nil, "services:\n  bazarr:\n    image: x\n", nil, nil, ""); err == nil {
 			t.Errorf("accepted extra named %q", bad)
 		}
 	}
@@ -124,7 +124,7 @@ func TestWriteAppjailBundleRefusesEscapingExtra(t *testing.T) {
 // date", restarting forever.
 func TestDirectorEnvKeepsDeclaredKeys(t *testing.T) {
 	const defaults = "DIRECTOR_PROJECT=\nDB_USERNAME=\nTZ=\nUNSET_ON_PURPOSE=\n"
-	out := directorEnv(defaults, "immich", map[string]string{"DB_USERNAME": "postgres"}, map[string]string{}, map[string]bool{})
+	out := directorEnv(defaults, "immich", map[string]string{"DB_USERNAME": "postgres"}, nil, map[string]string{}, map[string]bool{})
 
 	if !strings.Contains(out, "\nUNSET_ON_PURPOSE=\n") {
 		t.Errorf("a declared-but-empty key was dropped:\n%s", out)
@@ -187,5 +187,34 @@ volumes:
 	}
 	if ph["VIKUNJA_CONFIG_PATH"] != "/s/config" || ph["DATABASE_LOCATION"] != "/s/mariadb" {
 		t.Fatalf("got %v", ph)
+	}
+}
+
+// Where the parts find each other is written even when the bundle's .env does
+// not list it: missing, the director's default is 127.0.0.1, and immich-server
+// looked for its database there.
+func TestDirectorEnvWritesHostnames(t *testing.T) {
+	defaults := "DB_USERNAME=postgres\n"
+	host := jailHostnames("immich", map[string]string{"DB_HOSTNAME": "database", "REDIS_HOSTNAME": "redis"})
+	out := directorEnv(defaults, "immich", map[string]string{}, host, map[string]string{}, map[string]bool{})
+	for _, want := range []string{"DB_HOSTNAME=immich_database\n", "REDIS_HOSTNAME=immich_redis\n", "DB_USERNAME=postgres\n"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("%q missing from:\n%s", want, out)
+		}
+	}
+}
+
+// A hostname goes into .env only when a jail reads it: immich without its
+// public proxy has no reader for IMMICH_SERVER_HOST, and the .env tab said so.
+func TestWriteAppjailBundleOnlyReadHostnames(t *testing.T) {
+	dir := t.TempDir()
+	b := &manifest.AppjailBundle{Director: "services:\n  server:\n    name: s\n    oci:\n      environment:\n        - DB_HOSTNAME: !ENV '${DB_HOSTNAME:127.0.0.1}'\n"}
+	host := map[string]string{"DB_HOSTNAME": "immich_database", "IMMICH_SERVER_HOST": "immich_immich_server"}
+	env, err := writeAppjailBundle(dir, "immich", b, map[string]string{}, host, "services:\n  server:\n    image: x\n", nil, nil, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(env, "DB_HOSTNAME=immich_database\n") || strings.Contains(env, "IMMICH_SERVER_HOST") {
+		t.Errorf(".env:\n%s", env)
 	}
 }

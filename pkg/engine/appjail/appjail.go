@@ -199,63 +199,68 @@ func (b *Backend) Status(ctx context.Context, s *stack.Stack) (engine.StackStatu
 	// jail on lan and a private network had one address and no network for
 	// it, so the stack page had no link to open.
 	atts := composepkg.AttachedNetworks(s.Compose)
-	var vnets map[string]string // virtualnet -> subnet, asked once
-	subnetOf := func(n string) string {
-		if sub := hostnet.DefinedSubnet(n); sub != "" {
-			return sub
+	// Per service first: AttachedNetworks gives up when services differ, and
+	// immich (server on the LAN, the rest private) then had no LAN address
+	// for its server and no Open link.
+	perSvc := composepkg.ServiceAttachments(s.Compose)
+	netsOf := func(svc string) []string {
+		var nets []string
+		for _, at := range perSvc[svc] {
+			nets = append(nets, at.Network)
 		}
-		if vnets == nil {
-			vnets = map[string]string{}
-			for _, v := range listVirtualnets(ctx) {
-				vnets[v.Name] = v.Subnet
-			}
-		}
-		return vnets[n]
-	}
-	var containers []engine.ContainerStatus
-	up := 0
-	jailsUp := 0
-	for _, sj := range svcs {
-		svc, name := sj.svc, sj.jail
-		jailUp := exec.CommandContext(ctx, "appjail", "status", "-q", name).Run() == nil
-		cs := engine.ContainerStatus{Name: name, Service: svc.Name, State: "stopped"}
-		if jailUp {
-			jailsUp++
-			// A jail being up says nothing about the app inside it: a .NET
-			// service missing allow.mlock crash-loops forever behind an
-			// "up" jail. Ask the app itself.
-			cs.State, cs.Detail = serviceHealth(ctx, name, svc)
-			cs.Address = hostnet.JailAddress(ctx, name)
-			var nets []string
+		if len(nets) == 0 {
 			for _, at := range atts {
-				if at.Service == "" || at.Service == svc.Name {
+				if at.Service == "" || at.Service == svc {
 					nets = append(nets, at.Network)
 				}
 			}
-			if len(nets) > 0 {
-				cs.Addresses = map[string]string{}
-				hostnet.MatchAddresses(hostnet.JailAddresses(ctx, name), nets, cs.Addresses, subnetOf)
+		}
+		return nets
+	}
+	// Each network's subnet, asked once before the jails are: a virtualnet's
+	// costs an appjail call, and the jails below are checked at the same time.
+	subnets := map[string]string{}
+	for _, sj := range svcs {
+		for _, n := range netsOf(sj.svc.Name) {
+			if _, asked := subnets[n]; asked {
+				continue
 			}
-			// The jail is up and the app answers, but it holds no address:
-			// its interface is on the bridge with nothing configured on it.
-			// A link to it cannot work, and saying nothing makes that look
-			// like fjord losing the address rather than the network failing.
-			if cs.State == "running" && cs.Address == "" && cs.Detail == "" && attached != "" {
-				cs.Detail = hostnet.NoAddressReason(attached)
-				// Before blaming the DHCP server, check the jail can even ask.
-				if net, ok := hostnet.Get(attached); ok && net.DHCP && missingDHClient(ctx, name) {
-					cs.Detail = "no address: this image has no /etc/rc.d/dhclient, so nothing in the jail " +
-						"can ask for a lease -- give it a static address, or use an image that ships one"
-				}
-			}
-			if cs.State == "running" {
-				up++
-			}
-			for _, p := range svc.Ports {
-				cs.Ports = append(cs.Ports, engine.Port{HostPort: p.Host, ContainerPort: p.Container, Protocol: p.Proto})
+			if sub := hostnet.DefinedSubnet(n); sub != "" {
+				subnets[n] = sub
+			} else {
+				v, _ := Virtualnet(ctx, n)
+				subnets[n] = v.Subnet
 			}
 		}
-		containers = append(containers, cs)
+	}
+	subnetOf := func(n string) string { return subnets[n] }
+
+	// The jails at once, not one after another: each costs a few appjail
+	// calls (appjail is shell, ~0.3 s apiece), and immich's five in a row ran
+	// past the page's wait, which then said "appjail is busy" and showed the
+	// state from minutes before.
+	containers := make([]engine.ContainerStatus, len(svcs))
+	jailUp := make([]bool, len(svcs))
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, 8)
+	for i, sj := range svcs {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			containers[i], jailUp[i] = jailStatus(ctx, sj.svc, sj.jail, netsOf(sj.svc.Name), subnetOf, attached)
+		}()
+	}
+	wg.Wait()
+	up, jailsUp := 0, 0
+	for i := range containers {
+		if jailUp[i] {
+			jailsUp++
+		}
+		if containers[i].State == "running" {
+			up++
+		}
 	}
 	state := "stopped"
 	switch {
@@ -267,6 +272,39 @@ func (b *Backend) Status(ctx context.Context, s *stack.Stack) (engine.StackStatu
 		state = "partial" // something is up but not (yet) serving
 	}
 	return engine.StackStatus{State: state, Containers: containers}, nil
+}
+
+// jailStatus is one service jail's status, and whether the jail is up at all.
+func jailStatus(ctx context.Context, svc composepkg.Service, name string, nets []string, subnetOf func(string) string, attached string) (engine.ContainerStatus, bool) {
+	cs := engine.ContainerStatus{Name: name, Service: svc.Name, State: "stopped"}
+	if exec.CommandContext(ctx, "appjail", "status", "-q", name).Run() != nil {
+		return cs, false
+	}
+	// A jail being up says nothing about the app inside it: a .NET
+	// service missing allow.mlock crash-loops forever behind an
+	// "up" jail. Ask the app itself.
+	cs.State, cs.Detail = serviceHealth(ctx, name, svc)
+	cs.Address = hostnet.JailAddress(ctx, name)
+	if len(nets) > 0 {
+		cs.Addresses = map[string]string{}
+		hostnet.MatchAddresses(hostnet.JailAddresses(ctx, name), nets, cs.Addresses, subnetOf)
+	}
+	// The jail is up and the app answers, but it holds no address:
+	// its interface is on the bridge with nothing configured on it.
+	// A link to it cannot work, and saying nothing makes that look
+	// like fjord losing the address rather than the network failing.
+	if cs.State == "running" && cs.Address == "" && cs.Detail == "" && attached != "" {
+		cs.Detail = hostnet.NoAddressReason(attached)
+		// Before blaming the DHCP server, check the jail can even ask.
+		if net, ok := hostnet.Get(attached); ok && net.DHCP && missingDHClient(ctx, name) {
+			cs.Detail = "no address: this image has no /etc/rc.d/dhclient, so nothing in the jail " +
+				"can ask for a lease -- give it a static address, or use an image that ships one"
+		}
+	}
+	for _, p := range svc.Ports {
+		cs.Ports = append(cs.Ports, engine.Port{HostPort: p.Host, ContainerPort: p.Container, Protocol: p.Proto})
+	}
+	return cs, true
 }
 
 // serviceHealth reports whether the app inside an up jail is actually
@@ -517,13 +555,25 @@ func jailInterfaces(ctx context.Context, jail string) []string {
 // Virtualnet reports an appjail virtual network by name. A jail joins one of
 // these with the `virtualnet` option, not with an epair onto a host bridge --
 // two different attachments that the director writer has to tell apart.
+//
+// Asked for by name: listing them all also asks who is on each, about 1.5 s
+// on netlab, and the stack page's status went past its wait to "appjail is
+// busy". Without UsedBy, which no caller of this reads.
 func Virtualnet(ctx context.Context, name string) (engine.Network, bool) {
-	for _, n := range listVirtualnets(ctx) {
-		if n.Name == name {
-			return n, true
-		}
+	// -t: tab-separated, no header. A network that does not exist exits 66.
+	out, err := exec.CommandContext(ctx, "appjail", "network", "get", "-t", name, "network", "cidr", "gateway").Output()
+	if err != nil {
+		return engine.Network{}, false
 	}
-	return engine.Network{}, false
+	f := strings.Split(strings.TrimRight(string(out), "\n"), "\t")
+	if len(f) < 3 || f[0] == "" {
+		return engine.Network{}, false
+	}
+	subnet := f[0]
+	if f[1] != "" {
+		subnet += "/" + f[1]
+	}
+	return engine.Network{Name: name, Driver: "virtualnet", Subnet: subnet, Gateway: f[2]}, true
 }
 
 func listVirtualnets(ctx context.Context) []engine.Network {

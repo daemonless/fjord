@@ -15,6 +15,10 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// directorVarRe matches a ${VAR} reference in a director file, with or
+// without its default (${VAR:default}), capturing the name.
+var directorVarRe = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)[:}]`)
+
 // varRefRe matches a ${VAR} reference, capturing the name.
 var varRefRe = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)\}`)
 
@@ -34,7 +38,7 @@ func directorJailName(stackID, service string) string {
 // switch; stacks without it stay on the legacy `appjail oci run` path). Returns
 // the .env text written, so the caller records it on the stack. stackMode is
 // the install's stack-wide network: only none and host change anything here.
-func writeAppjailBundle(dir, stackID string, b *manifest.AppjailBundle, resolvedEnv map[string]string, composeYAML string, atts []composepkg.Attachment, modes map[string]string, stackMode string) (string, error) {
+func writeAppjailBundle(dir, stackID string, b *manifest.AppjailBundle, resolvedEnv, hostEnv map[string]string, composeYAML string, atts []composepkg.Attachment, modes map[string]string, stackMode string) (string, error) {
 	if b.Director == "" {
 		return "", fmt.Errorf("appjail bundle has no director file")
 	}
@@ -98,7 +102,19 @@ func writeAppjailBundle(dir, stackID string, b *manifest.AppjailBundle, resolved
 		return "", err
 	}
 
-	env := directorEnv(b.EnvDefaults, stackID, resolvedEnv, volPlaceholders, allVolVars)
+	// Only the hostnames a jail reads: immich without its public proxy has no
+	// reader for IMMICH_SERVER_HOST, and the .env tab listed it as unused.
+	used := map[string]bool{}
+	for _, m := range directorVarRe.FindAllStringSubmatch(directorYML, -1) {
+		used[m[1]] = true
+	}
+	read := map[string]string{}
+	for k, v := range hostEnv {
+		if used[k] {
+			read[k] = v
+		}
+	}
+	env := directorEnv(b.EnvDefaults, stackID, resolvedEnv, read, volPlaceholders, allVolVars)
 
 	writes := []struct {
 		name string
@@ -347,7 +363,9 @@ func deviceVar(volBody *yaml.Node) string {
 // resolved wizard value (WEB_PORT, PUID, PGID, TZ, DB_* -- dbuild's deploy mode
 // names these to line up on purpose), and volume-device placeholders (from the
 // container-path join). Placeholders for pruned volumes are omitted.
-func directorEnv(envDefaults, stackID string, resolvedEnv, volPlaceholders map[string]string, allVolVars map[string]bool) string {
+// hostEnv is written whatever the defaults list: where the stack's parts
+// find each other (jailHostnames).
+func directorEnv(envDefaults, stackID string, resolvedEnv, hostEnv, volPlaceholders map[string]string, allVolVars map[string]bool) string {
 	env, order := parseEnvOrdered(envDefaults)
 
 	setOrdered := func(k, v string) {
@@ -386,6 +404,14 @@ func directorEnv(envDefaults, stackID string, resolvedEnv, volPlaceholders map[s
 		}
 	}
 
+	hostKeys := make([]string, 0, len(hostEnv))
+	for k := range hostEnv {
+		hostKeys = append(hostKeys, k)
+	}
+	sort.Strings(hostKeys)
+	for _, k := range hostKeys {
+		setOrdered(k, hostEnv[k])
+	}
 	setOrdered("DIRECTOR_PROJECT", stackID)
 
 	// TZ is a fact about the host, not something the wizard asks for, so

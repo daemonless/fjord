@@ -463,6 +463,21 @@ func (s *server) appHostnames(ctx context.Context, stackName string) map[string]
 	return m.Hostnames
 }
 
+// jailHostnames is serviceHostnames on AppJail: a service is found by its
+// jail's name, which appjail-dns answers on the network the jails share. The
+// service's own name resolves nowhere there, and immich-server fell back to
+// 127.0.0.1 for its database.
+func jailHostnames(stackID string, want map[string]string) map[string]string {
+	if len(want) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(want))
+	for k, svc := range want {
+		out[k] = directorJailName(stackID, svc)
+	}
+	return out
+}
+
 // rewriteHostnames sets each declared variable to the name of the service it
 // points at, in an existing .env, and leaves everything else untouched.
 //
@@ -471,10 +486,16 @@ func (s *server) appHostnames(ctx context.Context, stackName string) map[string]
 // localhost meaningless, and the install path already rewrites these -- save
 // did not, so taking immich off the host's stack left DB_HOSTNAME=localhost
 // and the server came up unable to reach a database that was running fine.
-func rewriteHostnames(env string, hostnames map[string]string, atts []composepkg.Attachment, modes map[string]string) string {
+//
+// nameOf is how a service is reached: its own name with container DNS, its
+// jail's on AppJail (see jailHostnames).
+func rewriteHostnames(env string, hostnames map[string]string, atts []composepkg.Attachment, modes map[string]string, nameOf func(string) string) string {
 	want := serviceHostnames(hostnames, atts, modes)
 	if len(want) == 0 {
 		return env
+	}
+	for k, svc := range want {
+		want[k] = nameOf(svc)
 	}
 	var out []string
 	seen := map[string]bool{}

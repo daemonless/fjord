@@ -94,3 +94,22 @@ x-fjord:
     expect(unusedVars("expose: !ENV '${WEB_PORT}:8000'", { WEB_PORT: '1', DIRECTOR_PROJECT: 'p' })).toEqual([]);
   });
 });
+
+describe('refs: every operator', () => {
+  const env = { DB_HOSTNAME: 'immich_database', EMPTY: '' };
+  const one = (text: string) => refs(text, env)[0];
+  // A director file's default (pyaml-env): the name stops at the colon.
+  it("reads a director file's ${VAR:default}", () => {
+    expect(one('${DB_HOSTNAME:127.0.0.1}')).toMatchObject({ name: 'DB_HOSTNAME', state: 'set', value: 'immich_database' });
+    expect(one('${REDIS_HOSTNAME:127.0.0.1}')).toMatchObject({ name: 'REDIS_HOSTNAME', state: 'default', value: '127.0.0.1' });
+    expect(one('${EMPTY:x}')).toMatchObject({ name: 'EMPTY', state: 'empty' });
+  });
+  it('keeps the name out of :? and :+', () => {
+    expect(one('${GONE:?say why}')).toMatchObject({ name: 'GONE', state: 'unset' });
+    expect(one('${DB_HOSTNAME:+on}')).toMatchObject({ name: 'DB_HOSTNAME', state: 'set', value: 'on' });
+    expect(one('${GONE:+on}')).toMatchObject({ name: 'GONE', state: 'default', value: '' });
+  });
+  it('lists none of them as missing when set or defaulted', () => {
+    expect(missingVars("- DB_HOSTNAME: !ENV '${DB_HOSTNAME:127.0.0.1}'\n- X: !ENV '${IMMICH_HOST:0.0.0.0}'", env)).toEqual([]);
+  });
+});
