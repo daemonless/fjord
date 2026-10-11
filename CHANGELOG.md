@@ -121,6 +121,10 @@ install API, on both engines (`test/ui`, `test/e2e`).
   like Ctrl-C. An app that crashes on its own still fails the update.
 - Updating a stopped stack leaves it stopped: the new images are pulled and
   Start runs them. It used to start the stack (tailscale came up on its own).
+- A required secret left empty is made up at install (64 hex characters) and
+  named in the output; it was the catalog's placeholder ("changeme",
+  "your-encryption-key-here"). Secrets only you have (a tunnel token) say
+  `generate: false` and are asked for as before.
 - The version or channel picked at install moves only the app's own image. A
   database a choice added lost its pin: postgres:17 came up as
   postgres:latest, a later major than its data.

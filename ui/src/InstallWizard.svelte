@@ -299,6 +299,7 @@
   // `advanced: true|false` is the older spelling. Everything else follows its type.
   const levelOf = (v: any): 'primary' | 'options' | 'advanced' => {
     if (v.level === 'primary' || v.level === 'options' || v.level === 'advanced') return v.level;
+    if (madeUp(v)) return 'options'; // nothing to do, but there to set one's own
     const hasDefault = String(v.default ?? '') !== '';
     if (v.optional !== true && !hasDefault && v.type !== 'path' && v.type !== 'zfs_dataset') return 'primary';
     if (v.advanced === true) return 'advanced';
@@ -351,6 +352,11 @@
   // rejects a required var whose value resolves empty. Track the unfilled ones
   // so Deploy can be blocked with a clear reason instead of a 400 after submit.
   const isEmpty = (v: any) => !String(formData[v.name] ?? '').trim();
+  // A required secret nobody has to bring is made up at install when left
+  // empty (manifest.MadeUp): the catalog default is a placeholder like
+  // "changeme", and it was what got installed. `generate: false` marks one
+  // only its owner has (a tunnel token), typed as before.
+  const madeUp = (v: any) => v.type === 'secret' && v.optional !== true && v.generate !== false;
   // Host-path variables are folder LISTS (one row per folder); every other
   // variable is a single value in formData. Deps are spelled out (formData,
   // paths): a legacy-mode `$:` only tracks variables named in the statement.
@@ -358,6 +364,7 @@
     ...listedVars.filter(
       (v) =>
         v.optional !== true &&
+        !madeUp(v) &&
         !(v.type === 'path' ? (paths[v.name] || []).some((p) => p.trim()) : String(formData[v.name] ?? '').trim()),
     ),
     ...askedNow.filter((a) => !String(formData[a.name] ?? '').trim()).map((a) => ({ name: a.label || a.name })),
@@ -743,7 +750,7 @@
           // Path vars get this stack's own <App data>/<stack>/... folder: a
           // catalog default that names the app is re-rooted, none at all
           // becomes a hint; still fully editable + browsable.
-          formData[v.name] = v.type === 'path' ? seedPath(v, folderOf(stackName, appId || 'app')) : v.default || '';
+          formData[v.name] = v.type === 'path' ? seedPath(v, folderOf(stackName, appId || 'app')) : madeUp(v) ? '' : v.default || '';
           if (v.type === 'path') paths[v.name] = [formData[v.name]];
         });
         seededSlug = folderOf(stackName, appId || 'app');
@@ -932,8 +939,8 @@
                   type="text"
                   bind:value={formData[v.name]}
                   on:input={() => touched.add(v.name)}
-                  placeholder={v.default || (v.optional !== true ? 'required' : '')}
-                  class="w-full bg-fjord-inset border rounded-md px-3 py-2 text-fjord-fg-body focus:outline-none focus:border-fjord-accent transition-colors {(v.optional !== true && isEmpty(v)) || (v.type === 'public_url' && publicUrlProblem(formData[v.name] ?? '')) ? 'border-fjord-danger/60' : 'border-fjord-border'}"
+                  placeholder={madeUp(v) ? 'made up at install — or type your own' : v.default || (v.optional !== true ? 'required' : '')}
+                  class="w-full bg-fjord-inset border rounded-md px-3 py-2 text-fjord-fg-body focus:outline-none focus:border-fjord-accent transition-colors {(v.optional !== true && !madeUp(v) && isEmpty(v)) || (v.type === 'public_url' && publicUrlProblem(formData[v.name] ?? '')) ? 'border-fjord-danger/60' : 'border-fjord-border'}"
                 />
                 {#if v.type === 'public_url' && publicUrlProblem(formData[v.name] ?? '')}
                   <div class="text-xs text-fjord-danger">{publicUrlProblem(formData[v.name] ?? '')}</div>
