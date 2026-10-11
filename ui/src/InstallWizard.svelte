@@ -370,6 +370,24 @@
     ...askedNow.filter((a) => !String(formData[a.name] ?? '').trim()).map((a) => ({ name: a.label || a.name })),
   ];
 
+  // Why Install is held, on screen beside it: in a tooltip alone nobody saw it
+  // (woodpecker's empty WOODPECKER_HOST read as a dead button).
+  $: blockReason = !validName
+    ? 'Enter a valid stack name'
+    : noBuild
+      ? noBuild
+      : missingRequired.length
+        ? `Fill in ${missingRequired.map((v) => v.name).join(', ')} above`
+        : badUrls.length
+          ? `Fix the address in ${badUrls.map((v) => v.name).join(', ')} above`
+          : ipProblem
+            ? ipProblem
+            : ipRequired && !netIP.trim()
+              ? `${netChoice} allocates nothing — give this app an address`
+              : needAddress.length
+                ? `Give an address: ${needAddress.join(', ')} (in Networking above)`
+                : '';
+
   // Folder lists per host-path variable. One folder mounts as-is; several are
   // mounted as sub-folders of the app's own mount point (server-side expansion).
   let paths: Record<string, string[]> = {};
@@ -929,10 +947,17 @@
                 </div>
               {:else}
                 {#if v.type === 'public_url'}
-                  <div class="text-xs text-fjord-fg-dim">
-                    Filled in from where this app will be reachable{#if webOwnAddress && !webIP} (its address on {webNet} is only known once it starts){/if}.
-                    Change it if you open it another way, a domain or a reverse proxy.
-                  </div>
+                  {#if webOwnAddress && !webIP && v.optional !== true && isEmpty(v)}
+                    <div class="text-xs text-fjord-warning">
+                      Its address on {webNet} is only known once it starts, so it can't be filled in for you. Type the address you will open it at
+                      (a name or address and its port), or put it on bridge in Networking.
+                    </div>
+                  {:else}
+                    <div class="text-xs text-fjord-fg-dim">
+                      Filled in from where this app will be reachable{#if webOwnAddress && !webIP} (its address on {webNet} is only known once it starts){/if}.
+                      Change it if you open it another way, a domain or a reverse proxy.
+                    </div>
+                  {/if}
                 {/if}
                 <input
                   id={v.name}
@@ -1321,27 +1346,13 @@
         disabled={busy}
         class="px-4 py-2 rounded-md font-medium text-fjord-fg-secondary hover:text-fjord-fg hover:bg-fjord-border transition-all disabled:opacity-50">Cancel</button
       >
-      {#if needAddress.length}
-        <span class="text-xs text-fjord-warning">Give an address: {needAddress.join(', ')} (in Networking above)</span>
+      {#if blockReason && !busy && !loading && !error}
+        <span class="text-xs text-fjord-warning">{blockReason}</span>
       {/if}
       <button
         on:click={deploy}
         disabled={busy || loading || !!error || !validName || missingRequired.length > 0 || badUrls.length > 0 || (ipRequired && !netIP.trim()) || !!ipProblem || needAddress.length > 0 || !!noBuild}
-        title={!validName
-          ? 'Enter a valid stack name'
-          : noBuild
-            ? noBuild
-          : missingRequired.length
-            ? `Fill required: ${missingRequired.map((v) => v.name).join(', ')}`
-          : badUrls.length
-            ? `Fix the address: ${badUrls.map((v) => v.name).join(', ')}`
-            : ipProblem
-              ? ipProblem
-              : ipRequired && !netIP.trim()
-                ? `${netChoice} allocates nothing — give this app an address`
-                : needAddress.length
-                  ? `Give an address: ${needAddress.join(', ')}`
-                  : ''}
+        title={blockReason || undefined}
         class="bg-fjord-accent hover:bg-fjord-accent-hover text-white px-6 py-2 rounded-md font-medium shadow-lg transition-all disabled:opacity-50 flex items-center gap-2"
       >
         {#if busy}<Spinner size={14} />{/if}
