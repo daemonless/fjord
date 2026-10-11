@@ -318,7 +318,9 @@ func (s *server) handleInstall(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.Tag != "" {
-		composeYAML, err = composepkg.SetImageTag(composeYAML, req.Tag)
+		// The tag is a variant of the app's own image; a database a choice
+		// added keeps the tag it is pinned to.
+		composeYAML, err = composepkg.SetRepoTag(composeYAML, s.cat.AppImage(req.AppID), req.Tag)
 		if err != nil {
 			http.Error(w, err.Error(), 500)
 			return

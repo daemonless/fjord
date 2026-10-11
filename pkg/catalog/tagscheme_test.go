@@ -66,3 +66,17 @@ func TestTagSchemeMatchesByImageRepo(t *testing.T) {
 		t.Errorf("empty repo returned a scheme: %v", ch)
 	}
 }
+
+// An install retags the app's own image only, found by its catalog entry.
+func TestAppImage(t *testing.T) {
+	c := seed(t)
+	if got := c.AppImage("sparkyfitness"); got != "ghcr.io/daemonless/sparkyfitness" {
+		t.Errorf("AppImage(sparkyfitness) = %q", got)
+	}
+	if got := c.AppImage("nope"); got != "" {
+		t.Errorf("AppImage(unknown) = %q, want empty", got)
+	}
+	if got := c.AppImage(""); got != "" {
+		t.Errorf("AppImage(\"\") = %q, want empty", got)
+	}
+}

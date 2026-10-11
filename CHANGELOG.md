@@ -121,6 +121,9 @@ install API, on both engines (`test/ui`, `test/e2e`).
   like Ctrl-C. An app that crashes on its own still fails the update.
 - Updating a stopped stack leaves it stopped: the new images are pulled and
   Start runs them. It used to start the stack (tailscale came up on its own).
+- The version or channel picked at install moves only the app's own image. A
+  database a choice added lost its pin: postgres:17 came up as
+  postgres:latest, a later major than its data.
 
 ### Known limitations in 0.3.1
 - **No authentication.** Anyone who can reach port 3567 can run containers
