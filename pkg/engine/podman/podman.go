@@ -589,8 +589,19 @@ func (b *Backend) watchHealthy(ctx context.Context, pw *io.PipeWriter, s *stack.
 	for i, w := range ws {
 		names[i] = w.svc
 	}
-	fmt.Fprintf(pw, "\n[fjord] checking %s stay%s up for %s\n", strings.Join(names, ", "),
+	fmt.Fprintf(pw, "\n%s%s stay%s up for %s\n", engine.WatchStartPrefix, strings.Join(names, ", "),
 		map[bool]string{true: "s", false: ""}[len(ws) == 1], window)
+	// Its own context, so ending the watch early cancels nothing else.
+	wctx, stop := context.WithCancel(ctx)
+	defer stop()
+	engine.WatchStarted(ctx, stop)
+	ended := func() bool {
+		if wctx.Err() == nil || ctx.Err() != nil {
+			return false
+		}
+		fmt.Fprintln(pw, engine.WatchEndedLine)
+		return true
+	}
 
 	deadline := time.Now().Add(window)
 	for {
@@ -599,7 +610,7 @@ func (b *Backend) watchHealthy(ctx context.Context, pw *io.PipeWriter, s *stack.
 			if w.failed {
 				continue
 			}
-			h, err := b.inspectHealth(ctx, w.id)
+			h, err := b.inspectHealth(wctx, w.id)
 			if err != nil && !errors.Is(err, errContainerGone) {
 				// No answer is not an answer: ask again next tick.
 				w.unsure++
@@ -625,11 +636,15 @@ func (b *Backend) watchHealthy(ctx context.Context, pw *io.PipeWriter, s *stack.
 				live++
 			}
 		}
+		if ended() {
+			return
+		}
 		if live == 0 || !time.Now().Before(deadline) {
 			break
 		}
 		select {
-		case <-ctx.Done():
+		case <-wctx.Done():
+			ended()
 			return
 		case <-time.After(2 * time.Second):
 		}
@@ -647,7 +662,11 @@ func (b *Backend) watchHealthy(ctx context.Context, pw *io.PipeWriter, s *stack.
 		if w.failed {
 			continue
 		}
-		if state, detail := serviceHealthWithin(ctx, w.ctr, 0); state == "crashed" {
+		state, detail := serviceHealthWithin(wctx, w.ctr, 0)
+		if ended() {
+			return
+		}
+		if state == "crashed" {
 			if why, ok := strings.CutPrefix(detail, "the app keeps crashing: "); ok {
 				fmt.Fprintf(pw, "[error] %s keeps crashing since %s: %s\n", w.svc, after, why)
 			} else {

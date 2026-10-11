@@ -30,6 +30,7 @@
   import { health } from './stackHealth';
   import { changeSentence } from './updateWords';
   import { firstLine } from './errorLine';
+  import { watchStarted } from './watch';
   import { startError } from './adopt';
   import { parseEnv, missingVars, unusedVars, setEnvVar, isSecret, usedVars } from './composeVars';
   import { serviceLinks } from './serviceLinks';
@@ -82,7 +83,7 @@
 
   let stacks: Stack[] = [];
   let logs: Record<string, string> = {};
-  let execStatus: Record<string, 'idle' | 'running' | 'error'> = {};
+  let execStatus: Record<string, 'idle' | 'running' | 'watching' | 'error'> = {};
   // Set while the Output pane follows an action this page did not start.
   let following: Record<string, boolean> = {};
   let execMessage: Record<string, string> = {};
@@ -1330,7 +1331,38 @@
   // output into the terminal drawer.
   // onStart runs once the daemon has accepted the action and begun streaming --
   // for a rollback, the moment its compose is written.
+  // Each run of an action on a stack has a number. One taken while another is
+  // down to its stay-up check ends that check; from then on the older run must
+  // not write into the newer one's output, nor say how the stack ended up.
+  let runSeq: Record<string, number> = {};
+  function newRun(name: string): () => boolean {
+    const run = (runSeq[name] = (runSeq[name] ?? 0) + 1);
+    return () => runSeq[name] === run;
+  }
+  // Read an action's output into the stack's log. At the stay-up check the
+  // actions come back (see watch.ts). Stops when a newer run takes over;
+  // false then.
+  async function readRun(name: string, res: Response, mine: () => boolean): Promise<boolean> {
+    const reader = res.body?.getReader();
+    if (!reader) return mine();
+    const decoder = new TextDecoder('utf-8');
+    while (true) {
+      const { done, value } = await reader.read();
+      if (!mine()) {
+        reader.cancel().catch(() => {});
+        return false;
+      }
+      if (done) return true;
+      logs[name] += decoder.decode(value);
+      if (execStatus[name] === 'running' && watchStarted(logs[name])) {
+        execStatus[name] = 'watching';
+        execMessage[name] = 'Checking it stays up';
+      }
+    }
+  }
+
   async function streamAction(name: string, action: string, msg: string, body?: unknown, onStart?: () => void) {
+    const mine = newRun(name);
     stopLogs(); // action output goes to the Output tab, not the Logs stream
     // Only steer the drawer for the stack being looked at. Started from the
     // list, or left running while the operator moved on, this forced the tab
@@ -1350,6 +1382,7 @@
           ? { method: 'POST' }
           : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) },
       );
+      if (!mine()) return;
       if (res.ok) onStart?.();
       if (!res.ok) {
         const why = (await res.text()).trim() || res.statusText;
@@ -1358,15 +1391,7 @@
         logs[name] += `[ERROR]: ${why}\n`;
         return;
       }
-      const reader = res.body?.getReader();
-      if (reader) {
-        const decoder = new TextDecoder('utf-8');
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          logs[name] += decoder.decode(value);
-        }
-      }
+      if (!(await readRun(name, res, mine))) return;
       // A streamed action answers 200 before it knows how it ends, so its
       // outcome is in the output: the daemon marks every failure "[error]".
       // Reading only the status made a failed update look like a success.
@@ -1384,6 +1409,7 @@
       // returns. The SSE stream (subscribeEvents) pushes the settle to
       // running/stopped as the containers finish -- no polling needed.
     } catch (err: any) {
+      if (!mine()) return;
       execStatus[name] = 'error';
       execMessage[name] = firstLine(String(err?.message || err)) || 'Failed';
       logs[name] += `[ERROR]: ${err?.message || err}\n`;
@@ -1431,7 +1457,7 @@
   // and followed while the stack is busy.
   const followingOutput = new Set<string>();
   async function showActionOutput(name: string) {
-    const streamingHere = () => execStatus[name] === 'running';
+    const streamingHere = () => execStatus[name] === 'running' || execStatus[name] === 'watching';
     if (streamingHere() || followingOutput.has(name)) return;
     followingOutput.add(name);
     try {
@@ -1598,7 +1624,17 @@
   };
   $: busyNow = !!selectedStack && (execStatus[selectedStack.name] === 'running' || !!selectedStack.busy);
   // What the Output pane's badge shows: running while this page streams an action or follows another page's.
-  $: termStatus = !selectedStack ? 'idle' : execStatus[selectedStack.name] === 'running' || following[selectedStack.name] ? 'running' : execStatus[selectedStack.name] || 'idle';
+  $: termStatus = (
+    !selectedStack
+      ? 'idle'
+      : ['running', 'watching'].includes(execStatus[selectedStack.name]) || following[selectedStack.name]
+        ? 'running'
+        : execStatus[selectedStack.name] === 'error'
+          ? 'error'
+          : 'idle'
+  ) as 'idle' | 'running' | 'error';
+  // Down to the stay-up check: the actions are back, and say what using one does.
+  $: watchNote = selectedStack && execStatus[selectedStack.name] === 'watching' ? 'Checking it stays up — any action ends the check' : '';
   // Why the actions are greyed, in words: what fjordd is doing to the stack,
   // or what this page started. Grey alone read as broken.
   $: busyReason = !selectedStack
@@ -1776,6 +1812,7 @@
     // the form along with the one that was wrong.
     let key = '';
     let handed = false;
+    let mine = () => true; // this install's run, once it has a stack to write to
     try {
       const res = await fetch('/api/apps/install', {
         method: 'POST',
@@ -1803,6 +1840,7 @@
       originalDirector = '';
       originalMakejail = '';
       logs[key] = `Installing ${name}...\n`;
+      mine = newRun(key);
       execStatus[key] = 'running';
       execMessage[key] = 'Installing...';
 
@@ -1837,15 +1875,7 @@
         } catch {}
         loadStacks();
       })();
-      const reader = res.body?.getReader();
-      if (reader) {
-        const decoder = new TextDecoder('utf-8');
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          logs[key] += decoder.decode(value);
-        }
-      }
+      if (!(await readRun(key, res, mine))) return;
       execStatus[key] = 'idle';
       execMessage[key] = '';
       await loadStacks();
@@ -1863,6 +1893,7 @@
         e.detail.refused?.(err?.message || String(err));
         return;
       }
+      if (!mine()) return;
       execStatus[key] = 'error';
       execMessage[key] = firstLine(String(err?.message || err)) || 'Failed';
       logs[key] += `[ERROR]: ${err?.message || err}\n`;
@@ -2645,8 +2676,8 @@
               ><Icon name="pin" size={12} /> Pinned</span
             >
           {/if}
-          {#if busyReason}
-            <span class="text-xs text-fjord-fg-dim">{busyReason}</span>
+          {#if busyReason || watchNote}
+            <span class="text-xs text-fjord-fg-dim">{busyReason || watchNote}</span>
           {/if}
           <div class="flex-1"></div>
           <div class="relative">
