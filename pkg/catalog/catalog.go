@@ -535,6 +535,50 @@ func safeID(id string) string {
 	return path.Base(filepath.Clean("/" + id))
 }
 
+// AppImage is the image repo an app's catalog entry names (the app's own
+// image, without a tag), from the first enabled source that has the app; ""
+// when none does.
+func (c *Cache) AppImage(appID string) string {
+	if appID == "" {
+		return ""
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	scan := func(dir string) string {
+		raw, err := os.ReadFile(filepath.Join(dir, "catalog.json"))
+		if err != nil {
+			return ""
+		}
+		var doc struct {
+			Apps []struct {
+				ID    string `json:"id"`
+				Image string `json:"image"`
+			} `json:"apps"`
+		}
+		if json.Unmarshal(raw, &doc) != nil {
+			return ""
+		}
+		for _, a := range doc.Apps {
+			if a.ID == appID {
+				return strings.TrimSpace(a.Image)
+			}
+		}
+		return ""
+	}
+	for _, s := range c.Sources() {
+		if s.Disabled {
+			continue
+		}
+		if img := scan(filepath.Join(c.dir, s.ID)); img != "" {
+			return img
+		}
+	}
+	if c.LocalSeed() {
+		return scan(c.dir)
+	}
+	return ""
+}
+
 // TagScheme returns the tag scheme an image repo's catalog entry declares:
 // every rolling channel tag it publishes (each variant's id, plus that
 // variant's aliases), and a mapping from each alias to the channel it follows.
