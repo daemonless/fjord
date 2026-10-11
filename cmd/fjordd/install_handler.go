@@ -228,6 +228,9 @@ func (s *server) handleInstall(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 400)
 		return
 	}
+	// After the kept ones: a required secret still empty is made up, never
+	// the catalog's placeholder.
+	madeUp := m.MakeUpSecrets(req.Values)
 	for k, v := range req.Values {
 		if strings.Contains(v, "{{") {
 			req.Values[k] = expandPathTemplate(v, slug, base)
@@ -629,9 +632,15 @@ func (s *server) handleInstall(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 500)
 		return
 	}
+	var note string
 	if len(reused) > 0 {
-		note := fmt.Sprintf("[fjord] Existing data in %s: kept the passwords it was set up with (%s).\n",
+		note = fmt.Sprintf("[fjord] Existing data in %s: kept the passwords it was set up with (%s).\n",
 			dataDir, strings.Join(reused, ", "))
+	}
+	if len(madeUp) > 0 {
+		note += fmt.Sprintf("[fjord] Made up %s (see the stack's .env).\n", strings.Join(madeUp, ", "))
+	}
+	if note != "" {
 		stream = struct {
 			io.Reader
 			io.Closer

@@ -20,6 +20,17 @@ type Var struct {
 	Optional bool
 	Uid, Gid int    // host_permissions for zfs_dataset (0 -> default 1000)
 	Mode     string // octal, e.g. "755"
+	// Given marks a secret only its owner has (a tunnel token, a WireGuard
+	// key): typed, never made up. Manifest `generate: false`.
+	Given bool
+}
+
+// MadeUp reports whether fjord makes the value up when it is left empty: a
+// required secret nobody has to bring. The catalog default is a placeholder
+// ("changeme", "your-encryption-key-here") and was what got installed. An
+// optional one stays empty: empty can mean "off" (paperless makes no admin).
+func (v Var) MadeUp() bool {
+	return v.Type == "secret" && !v.Optional && !v.Given
 }
 
 // A Choice is a question the stack asks at install (x-fjord.choices):
@@ -204,6 +215,7 @@ type xfVar struct {
 	Type            string `yaml:"type"`
 	Default         string `yaml:"default"`
 	Optional        bool   `yaml:"optional"`
+	Generate        *bool  `yaml:"generate"`
 	HostPermissions *struct {
 		Uid  int    `yaml:"uid"`
 		Gid  int    `yaml:"gid"`
@@ -297,7 +309,8 @@ func Parse(manifestYAML string) (*Manifest, error) {
 	}
 	vars := make([]Var, 0, len(xf.Variables))
 	for _, v := range xf.Variables {
-		nv := Var{Name: v.Name, Type: v.Type, Default: v.Default, Optional: v.Optional}
+		nv := Var{Name: v.Name, Type: v.Type, Default: v.Default, Optional: v.Optional,
+			Given: v.Generate != nil && !*v.Generate}
 		if v.HostPermissions != nil {
 			nv.Uid, nv.Gid, nv.Mode = v.HostPermissions.Uid, v.HostPermissions.Gid, v.HostPermissions.Mode
 		}
