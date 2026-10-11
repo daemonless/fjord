@@ -310,9 +310,13 @@
   // row above Options, and its asks when an option has them.
   $: byChoice = choiceVars(choices);
   $: listedVars = variables.filter((v) => !byChoice.has(v.name));
-  $: primaryVars = listedVars.filter((v) => levelOf(v) === 'primary');
-  $: optionVars = listedVars.filter((v) => levelOf(v) === 'options');
-  $: advancedVars = listedVars.filter((v) => levelOf(v) === 'advanced');
+  // A required address nothing can fill in (the app's own address on a DHCP
+  // network is known once it starts) is up front: woodpecker's
+  // WOODPECKER_HOST held Install from inside the folded Advanced section.
+  $: mustType = (v: any) => v.type === 'public_url' && v.optional !== true && !!webOwnAddress && !webIP;
+  $: primaryVars = listedVars.filter((v) => mustType(v) || levelOf(v) === 'primary');
+  $: optionVars = listedVars.filter((v) => !mustType(v) && levelOf(v) === 'options');
+  $: advancedVars = listedVars.filter((v) => !mustType(v) && levelOf(v) === 'advanced');
   let showOptions = false;
   let advancedOpen = false; // Settings → Advanced can pre-open these (wizard detail 2/3)
   // One line that states the defaults being accepted, so nobody has to open
@@ -377,9 +381,9 @@
     : noBuild
       ? noBuild
       : missingRequired.length
-        ? `Fill in ${missingRequired.map((v) => v.name).join(', ')} above`
+        ? `Fill in ${missingRequired.map((v) => v.name).join(', ')}`
         : badUrls.length
-          ? `Fix the address in ${badUrls.map((v) => v.name).join(', ')} above`
+          ? `Fix the address in ${badUrls.map((v) => v.name).join(', ')}`
           : ipProblem
             ? ipProblem
             : ipRequired && !netIP.trim()
