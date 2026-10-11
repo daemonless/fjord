@@ -500,6 +500,51 @@ func dropServiceExpose(root *yaml.Node) {
 	}
 }
 
+// dropExposeOffVirtualnet removes `expose:` from every service with no
+// virtualnet: none for the project, none of its own. appjail refuses the
+// pair ("expose requires the following options: virtualnet"), and a bundle
+// written for the host's stack (woodpecker: alias, ip4_inherit) carries its
+// ports as expose lines, so `up` failed where no network was planned.
+func dropExposeOffVirtualnet(directorYML string) (string, error) {
+	var doc yaml.Node
+	if err := yaml.Unmarshal([]byte(directorYML), &doc); err != nil {
+		return "", fmt.Errorf("parse director: %w", err)
+	}
+	if len(doc.Content) == 0 || doc.Content[0].Kind != yaml.MappingNode {
+		return directorYML, nil
+	}
+	root := doc.Content[0]
+	if hasOption(mapKey(root, "options"), "virtualnet") {
+		return directorYML, nil
+	}
+	services := mapKey(root, "services")
+	if services == nil || services.Kind != yaml.MappingNode {
+		return directorYML, nil
+	}
+	changed := false
+	for i := 1; i < len(services.Content); i += 2 {
+		svc := services.Content[i]
+		opts := mapKey(svc, "options")
+		if opts == nil || opts.Kind != yaml.SequenceNode || hasOption(opts, "virtualnet") {
+			continue
+		}
+		before := len(opts.Content)
+		dropExpose(svc)
+		changed = changed || len(opts.Content) != before
+	}
+	if !changed {
+		return directorYML, nil
+	}
+	var sb strings.Builder
+	enc := yaml.NewEncoder(&sb)
+	enc.SetIndent(2)
+	if err := enc.Encode(root); err != nil {
+		return "", err
+	}
+	enc.Close()
+	return sb.String(), nil
+}
+
 // dropExpose removes one service's `expose:` options.
 func dropExpose(svc *yaml.Node) {
 	opts := mapKey(svc, "options")

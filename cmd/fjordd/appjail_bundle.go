@@ -101,6 +101,11 @@ func writeAppjailBundle(dir, stackID string, b *manifest.AppjailBundle, resolved
 	if directorYML, err = setDirectorResolv(context.Background(), directorYML, dir); err != nil {
 		return "", err
 	}
+	// Last, with the networking settled: a jail left with no virtualnet
+	// cannot have expose lines.
+	if directorYML, err = dropExposeOffVirtualnet(directorYML); err != nil {
+		return "", fmt.Errorf("director expose: %w", err)
+	}
 
 	// Only the hostnames a jail reads: immich without its public proxy has no
 	// reader for IMMICH_SERVER_HOST, and the .env tab listed it as unused.

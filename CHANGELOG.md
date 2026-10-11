@@ -137,6 +137,9 @@ install API, on both engines (`test/ui`, `test/e2e`).
 - A stack's services show their own app's icon, in the Services list and the
   Open menu (crafting-apps: ten blank squares). The Logs tab's Services menu
   has All and None, and "only" on each service.
+- An AppJail stack left on the host's network no longer fails `up` with
+  "expose requires the following options: virtualnet": a jail with no
+  virtualnet drops its expose lines (woodpecker, paperless-ngx, redis).
 
 ### Known limitations in 0.3.1
 - **No authentication.** Anyone who can reach port 3567 can run containers
