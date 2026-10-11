@@ -128,9 +128,20 @@ install API, on both engines (`test/ui`, `test/e2e`).
 - Why Install is greyed out is written beside it, not only in its tooltip. A
   required address that can't be filled in yet (the app's own address on a
   DHCP network is known once it starts) says to type it, or to use bridge.
+- The install wizard says "checking engines…" and holds Install until it
+  knows the host's engines; it said "podman" meanwhile, and an engine picked
+  early was overwritten, so a stack could land on the wrong one.
 - The version or channel picked at install moves only the app's own image. A
   database a choice added lost its pin: postgres:17 came up as
   postgres:latest, a later major than its data.
+- A stack's services show their own app's icon, in the Services list and the
+  Open menu (crafting-apps: ten blank squares). The Logs tab's Services menu
+  has All and None, and "only" on each service.
+- An AppJail stack left on the host's network no longer fails `up` with
+  "expose requires the following options: virtualnet": a jail with no
+  virtualnet drops its expose lines (woodpecker, paperless-ngx, redis).
+- The App Store search finds an app by its id too, dashes and spaces alike:
+  "uptime-kuma" found nothing (the name is "Uptime Kuma").
 
 ### Known limitations in 0.3.1
 - **No authentication.** Anyone who can reach port 3567 can run containers

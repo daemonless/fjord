@@ -73,11 +73,17 @@
   $: categories = catalog
     ? ['All', ...Array.from(new Set(catalog.apps.map((a) => a.category).filter(Boolean))).sort()]
     : ['All'];
+  // By name, id or category, dashes and spaces alike: "uptime-kuma" (the id)
+  // finds Uptime Kuma, "home assistant" finds home-assistant.
+  const fold = (s: string) => s.toLowerCase().replace(/[-_\s]+/g, ' ');
+  function matchesSearch(a: { name: string; id: string; category?: string }, search: string): boolean {
+    const q = fold(search.trim());
+    return !q || [a.name, a.id, a.category || ''].some((f) => fold(f).includes(q));
+  }
   $: filtered = catalog
     ? catalog.apps.filter((a) => {
         const inCat = selectedCategory === 'All' || a.category === selectedCategory;
-        const q = search.trim().toLowerCase();
-        const inSearch = !q || a.name.toLowerCase().includes(q) || (a.category || '').toLowerCase().includes(q);
+        const inSearch = matchesSearch(a, search);
         return inCat && inSearch && (showUnsupported || supported(a));
       })
     : [];
@@ -85,8 +91,7 @@
   $: hiddenUnsupported = catalog && !showUnsupported
     ? catalog.apps.filter((a) => {
         const inCat = selectedCategory === 'All' || a.category === selectedCategory;
-        const q = search.trim().toLowerCase();
-        const inSearch = !q || a.name.toLowerCase().includes(q) || (a.category || '').toLowerCase().includes(q);
+        const inSearch = matchesSearch(a, search);
         return inCat && inSearch && !supported(a);
       }).length
     : 0;
