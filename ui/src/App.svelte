@@ -22,7 +22,7 @@
   import ServiceResources from './ServiceResources.svelte';
   import { splitPlan } from './planSeed';
   import EngineMark from './EngineMark.svelte';
-  import { appIcons, loadAppIcons, iconFor, tile, initial } from './appIcons';
+  import { appIcons, imageIcons, loadAppIcons, iconFor, serviceIcon, tile, initial } from './appIcons';
   import Toasts from './Toasts.svelte';
   import { toast, dismissToast } from './toast';
   import { expandVars } from './expand';
@@ -467,6 +467,8 @@
     ? serviceLinks(selectedStack.compose ?? '', parseEnv(selectedStack.env ?? ''), selectedStack.services ?? [], location.hostname)
     : [];
   let linksOpen = false;
+  $: linkIcon = (service: string) =>
+    serviceIcon($imageIcons, (selectedStack?.services ?? []).find((s: any) => s.name === service)?.image);
   // The .env as the editors resolve ${VAR} against it, and what the compose
   // (or director file) uses that it never sets -- shown on the .env tab.
   // A director file's ${PWD} is the stack's folder: fjord sets it on every run.
@@ -1516,6 +1518,13 @@
   let logsMenuOpen = false;
   $: logsSelected = shellContainers.filter((c) => logsSel[c.name] !== false).map((c) => c.name);
   $: logsAll = shellContainers.length > 0 && logsSelected.length === shellContainers.length;
+  // All, None, or one service alone: following one of ten (crafting-apps)
+  // was nine unticks.
+  function setLogs(pick: (name: string) => boolean) {
+    for (const c of shellContainers) logsSel[c.name] = pick(c.name);
+    logsSel = logsSel;
+    streamLogs(selectedStack!.name);
+  }
 
   async function streamLogs(name: string) {
     logController?.abort();
@@ -1528,7 +1537,7 @@
     const selected = shellContainers.filter((c) => logsSel[c.name] !== false).map((c) => c.name);
     const all = selected.length === shellContainers.length;
     if (shellContainers.length > 1 && selected.length === 0) {
-      containerLogs[name] = '[no services selected]\n';
+      containerLogs[name] = '[no services selected: pick one under Services, or All]\n';
       logStacking = '';
       return;
     }
@@ -2256,7 +2265,11 @@
                       rel="noreferrer"
                       on:click={() => (linksOpen = false)}
                       class="flex items-center justify-between gap-4 px-3 py-1.5 text-sm hover:bg-fjord-border/50"
-                      ><span class="font-medium text-fjord-fg-body">{l.service}</span><span class="font-mono text-xs text-fjord-fg-muted"
+                      ><span class="flex items-center gap-2 font-medium text-fjord-fg-body"
+                        >{#if linkIcon(l.service)}<img src={linkIcon(l.service)} alt="" class="w-4 h-4 rounded object-contain" />{:else}<span
+                            class="w-4 h-4"
+                          ></span>{/if}{l.service}</span
+                      ><span class="font-mono text-xs text-fjord-fg-muted"
                         >{l.url.replace(/^https?:\/\//, '')}</span
                       ></a
                     >
@@ -2913,6 +2926,7 @@
                 {/if}
                 <ServiceResources
                   services={selectedStack.services ?? []}
+                  iconOf={(image) => serviceIcon($imageIcons, image)}
                   oneBridgePerService={(selectedStack.state?.engine || selectedStack.engine || defaultEngine) === 'appjail'}
                   bridgeAlone={(selectedStack.state?.engine || selectedStack.engine || defaultEngine) === 'appjail'}
                   updates={svcUpdates}
@@ -3013,8 +3027,12 @@
                     <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
                     <div class="fixed inset-0 z-20" on:click={() => (logsMenuOpen = false)}></div>
                     <div class="absolute z-30 top-full left-0 mt-1 bg-fjord-card border border-fjord-border rounded-lg shadow-2xl p-2 min-w-48">
+                      <div class="flex items-center gap-3 px-1.5 pb-1.5 mb-1 border-b border-fjord-border text-xs">
+                        <button on:click={() => setLogs(() => true)} disabled={logsAll} class="text-fjord-accent hover:underline disabled:text-fjord-fg-faint disabled:no-underline">All</button>
+                        <button on:click={() => setLogs(() => false)} disabled={logsSelected.length === 0} class="text-fjord-accent hover:underline disabled:text-fjord-fg-faint disabled:no-underline">None</button>
+                      </div>
                       {#each shellContainers as c}
-                        <label class="flex items-center gap-2 px-1.5 py-1 rounded text-xs text-fjord-fg-secondary cursor-pointer hover:bg-fjord-border/50 hover:text-fjord-fg select-none">
+                        <label class="group flex items-center gap-2 px-1.5 py-1 rounded text-xs text-fjord-fg-secondary cursor-pointer hover:bg-fjord-border/50 hover:text-fjord-fg select-none">
                           <input
                             type="checkbox"
                             checked={logsSel[c.name] !== false}
@@ -3025,7 +3043,12 @@
                             }}
                             class="accent-fjord-accent"
                           />
-                          <span class="font-mono">{serviceLabel(selectedStack.name, c.name)}</span>
+                          <span class="font-mono flex-1">{serviceLabel(selectedStack.name, c.name)}</span>
+                          <button
+                            on:click|preventDefault|stopPropagation={() => setLogs((n) => n === c.name)}
+                            title="Show only {serviceLabel(selectedStack.name, c.name)}"
+                            class="opacity-0 group-hover:opacity-100 focus:opacity-100 text-[11px] text-fjord-accent hover:underline">only</button
+                          >
                         </label>
                       {/each}
                     </div>

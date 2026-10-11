@@ -134,6 +134,9 @@ install API, on both engines (`test/ui`, `test/e2e`).
 - The version or channel picked at install moves only the app's own image. A
   database a choice added lost its pin: postgres:17 came up as
   postgres:latest, a later major than its data.
+- A stack's services show their own app's icon, in the Services list and the
+  Open menu (crafting-apps: ten blank squares). The Logs tab's Services menu
+  has All and None, and "only" on each service.
 
 ### Known limitations in 0.3.1
 - **No authentication.** Anyone who can reach port 3567 can run containers

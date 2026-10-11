@@ -57,6 +57,8 @@
   };
 
   export let services: ServiceView[] = [];
+  /** The icon of the app a service's image runs; "" when no catalog knows it. */
+  export let iconOf: (image?: string) => string = () => '';
   // Service name -> its pending update, from the stack's update check. Shown on
   // the row so a four-service stack says WHICH part is behind.
   export let updates: Record<string, { state: string; tag?: string; fromVersion?: string; toVersion?: string }> = {};
@@ -281,6 +283,11 @@
             <span class="text-fjord-fg-dim text-xs w-3">{open[s.name] ? '▼' : '▶'}</span>
             {#if !planning}
               <span class="w-2 h-2 rounded-full shrink-0 {dot(s.state)}"></span>
+            {/if}
+            {#if iconOf(s.image)}
+              <img src={iconOf(s.image)} alt="" class="w-5 h-5 rounded shrink-0 object-contain" />
+            {:else}
+              <span class="w-5 h-5 shrink-0"></span>
             {/if}
             <span class="font-medium text-fjord-fg-body min-w-[12rem]">{s.name}</span>
             <span class="text-xs text-fjord-fg-muted font-mono flex-1 truncate">{summary(s, edits[s.name] ?? [])}</span>
