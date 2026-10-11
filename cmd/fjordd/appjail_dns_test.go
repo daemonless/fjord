@@ -99,3 +99,38 @@ func TestDirectorResolvOnlyShared(t *testing.T) {
 		t.Fatalf("want db and cache on app_priv's DNS, got %d:\n%s", n, out)
 	}
 }
+
+// A jail on a DHCP LAN and the project's network keeps the jail resolver: the
+// lease's DNS would replace it at boot, and immich-server could not find its
+// database. A jail with no lease gets nothing extra.
+func TestDirectorResolvKeptOverDHCP(t *testing.T) {
+	withJailDNS(t, map[string]string{"immich_priv": "10.101.0.1"})
+	const yml = `services:
+  server:
+    name: s
+    options:
+      - bridge: 'epair:s0 bridge:lanbridge'
+      - dhcp: 'sb_s0'
+      - virtualnet: 'immich_priv:s1'
+  database:
+    name: d
+    options:
+      - virtualnet: 'immich_priv:d0'
+`
+	dir := t.TempDir()
+	out, err := setDirectorResolv(context.Background(), yml, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	files := filepath.Join(dir, "jailfiles")
+	if strings.Count(out, "copydir: "+files) != 1 || strings.Count(out, "file: /etc/resolvconf.conf") != 1 {
+		t.Fatalf("want the guard on the DHCP jail only:\n%s", out)
+	}
+	if b, _ := os.ReadFile(filepath.Join(files, "etc", "resolvconf.conf")); string(b) != "resolvconf=NO\n" {
+		t.Fatalf("resolvconf.conf: %q", b)
+	}
+	again, _ := setDirectorResolv(context.Background(), out, dir)
+	if strings.Count(again, "copydir:") != 1 || strings.Count(again, "file:") != 1 {
+		t.Fatalf("second pass:\n%s", again)
+	}
+}

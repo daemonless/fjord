@@ -138,7 +138,9 @@
   </div>
 
   <div class="flex-1 bg-fjord-inset relative overflow-hidden">
-    <div bind:this={el} class="absolute inset-0 p-2"></div>
+    <!-- Inset, not padded: xterm's fit counts its parent's padding as room for
+         rows, and the last line was cut off at the bottom. -->
+    <div bind:this={el} class="absolute inset-2"></div>
     {#if !logs}
       <p class="absolute top-3 left-4 text-fjord-fg-faint text-sm font-mono italic pointer-events-none">
         Waiting for output…

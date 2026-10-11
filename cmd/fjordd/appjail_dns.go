@@ -80,10 +80,18 @@ func setDirectorResolv(ctx context.Context, directorYML, dir string) (string, er
 		}
 	}
 	answers, asked := false, false
+	// A jail that also takes a DHCP lease would have its resolver replaced by
+	// the router's at boot (dhclient hands the lease's DNS to resolvconf), and
+	// jail names stop resolving: immich-server on a LAN and its private
+	// network. resolvconf=NO in the jail keeps the file set here.
+	jailFiles := filepath.Join(dir, "jailfiles")
+	const resolvconfConf = "/etc/resolvconf.conf"
 	for _, name := range names {
 		svc := directorService(root, name)
 		opts := mapKey(svc, "options")
 		removeOption(opts, "resolv_conf")
+		removeOptionValue(opts, "copydir", jailFiles)
+		removeOptionValue(opts, "file", resolvconfConf)
 		n := svcNet[name]
 		if n == "" || count[n] < 2 {
 			continue
@@ -111,6 +119,21 @@ func setDirectorResolv(ctx context.Context, directorYML, dir string) (string, er
 			{Kind: yaml.ScalarNode, Value: "resolv_conf"},
 			{Kind: yaml.ScalarNode, Value: file},
 		}})
+		if !hasOption(opts, "dhcp") {
+			continue
+		}
+		if err := os.MkdirAll(filepath.Join(jailFiles, "etc"), 0o755); err != nil {
+			return "", fmt.Errorf("jail DNS: %w", err)
+		}
+		if err := os.WriteFile(filepath.Join(jailFiles, resolvconfConf), []byte("resolvconf=NO\n"), 0o644); err != nil {
+			return "", fmt.Errorf("jail DNS: %w", err)
+		}
+		for _, kv := range [][2]string{{"copydir", jailFiles}, {"file", resolvconfConf}} {
+			opts.Content = append(opts.Content, &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map", Content: []*yaml.Node{
+				{Kind: yaml.ScalarNode, Value: kv[0]},
+				{Kind: yaml.ScalarNode, Value: kv[1]},
+			}})
+		}
 	}
 	var sb strings.Builder
 	enc := yaml.NewEncoder(&sb)
@@ -164,6 +187,24 @@ func removeOption(opts *yaml.Node, key string) {
 	for _, item := range opts.Content {
 		if item.Kind == yaml.MappingNode && mapKey(item, key) != nil {
 			continue
+		}
+		kept = append(kept, item)
+	}
+	opts.Content = kept
+}
+
+// removeOptionValue removes key only where it has this value: fjord's own,
+// not one the app or the operator set.
+func removeOptionValue(opts *yaml.Node, key, value string) {
+	if opts == nil {
+		return
+	}
+	kept := opts.Content[:0]
+	for _, item := range opts.Content {
+		if item.Kind == yaml.MappingNode {
+			if v := mapKey(item, key); v != nil && v.Value == value {
+				continue
+			}
 		}
 		kept = append(kept, item)
 	}

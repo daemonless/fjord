@@ -140,5 +140,7 @@
       <span class="text-fjord-fg-dim">● closed</span>
     {/if}
   </div>
-  <div bind:this={el} class="flex-1 min-h-0 p-1.5"></div>
+  <!-- Padded around, not on, xterm's parent: fit counts that padding as room
+       for rows and the bottom line was cut off. -->
+  <div class="flex-1 min-h-0 relative"><div bind:this={el} class="absolute inset-1.5"></div></div>
 </div>

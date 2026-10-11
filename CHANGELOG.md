@@ -31,6 +31,15 @@ install API, on both engines (`test/ui`, `test/e2e`).
 - A jail with an address on your LAN gets its Open link. (#97)
 - An install says how many jails it will build (AppJail builds them one at
   a time) and counts them off as it goes. (#109)
+- A stack put on your LAN finds its own parts: immich's server reaches its
+  database, cache and machine learning by jail name. A jail that takes a
+  DHCP lease keeps the jail resolver, and an app's database stays private
+  when the install names one network for the whole stack.
+- A stack of several jails shows its live state instead of "appjail is
+  busy": its jails are checked at once, and a jail on two networks gets its
+  LAN address and Open link.
+- The Variables panel reads a director file's `${VAR:default}`: a variable
+  with a default, or one set in .env, is no longer listed as missing.
 
 ### Install and your data
 - A stack's data folder is named after the stack, so a second copy of an app
