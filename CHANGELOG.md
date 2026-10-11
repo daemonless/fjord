@@ -140,6 +140,8 @@ install API, on both engines (`test/ui`, `test/e2e`).
 - An AppJail stack left on the host's network no longer fails `up` with
   "expose requires the following options: virtualnet": a jail with no
   virtualnet drops its expose lines (woodpecker, paperless-ngx, redis).
+- The App Store search finds an app by its id too, dashes and spaces alike:
+  "uptime-kuma" found nothing (the name is "Uptime Kuma").
 
 ### Known limitations in 0.3.1
 - **No authentication.** Anyone who can reach port 3567 can run containers
