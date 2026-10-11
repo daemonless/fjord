@@ -113,33 +113,36 @@
   let engines: { name: string; available: boolean; default: boolean; warning?: string }[] = [];
   let engineChoice = '';
   $: availableEngines = engines.filter((e) => e.available);
-  onMount(async () => {
-    try {
-      const res = await fetch('/api/settings/wizard');
-      if (res.ok) {
-        const detail = Number((await res.json()).detail) || 1;
+  // Until the engine list answers, the summary said "podman" and Install
+  // was live; on a host defaulting to AppJail an early click, or an engine
+  // picked before the answer (which then overwrote it), installed on the
+  // wrong one. Asked at once, the pick kept, Install held until it is known.
+  let enginesKnown = false;
+  onMount(() => {
+    fetch('/api/settings/wizard')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((d) => {
+        if (!d) return;
+        const detail = Number(d.detail) || 1;
         showOptions = detail >= 2;
         advancedOpen = detail >= 3;
-      }
-    } catch {
-      // default disclosure
-    }
-    try {
-      const res = await fetch('/api/about');
-      if (res.ok) hostMode = (await res.json()).mode === 'host';
-    } catch {
-      // leave browsing off; the plain field still works
-    }
-    try {
-      const res = await fetch('/api/engine');
-      if (res.ok) {
-        const d = await res.json();
+      })
+      .catch(() => {}); // default disclosure
+    fetch('/api/about')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((d) => {
+        if (d) hostMode = d.mode === 'host';
+      })
+      .catch(() => {}); // leave browsing off; the plain field still works
+    fetch('/api/engine')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((d) => {
+        if (!d) return;
         engines = d.engines || [];
-        engineChoice = d.default || 'podman';
-      }
-    } catch {
-      // no engine info -> the server falls back to its default
-    }
+        if (!engineChoice) engineChoice = d.default || 'podman';
+      })
+      .catch(() => {}) // no engine info -> the server falls back to its default
+      .finally(() => (enginesKnown = true));
   });
 
   let picking: { name: string; i: number } | null = null; // host-path row whose directory is being picked
@@ -378,6 +381,8 @@
   // (woodpecker's empty WOODPECKER_HOST read as a dead button).
   $: blockReason = !validName
     ? 'Enter a valid stack name'
+    : !enginesKnown
+      ? 'Checking the engines…'
     : noBuild
       ? noBuild
       : missingRequired.length
@@ -1060,7 +1065,7 @@
           <div class="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-fjord-fg-muted border-t border-fjord-border pt-4">
             <span>
               Installs <b class="text-fjord-fg-body">{appName} {summaryVersion}</b>{#if summaryTrain}{' '}({summaryTrain}){/if}
-              on <b class="text-fjord-fg-body">{engineChoice || 'podman'}</b>{#if pickedWords}, <b class="text-fjord-fg-body">{pickedWords}</b>{/if}
+              on <b class="text-fjord-fg-body">{engineChoice || (enginesKnown ? 'the default engine' : 'checking engines…')}</b>{#if pickedWords}, <b class="text-fjord-fg-body">{pickedWords}</b>{/if}
               · data in <span class="font-mono text-fjord-fg-secondary">{storageBase}/{folderOf(stackName, appId || 'app')}</span>
             </span>
             <button
@@ -1355,7 +1360,7 @@
       {/if}
       <button
         on:click={deploy}
-        disabled={busy || loading || !!error || !validName || missingRequired.length > 0 || badUrls.length > 0 || (ipRequired && !netIP.trim()) || !!ipProblem || needAddress.length > 0 || !!noBuild}
+        disabled={busy || loading || !enginesKnown || !!error || !validName || missingRequired.length > 0 || badUrls.length > 0 || (ipRequired && !netIP.trim()) || !!ipProblem || needAddress.length > 0 || !!noBuild}
         title={blockReason || undefined}
         class="bg-fjord-accent hover:bg-fjord-accent-hover text-white px-6 py-2 rounded-md font-medium shadow-lg transition-all disabled:opacity-50 flex items-center gap-2"
       >

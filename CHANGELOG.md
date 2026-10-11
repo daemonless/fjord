@@ -128,6 +128,9 @@ install API, on both engines (`test/ui`, `test/e2e`).
 - Why Install is greyed out is written beside it, not only in its tooltip. A
   required address that can't be filled in yet (the app's own address on a
   DHCP network is known once it starts) says to type it, or to use bridge.
+- The install wizard says "checking engines…" and holds Install until it
+  knows the host's engines; it said "podman" meanwhile, and an engine picked
+  early was overwritten, so a stack could land on the wrong one.
 - The version or channel picked at install moves only the app's own image. A
   database a choice added lost its pin: postgres:17 came up as
   postgres:latest, a later major than its data.
