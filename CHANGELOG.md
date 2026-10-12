@@ -31,6 +31,8 @@ install API, on both engines (`test/ui`, `test/e2e`).
 - A jail with an address on your LAN gets its Open link. (#97)
 - An install says how many jails it will build (AppJail builds them one at
   a time) and counts them off as it goes. (#109)
+- An app whose AppJail bundle has no jail for one of its services (librenms's
+  database) is held in the wizard with the reason, not refused after Install.
 - A stack put on your LAN finds its own parts: immich's server reaches its
   database, cache and machine learning by jail name. A jail that takes a
   DHCP lease keeps the jail resolver, and an app's database stays private
