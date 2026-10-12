@@ -187,9 +187,10 @@ func (b *Backend) Update(ctx context.Context, s *stack.Stack, services []string)
 			return nil, fmt.Errorf("stack %s: %w", s.Name, err)
 		}
 	}
-	// A stopped stack stays stopped: pull, and drop any jail left from
+	// Stopped on purpose and nothing up: pull, and drop any jail left from
 	// before so Start builds it from the new image (fjord's Stop leaves none).
-	if noneRunning(ctx, jails) {
+	// A crashed or failed stack, still wanted running, comes up as before.
+	if s.LeftStopped() && noneRunning(ctx, jails) {
 		return directorUpdateStopped(ctx, s, jails)
 	}
 	if len(services) == 0 {

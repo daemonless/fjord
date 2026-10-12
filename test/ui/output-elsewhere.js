@@ -44,6 +44,8 @@ const detail = async (page) => (await page.request.get(BASE + '/api/stacks/' + N
       const doneBadge = () => page.locator('span', { hasText: /^\s*Done\s*$/ }).count();
       note('mid-action: the terminal reads as running, not Done', (await doneBadge()) === 0, `${await doneBadge()} Done badge(s)`);
       for (let i = 0; i < 120; i++) { d = await detail(page); if (!d.busy) break; await sleep(3000); }
+      // Not busy comes when the stay-up check starts (#116); Done, when it ends.
+      for (let i = 0; i < 60 && (await doneBadge()) !== 1; i++) await sleep(2000);
       await sleep(2500);
       text = await page.locator('body').innerText();
       await page.screenshot({ path: '/out/output-elsewhere-done.png', fullPage: true });

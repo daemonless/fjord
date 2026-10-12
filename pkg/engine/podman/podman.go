@@ -388,9 +388,11 @@ func (b *Backend) Update(ctx context.Context, s *stack.Stack, services []string)
 	if len(services) > 0 {
 		recreate = composepkg.WithDependents(s.Compose, services)
 	}
-	// Asked before anything changes: whether the stack was up is what the
-	// update has to leave it as.
-	stopped := b.notRunning(ctx, s, recreate)
+	// Asked before anything changes: a stack stopped on purpose stays down.
+	// Not one that crashed or failed to install: nothing runs there either,
+	// and the update is what fixes it (outcome test: Change Version left a
+	// failed install stopped).
+	stopped := s.LeftStopped() && b.notRunning(ctx, s, recreate)
 	pr, pw := io.Pipe()
 	go func() {
 		defer pw.Close()

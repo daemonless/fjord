@@ -119,8 +119,9 @@ install API, on both engines (`test/ui`, `test/e2e`).
 - The check that an updated or installed app stays up no longer holds the
   stack: the actions come back as it starts, and using one ends the check,
   like Ctrl-C. An app that crashes on its own still fails the update.
-- Updating a stopped stack leaves it stopped: the new images are pulled and
-  Start runs them. It used to start the stack (tailscale came up on its own).
+- Updating a stack you stopped leaves it stopped: the new images are pulled
+  and Start runs them. It used to start the stack (tailscale came up on its
+  own). One that crashed or failed to install still comes up.
 - A required secret left empty is made up at install (64 hex characters) and
   named in the output; it was the catalog's placeholder ("changeme",
   "your-encryption-key-here"). Secrets only you have (a tunnel token) say

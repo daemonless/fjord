@@ -1,6 +1,6 @@
 // An update through the panel, end to end: install syncthing 2.1.3 from the
 // store, open Update, read what it says (a real package diff from the
-// registry), take it, and check the container was replaced, runs 2.1.5,
+// registry), take it, and check the container was replaced, runs the offered version,
 // the health watch passed and Roll back is offered.
 const { chromium } = require('playwright-core');
 const BASE = 'http://127.0.0.1:3567';
@@ -43,7 +43,10 @@ const detail = async (page) => (await page.request.get(BASE + '/api/stacks/' + N
     await line.waitFor({ timeout: 90000 }).catch(() => {});
     const sentence = await line.innerText().catch(() => '');
     await page.screenshot({ path: '/out/update-panel.png', fullPage: true });
-    note('the panel says what the update is, in words', /New (patch|minor) version, v2\.1\.3 → v2\.1\.5/.test(sentence), `"${sentence.slice(0, 120)}"`);
+    // The newest release moves on (2.1.5, then 2.1.6): whatever the panel
+    // offers is what the update must land on.
+    const to = (sentence.match(/v2\.1\.3 → v(\d+\.\d+\.\d+)/) || [])[1] || '';
+    note('the panel says what the update is, in words', /New (patch|minor) version, v2\.1\.3 → v\d+\.\d+\.\d+/.test(sentence), `"${sentence.slice(0, 120)}"`);
     note('with a package diff from the registry', /\d+ packages? changed/.test(sentence), /package/.test(sentence) ? 'has the diff' : 'no package line');
 
     // 2. Take it.
@@ -58,13 +61,15 @@ const detail = async (page) => (await page.request.get(BASE + '/api/stacks/' + N
     for (let i = 0; i < 100 && !seen; i++) { d = await detail(page); seen = !!d.busy; if (!seen) await sleep(300); }
     note('the update is seen running', seen, seen ? `busy=${d.busy}` : 'never seen busy');
     for (let i = 0; i < 120; i++) { d = await detail(page); if (!d.busy) break; await sleep(3000); }
-    for (let i = 0; i < 40 && !out; i++) await sleep(500);
+    // Not busy comes when the stay-up check starts (#116); the stream ends
+    // with it, up to a minute later.
+    for (let i = 0; i < 240 && !out; i++) await sleep(500);
     await sleep(2000);
     d = await detail(page);
     const after = d.status.containers[0]?.id || '';
     await page.screenshot({ path: '/out/update-done.png', fullPage: true });
     note('the container was replaced', after && after !== before, `${before.slice(0, 12)} -> ${after.slice(0, 12)}`);
-    note('it runs 2.1.5', d.status?.state === 'running' && /:2\.1\.5$/.test(d.services?.[0]?.image || ''), `${d.status?.state}, ${d.services?.[0]?.image}`);
+    note(`it runs ${to || 'the offered version'}`, d.status?.state === 'running' && !!to && (d.services?.[0]?.image || '').endsWith(':' + to), `${d.status?.state}, ${d.services?.[0]?.image}`);
     note('the stream ended without an [error]', !!out && !/\[error\]/.test(out), out ? (out.split('\n').filter((l) => /\[error\]|\[warn\]|healthy|watch/i.test(l)).join(' | ') || 'clean') : 'no stream captured');
     note('fjordd recorded no failure', !d.state?.last_failure, JSON.stringify(d.state?.last_failure || null));
     await page.goto(BASE + '/?t=' + Date.now() + '#/stacks/' + NAME, { waitUntil: 'networkidle' });
