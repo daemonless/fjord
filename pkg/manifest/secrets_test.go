@@ -60,3 +60,22 @@ x-fjord:
 		t.Errorf("KEY: Given=%v MadeUp=%v, want made up", m.Variables[1].Given, m.Variables[1].MadeUp())
 	}
 }
+
+// cloudflared installed with TUNNEL_TOKEN=YOUR_CLOUDFLARE_TOKEN_HERE and
+// crash-looped: a given secret left empty is refused, never the placeholder.
+func TestResolveGivenSecretNeverDefault(t *testing.T) {
+	m := &Manifest{Variables: []Var{
+		{Name: "TUNNEL_TOKEN", Type: "secret", Default: "YOUR_CLOUDFLARE_TOKEN_HERE", Given: true},
+	}}
+	if _, err := m.Resolve(map[string]string{}, "x", "/root"); err == nil || !strings.Contains(err.Error(), "TUNNEL_TOKEN") {
+		t.Fatalf("empty given secret: err %v, want a refusal naming it", err)
+	}
+	res, err := m.Resolve(map[string]string{"TUNNEL_TOKEN": "eyJh"}, "x", "/root")
+	if err != nil || res.Env["TUNNEL_TOKEN"] != "eyJh" {
+		t.Fatalf("typed token: %v %q", err, res.Env["TUNNEL_TOKEN"])
+	}
+	m.Variables[0].Optional = true
+	if res, err := m.Resolve(map[string]string{}, "x", "/root"); err != nil || res.Env["TUNNEL_TOKEN"] != "" {
+		t.Fatalf("optional given secret: %v %q, want empty", err, res.Env["TUNNEL_TOKEN"])
+	}
+}
