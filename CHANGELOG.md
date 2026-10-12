@@ -143,6 +143,9 @@ install API, on both engines (`test/ui`, `test/e2e`).
   virtualnet drops its expose lines (woodpecker, paperless-ngx, redis).
 - The App Store search finds an app by its id too, dashes and spaces alike:
   "uptime-kuma" found nothing (the name is "Uptime Kuma").
+- A stack saved through the API without naming an engine runs on the
+  default one; every start failed with "no container engine is available
+  on this host". The page always named one.
 
 ### Known limitations in 0.3.1
 - **No authentication.** Anyone who can reach port 3567 can run containers
