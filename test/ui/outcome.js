@@ -39,6 +39,9 @@ const detail = async (page) => (await page.request.get(BASE + '/api/stacks/' + N
     const bannerText = await banner.innerText().catch(() => '');
     await page.screenshot({ path: '/out/outcome-failed.png', fullPage: true });
     note('stack page says the install failed, with the reason', /^Install failed at \d\d?:\d\d( [AP]M)? — .+/.test(bannerText), `"${bannerText}"`);
+    // Read again: the failure is recorded as the install ends, which can be
+    // a moment after busy clears.
+    d = await detail(page).catch(() => ({}));
     note('fjordd recorded it', d?.state?.last_failure?.action === 'install' && !!d?.state?.last_failure?.message, JSON.stringify(d?.state?.last_failure || null));
     const row = page.locator('span.font-medium', { hasText: /^openspeedtest$/ }).first().locator('xpath=ancestor::div[contains(@class,"items-center")][1]');
     const rowState = await row.getByText(/no container|running|stopped/).first().innerText().catch(() => '');
