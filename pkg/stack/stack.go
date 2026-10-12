@@ -140,6 +140,12 @@ func IconFile(dir string) string {
 // EngineName is the runtime this stack runs on, as recorded in state.json.
 // Empty only for a stack with no state at all (see MigrateEngine); the
 // daemon treats that as an unavailable engine rather than guessing.
+// LeftStopped reports whether the stack was stopped on purpose: Stop, not a
+// crash or an install that failed, which still want to run.
+func (s *Stack) LeftStopped() bool {
+	return s.State != nil && s.State.DesiredState == "stopped"
+}
+
 func (s *Stack) EngineName() string {
 	if s.State != nil {
 		return s.State.Engine
