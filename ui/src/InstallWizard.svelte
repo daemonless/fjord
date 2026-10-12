@@ -303,6 +303,7 @@
   const levelOf = (v: any): 'primary' | 'options' | 'advanced' => {
     if (v.level === 'primary' || v.level === 'options' || v.level === 'advanced') return v.level;
     if (madeUp(v)) return 'options'; // nothing to do, but there to set one's own
+    if (given(v) && v.optional !== true) return 'primary';
     const hasDefault = String(v.default ?? '') !== '';
     if (v.optional !== true && !hasDefault && v.type !== 'path' && v.type !== 'zfs_dataset') return 'primary';
     if (v.advanced === true) return 'advanced';
@@ -364,6 +365,10 @@
   // "changeme", and it was what got installed. `generate: false` marks one
   // only its owner has (a tunnel token), typed as before.
   const madeUp = (v: any) => v.type === 'secret' && v.optional !== true && v.generate !== false;
+  // One only its owner has starts empty and up front: its catalog default is
+  // a placeholder too (cloudflared's YOUR_CLOUDFLARE_TOKEN_HERE), and filled
+  // in, under Advanced, it installed and crash-looped.
+  const given = (v: any) => v.type === 'secret' && v.generate === false;
   // Host-path variables are folder LISTS (one row per folder); every other
   // variable is a single value in formData. Deps are spelled out (formData,
   // paths): a legacy-mode `$:` only tracks variables named in the statement.
@@ -777,7 +782,7 @@
           // Path vars get this stack's own <App data>/<stack>/... folder: a
           // catalog default that names the app is re-rooted, none at all
           // becomes a hint; still fully editable + browsable.
-          formData[v.name] = v.type === 'path' ? seedPath(v, folderOf(stackName, appId || 'app')) : madeUp(v) ? '' : v.default || '';
+          formData[v.name] = v.type === 'path' ? seedPath(v, folderOf(stackName, appId || 'app')) : madeUp(v) || given(v) ? '' : v.default || '';
           if (v.type === 'path') paths[v.name] = [formData[v.name]];
         });
         seededSlug = folderOf(stackName, appId || 'app');
@@ -973,7 +978,7 @@
                   type="text"
                   bind:value={formData[v.name]}
                   on:input={() => touched.add(v.name)}
-                  placeholder={madeUp(v) ? 'made up at install — or type your own' : v.default || (v.optional !== true ? 'required' : '')}
+                  placeholder={madeUp(v) ? 'made up at install — or type your own' : given(v) ? (v.optional !== true ? 'required' : '') : v.default || (v.optional !== true ? 'required' : '')}
                   class="w-full bg-fjord-inset border rounded-md px-3 py-2 text-fjord-fg-body focus:outline-none focus:border-fjord-accent transition-colors {(v.optional !== true && !madeUp(v) && isEmpty(v)) || (v.type === 'public_url' && publicUrlProblem(formData[v.name] ?? '')) ? 'border-fjord-danger/60' : 'border-fjord-border'}"
                 />
                 {#if v.type === 'public_url' && publicUrlProblem(formData[v.name] ?? '')}

@@ -53,6 +53,9 @@ install API, on both engines (`test/ui`, `test/e2e`).
 - A **public URL** field (the address an app is opened at, for the links in
   the mail it sends) is suggested from where the app lands and checked
   before install. (#103)
+- A token only you have (cloudflared's tunnel token) starts empty and up
+  front, and Install waits for it. The catalog's placeholder was filled in
+  under Advanced, installed, and the app crash-looped.
 - A host-network stack finds its parts at 127.0.0.1. (#78)
 - A part that is on or off (Immich's machine learning, its sharing proxy) is
   one switch. With bridge, host or none as the default network, the app

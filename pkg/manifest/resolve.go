@@ -40,6 +40,11 @@ func (m *Manifest) Resolve(values map[string]string, slug, storageBase string) (
 		val := v.Default
 		if got, ok := values[v.Name]; ok && got != "" {
 			val = got
+		} else if v.Given {
+			// Only its owner has it, so the catalog's default is a
+			// placeholder: cloudflared's YOUR_CLOUDFLARE_TOKEN_HERE was
+			// installed and crash-looped with nothing said.
+			val = ""
 		} else {
 			// A DEFAULT that is still a compose reference is not a value. A
 			// manifest derived from a variabilized compose can carry
@@ -111,6 +116,9 @@ func (m *Manifest) Resolve(values map[string]string, slug, storageBase string) (
 			res.Env[v.Name] = val
 
 		default: // port, string, secret
+			if val == "" && !v.Optional && v.Given {
+				return nil, fmt.Errorf("%s is empty: it is yours to enter (fjord does not make it up)", v.Name)
+			}
 			if val == "" && !v.Optional {
 				return nil, fmt.Errorf("required value %q is empty", v.Name)
 			}
