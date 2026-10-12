@@ -142,3 +142,23 @@ func TestStartFinishesCutShortDelete(t *testing.T) {
 		t.Error("another stack was removed")
 	}
 }
+
+// A single AppJail app's .env names its folder only as the director does
+// (heimdall on netlab): the plan reads the director, so the folder is offered,
+// and another stack's plan sees it in use.
+func TestDeletePlanDirectorStack(t *testing.T) {
+	s, root := deleteFixture(t)
+	apps := filepath.Join(root, "apps")
+	os.MkdirAll(filepath.Join(apps, "heim/config"), 0o755)
+	dir := filepath.Join(root, "stacks/heim")
+	writeFile(t, filepath.Join(dir, "compose.yaml"), "services:\n  heimdall:\n    image: x\n    volumes:\n      - \"${CONFIG_DATA}:/config\"\n")
+	writeFile(t, filepath.Join(dir, "appjail-director.yml"), "services:\n  heimdall:\n    name: heim_heimdall\n    volumes:\n      - HEIMDALL_CONFIG_PATH: /config\nvolumes:\n  HEIMDALL_CONFIG_PATH:\n    device: !ENV '${HEIMDALL_CONFIG_PATH}'\n    type: nullfs\n")
+	writeFile(t, filepath.Join(dir, ".env"), "DIRECTOR_PROJECT=heim\nHEIMDALL_CONFIG_PATH="+apps+"/heim/config\n")
+	p := plan(t, s, "heim")
+	if len(p.AppData) != 1 || p.AppData[0].Path != filepath.Join(apps, "heim") {
+		t.Fatalf("app data: %+v", p.AppData)
+	}
+	if !anyInside(s.otherStacksBinds("notes"), filepath.Join(apps, "heim")) {
+		t.Error("another stack's plan does not see the folder in use")
+	}
+}

@@ -40,6 +40,9 @@ install API, on both engines (`test/ui`, `test/e2e`).
   LAN address and Open link.
 - The Variables panel reads a director file's `${VAR:default}`: a variable
   with a default, or one set in .env, is no longer listed as missing.
+- Delete with its data removes a single AppJail app's folder. Its folders are
+  read from the director file, which is what runs, so another stack's delete
+  and the leftover-data check also see them in use.
 
 ### Install and your data
 - A stack's data folder is named after the stack, so a second copy of an app

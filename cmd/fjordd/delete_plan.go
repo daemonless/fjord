@@ -55,7 +55,7 @@ func (s *server) planDelete(ctx context.Context, st *stack.Stack) deletePlan {
 			plan.Containers = append(plan.Containers, c.Name)
 		}
 	}
-	mounts := composepkg.Mounts(st.Compose, envMap(st.Env))
+	mounts := stackMounts(st)
 	others := s.otherStacksBinds(st.Name)
 	own := map[string]bool{}
 	for _, loc := range s.dataLocations() {
@@ -116,7 +116,7 @@ func (s *server) otherStacksBinds(except string) []string {
 		if err != nil {
 			continue
 		}
-		for _, m := range composepkg.Mounts(full.Compose, envMap(full.Env)) {
+		for _, m := range stackMounts(full) {
 			if m.Kind == "bind" && filepath.IsAbs(m.Source) {
 				out = append(out, filepath.Clean(m.Source))
 			}
@@ -129,6 +129,27 @@ func (s *server) otherStacksBinds(except string) []string {
 func within(path, dir string) bool {
 	rel, err := filepath.Rel(dir, filepath.Clean(path))
 	return err == nil && rel != ".." && !strings.HasPrefix(rel, "../")
+}
+
+// stackMounts is every mount a stack's services run with. A director stack is
+// read from its appjail-director.yml: its .env can lack the names compose.yaml
+// uses, and through the compose its folders resolved to nothing.
+func stackMounts(st *stack.Stack) []composepkg.Mount {
+	if strings.TrimSpace(st.Director) == "" {
+		return composepkg.Mounts(st.Compose, envMap(st.Env))
+	}
+	var out []composepkg.Mount
+	for _, v := range directorServiceViews(st) {
+		for _, m := range v.Volumes {
+			src := m.Source
+			if src == "" {
+				src = m.Name
+			}
+			out = append(out, composepkg.Mount{Source: src, Dest: m.Dest, ReadOnly: m.ReadOnly,
+				Kind: mountKind(src), Service: v.Name})
+		}
+	}
+	return out
 }
 
 func bindsInside(mounts []composepkg.Mount, dir string) bool {
