@@ -1,4 +1,4 @@
-# An update through the panel: syncthing 2.1.3 -> 2.1.5 on the bridge. The
+# An update through the panel: syncthing 2.1.3 -> the newest on the bridge. The
 # published port is checked from off-host after the update; then the stack goes.
 after() {
   # The update's health watch outlives the click by half a minute: a delete

@@ -51,7 +51,9 @@ const detail = async (page) => (await page.request.get(BASE + '/api/stacks/' + N
     await page.getByPlaceholder(/Custom tag/).fill('latest');
     await sleep(1500);
     await page.getByRole('button', { name: /Change & Redeploy/ }).click();
-    for (let i = 0; i < 80; i++) { d = await detail(page); if (!d.busy && d.status?.state === 'running') break; await sleep(3000); }
+    // Running comes before the verdict: the failure is cleared when the
+    // stay-up check passes, not when the stack stops reading busy (#116).
+    for (let i = 0; i < 80; i++) { d = await detail(page); if (!d.busy && d.status?.state === 'running' && !d.state?.last_failure) break; await sleep(3000); }
     await sleep(2500);
     await page.goto(BASE + '/?t=' + Date.now() + '#/stacks/' + NAME, { waitUntil: 'networkidle' });
     await sleep(2000);
