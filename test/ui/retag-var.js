@@ -31,7 +31,9 @@ const detail = async (page) => (await page.request.get(BASE + '/api/stacks/' + N
     await page.getByPlaceholder(/Custom tag/).fill('2.0.5');
     await sleep(1500);
     await page.getByRole('button', { name: /Change & Redeploy/ }).click();
-    for (let i = 0; i < 80; i++) { d = await detail(page); if (!d.busy && d.status?.state === 'running') break; await sleep(3000); }
+    // Not busy and running is also true in the moment before the update
+    // starts; the rollback entry the update records says it has happened.
+    for (let i = 0; i < 80; i++) { d = await detail(page); if (d.state?.rollback?.speed && !d.busy && d.status?.state === 'running') break; await sleep(3000); }
     await sleep(2000);
     d = await detail(page);
     const line = (d.compose.match(/^\s*image:.*$/m) || [''])[0].trim();

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -781,15 +782,16 @@ func (s *server) stackSave(w http.ResponseWriter, r *http.Request, name string) 
 	if !created && st.Director == "" {
 		s.recordPending(name, composepkg.ChangedServices(oldCompose, envMap(oldEnv), st.Compose, st.EnvMap()))
 	}
-	// Bind a new stack to its chosen engine (only if that engine is registered;
-	// unset means podman). Existing stacks keep theirs -- switching runtimes is
-	// a recreate, not an edit.
-	if created && payload.Engine != "" {
-		if _, ok := s.backend(payload.Engine); !ok {
-			http.Error(w, "unknown engine "+payload.Engine, 400)
+	// Bind a new stack to its chosen engine, or the default when none was
+	// named. Existing stacks keep theirs -- switching runtimes is a recreate,
+	// not an edit. Left unbound, nothing maps "" to an engine: every start
+	// failed with "no container engine is available on this host".
+	if eng := cmp.Or(payload.Engine, s.defaultEngine()); created && eng != "" {
+		if _, ok := s.backend(eng); !ok {
+			http.Error(w, "unknown engine "+eng, 400)
 			return
 		}
-		if err := s.manager.SetEngine(name, payload.Engine); err != nil {
+		if err := s.manager.SetEngine(name, eng); err != nil {
 			log.Printf("save %s: set engine: %v", name, err)
 		}
 	}

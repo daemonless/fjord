@@ -1,6 +1,6 @@
 // A second copy of an app gets folders of its own: the wizard's defaults
 // follow the stack name, and fjordd refuses a folder inside another stack's.
-// immich is installed on netlab, so /containers/immich/... is someone's.
+// The other stack is t-own, saved (never started) by this test.
 const { chromium } = require('playwright-core');
 const BASE = 'http://127.0.0.1:3567';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -10,6 +10,9 @@ const note = (id, ok, msg) => console.log(`${ok ? 'PASS' : 'FAIL'} ${id}: ${msg}
   const page = await (await b.newContext({ viewport: { width: 1400, height: 1100 } })).newPage();
   page.setDefaultTimeout(30000);
   try {
+    // Someone else's stack: saved, never started, so it costs nothing.
+    const own = await page.request.post(BASE + '/api/stacks/t-own/save', { headers: { Origin: BASE, 'Content-Type': 'application/json' }, data: { compose: 'services:\n  web:\n    image: ghcr.io/daemonless/openspeedtest:latest\n', env: '' } });
+    if (!own.ok()) throw new Error(`saving t-own: ${own.status()}`);
     await page.goto(BASE + '/#/store', { waitUntil: 'networkidle' });
     await page.getByPlaceholder(/Search apps/).fill('librenms');
     await sleep(1000);
@@ -33,16 +36,16 @@ const note = (id, ok, msg) => console.log(`${ok ? 'PASS' : 'FAIL'} ${id}: ${msg}
     await page.getByLabel('Name').fill('t-lnms');
     await sleep(500);
     note('a folder typed by hand is kept through a rename', (await cfg.inputValue()) === '/mnt/lnms-config' && (await db.inputValue()) === '/containers/t-lnms/mariadb', `${await cfg.inputValue()}, ${await db.inputValue()}`);
-    // fjordd's own guard: point it into immich's folder and try to install.
-    await cfg.fill('/containers/immich/config');
+    // fjordd's own guard: point it into t-own's folder and try to install.
+    await cfg.fill('/containers/t-own/config');
     await page.locator('#DB_PASSWORD').fill('lnms-db-t3st');
     await page.locator('#ADMIN_PASSWORD').fill('Fjord-t3st-9d7c2a41');
     await install.click();
-    const refusal = page.getByText(/is inside immich's folder/).first();
+    const refusal = page.getByText(/is inside t-own's folder/).first();
     await refusal.waitFor({ timeout: 30000 }).catch(() => {});
     const text = await refusal.innerText().catch(() => '');
     await page.screenshot({ path: '/out/folders-refused.png', fullPage: true });
-    note("fjordd refuses a folder inside another stack's, on the wizard", /\/containers\/immich\/config is inside immich's folder \(\/containers\/immich\) -- give this install a folder of its own/.test(text), `"${text}"`);
+    note("fjordd refuses a folder inside another stack's, on the wizard", /\/containers\/t-own\/config is inside t-own's folder \(\/containers\/t-own\) -- give this install a folder of its own/.test(text), `"${text}"`);
     const stacks = (await (await page.request.get(BASE + '/api/stacks')).json()).map((s) => s.name);
     note('nothing was created', !stacks.includes('t-lnms'), `stacks: ${stacks.join(', ')}`);
   } catch (e) {
