@@ -80,17 +80,45 @@ func TestKeepAddressesSkipsATakenAddress(t *testing.T) {
 func TestClashesPinnedAndLive(t *testing.T) {
 	s := clashFixture(t)
 	st, _ := s.manager.Get("smokeping")
-	c := clashes(st, s.takenAddresses(context.Background(), "smokeping"))
+	c := clashes(st, s.takenAddresses(context.Background(), "smokeping"), fixOnStackPage)
 	if len(c) != 1 || !strings.Contains(c[0], "is in use by seerr") || !strings.Contains(c[0], "give smokeping another address") {
 		t.Errorf("smokeping vs a live, unpinned seerr: %v", c)
 	}
 
 	pinned := &stack.Stack{Name: "newapp", Compose: "services:\n  web:\n    image: x\n    networks:\n      vlan5:\n        ipv4_address: 192.168.5.19\n"}
-	if c := clashes(pinned, s.takenAddresses(context.Background(), "newapp")); len(c) != 1 || !strings.Contains(c[0], "smokeping's address") {
+	if c := clashes(pinned, s.takenAddresses(context.Background(), "newapp"), fixOnStackPage); len(c) != 1 || !strings.Contains(c[0], "smokeping's address") {
 		t.Errorf("a new stack pinning smokeping's address: %v", c)
 	}
 	free := &stack.Stack{Name: "newapp", Compose: strings.Replace(pinned.Compose, ".19", ".26", 1)}
-	if c := clashes(free, s.takenAddresses(context.Background(), "newapp")); len(c) != 0 {
+	if c := clashes(free, s.takenAddresses(context.Background(), "newapp"), fixOnStackPage); len(c) != 0 {
 		t.Errorf("a free address clashed: %v", c)
+	}
+}
+
+// Install asks before anything is written: a new stack that would take
+// smokeping's address, or a port a running stack publishes, is refused with
+// the wizard's wording, and nothing of it is left on disk.
+func TestConflictsBeforeInstall(t *testing.T) {
+	s := clashFixture(t)
+	dir := filepath.Join(s.manager.StacksDir, "web")
+	os.MkdirAll(dir, 0o755)
+	os.WriteFile(filepath.Join(dir, "compose.yaml"), []byte("services:\n  web:\n    image: x\n    ports:\n      - \"38417:80\"\n"), 0o644)
+	os.WriteFile(filepath.Join(dir, "state.json"), []byte(`{"schema_version":1,"engine":"podman","desired_state":"running"}`), 0o644)
+
+	addr := &stack.Stack{Name: "newapp", Compose: "services:\n  app:\n    image: x\n    networks:\n      vlan5:\n        ipv4_address: 192.168.5.19\n"}
+	c := s.conflicts(context.Background(), addr, fixInWizard)
+	if len(c) != 1 || !strings.Contains(c[0], "smokeping's address") || !strings.HasSuffix(c[0], "under Networking") {
+		t.Errorf("address: %v", c)
+	}
+	port := &stack.Stack{Name: "newapp", Compose: "services:\n  app:\n    image: x\n    ports:\n      - \"38417:8080\"\n"}
+	if c := s.conflicts(context.Background(), port, fixInWizard); len(c) != 1 || !strings.Contains(c[0], `used by the stack "web"`) {
+		t.Errorf("port: %v", c)
+	}
+	free := &stack.Stack{Name: "newapp", Compose: "services:\n  app:\n    image: x\n    ports:\n      - \"38418:8080\"\n"}
+	if c := s.conflicts(context.Background(), free, fixInWizard); len(c) != 0 {
+		t.Errorf("a free port conflicted: %v", c)
+	}
+	if _, err := os.Stat(filepath.Join(s.manager.StacksDir, "newapp")); err == nil {
+		t.Error("asking left the stack on disk")
 	}
 }

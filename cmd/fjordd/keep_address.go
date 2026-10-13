@@ -105,7 +105,7 @@ func (s *server) keepAddresses(ctx context.Context, st *stack.Stack) (kept, skip
 				taken = s.takenAddresses(ctx, st.Name)
 			}
 			if h, ok := taken[a.Network+"|"+ip]; ok {
-				skipped = append(skipped, clashText(svc, ip, a.Network, h))
+				skipped = append(skipped, clashText(svc, ip, a.Network, h, fixOnStackPage))
 				continue
 			}
 			out, err := composepkg.PinAddress(compose, svc, a.Network, ip)

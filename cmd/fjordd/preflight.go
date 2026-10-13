@@ -46,9 +46,17 @@ func (s *server) preflight(ctx context.Context, st *stack.Stack) []string {
 	if msg := attachmentsUnusable(atts, s.engineNetworks(ctx, st.EngineName())); msg != "" {
 		problems = append(problems, msg)
 	}
+	return append(problems, s.conflicts(ctx, st, fixOnStackPage)...)
+}
+
+// conflicts is what another stack, container or host process already holds
+// that this stack would take: a pinned address, or a published port. It
+// writes nothing, so install asks it before the stack is saved.
+func (s *server) conflicts(ctx context.Context, st *stack.Stack, where string) []string {
+	env := st.EnvMap()
 	// An address pinned here that another stack has: starting would put two
 	// containers on one address, and whichever the router believes wins.
-	problems = append(problems, clashes(st, s.takenAddresses(ctx, st.Name))...)
+	problems := clashes(st, s.takenAddresses(ctx, st.Name), where)
 
 	ports := composepkg.PublishedPorts(st.Compose, env)
 	// A stack with an address of its own binds nothing on the host: its ports

@@ -1854,8 +1854,10 @@
       execMessage[key] = 'Installing...';
 
       if (!res.ok) {
-        // Saved but not started (taken ports, a refused bring-up). The stack
-        // is real, so land on it with the reason in its output.
+        // Saved but not started (a folder it could not make, a network it
+        // cannot use). Taken ports and addresses are refused before the save
+        // and stay in the wizard. The stack is real, so land on it with the
+        // reason in its output.
         const msg = (await res.text()).trim();
         execStatus[key] = 'error';
         execMessage[key] = firstLine(msg) || `HTTP ${res.status}`;
