@@ -305,10 +305,6 @@ func (s *server) handleInstall(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	res.Dirs = append(res.Dirs, perStackDirs...)
-	if err := manifest.Provision(res.Dirs); err != nil {
-		http.Error(w, "provision: "+err.Error(), 500)
-		return
-	}
 	composeYAML, err := composepkg.DropVolumesReferencing(m.Compose(), res.EmptyOptional)
 	if err != nil {
 		http.Error(w, err.Error(), 500)
@@ -518,6 +514,18 @@ func (s *server) handleInstall(w http.ResponseWriter, r *http.Request) {
 		res.Env[k] = v
 	}
 	st := &stack.Stack{Name: id, Compose: composeYAML, Env: buildEnv(res.Env)}
+	// A taken address or port is refused before anything is written, with
+	// the reason on one line: refused after the save, the stack was left
+	// saved and stopped, and the wizard showed only "pre-flight failed".
+	if c := s.conflicts(r.Context(), st, fixInWizard); len(c) > 0 {
+		http.Error(w, "not installed: "+strings.Join(c, "; "), http.StatusConflict)
+		return
+	}
+	// Made only now, so a refusal above leaves no empty folders behind.
+	if err := manifest.Provision(res.Dirs); err != nil {
+		http.Error(w, "provision: "+err.Error(), 500)
+		return
+	}
 	if err := s.manager.Save(st); err != nil {
 		http.Error(w, err.Error(), 500)
 		return

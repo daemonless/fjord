@@ -48,6 +48,9 @@ install API, on both engines (`test/ui`, `test/e2e`).
   its database. (#94)
 - A port another running stack publishes is refused at install, whatever
   the engine. (#95)
+- A taken port or address is refused before anything is saved, with the
+  whole reason in the wizard. It used to leave the stack saved and stopped,
+  and the wizard showed only "pre-flight failed".
 - On a network that gives an app its own address, the wizard shows the app's
   own port instead of a port field that would do nothing. (#99)
 - A **public URL** field (the address an app is opened at, for the links in

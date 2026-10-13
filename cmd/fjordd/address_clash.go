@@ -64,13 +64,20 @@ func (s *server) takenAddresses(ctx context.Context, self string) map[string]add
 }
 
 // clashes lists, in words, each address a stack pins that another stack has.
-func clashes(st *stack.Stack, taken map[string]addrHolder) []string {
+// Where each clash says to give the service another address: the stack page
+// has a Services tab, the install wizard a Networking section.
+const (
+	fixOnStackPage = "in the Services tab"
+	fixInWizard    = "under Networking"
+)
+
+func clashes(st *stack.Stack, taken map[string]addrHolder, where string) []string {
 	var out []string
 	for svc, atts := range composepkg.ServiceAttachments(st.Compose) {
 		for _, a := range atts {
 			for _, ip := range []string{a.IP, a.IP6} {
 				if h, ok := taken[a.Network+"|"+ip]; ok && ip != "" {
-					out = append(out, clashText(svc, ip, a.Network, h))
+					out = append(out, clashText(svc, ip, a.Network, h, where))
 				}
 			}
 		}
@@ -79,7 +86,7 @@ func clashes(st *stack.Stack, taken map[string]addrHolder) []string {
 	return out
 }
 
-func clashText(svc, ip, network string, h addrHolder) string {
+func clashText(svc, ip, network string, h addrHolder, where string) string {
 	whose := "is " + h.Stack + "'s address"
 	if !h.Pinned {
 		whose = "is in use by " + h.Stack
@@ -87,7 +94,7 @@ func clashText(svc, ip, network string, h addrHolder) string {
 	if h.Service != "" && h.Service != h.Stack {
 		whose += " (" + h.Service + ")"
 	}
-	return fmt.Sprintf("%s on %s %s -- give %s another address in the Services tab", ip, network, whose, svc)
+	return fmt.Sprintf("%s on %s %s -- give %s another address %s", ip, network, whose, svc, where)
 }
 
 // clashNote is the Output preamble for addresses keepAddresses would not pin.
