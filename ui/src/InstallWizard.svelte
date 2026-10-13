@@ -11,7 +11,7 @@
   import DirPicker from './DirPicker.svelte';
   import { addressProblem, usableRange, randomMAC } from './network';
   import ServiceResources from './ServiceResources.svelte';
-  import { askValue, chosenServices, choiceVars, isToggle, pickedPhrase } from './choices';
+  import { appjailMissing, askValue, chosenServices, choiceVars, isToggle, pickedPhrase } from './choices';
   import { resolveDefault, seedInterfaces, splitPlan, joinable, keepAttachable, addressesNeeded, type Iface } from './planSeed';
 
   // sources: every catalog offering this app; the user picks one (Repository)
@@ -390,6 +390,8 @@
       ? 'Checking the engines…'
     : noBuild
       ? noBuild
+    : noJail.length
+      ? `${appId} can't run on AppJail yet: its AppJail bundle has no jail for ${noJail.join(', ')}. Install it on podman.`
       : missingRequired.length
         ? `Fill in ${missingRequired.map((v) => v.name).join(', ')}`
         : badUrls.length
@@ -509,6 +511,10 @@
   // operator can see and change rather than a wildcard to reason about.
   let baseSvcNames: string[] = [];
   let declaredNet: Record<string, string> = {};
+  // The AppJail bundle's director: a service it has no jail for is refused
+  // by the daemon, so Install is held with that reason before the click.
+  let appjailDirector = '';
+  $: noJail = engineChoice === 'appjail' ? appjailMissing(baseSvcNames, choices, picks, appjailDirector) : [];
   $: svcNames = chosenServices(baseSvcNames, choices, picks);
   let netPlan: Record<string, string> = {};
   $: {
@@ -770,6 +776,7 @@
       manifestText = await res.text();
       const parsed: any = yaml.load(manifestText);
       baseSvcNames = Object.keys(parsed?.services ?? {});
+      appjailDirector = String(parsed?.['x-fjord']?.appjail?.director ?? '');
       declaredNet = parsed?.['x-fjord']?.networking ?? {};
       choices = parsed?.['x-fjord']?.choices ?? [];
       webPortHint = String(parsed?.['x-fjord']?.info?.web_port ?? '');

@@ -90,3 +90,23 @@ export function askValue(a: { default?: string; values?: Record<string, string> 
   if (only.length === 1 && current !== only[0]) return only[0];
   return current ?? a.default ?? '';
 }
+
+/**
+ * appjailMissing names the compose services the AppJail bundle has no jail
+ * for, as the picks install them: the daemon refuses such an install
+ * (appjailShort), and the wizard holds Install with the same reason instead
+ * of after the click. Services an option adds bring their own jails (an
+ * option without an AppJail form is held on its own), so only the compose's
+ * own are checked. No bundle, or one that doesn't parse: nothing to say.
+ */
+export function appjailMissing(base: string[], choices: StackChoice[], picks: Record<string, string>, director: string): string[] {
+  let jails: string[];
+  try {
+    jails = Object.keys(((yaml.load(director) as { services?: Record<string, unknown> }) ?? {}).services ?? {});
+  } catch {
+    return [];
+  }
+  if (!jails.length) return [];
+  const kept = chosenServices(base, choices, picks);
+  return base.filter((s) => kept.includes(s) && !jails.includes(s));
+}

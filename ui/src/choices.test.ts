@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { askValue, chosenServices, choiceVars, isToggle, pickedPhrase, type StackChoice } from './choices';
+import { appjailMissing, askValue, chosenServices, choiceVars, isToggle, pickedPhrase, type StackChoice } from './choices';
 
 // immich's choices, as the catalog carries them.
 const base = ['immich-server', 'immich-machine-learning', 'redis', 'database'];
@@ -98,5 +98,29 @@ describe('askValue', () => {
   it('keeps what was typed, else the default', () => {
     expect(askValue({ default: '5432' }, '5433')).toBe('5433');
     expect(askValue({ default: '5432' }, undefined)).toBe('5432');
+  });
+});
+
+// librenms on AppJail was refused only after Install: its bundle has no jail
+// for librenms-mariadb.
+describe('appjailMissing', () => {
+  const director = 'services:\n  librenms:\n    name: x\n';
+  it('names the services the bundle has no jail for', () => {
+    expect(appjailMissing(['librenms', 'librenms-mariadb'], [], {}, director)).toEqual(['librenms-mariadb']);
+  });
+
+  it('is empty when every service has its jail', () => {
+    expect(appjailMissing(['librenms'], [], {}, director)).toEqual([]);
+  });
+
+  it('does not count a service the picks drop', () => {
+    const d = 'services:\n  immich-server: {}\n  redis: {}\n  database: {}\n';
+    expect(appjailMissing(base, choices, {}, d)).toEqual(['immich-machine-learning']);
+    expect(appjailMissing(base, choices, { machine_learning: 'off' }, d)).toEqual([]);
+  });
+
+  it('says nothing without a bundle it can read', () => {
+    expect(appjailMissing(['a', 'b'], [], {}, '')).toEqual([]);
+    expect(appjailMissing(['a', 'b'], [], {}, ': : :')).toEqual([]);
   });
 });
