@@ -97,6 +97,13 @@ func platform(cfg Config) platformInfo {
 			Pkg:   map[string]string{"freebsd": "cni-dnsname"},
 		},
 		{
+			ID: "dhcp-default", Name: "host DHCP stays off container interfaces", HostOnly: true,
+			Group: "networking",
+			Probe: defaultDHCPProbe,
+			Why:   "With ifconfig_DEFAULT=\"DHCP\" in rc.conf (FreeBSD's VM images ship it), devd runs dhclient on every interface that appears -- each container's and jail's epair too. The host then takes LAN leases on them, and the router hands out addresses nobody is using.",
+			Fix:   "# name the host's own NIC instead of DEFAULT (vtnet0 here; see `route -n get default`):\nsysrc ifconfig_vtnet0=\"DHCP\"\nsysrc -x ifconfig_DEFAULT",
+		},
+		{
 			ID: "appjail-dns", Name: "jail name resolution (appjail-dns + dnsmasq)", Engine: "appjail", HostOnly: true,
 			Group: "networking",
 			Probe: appjailDNSProbe,
@@ -564,6 +571,32 @@ func appjailDNSProbe(ctx context.Context) (Status, string) {
 	conf := strings.TrimSpace(firstLine(run(ctx, "sysrc", "-n", "dnsmasq_conf")))
 	args := strings.TrimSpace(run(ctx, "pgrep", "-fl", "dnsmasq"))
 	return appjailDNSStatus(rcErr == nil, dnsmasqErr == nil, dnsmasqRunning, conf, args, appjailRunning)
+}
+
+// defaultDHCPProbe reads ifconfig_DEFAULT and the NIC the default route
+// leaves by, so the fix can name it.
+func defaultDHCPProbe(ctx context.Context) (Status, string) {
+	value := strings.TrimSpace(firstLine(run(ctx, "sysrc", "-n", "ifconfig_DEFAULT")))
+	nic := ""
+	for _, line := range strings.Split(run(ctx, "route", "-n", "get", "default"), "\n") {
+		if k, v, ok := strings.Cut(strings.TrimSpace(line), ":"); ok && k == "interface" {
+			nic = strings.TrimSpace(v)
+		}
+	}
+	return defaultDHCPStatus(value, nic)
+}
+
+// defaultDHCPStatus: DHCP (or SYNCDHCP) on DEFAULT reaches every new
+// interface; anything else, or nothing, is fine.
+func defaultDHCPStatus(value, nic string) (Status, string) {
+	if !strings.Contains(strings.ToUpper(value), "DHCP") {
+		return OK, "ifconfig_DEFAULT does not use DHCP"
+	}
+	msg := fmt.Sprintf("rc.conf has ifconfig_DEFAULT=%q: the host runs dhclient on every container interface", value)
+	if nic != "" {
+		msg += fmt.Sprintf(" -- name %s instead: sysrc ifconfig_%s=%q; sysrc -x ifconfig_DEFAULT", nic, nic, value)
+	}
+	return Warn, msg
 }
 
 // appjailDNSStatus is the verdict from the facts, in the order an operator

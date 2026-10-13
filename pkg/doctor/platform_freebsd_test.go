@@ -134,3 +134,25 @@ func TestAppjailDNSStatus(t *testing.T) {
 		}
 	}
 }
+
+// netlab-legacy took LAN leases on its containers' epairs: FreeBSD's VM image
+// sets ifconfig_DEFAULT="DHCP", and devd runs dhclient on each new interface.
+func TestDefaultDHCPStatus(t *testing.T) {
+	cases := []struct {
+		value, nic string
+		want       Status
+		saying     string
+	}{
+		{"DHCP", "vtnet0", Warn, `sysrc ifconfig_vtnet0="DHCP"; sysrc -x ifconfig_DEFAULT`},
+		{"SYNCDHCP accept_rtadv", "em0", Warn, `ifconfig_em0="SYNCDHCP accept_rtadv"`},
+		{"DHCP", "", Warn, "every container interface"},
+		{"", "vtnet0", OK, "does not use DHCP"},
+		{"inet 192.168.1.5/24", "vtnet0", OK, "does not use DHCP"},
+	}
+	for _, c := range cases {
+		got, msg := defaultDHCPStatus(c.value, c.nic)
+		if got != c.want || !strings.Contains(msg, c.saying) {
+			t.Errorf("%q on %q: %v %q, want %v saying %q", c.value, c.nic, got, msg, c.want, c.saying)
+		}
+	}
+}

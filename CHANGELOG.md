@@ -109,6 +109,9 @@ install API, on both engines (`test/ui`, `test/e2e`).
   v1.1.3). (#100)
 - An up stuck waiting on a service that failed is stopped, with the
   service's error. (#76)
+- Setup warns when `ifconfig_DEFAULT` asks for DHCP: it runs dhclient on
+  every interface that appears, container interfaces included. The fix names
+  your real interface instead.
 
 ### Security
 - fjordd answers only to this host's own names (DNS rebinding). (#74)
