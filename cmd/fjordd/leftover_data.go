@@ -11,7 +11,6 @@ import (
 	"strings"
 	"time"
 
-	composepkg "github.com/daemonless/fjord/pkg/compose"
 	"github.com/daemonless/fjord/pkg/engine"
 )
 
@@ -42,7 +41,7 @@ func (s *server) findLeftovers(ctx context.Context) (leftovers, error) {
 		if err != nil {
 			return out, err // a stack we cannot read might use anything
 		}
-		for _, m := range composepkg.Mounts(full.Compose, envMap(full.Env)) {
+		for _, m := range stackMounts(full) {
 			if m.Kind == "bind" && filepath.IsAbs(m.Source) {
 				used = append(used, filepath.Clean(m.Source))
 			}
