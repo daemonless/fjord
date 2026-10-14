@@ -3,7 +3,7 @@
 Releases are tagged on GitHub; each rc is a pre-release with the pull
 requests it carries. This file is the story per release.
 
-## 0.3.1 — unreleased
+## 0.3.1 — 2026-10-14
 
 Stack choices, AppJail catching up, and fjord saying what is wrong instead
 of making you find it. Proven on a test host through the real pages and the
@@ -45,6 +45,12 @@ install API, on both engines (`test/ui`, `test/e2e`).
 - Delete with its data removes a single AppJail app's folder. Its folders are
   read from the director file, which is what runs, so another stack's delete
   and the leftover-data check also see them in use.
+- A stack's parts find each other when a hostname is named inside another
+  value: grimmory's `DATABASE_URL` names `MARIADB_HOSTNAME`, which was left
+  out of the jail's .env, so grimmory looked for its database in its own jail.
+- A jail on its own LAN address is checked on its ports, not its log: authelia
+  read "crashed" for minutes while serving, from a line logged before its
+  cache was up.
 
 ### Install and your data
 - A stack's data folder is named after the stack, so a second copy of an app
@@ -128,6 +134,7 @@ install API, on both engines (`test/ui`, `test/e2e`).
   dashboard says how many more. (#106)
 - The Update panel compares like with like: an app's own new version is one
   change, not one package removed and another added. (#111)
+- A stack saved without an engine gets the default one.
 - A delete cut short by a fjordd restart is finished when fjordd starts,
   instead of the stack coming back up. (#105)
 - The check that an updated or installed app stays up no longer holds the
