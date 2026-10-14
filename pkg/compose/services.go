@@ -12,10 +12,13 @@ import (
 // individually (e.g. appjail, which has no compose executor of its own). All
 // ${VAR} references are resolved against env.
 type Service struct {
-	Name        string
-	Image       string
-	Env         map[string]string
-	Ports       []PortMap
+	Name  string
+	Image string
+	Env   map[string]string
+	Ports []PortMap
+	// Stashed are the ports set aside (x-fjord-published) when the service got
+	// its own address: published nowhere, but still where the app serves.
+	Stashed     []PortMap
 	Volumes     []VolMount
 	NetworkHost bool     // network_mode: host
 	NetworkNone bool     // network_mode: none
@@ -128,6 +131,13 @@ func ParseServices(composeYAML string, env map[string]string) []Service {
 			for _, it := range p.Content {
 				if pm, ok := parsePort(resolve(it.Value)); ok {
 					s.Ports = append(s.Ports, pm)
+				}
+			}
+		}
+		if p := mapGet(svc, "x-fjord-published"); p != nil && p.Kind == yaml.SequenceNode {
+			for _, it := range p.Content {
+				if pm, ok := parsePort(resolve(it.Value)); ok {
+					s.Stashed = append(s.Stashed, pm)
 				}
 			}
 		}

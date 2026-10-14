@@ -218,3 +218,25 @@ func TestWriteAppjailBundleOnlyReadHostnames(t *testing.T) {
 		t.Errorf(".env:\n%s", env)
 	}
 }
+
+// A hostname named inside another value counts as read: grimmory's jail reads
+// DATABASE_URL, which names MARIADB_HOSTNAME. Dropped, the expand baked in the
+// 127.0.0.1 default and grimmory looked for MariaDB in its own jail.
+func TestWriteAppjailBundleHostnameInsideAValue(t *testing.T) {
+	dir := t.TempDir()
+	b := &manifest.AppjailBundle{
+		Director:    "services:\n  grimmory:\n    name: g\n    oci:\n      environment:\n        - DATABASE_URL: !ENV '${DATABASE_URL}'\n",
+		EnvDefaults: "DATABASE_URL=jdbc:mariadb://${MARIADB_HOSTNAME:-127.0.0.1}:${MARIADB_PORT:-3306}/grimmory\n",
+	}
+	host := map[string]string{"MARIADB_HOSTNAME": "t-grimmory_mariadb", "IMMICH_SERVER_HOST": "nobody_reads_this"}
+	env, err := writeAppjailBundle(dir, "t-grimmory", b, map[string]string{}, host, "services:\n  grimmory:\n    image: x\n", nil, nil, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(env, "DATABASE_URL=jdbc:mariadb://t-grimmory_mariadb:3306/grimmory\n") {
+		t.Errorf("DATABASE_URL should reach the database jail:\n%s", env)
+	}
+	if strings.Contains(env, "IMMICH_SERVER_HOST") {
+		t.Errorf("a hostname nothing reads is still left out:\n%s", env)
+	}
+}
