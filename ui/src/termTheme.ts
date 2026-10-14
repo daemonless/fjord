@@ -36,9 +36,18 @@ const LIGHT: ITheme = {
 };
 
 /** The xterm colours for the current theme. In light the terminal takes the
- *  background of the element it sits in, so it reads as part of that card. */
+ *  background of the card it sits in, so it reads as part of that card. */
 export function xtermTheme(host: HTMLElement): ITheme {
   if (!pageIsLight()) return DARK;
-  const bg = getComputedStyle(host).backgroundColor;
-  return { ...LIGHT, background: bg };
+  return { ...LIGHT, background: cardBackground(host) };
+}
+
+// The first painted background up from host. A wrapper with none reports
+// rgba(0, 0, 0, 0), which xterm paints black: the Shell's text vanished.
+function cardBackground(host: HTMLElement): string {
+  for (let e: HTMLElement | null = host; e; e = e.parentElement) {
+    const bg = getComputedStyle(e).backgroundColor;
+    if (bg && bg !== 'transparent' && !/^rgba\(.*,\s*0\)$/.test(bg)) return bg;
+  }
+  return '#ffffff';
 }
