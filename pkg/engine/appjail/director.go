@@ -442,6 +442,12 @@ func composePortsFor(s *stack.Stack, service string, env map[string]string) []co
 	}
 	for _, svc := range composepkg.ParseServices(s.Compose, env) {
 		if svc.Name == service {
+			// Its own address is exactly when install stashes the ports, so
+			// the stash is usually the only record (authelia on the LAN read
+			// "crashed" for as long as its pre-redis crash stayed in the tail).
+			if len(svc.Ports) == 0 {
+				return svc.Stashed
+			}
 			return svc.Ports
 		}
 	}

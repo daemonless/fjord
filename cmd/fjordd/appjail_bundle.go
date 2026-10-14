@@ -113,6 +113,24 @@ func writeAppjailBundle(dir, stackID string, b *manifest.AppjailBundle, resolved
 	for _, m := range directorVarRe.FindAllStringSubmatch(directorYML, -1) {
 		used[m[1]] = true
 	}
+	// A jail also reads what a value it reads names: grimmory's DATABASE_URL
+	// is jdbc:mariadb://${MARIADB_HOSTNAME:-127.0.0.1}:..., and with the
+	// hostname dropped the expand below baked in 127.0.0.1 -- the jail's own
+	// loopback, not the database's.
+	defaults, _ := parseEnvOrdered(b.EnvDefaults)
+	for grew := true; grew; {
+		grew = false
+		for k, v := range defaults {
+			if !used[k] {
+				continue
+			}
+			for _, m := range directorVarRe.FindAllStringSubmatch(v, -1) {
+				if !used[m[1]] {
+					used[m[1]], grew = true, true
+				}
+			}
+		}
+	}
 	read := map[string]string{}
 	for k, v := range hostEnv {
 		if used[k] {

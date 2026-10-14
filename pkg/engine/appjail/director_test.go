@@ -106,3 +106,21 @@ func TestDirectorEnvNamesTheProject(t *testing.T) {
 		t.Error(".env names the project: the environment must not override it")
 	}
 }
+
+// A jail on its own LAN address has its ports stashed by install, and the
+// health probe needs one: without it authelia read "crashed" while serving,
+// because its pre-redis crash was still in the log tail.
+func TestComposePortsForUsesTheStash(t *testing.T) {
+	s := &stack.Stack{Compose: "services:\n  authelia-server:\n    image: x\n    x-fjord-published:\n      - 9091:9091\n  redis:\n    image: y\n"}
+	got := composePortsFor(s, "authelia-server", nil)
+	if len(got) != 1 || got[0].Container != 9091 {
+		t.Fatalf("authelia-server ports = %+v, want the stashed 9091", got)
+	}
+	if got := composePortsFor(s, "redis", nil); len(got) != 0 {
+		t.Fatalf("redis has none, got %+v", got)
+	}
+	s.Compose = "services:\n  app:\n    image: x\n    ports:\n      - 8080:80\n    x-fjord-published:\n      - 9999:9999\n"
+	if got := composePortsFor(s, "app", nil); len(got) != 1 || got[0].Container != 80 {
+		t.Fatalf("published ports win over a stale stash, got %+v", got)
+	}
+}
