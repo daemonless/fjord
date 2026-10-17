@@ -373,18 +373,35 @@ func startOnBoot(srv *server) {
 		log.Printf("start-on-boot: list stacks: %v", err)
 		return
 	}
+	booted := hostBooted()
 	for _, s := range stacks {
 		if s.State != nil && s.State.DesiredState == desiredDeleting {
 			finishDelete(srv, s.Name)
 			continue
 		}
-		if s.State == nil || s.State.DesiredState != "running" {
+		if s.State == nil || (s.State.DesiredState != "running" && s.State.DesiredState != "stopped") {
 			continue
 		}
 		full, err := srv.manager.Get(s.Name)
 		if err != nil {
 			log.Printf("start-on-boot: load %s: %v", s.Name, err)
 			continue
+		}
+		// An engine that does not take fjord's policy (appjail, until its
+		// half lands) keeps the old rule: up when it was running.
+		restarts := srv.bootRestarts(full)
+		if !bootStart(s.State.DesiredState, restarts, booted) {
+			continue
+		}
+		if s.State.DesiredState == "stopped" {
+			// restart: always comes back at a host boot even after a Stop.
+			log.Printf("start-on-boot: %s: stopped, but its restart policy is always", s.Name)
+			srv.manager.UpdateState(s.Name, func(st *stack.State) *stack.State {
+				if st != nil {
+					st.DesiredState = "running"
+				}
+				return st
+			})
 		}
 		// Long enough for a pull: two minutes cut immich's install off
 		// mid-pull and left it half made (netlab, 2026-10-04).

@@ -16,6 +16,8 @@
   import LogView from './LogView.svelte';
   import Shell from './Shell.svelte';
   import ChangeVersionModal from './ChangeVersionModal.svelte';
+  import RestartPolicy from './RestartPolicy.svelte';
+  import type { StackRestart } from './restartPolicy';
   import DirPicker from './DirPicker.svelte';
   import Spinner from './Spinner.svelte';
   import Icon from './Icon.svelte';
@@ -48,7 +50,7 @@
   };
   type StackStatus = { state: string; containers: ContainerStatus[]; staleSince?: string };
   type StackState = { group?: string; desired_state?: string; engine?: string; order?: number; origin?: { type?: string; app_id?: string }; choices?: Record<string, string>; pending_services?: string[]; last_failure?: { action: string; at: string; message: string } };
-  type Stack = { name: string; displayName?: string; icon?: string; dir: string; compose: string; env: string; director?: string; makejail?: string; engine?: string; status?: StackStatus; state?: StackState; services?: any[]; composeHash?: string; busy?: string; linkHost?: string };
+  type Stack = { name: string; displayName?: string; icon?: string; dir: string; compose: string; env: string; director?: string; makejail?: string; engine?: string; status?: StackStatus; state?: StackState; services?: any[]; composeHash?: string; busy?: string; linkHost?: string; restart?: StackRestart };
   // What the UI shows for a stack: its label, falling back to the id.
   const label = (s: { name: string; displayName?: string } | null | undefined) => s?.displayName || s?.name || '';
 
@@ -2279,6 +2281,20 @@
                 </div>
               </details>
             {/if}
+            <!-- The restart policy rewrites the compose on the server: with
+                 unsaved edits open it would replace them, so it waits. -->
+            <RestartPolicy
+              name={selectedStack.name}
+              restart={selectedStack.restart}
+              disabled={busyNow || isDirty}
+              reason={busyReason || (isDirty ? 'Save or discard your edits first' : '')}
+              on:changed={async () => {
+                const name = selectedStack!.name;
+                applyDismissed[name] = false;
+                await selectStack({ name } as Stack);
+                await loadStacks();
+              }}
+            />
             <input
               list="fjord-groups"
               value={selectedStack.state?.group ?? ''}

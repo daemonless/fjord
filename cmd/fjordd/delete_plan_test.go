@@ -131,6 +131,9 @@ func TestStartFinishesCutShortDelete(t *testing.T) {
 	if err := s.manager.SetDesiredState("notes", desiredDeleting); err != nil {
 		t.Fatal(err)
 	}
+	old := bootMarker
+	bootMarker = filepath.Join(root, "fjordd.booted")
+	defer func() { bootMarker = old }()
 	startOnBoot(s)
 	if _, err := os.Stat(filepath.Join(root, "stacks/notes")); err == nil {
 		t.Error("stack still listed after start")

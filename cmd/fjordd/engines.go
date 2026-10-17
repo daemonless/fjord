@@ -33,6 +33,10 @@ type engineInfo struct {
 	Reason      string `json:"reason,omitempty"`  // why it can't run, when unavailable
 	Warning     string `json:"warning,omitempty"` // usable-with-a-caveat note
 	CanInstall  bool   `json:"canInstall,omitempty"`
+	// The restart policies the install wizard offers on it (see
+	// engine.Capabilities).
+	RestartPolicies []string `json:"restartPolicies,omitempty"`
+	RestartOnExit   bool     `json:"restartOnExit,omitempty"`
 }
 
 // pinDefaultEngine writes the default that is in effect right now, so adding
@@ -63,7 +67,7 @@ func (s *server) handleEngine(w http.ResponseWriter, r *http.Request) {
 		host := doctor.Mode() == "host"
 		engines := []engineInfo{}
 		for _, d := range engineDescriptors {
-			_, registered := s.backend(d.Name)
+			be, registered := s.backend(d.Name)
 			ok, reason, warning := d.Available()
 			info := engineInfo{
 				Name:        d.Name,
@@ -76,6 +80,10 @@ func (s *server) handleEngine(w http.ResponseWriter, r *http.Request) {
 			}
 			if ok {
 				info.Warning = warning
+			}
+			if registered {
+				c := be.Capabilities()
+				info.RestartPolicies, info.RestartOnExit = c.RestartPolicies, c.RestartOnExit
 			}
 			engines = append(engines, info)
 		}

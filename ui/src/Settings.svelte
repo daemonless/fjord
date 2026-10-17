@@ -1,11 +1,13 @@
 <script lang="ts">
-  import { onMount, createEventDispatcher } from 'svelte';
+  import { onMount, createEventDispatcher, tick } from 'svelte';
   import Icon from './Icon.svelte';
   import Spinner from './Spinner.svelte';
   import EmptyState from './EmptyState.svelte';
   import DirPicker from './DirPicker.svelte';
   import FolderRows from './FolderRows.svelte';
   import { toast } from './toast';
+  import RestartChoice from './RestartChoice.svelte';
+  import { DEFAULT_RETRIES } from './restartPolicy';
 
   type About = {
     version: string;
@@ -35,7 +37,7 @@
 
 
   // ---- engines (the first "plugin" category) ----
-  type EngineRow = { name: string; description?: string; available: boolean; enabled: boolean; default: boolean; reason?: string; warning?: string; canInstall?: boolean };
+  type EngineRow = { name: string; description?: string; available: boolean; enabled: boolean; default: boolean; reason?: string; warning?: string; canInstall?: boolean; restartPolicies?: string[]; restartOnExit?: boolean };
   let engines: EngineRow[] = [];
   let defaultEngine = '';
   let installingEngine = '';
@@ -238,6 +240,42 @@
       await loadWizard();
     } finally {
       savingWizard = false;
+    }
+  }
+
+  // ---- advanced: the restart policy new installs take, per engine ----
+  type RestartDefault = { policy: string; retries: number };
+  let restartDefaults: Record<string, RestartDefault> = {};
+  let savingRestart = '';
+  $: restartEngines = engines.filter((e) => e.enabled && e.restartPolicies?.length);
+  async function loadRestart() {
+    try {
+      const r = await fetch('/api/settings/restart');
+      if (!r.ok) return;
+      const d: Record<string, { policy: string; retries?: number }> = await r.json();
+      restartDefaults = Object.fromEntries(
+        Object.entries(d).map(([eng, v]) => [eng, { policy: v.policy || 'unless-stopped', retries: v.retries || DEFAULT_RETRIES }]),
+      );
+    } catch {}
+  }
+  onMount(loadRestart);
+  async function saveRestart(engine: string) {
+    await tick(); // the bound policy and count reach here after the change event
+    const d = restartDefaults[engine];
+    savingRestart = engine;
+    try {
+      const r = await fetch('/api/settings/restart', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ engine, policy: d.policy, retries: d.policy === 'on-failure' ? d.retries : 0 }),
+      });
+      if (!r.ok) throw new Error((await r.text()).trim() || `HTTP ${r.status}`);
+      toast(`Restart for new ${engine} installs saved`, { kind: 'success' });
+    } catch (e: any) {
+      toast(e.message || 'Save failed', { kind: 'error' });
+      await loadRestart();
+    } finally {
+      savingRestart = '';
     }
   }
 
@@ -1023,6 +1061,32 @@
             </div>
           {/each}
         </div>
+
+        {#if restartEngines.length}
+          <h3 class="text-sm font-semibold text-fjord-fg-secondary mt-8 mb-1">Restart for new installs</h3>
+          <p class="text-xs text-fjord-fg-dim mb-3">
+            What a newly installed app does when it stops, and at boot, per engine: each offers what it can do. The
+            install wizard starts from this under Options, and each stack's own setting is in its page's header.
+          </p>
+          <div class="space-y-4">
+            {#each restartEngines as e (e.name)}
+              {#if restartDefaults[e.name]}
+                <div class="flex flex-col gap-1">
+                  <label class="text-sm font-medium text-fjord-fg" for="default-restart-{e.name}">{e.name}</label>
+                  <RestartChoice
+                    id="default-restart-{e.name}"
+                    policies={e.restartPolicies}
+                    onExit={!!e.restartOnExit}
+                    bind:policy={restartDefaults[e.name].policy}
+                    bind:retries={restartDefaults[e.name].retries}
+                    disabled={savingRestart === e.name}
+                    on:change={() => saveRestart(e.name)}
+                  />
+                </div>
+              {/if}
+            {/each}
+          </div>
+        {/if}
 
         <h3 class="text-sm font-semibold text-fjord-fg-secondary mt-8 mb-1">First-run setup</h3>
         <p class="text-xs text-fjord-fg-dim mb-3">Storage, Homelab folder presets, catalog and the quick guide, as shown on first launch. Nothing is reset; it only walks through the same settings again.</p>

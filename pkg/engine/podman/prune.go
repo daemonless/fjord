@@ -136,7 +136,8 @@ var reclaimedRe = regexp.MustCompile(`(?i)Total reclaimed space:\s*(.+)`)
 // PruneCapabilities: podman can prune every category.
 // Capabilities: podman mounts nfs:// / smb:// folders as named volumes.
 func (b *Backend) Capabilities() engine.Capabilities {
-	return engine.Capabilities{RemoteVolumes: true, NetworkKinds: b.networkKinds(), NetworkNote: b.networkNote(), NetworkRemove: true, UpdateServices: true, UpdateDependents: true, PinServices: true}
+	return engine.Capabilities{RemoteVolumes: true, NetworkKinds: b.networkKinds(), NetworkNote: b.networkNote(), NetworkRemove: true, UpdateServices: true, UpdateDependents: true, PinServices: true,
+		RestartPolicies: []string{"unless-stopped", "always", "on-failure", "no"}, RestartOnExit: true}
 }
 
 func (b *Backend) PruneCapabilities() engine.PruneCapabilities {

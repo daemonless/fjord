@@ -42,6 +42,10 @@ type savedSettings struct {
 	// to decide per row whether "Default" meant the shared one or this
 	// engine's, which is two meanings on one button.
 	DefaultNetworkFor map[string]string `json:"defaultNetworkFor,omitempty"`
+	// DefaultRestartFor is the restart policy new installs take, per engine
+	// (each offers its own; see engine.Capabilities), as compose spells it;
+	// none = unless-stopped.
+	DefaultRestartFor map[string]string `json:"defaultRestartFor,omitempty"`
 	CatalogRefresh    string            `json:"catalogRefresh,omitempty"` // automatic catalog refresh: off | 1h | 6h (default) | 24h
 	SetupDone         bool              `json:"setupDone,omitempty"`      // first-run setup wizard finished (or skipped)
 	// The default catalog was added once on first run. Never re-added after

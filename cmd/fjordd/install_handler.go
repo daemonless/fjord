@@ -163,6 +163,8 @@ type installRequest struct {
 	// choice left out takes its default, so an older client answers nothing
 	// and gets the compose as it stands.
 	Choices map[string]string `json:"choices,omitempty"`
+	// Restart is the stack's restart policy; nil takes the Settings default.
+	Restart *composepkg.Restart `json:"restart,omitempty"`
 }
 
 // handleInstall installs a catalog app end-to-end: resolve wizard input,
@@ -499,6 +501,30 @@ func (s *server) handleInstall(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// A new install takes one policy, the wizard's or the Settings default,
+	// whatever the catalog wrote: its composes say always or unless-stopped
+	// by habit, and a database a choice added says always beside an app that
+	// says unless-stopped. One answer per stack, changed on the stack page.
+	// On an engine that restarts on exit it goes in the compose; on one that
+	// does not, in the state below.
+	var restartState string
+	if be, ok := s.backend(cmp.Or(req.Engine, s.defaultEngine())); ok && len(be.Capabilities().RestartPolicies) > 0 {
+		caps := be.Capabilities()
+		policy := defaultRestartFor(loadSettings(s.fjordRoot), cmp.Or(req.Engine, s.defaultEngine()), caps)
+		if req.Restart != nil {
+			r, err := checkRestart(*req.Restart, caps)
+			if err != nil {
+				http.Error(w, err.Error(), 400)
+				return
+			}
+			policy = r
+		}
+		if !caps.RestartOnExit {
+			restartState = policy.String()
+		} else if set, err := composepkg.SetRestart(composeYAML, policy); err == nil {
+			composeYAML = set
+		}
+	}
 	// Persist the catalog's web-endpoint hint in the saved compose (compose on
 	// disk is the source of truth; podman-compose ignores x-* keys). Without it
 	// host-net stacks have no discoverable web link -- nothing is published.
@@ -591,6 +617,7 @@ func (s *server) handleInstall(w http.ResponseWriter, r *http.Request) {
 		Origin:       stack.OriginInfo{Type: "catalog", AppID: req.AppID},
 		DesiredState: "running",
 		Engine:       eng,
+		Restart:      restartState,
 		DisplayName:  strings.TrimSpace(req.Name),
 		Choices:      answers,
 		SecretSums:   installSecretSums(m, res.Env),
