@@ -387,10 +387,15 @@ func startOnBoot(srv *server) {
 			log.Printf("start-on-boot: load %s: %v", s.Name, err)
 			continue
 		}
-		// An engine that does not take fjord's policy (appjail, until its
-		// half lands) keeps the old rule: up when it was running.
+		// A stack with no policy keeps the old rule: up when it was running.
 		restarts := srv.bootRestarts(full)
 		if !bootStart(s.State.DesiredState, restarts, booted) {
+			if booted && s.State.DesiredState == "running" {
+				// Left down by its policy (Don't restart), not broken: say it
+				// is stopped, or the page reads it as a stack that failed.
+				log.Printf("start-on-boot: %s: not started, its restart policy is no", s.Name)
+				srv.manager.SetDesiredState(s.Name, "stopped")
+			}
 			continue
 		}
 		if s.State.DesiredState == "stopped" {

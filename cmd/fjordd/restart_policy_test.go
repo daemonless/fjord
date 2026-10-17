@@ -205,3 +205,22 @@ func TestDefaultRestartFor(t *testing.T) {
 		}
 	}
 }
+
+// At a host boot a stack its policy leaves down (Don't restart) is recorded
+// as stopped: it is not a stack that failed to come up.
+func TestStartOnBootLeftDownIsStopped(t *testing.T) {
+	s := restartFixture(t, onExit)
+	if rec := postRestart(s, `{"policy":"no"}`); rec.Code != http.StatusOK {
+		t.Fatalf("%d %s", rec.Code, rec.Body)
+	}
+	if err := s.manager.SetDesiredState("gitea", "running"); err != nil {
+		t.Fatal(err)
+	}
+	old := bootMarker
+	bootMarker = filepath.Join(t.TempDir(), "fjordd.booted") // absent: a host boot
+	defer func() { bootMarker = old }()
+	startOnBoot(s)
+	if st, _ := s.manager.LoadState("gitea"); st == nil || st.DesiredState != "stopped" {
+		t.Fatalf("desired = %+v, want stopped", st)
+	}
+}
