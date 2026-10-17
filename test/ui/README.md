@@ -67,6 +67,7 @@ wire.
 | matrix | the network matrix: DHCP, pool, static, bridge, on podman and AppJail | t-* (KEEPs t-br for the port check) |
 | multi | one app on two networks, via the wizard and the Services tab | t-m2, t-j2, t-ms, t-js, t-na, t-nb |
 | extra | Setup, a multi-service stack on both engines, Adopt | t-adopt and paperless copies |
+| restart | the restart chip on a stack's page: a new podman install restarts unless stopped, an AppJail install starts at boot and its chip offers only the boot choices, Don't start at boot saved and kept; each policy saved, applied, in the compose and shown after a reload; a crash left down under Don't restart (crash restarts under the others SKIP while podman cannot restart a crashed container with a published port) | t-restart, t-restart-aj |
 | lnms-admin | opt-in: LibreNMS's admin password is honoured as given (needs a librenms image from 2026-09-30 or later) | t-lnms |
 
 Not here: `wire-persist` (the warning kept across a restart) needs the

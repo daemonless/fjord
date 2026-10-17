@@ -13,6 +13,8 @@
   import ServiceResources from './ServiceResources.svelte';
   import { appjailMissing, askValue, chosenServices, choiceVars, isToggle, pickedPhrase } from './choices';
   import { resolveDefault, seedInterfaces, splitPlan, joinable, keepAttachable, addressesNeeded, type Iface } from './planSeed';
+  import RestartChoice from './RestartChoice.svelte';
+  import { DEFAULT_RETRIES } from './restartPolicy';
 
   // sources: every catalog offering this app; the user picks one (Repository)
   // when there's more than one. Each carries its own manifest_url + variants.
@@ -110,7 +112,24 @@
   // Host-mode fjordd can browse the host filesystem; a container can't.
   let hostMode = false;
   // Runtime engines available for this install (podman, appjail, ...).
-  let engines: { name: string; available: boolean; default: boolean; warning?: string }[] = [];
+  let engines: { name: string; available: boolean; default: boolean; warning?: string; restartPolicies?: string[]; restartOnExit?: boolean }[] = [];
+  // The restart policy, from the engine's choices, starting from its default
+  // in Settings; picking another engine starts again from that one's. An
+  // engine that offers none installs without one.
+  type RestartDefault = { policy: string; retries?: number };
+  let restartDefaults: Record<string, RestartDefault> = {};
+  let restartPolicy = 'unless-stopped';
+  let restartRetries = DEFAULT_RETRIES;
+  let restartFor = '';
+  $: restartEngine = engines.find((e) => e.name === engineChoice);
+  $: restartPolicies = restartEngine?.restartPolicies ?? [];
+  $: restartOnExit = !!restartEngine?.restartOnExit;
+  function restartFromDefault(eng: string) {
+    restartFor = eng;
+    restartPolicy = restartDefaults[eng]?.policy || 'unless-stopped';
+    restartRetries = restartDefaults[eng]?.retries || DEFAULT_RETRIES;
+  }
+  $: if (engineChoice && engineChoice !== restartFor) restartFromDefault(engineChoice);
   let engineChoice = '';
   $: availableEngines = engines.filter((e) => e.available);
   // Until the engine list answers, the summary said "podman" and Install
@@ -119,6 +138,14 @@
   // wrong one. Asked at once, the pick kept, Install held until it is known.
   let enginesKnown = false;
   onMount(() => {
+    fetch('/api/settings/restart')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((d) => {
+        if (!d) return;
+        restartDefaults = d;
+        if (engineChoice) restartFromDefault(engineChoice);
+      })
+      .catch(() => {}); // unless-stopped
     fetch('/api/settings/wizard')
       .then((res) => (res.ok ? res.json() : null))
       .then((d) => {
@@ -845,6 +872,7 @@
       networks: plan?.networks,
       networkModes: plan?.modes,
       choices: picks,
+      restart: restartPolicies.includes(restartPolicy) ? { policy: restartPolicy, retries: restartPolicy === 'on-failure' ? restartRetries : 0 } : undefined,
     });
   }
 
@@ -1309,6 +1337,19 @@
                   {@render macField()}
                 {/if}
               {/if}
+            </div>
+
+            <div class="flex flex-col gap-1">
+              <label class="text-sm font-semibold text-fjord-fg-secondary" for="restart">{restartOnExit || !restartPolicies.length ? 'Restart' : 'At boot'}</label>
+              <RestartChoice
+                id="restart"
+                policies={restartPolicies}
+                onExit={restartOnExit}
+                bind:policy={restartPolicy}
+                bind:retries={restartRetries}
+                disabled={!restartPolicies.length}
+                note="{engineChoice || 'This engine'} does not take a restart policy from fjord."
+              />
             </div>
 
               {#if advancedVars.length || availableEngines.length > 1 || variants.length}

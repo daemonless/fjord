@@ -216,6 +216,7 @@ func (s *server) routes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/compose/mounts", s.handleComposeMounts)
 	mux.HandleFunc("/api/settings/storage", s.handleStorageSettings)
 	mux.HandleFunc("/api/settings/wizard", s.handleWizardSettings)
+	mux.HandleFunc("/api/settings/restart", s.handleRestartSettings)
 	mux.HandleFunc("/api/settings/network", s.handleDefaultNetwork)
 	mux.HandleFunc("/api/settings/catalog-refresh", s.handleCatalogRefreshSettings)
 	mux.HandleFunc("/api/setup/state", s.handleSetupState)
@@ -305,6 +306,17 @@ type stackWithStatus struct {
 	// a mode. Putting it on one does not throw the addresses away, the same
 	// way it does not throw the published ports away.
 	StashedNetworks []compose.Attachment `json:"stashedNetworks,omitempty"`
+	// Restart is the stack's restart policy, and whether its engine takes one
+	// from fjord.
+	Restart restartView `json:"restart"`
+}
+
+// restartView is a stack's restart policy for the stack page, with what its
+// engine offers.
+type restartView struct {
+	compose.StackRestart
+	Policies []string `json:"policies"`
+	OnExit   bool     `json:"onExit"`
 }
 
 // buildEnv renders resolved variables into .env lines, sorted for determinism.

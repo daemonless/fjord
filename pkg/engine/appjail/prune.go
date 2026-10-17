@@ -29,6 +29,10 @@ func (b *Backend) Capabilities() engine.Capabilities {
 		// A subset, yes; pins and rollback, not yet: director never reads
 		// the compose they are written in.
 		UpdateServices: true,
+		// Boot only: a jail stays up after its app exits (persist, which its
+		// start needs), so nothing can tell it to come back. fjord's start on
+		// boot follows these.
+		RestartPolicies: []string{"unless-stopped", "always", "no"},
 	}
 }
 

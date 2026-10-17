@@ -116,7 +116,8 @@ func (s *server) handleStacksList(w http.ResponseWriter, r *http.Request) {
 		row := stackWithStatus{Stack: st, Status: status, Networks: atts, Busy: busyWith(st.Name),
 			NetworkMode: composepkg.NetworkMode(st.Compose),
 			Services:    svcs,
-			LinkHost:    linkHost(svcs, ownAddress)}
+			LinkHost:    linkHost(svcs, ownAddress),
+			Restart:     s.restartViewOf(st)}
 		// The legacy single-network fields. With per-service networking they
 		// are an arbitrary pick among several, so nothing new should read them
 		// -- Services carries the truth, and LinkHost the one answer the UI
@@ -214,6 +215,8 @@ func (s *server) handleStackRoutes(w http.ResponseWriter, r *http.Request) {
 		s.stackRename(w, r, name)
 	case "policy":
 		s.stackPolicy(w, r, name)
+	case "restart-policy":
+		s.stackRestart(w, r, name)
 	case "rollback":
 		s.stackRollback(w, r, name)
 	case "unpin":
@@ -262,6 +265,7 @@ func (s *server) stackDetail(w http.ResponseWriter, r *http.Request, name string
 		// What it was on before the mode, so the picker can offer it back
 		// rather than making the user retype addresses that are still here.
 		StashedNetworks: composepkg.StashedNetworks(st.Compose),
+		Restart:         s.restartViewOf(st),
 	})
 }
 

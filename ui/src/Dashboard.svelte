@@ -8,6 +8,7 @@
   import { expandVars } from './expand';
   import { appUrl } from './appUrl';
   import { serviceLinks } from './serviceLinks';
+  import { restartShort, restartTitle, type StackRestart } from './restartPolicy';
 
   type ContainerStatus = {
     name: string;
@@ -16,7 +17,7 @@
     address?: string; // the container's own IP on an attachable network
   };
   type StackStatus = { state: string; containers: ContainerStatus[] };
-  type Stack = { name: string; displayName?: string; icon?: string; compose?: string; env?: string; services?: { name: string; address?: string }[]; status?: StackStatus; state?: { origin?: { type?: string; app_id?: string }; engine?: string; desired_state?: string } };
+  type Stack = { name: string; displayName?: string; icon?: string; compose?: string; env?: string; services?: { name: string; address?: string }[]; status?: StackStatus; state?: { origin?: { type?: string; app_id?: string }; engine?: string; desired_state?: string }; restart?: StackRestart };
   export let stacks: Stack[] = [];
   // Fleet-wide update state, fetched once by the app shell (server-cached).
   export let fleet: Record<string, any> = {};
@@ -178,6 +179,12 @@
             <div class="flex items-center gap-2 text-xs text-fjord-fg-muted w-24 shrink-0">
               <span class="w-2 h-2 rounded-full {DOT[label(s.status)]}"></span>
               <span class="capitalize">{label(s.status)}</span>
+            </div>
+            <!-- restart policy, as the stack page's chip says it -->
+            <div class="flex items-center gap-1 text-xs text-fjord-fg-dim w-36 shrink-0 truncate" title={restartTitle(s.restart)}>
+              {#if s.restart}<Icon name={s.restart.onExit || !s.restart.policies.length ? 'restart' : 'power'} size={11} /><span class="truncate"
+                  >{restartShort(s.restart)}</span
+                >{/if}
             </div>
             <!-- update badge -->
             <div class="w-32 shrink-0 text-center">

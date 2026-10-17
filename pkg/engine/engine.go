@@ -474,6 +474,13 @@ type Capabilities struct {
 	// pin written there takes effect -- an image digest (rollback, a
 	// service's own version) or an address.
 	PinServices bool `json:"pinServices"`
+	// RestartPolicies are the restart policies a stack on this engine can
+	// take, as compose spells them (unless-stopped, always, on-failure, no);
+	// none means fjord sets none. RestartOnExit: the engine itself restarts a
+	// service that exits, from the compose's `restart:`. Without it a policy
+	// only decides what fjord starts at boot, and lives in the stack's state.
+	RestartPolicies []string `json:"restartPolicies,omitempty"`
+	RestartOnExit   bool     `json:"restartOnExit,omitempty"`
 }
 
 // PruneReport summarizes a prune run: a human total and the raw command output.

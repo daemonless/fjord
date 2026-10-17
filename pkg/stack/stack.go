@@ -58,6 +58,9 @@ type State struct {
 	AppVersion    string            `json:"app_version,omitempty"`
 	InstalledAt   string            `json:"installed_at"`
 	UpdatedAt     string            `json:"updated_at"`
+	// Restart is the restart policy of a stack whose engine does not read the
+	// compose's `restart:` (AppJail): only start on boot follows it.
+	Restart string `json:"restart,omitempty"`
 	// Rollback is, per service, the image the last update replaced -- what
 	// "Roll back" returns to, and what "Unpin" restores the compose from.
 	Rollback map[string]RollbackImage `json:"rollback,omitempty"`
