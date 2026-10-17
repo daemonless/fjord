@@ -68,6 +68,15 @@ func platform(cfg Config) platformInfo {
 			Pkg:   map[string]string{"freebsd": "conmon"},
 		},
 		{
+			ID: "fdescfs", Name: "crash restarts with published ports (fdescfs on /dev/fd)", Engine: "podman", HostOnly: true,
+			Probe:    fdescProbe("/dev/fd"),
+			Install:  mountFdesc("/dev/fd", "/etc/fstab"),
+			Commands: fdescCommands,
+			Action:   "Mount fdescfs on /dev/fd",
+			Why:      "conmon holds a container's published ports and closes them when the container exits, finding them through /dev/fd. Without fdescfs mounted there, a crashed container that publishes a port is never restarted: the restart finds its own port still taken.",
+			Fix:      strings.Join(fdescCommands, "\n"),
+		},
+		{
 			ID: "ocijail", Name: "ocijail runtime", Engine: "podman", HostOnly: true,
 			Probe: ocijailProbe,
 			Why:   "The OCI runtime that turns a container into a FreeBSD jail; podman cannot start anything without it.",
@@ -800,4 +809,84 @@ func localtimeProbe(path string) func(context.Context) (Status, string) {
 		}
 		return OK, "set"
 	}
+}
+
+// fdescCommands mount fdescfs on /dev/fd now and at every boot.
+var fdescCommands = []string{
+	"mount -t fdescfs fdesc /dev/fd",
+	"echo 'fdesc /dev/fd fdescfs rw 0 0' >> /etc/fstab",
+}
+
+// fdescProbe asks /dev/fd what conmon asks it: does it list a file this
+// process has open? Without fdescfs it lists only 0-2. Looking for fdescfs in
+// the mount table is not enough: one mounted elsewhere (/compat/linux/dev/fd)
+// does not help.
+func fdescProbe(dir string) func(context.Context) (Status, string) {
+	return func(context.Context) (Status, string) {
+		f, err := os.Open(os.DevNull)
+		if err != nil {
+			return Unknown, err.Error()
+		}
+		defer f.Close()
+		ents, err := os.ReadDir(dir)
+		if err != nil {
+			return Unknown, err.Error()
+		}
+		want := strconv.Itoa(int(f.Fd()))
+		for _, e := range ents {
+			if e.Name() == want {
+				return OK, "fdescfs is mounted on " + dir
+			}
+		}
+		return Warn, dir + " lists only stdin, stdout and stderr: fdescfs is not mounted there"
+	}
+}
+
+// mountFdesc mounts fdescfs on dir when it is not already, and adds the
+// fstab line when it is missing.
+func mountFdesc(dir, fstab string) func(context.Context, io.Writer) error {
+	return func(ctx context.Context, w io.Writer) error {
+		if st, _ := fdescProbe(dir)(ctx); st != OK {
+			if err := runShown(ctx, w, nil, "mount", "-t", "fdescfs", "fdesc", dir); err != nil {
+				return err
+			}
+		}
+		return addFdescFstab(w, dir, fstab)
+	}
+}
+
+// addFdescFstab adds the fstab line mounting fdescfs on dir, once.
+func addFdescFstab(w io.Writer, dir, fstab string) error {
+	b, err := os.ReadFile(fstab)
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	if fstabMounts(string(b), dir, "fdescfs") {
+		return nil
+	}
+	line := "fdesc\t" + dir + "\t\tfdescfs\trw\t0\t0\n"
+	if len(b) > 0 && b[len(b)-1] != '\n' {
+		line = "\n" + line
+	}
+	fmt.Fprintf(w, "$ echo 'fdesc %s fdescfs rw 0 0' >> %s\n", dir, fstab)
+	f, err := os.OpenFile(fstab, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0o644)
+	if err != nil {
+		return err
+	}
+	if _, err := f.WriteString(line); err != nil {
+		f.Close()
+		return err
+	}
+	return f.Close()
+}
+
+// fstabMounts reports whether fstab has an active line mounting fstype on dir.
+func fstabMounts(fstab, dir, fstype string) bool {
+	for _, l := range strings.Split(fstab, "\n") {
+		f := strings.Fields(l)
+		if len(f) >= 3 && !strings.HasPrefix(f[0], "#") && f[1] == dir && f[2] == fstype {
+			return true
+		}
+	}
+	return false
 }
