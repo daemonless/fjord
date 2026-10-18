@@ -75,6 +75,41 @@ func TestKeepAddressesSkipsATakenAddress(t *testing.T) {
 	}
 }
 
+// The type test on netlab: an install's stream runs on through its stay-up
+// watch, and host networking saved meanwhile was overwritten at its end by
+// the install-time copy, with the address pinned on top.
+func TestKeepAddressesKeepsASaveMadeSince(t *testing.T) {
+	s := clashFixture(t)
+	s.backends["podman"].(liveEngine).held["web"] = map[string]map[string]string{"web": {"vlan5": "192.168.5.30"}}
+	dir := filepath.Join(s.manager.StacksDir, "web")
+	os.MkdirAll(dir, 0o755)
+	os.WriteFile(filepath.Join(dir, "compose.yaml"), []byte("services:\n  web:\n    image: x\n    networks:\n      - vlan5\nnetworks:\n  vlan5:\n    external: true\n"), 0o644)
+	os.WriteFile(filepath.Join(dir, "state.json"), []byte(`{"schema_version":1,"engine":"podman"}`), 0o644)
+	stale, _ := s.manager.Get("web")
+	onVlan := stale.Compose
+
+	saved := "services:\n  web:\n    image: x\n    network_mode: host\n"
+	if err := s.manager.Save(&stack.Stack{Name: "web", Compose: saved, Env: "A=1\n"}); err != nil {
+		t.Fatal(err)
+	}
+	if kept, _ := s.keepAddresses(context.Background(), stale); len(kept) != 0 {
+		t.Errorf("pinned on networks the stack has left: %v", kept)
+	}
+	if after, _ := s.manager.Get("web"); after.Compose != saved || after.Env != "A=1\n" {
+		t.Errorf("the save was overwritten:\n%s\nenv %q", after.Compose, after.Env)
+	}
+
+	// Still on vlan5: the pin lands in the compose as saved, not in the copy.
+	s.manager.Save(&stack.Stack{Name: "web", Compose: strings.Replace(onVlan, "image: x", "image: y", 1)})
+	stale.Compose = onVlan
+	if kept, _ := s.keepAddresses(context.Background(), stale); len(kept) != 1 {
+		t.Errorf("kept: %v", kept)
+	}
+	if after, _ := s.manager.Get("web"); !strings.Contains(after.Compose, "image: y") || !strings.Contains(after.Compose, "ipv4_address: 192.168.5.30") {
+		t.Errorf("pin not on the saved compose:\n%s", after.Compose)
+	}
+}
+
 // A stack pinning what another stack holds, pinned or not, is a clash --
 // what pre-flight and Save refuse.
 func TestClashesPinnedAndLive(t *testing.T) {
