@@ -99,3 +99,40 @@ func TestUpdateAfterDeleteIsNotFound(t *testing.T) {
 		t.Errorf("stack dir came back: %v", err)
 	}
 }
+
+// Once a delete has begun, Replace writes nothing; after it, Replace finds
+// no stack and the directory stays gone. Save brought the stack back.
+func TestReplaceRefusesADeletedStack(t *testing.T) {
+	dir := t.TempDir()
+	m := NewManager(dir)
+	m.Save(&Stack{Name: "s", Compose: "services: {}\n"})
+	m.SetDesiredState("s", "deleting")
+	if err := m.Replace(&Stack{Name: "s", Compose: "changed\n"}); !errors.Is(err, ErrDeleting) {
+		t.Errorf("deleting: err %v", err)
+	}
+	if st, _ := m.Get("s"); st.Compose != "services: {}\n" {
+		t.Errorf("written while deleting: %q", st.Compose)
+	}
+	if err := m.Delete("s"); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Replace(&Stack{Name: "s", Compose: "back\n"}); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("deleted: err %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "s")); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("stack dir came back: %v", err)
+	}
+}
+
+// A stack that is not being deleted is replaced as Save would.
+func TestReplaceWrites(t *testing.T) {
+	m := NewManager(t.TempDir())
+	m.Save(&Stack{Name: "s", Compose: "services: {}\n"})
+	m.SetDesiredState("s", "running")
+	if err := m.Replace(&Stack{Name: "s", Compose: "changed\n"}); err != nil {
+		t.Fatal(err)
+	}
+	if st, _ := m.Get("s"); st.Compose != "changed\n" {
+		t.Errorf("compose %q", st.Compose)
+	}
+}

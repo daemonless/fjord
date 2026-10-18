@@ -21,6 +21,9 @@ var validName = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
 // ErrInvalidName is returned when a stack name fails validName.
 var ErrInvalidName = fmt.Errorf("invalid stack name")
 
+// ErrDeleting is Replace refusing a stack whose delete has begun.
+var ErrDeleting = fmt.Errorf("stack is being deleted")
+
 // ValidName reports whether name is safe to use as a stack directory / volume
 // path component (no traversal, no separators). Callers that build host paths
 // from a caller-supplied name must check this first.
@@ -276,6 +279,29 @@ func (m *Manager) Save(stack *Stack) error {
 		return ErrInvalidName
 	}
 	defer lockIn(&m.fileLocks, stack.Name)()
+	return m.save(stack)
+}
+
+// Replace is Save for a stack that is already there: it writes nothing once
+// the stack's delete has begun (desired state "deleting", set before the
+// teardown) or its directory is gone. Save there brought a deleted stack
+// back: a delete stops the stack first, which can take minutes, and an
+// editor's save in that time wrote compose.yaml after the delete removed it.
+func (m *Manager) Replace(stack *Stack) error {
+	if !ValidName(stack.Name) {
+		return ErrInvalidName
+	}
+	defer lockIn(&m.fileLocks, stack.Name)()
+	if _, err := os.Stat(filepath.Join(m.StacksDir, stack.Name)); err != nil {
+		return err
+	}
+	st, err := m.LoadState(stack.Name)
+	if err != nil {
+		return err
+	}
+	if st != nil && st.DesiredState == "deleting" {
+		return ErrDeleting
+	}
 	return m.save(stack)
 }
 

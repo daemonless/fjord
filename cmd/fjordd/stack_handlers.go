@@ -754,8 +754,15 @@ func (s *server) stackSave(w http.ResponseWriter, r *http.Request, name string) 
 		http.Error(w, "not saved: "+strings.Join(c, "; "), 409)
 		return
 	}
-	if err := s.manager.Save(st); err != nil {
-		http.Error(w, err.Error(), 500)
+	save := s.manager.Save
+	if !created {
+		save = s.manager.Replace
+	}
+	if err := save(st); err != nil {
+		if errors.Is(err, stack.ErrDeleting) {
+			err = httpError{http.StatusConflict, name + " is being deleted; not saved"}
+		}
+		replyErr(w, err)
 		return
 	}
 	// Save has just written the director; the templates it references need
