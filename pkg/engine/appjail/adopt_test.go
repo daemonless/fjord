@@ -149,3 +149,20 @@ func TestConvertJailQuotesLiteralEnv(t *testing.T) {
 		t.Errorf("reference was quoted:\n%s", spec.Compose)
 	}
 }
+
+// What `jail get -Ipt <jail> networks network_ip4` prints (appjail 5.7.0 on
+// netlab). The header is what -H used to add: read as data, it became a
+// virtualnet on "NETWORKS" at "NETWORK_IP4".
+func TestJailNetwork(t *testing.T) {
+	for _, c := range []struct{ out, network, address string }{
+		{"ajnet 10.0.0.3", "ajnet", "10.0.0.3"},
+		{"ajnet,other 10.0.0.3,10.1.0.2", "ajnet", "10.0.0.3"},
+		{"ajnet -", "ajnet", ""},
+		{"", "", ""},
+		{"- -", "", ""},
+	} {
+		if n, a := jailNetwork(c.out); n != c.network || a != c.address {
+			t.Errorf("%q: got %q %q, want %q %q", c.out, n, a, c.network, c.address)
+		}
+	}
+}
