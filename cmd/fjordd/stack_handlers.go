@@ -886,15 +886,19 @@ func (s *server) stackSetTag(w http.ResponseWriter, r *http.Request, name string
 				return
 			}
 		}
-		st.Compose, st.Env = newCompose, newEnv
-		// And where appjail reads it: the service's from:, or the Makejail's
-		// tag argument, pin included.
-		if err := directorFollowsCompose(st, []string{body.Service}); err != nil {
-			http.Error(w, "director: "+err.Error(), 400)
-			return
-		}
-		if err := s.manager.Save(st); err != nil {
-			http.Error(w, err.Error(), 500)
+		if _, err := s.manager.Update(name, func(fresh *stack.Stack) error {
+			if err := unchangedSince(fresh, st); err != nil {
+				return err
+			}
+			fresh.Compose, fresh.Env = newCompose, newEnv
+			// And where appjail reads it: the service's from:, or the
+			// Makejail's tag argument, pin included.
+			if err := directorFollowsCompose(fresh, []string{body.Service}); err != nil {
+				return httpError{400, "director: " + err.Error()}
+			}
+			return nil
+		}); err != nil {
+			replyErr(w, err)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -929,17 +933,21 @@ func (s *server) stackSetTag(w http.ResponseWriter, r *http.Request, name string
 			return
 		}
 	}
-	st.Compose, st.Env = newCompose, newEnv
-	// And where appjail will read it. Setting only the compose left the jail
-	// on whatever ${tag} defaults to, so the version on screen and the version
-	// running were different numbers. A pin goes along: the digest, not just
-	// the tag.
-	if err := directorFollowsCompose(st, nil); err != nil {
-		http.Error(w, "director: "+err.Error(), 400)
-		return
-	}
-	if err := s.manager.Save(st); err != nil {
-		http.Error(w, err.Error(), 500)
+	if _, err := s.manager.Update(name, func(fresh *stack.Stack) error {
+		if err := unchangedSince(fresh, st); err != nil {
+			return err
+		}
+		fresh.Compose, fresh.Env = newCompose, newEnv
+		// And where appjail will read it. Setting only the compose left the
+		// jail on whatever ${tag} defaults to, so the version on screen and
+		// the version running were different numbers. A pin goes along: the
+		// digest, not just the tag.
+		if err := directorFollowsCompose(fresh, nil); err != nil {
+			return httpError{400, "director: " + err.Error()}
+		}
+		return nil
+	}); err != nil {
+		replyErr(w, err)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -1438,16 +1446,30 @@ func (s *server) directorSetTag(ctx context.Context, w http.ResponseWriter, st *
 		}
 		img += "@" + digest
 	}
-	if err := setServiceImage(st, service, img); err != nil {
-		http.Error(w, err.Error(), 400)
-		return
-	}
-	if err := s.manager.Save(st); err != nil {
-		http.Error(w, err.Error(), 500)
+	if _, err := s.manager.Update(st.Name, func(fresh *stack.Stack) error {
+		if err := unchangedSince(fresh, st); err != nil {
+			return err
+		}
+		if err := setServiceImage(fresh, service, img); err != nil {
+			return httpError{400, err.Error()}
+		}
+		return nil
+	}); err != nil {
+		replyErr(w, err)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.Write([]byte(`{"status":"ok"}`))
+}
+
+// unchangedSince refuses a change worked out from snap when the stack has
+// been saved since. Set tag asks the registry first (up to 30s, outside the
+// lock); writing its answer over a save made meanwhile would undo that save.
+func unchangedSince(fresh, snap *stack.Stack) error {
+	if fresh.Compose != snap.Compose || fresh.Env != snap.Env || fresh.Director != snap.Director {
+		return httpError{http.StatusConflict, fresh.Name + " was changed while fjord looked up that version; try again"}
+	}
+	return nil
 }
 
 // stackDismissFailure forgets the stack's last failure. Without it Dismiss
