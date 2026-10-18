@@ -238,6 +238,7 @@ func (s *server) routes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/volumes/smb-credentials", s.handleSMBCredentials)
 	mux.HandleFunc("/api/volumes/", s.handleVolumeDelete)
 	mux.HandleFunc("/api/apps/install", s.handleInstall)
+	mux.HandleFunc("/api/apps/size", s.handleInstallSize)
 	mux.HandleFunc("/api/adopt", s.handleAdopt)
 	mux.HandleFunc("/api/stacks", s.handleStacksList)
 	mux.HandleFunc("/api/stacks/reorder", s.handleReorder) // exact match beats the subtree below

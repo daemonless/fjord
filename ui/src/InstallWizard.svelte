@@ -14,6 +14,7 @@
   import { appjailMissing, askValue, chosenServices, choiceVars, isToggle, pickedPhrase } from './choices';
   import { resolveDefault, seedInterfaces, splitPlan, joinable, keepAttachable, addressesNeeded, type Iface } from './planSeed';
   import RestartChoice from './RestartChoice.svelte';
+  import { sizeWords, SIZE_NOTE, type SizeAnswer } from './installSize';
   import { DEFAULT_RETRIES } from './restartPolicy';
 
   // sources: every catalog offering this app; the user picks one (Repository)
@@ -318,6 +319,36 @@
   }
   // Non-default answers, in words, for the summary line.
   $: pickedWords = pickedPhrase(choices, picks);
+
+  // What the install downloads, for the summary line. fjordd resolves the
+  // images as install does, so it follows the choices, the tag and the
+  // image_tag fields; asked a moment after they settle.
+  let size: SizeAnswer | null = null;
+  let sizeAsked = '';
+  let sizeTimer: ReturnType<typeof setTimeout> | undefined;
+  $: sizeBody = JSON.stringify({
+    manifest: manifestText,
+    app_id: appId,
+    tag: appClass === 'stack' ? '' : tag.trim(),
+    choices: picks,
+    engine: engineChoice,
+    values: Object.fromEntries(tagVars.map((v) => [v.name, formData[v.name] ?? ''])),
+  });
+  $: if (manifestText && enginesKnown && sizeBody !== sizeAsked) {
+    sizeAsked = sizeBody;
+    clearTimeout(sizeTimer);
+    sizeTimer = setTimeout(() => askSize(sizeBody), 400);
+  }
+  async function askSize(body: string) {
+    try {
+      const res = await fetch('/api/apps/size', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body });
+      const answer: SizeAnswer | null = res.ok ? await res.json() : null;
+      if (body === sizeAsked) size = answer;
+    } catch {
+      if (body === sizeAsked) size = null; // no size said is no error
+    }
+  }
+  $: sizeLine = sizeWords(size);
   $: tagVars = variables.filter((v) => v.type === 'image_tag' && v.image);
 
   // Progressive disclosure, three levels (placement only; whether a field may
@@ -1101,13 +1132,24 @@
 
           {#each primaryVars as v}{@render varField(v)}{/each}
 
-          <!-- the defaults being accepted, in one line; Options is one click -->
-          <div class="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-fjord-fg-muted border-t border-fjord-border pt-4">
-            <span>
-              Installs <b class="text-fjord-fg-body">{appName} {summaryVersion}</b>{#if summaryTrain}{' '}({summaryTrain}){/if}
-              on <b class="text-fjord-fg-body">{engineChoice || (enginesKnown ? 'the default engine' : 'checking engines…')}</b>{#if pickedWords}, <b class="text-fjord-fg-body">{pickedWords}</b>{/if}
-              · data in <span class="font-mono text-fjord-fg-secondary">{storageBase}/{folderOf(stackName, appId || 'app')}</span>
-            </span>
+          <!-- the defaults being accepted, one fact a row; Options is one click -->
+          <div class="flex flex-wrap items-end gap-x-4 gap-y-2 text-sm border-t border-fjord-border pt-4">
+            <dl class="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 min-w-0" data-install-summary>
+              <dt class="text-fjord-fg-dim">Version</dt>
+              <dd class="text-fjord-fg-body min-w-0"><b>{summaryVersion}</b>{#if summaryTrain}<span class="text-fjord-fg-muted"> · {summaryTrain}</span>{/if}</dd>
+              <dt class="text-fjord-fg-dim">Engine</dt>
+              <dd class="text-fjord-fg-body">{engineChoice || (enginesKnown ? 'the default engine' : 'checking engines…')}</dd>
+              {#if pickedWords}
+                <dt class="text-fjord-fg-dim">With</dt>
+                <dd class="text-fjord-fg-body">{pickedWords}</dd>
+              {/if}
+              <dt class="text-fjord-fg-dim">Data</dt>
+              <dd class="font-mono text-fjord-fg-secondary break-all">{storageBase}/{folderOf(stackName, appId || 'app')}</dd>
+              {#if sizeLine}
+                <dt class="text-fjord-fg-dim">Download</dt>
+                <dd class="text-fjord-fg-body" title={SIZE_NOTE} data-install-size>{sizeLine}</dd>
+              {/if}
+            </dl>
             <button
               type="button"
               on:click={() => (showOptions = !showOptions)}

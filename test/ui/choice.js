@@ -41,8 +41,8 @@ const note = (id, ok, msg) => console.log(`${ok ? 'PASS' : 'FAIL'} ${id}: ${msg}
 
     await page.getByRole('radio', { name: 'PostgreSQL' }).click();
     await sleep(300);
-    const summary = (await body()).split('\n').find((l) => l.startsWith('Installs')) || '';
-    note('summary', /postgresql/i.test(summary), summary || 'no summary line');
+    const summary = (await page.locator('[data-install-summary]').innerText().catch(() => '')).replace(/\s+/g, ' ');
+    note('summary', /postgresql/i.test(summary), summary || 'no summary');
 
     await page.getByLabel('Name').fill(NAME);
     if (!(await page.locator('#WEB_PORT').isVisible().catch(() => false))) await page.getByRole('button', { name: /^Options/ }).first().click();
