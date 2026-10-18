@@ -178,6 +178,10 @@ type Manager struct {
 	// records its rollback) otherwise both load the old file and the second
 	// save drops the first one's field.
 	locks sync.Map
+	// fileLocks holds a *sync.Mutex per stack, taken across each write of
+	// its files, so UpdateCompose's read-change-write cannot interleave with
+	// a Save.
+	fileLocks sync.Map
 }
 
 // NewManager initializes a new stack manager.
@@ -268,6 +272,7 @@ func (m *Manager) Save(stack *Stack) error {
 	if !ValidName(stack.Name) {
 		return ErrInvalidName
 	}
+	defer lockIn(&m.fileLocks, stack.Name)()
 	dir := filepath.Join(m.StacksDir, stack.Name)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return fmt.Errorf("failed to create stack directory: %w", err)
@@ -520,9 +525,34 @@ func (m *Manager) UpdateState(name string, change func(st *State) *State) error 
 	return m.saveState(name, st)
 }
 
+// UpdateCompose changes a stack's compose.yaml as it is on disk now, under
+// the lock Save takes: change gets the compose and returns the one to write
+// (the same text writes nothing). For fjord's own edits at the end of a long
+// action -- the copy that action loaded can be minutes old, and saving it
+// whole put back a compose the user had saved over meanwhile.
+func (m *Manager) UpdateCompose(name string, change func(compose string) string) (string, error) {
+	if !ValidName(name) {
+		return "", ErrInvalidName
+	}
+	defer lockIn(&m.fileLocks, name)()
+	path := filepath.Join(m.StacksDir, name, "compose.yaml")
+	old, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	out := change(string(old))
+	if out == string(old) {
+		return out, nil
+	}
+	return out, writeFileAtomic(path, []byte(out), 0644)
+}
+
 // lock takes the stack's state lock and returns its release.
-func (m *Manager) lock(name string) func() {
-	mu, _ := m.locks.LoadOrStore(name, &sync.Mutex{})
+func (m *Manager) lock(name string) func() { return lockIn(&m.locks, name) }
+
+// lockIn takes name's mutex in locks and returns its release.
+func lockIn(locks *sync.Map, name string) func() {
+	mu, _ := locks.LoadOrStore(name, &sync.Mutex{})
 	mu.(*sync.Mutex).Lock()
 	return mu.(*sync.Mutex).Unlock
 }
