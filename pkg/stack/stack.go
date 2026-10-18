@@ -188,6 +188,9 @@ type Manager struct {
 	// its files, so Update's read-change-write cannot interleave with a Save
 	// or a Delete.
 	fileLocks sync.Map
+	// reserved holds the ids AllocateName has handed out whose stack is not
+	// saved yet.
+	reserved sync.Map
 }
 
 // NewManager initializes a new stack manager.
@@ -409,16 +412,24 @@ func Slug(name, fallback string) string {
 // like `compose down` then `up`, picks up any named volumes it left (Delete
 // keeps data on purpose). Ghost container records can't collide: Down and Up
 // sweep the stack's namespace.
-func (m *Manager) AllocateName(name, fallback string) string {
+//
+// The id stays taken until release, which the caller defers past its Save:
+// "exists" alone left it free until then, so two installs at once both got
+// "radarr" and the second wrote over the first.
+func (m *Manager) AllocateName(name, fallback string) (id string, release func()) {
 	base := Slug(name, fallback)
 	if !ValidName(base) || base == "" {
 		base = "stack"
 	}
-	id := base
-	for n := 2; m.exists(id); n++ {
+	id = base
+	for n := 2; ; n++ {
+		if !m.exists(id) {
+			if _, taken := m.reserved.LoadOrStore(id, struct{}{}); !taken {
+				return id, func() { m.reserved.Delete(id) }
+			}
+		}
 		id = fmt.Sprintf("%s-%d", base, n)
 	}
-	return id
 }
 
 func (m *Manager) exists(id string) bool {
