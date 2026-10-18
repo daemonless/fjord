@@ -71,6 +71,24 @@ wire.
 | restart | the restart chip on a stack's page: a new podman install restarts unless stopped, an AppJail install starts at boot and its chip offers only the boot choices, Don't start at boot saved and kept; each policy saved, applied, in the compose and shown after a reload; a crash left down under Don't restart (crash restarts under the others SKIP while the host check fdescfs fails: without fdescfs on /dev/fd conmon cannot free the port) | t-restart, t-restart-aj |
 | lnms-admin | opt-in: LibreNMS's admin password is honoured as given (needs a librenms image from 2026-09-30 or later) | t-lnms |
 
+### reboot (by hand)
+
+Start on boot across a real reboot of the host, one stack per rule on both
+engines. Not in the suite and not run by the runner: the host reboots
+between the two steps, and that is yours to do.
+
+    cd /root/fjord-ui-tests     # on the host, with reboot.js copied there
+    podman run --rm --network host -e STEP=setup -v $PWD/reboot.js:/app/t.js:ro \
+      -v $PWD/out:/out ghcr.io/daemonless/playwright:latest node /app/t.js
+    shutdown -r now
+    # back up, once fjordd has started its stacks:
+    podman run --rm --network host -e STEP=check -v $PWD/reboot.js:/app/t.js:ro \
+      -v $PWD/out:/out ghcr.io/daemonless/playwright:latest node /app/t.js
+
+Then delete the `t-rb-*` stacks. On a host with `podman_enable=YES`,
+podman's own rc script also starts the `always` stack at boot and can
+collide with fjordd's start.
+
 Not here: `wire-persist` (the warning kept across a restart) needs the
 wrong-wire `lan-range` fixture, which netlab no longer has.
 
