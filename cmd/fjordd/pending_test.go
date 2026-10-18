@@ -58,17 +58,42 @@ func TestPendingClearedOnlyOnSuccess(t *testing.T) {
 		t.Fatalf("recorded %v", pending())
 	}
 
-	io.ReadAll(s.clearPendingAfter("app", []string{"web"}, io.NopCloser(strings.NewReader("\n[error] web was not given the saved changes\n"))))
+	io.ReadAll(s.clearPendingAfter("app", []string{"web"}, s.pending.now(), io.NopCloser(strings.NewReader("\n[error] web was not given the saved changes\n"))))
 	if !slices.Equal(pending(), []string{"db", "web"}) {
 		t.Errorf("after a failed apply: %v, want both still pending", pending())
 	}
-	io.ReadAll(s.clearPendingAfter("app", []string{"web"}, io.NopCloser(strings.NewReader("recreated web\n"))))
+	io.ReadAll(s.clearPendingAfter("app", []string{"web"}, s.pending.now(), io.NopCloser(strings.NewReader("recreated web\n"))))
 	if !slices.Equal(pending(), []string{"db"}) {
 		t.Errorf("after applying web: %v, want [db]", pending())
 	}
-	io.ReadAll(s.clearPendingAfter("app", nil, io.NopCloser(strings.NewReader("updated everything\n"))))
+	io.ReadAll(s.clearPendingAfter("app", nil, s.pending.now(), io.NopCloser(strings.NewReader("updated everything\n"))))
 	if len(pending()) != 0 {
 		t.Errorf("after a whole-stack update: %v, want none", pending())
+	}
+}
+
+// A save during an update stays pending after it: the update read the
+// stack before the save, so it did not apply it. Clearing everything at the
+// end dropped the banner for edits never applied.
+func TestPendingSavedDuringAnUpdateStays(t *testing.T) {
+	s := &server{manager: stack.NewManager(t.TempDir())}
+	if err := s.manager.Save(&stack.Stack{Name: "app", Compose: "services:\n  web:\n    image: x\n  db:\n    image: y\n"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.manager.EnsureState("app"); err != nil {
+		t.Fatal(err)
+	}
+	pending := func() []string { st, _ := s.manager.LoadState("app"); return st.PendingServices }
+	s.recordPending("app", []string{"web"})
+	read := s.pending.now()                       // the update reads the stack
+	s.recordPending("app", []string{"db", "web"}) // a save lands while it runs
+	io.ReadAll(s.clearPendingAfter("app", nil, read, io.NopCloser(strings.NewReader("updated everything\n"))))
+	if !slices.Equal(pending(), []string{"db", "web"}) {
+		t.Errorf("after the update: %v, want [db web] -- both saved after it read the stack", pending())
+	}
+	io.ReadAll(s.clearPendingAfter("app", nil, s.pending.now(), io.NopCloser(strings.NewReader("updated everything\n"))))
+	if len(pending()) != 0 {
+		t.Errorf("after the next update: %v, want none", pending())
 	}
 }
 
