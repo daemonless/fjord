@@ -30,8 +30,11 @@ const detail = async (page) => (await page.request.get(BASE + '/api/stacks/' + N
     for (let i = 0; i < 100 && !seen; i++) { d = await detail(page); seen = !!d.busy; if (!seen) await sleep(300); }
     note('the update is seen running', seen, seen ? `busy=${d.busy}` : 'never seen busy');
     for (let i = 0; i < 120; i++) { d = await detail(page); if (!d.busy) break; await sleep(3000); }
-    for (let i = 0; i < 40 && !out; i++) await sleep(500);
+    // Not busy comes when the stay-up check starts; the stream ends with it,
+    // 30 seconds on.
+    for (let i = 0; i < 240 && !out; i++) await sleep(500);
     note('only sync was rebuilt', /Creating sync/.test(out) && !/(Creating|Stopping|Destroying) web/.test(out), out ? out.split('\n').filter((l) => /^\$|Creating|Destroying|Stopping|Nothing to do/.test(l)).join(' | ').slice(0, 300) : 'no stream captured');
+    note('the stay-up check ran on sync', /checking sync stays up for 30s/.test(out) && /sync has stayed up for 30s/.test(out), out ? (out.split('\n').filter((l) => /stays up|stayed up/.test(l)).join(' | ') || 'no stay-up lines') : 'no stream captured');
     note('the stream ended without an [error]', !!out && !/\[error\]/.test(out), out ? (out.split('\n').filter((l) => /\[error\]/.test(l)).join(' | ') || 'clean') : 'no stream captured');
     d = await detail(page);
     note('the stack is running, no failure recorded', d.status?.state === 'running' && !d.state?.last_failure, `${d.status?.state}, ${JSON.stringify(d.state?.last_failure || null)}`);
