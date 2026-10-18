@@ -148,19 +148,21 @@ func (s *server) stackRestart(w http.ResponseWriter, r *http.Request, name strin
 		json.NewEncoder(w).Encode(map[string]any{"status": "saved"})
 		return
 	}
-	compose, err := composepkg.SetRestart(st.Compose, req)
+	var old string
+	st, err = s.manager.Update(name, func(st *stack.Stack) error {
+		compose, err := composepkg.SetRestart(st.Compose, req)
+		if err != nil {
+			return httpError{400, err.Error()}
+		}
+		old, st.Compose = st.Compose, compose
+		return nil
+	})
 	if err != nil {
-		http.Error(w, err.Error(), 400)
-		return
-	}
-	old := st.Compose
-	st.Compose = compose
-	if err := s.manager.Save(st); err != nil {
-		http.Error(w, err.Error(), 500)
+		replyErr(w, err)
 		return
 	}
 	env := st.EnvMap()
-	s.recordPending(name, composepkg.ChangedServices(old, env, compose, env))
+	s.recordPending(name, composepkg.ChangedServices(old, env, st.Compose, env))
 	log.Printf("%s: restart policy %s", name, req)
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{"status": "saved", "composeHash": composeHash(st)})

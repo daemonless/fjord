@@ -182,8 +182,8 @@ type Manager struct {
 	// save drops the first one's field.
 	locks sync.Map
 	// fileLocks holds a *sync.Mutex per stack, taken across each write of
-	// its files, so UpdateCompose's read-change-write cannot interleave with
-	// a Save.
+	// its files, so Update's read-change-write cannot interleave with a Save
+	// or a Delete.
 	fileLocks sync.Map
 }
 
@@ -276,6 +276,11 @@ func (m *Manager) Save(stack *Stack) error {
 		return ErrInvalidName
 	}
 	defer lockIn(&m.fileLocks, stack.Name)()
+	return m.save(stack)
+}
+
+// save is Save without the lock, for callers that hold it.
+func (m *Manager) save(stack *Stack) error {
 	dir := filepath.Join(m.StacksDir, stack.Name)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return fmt.Errorf("failed to create stack directory: %w", err)
@@ -339,6 +344,7 @@ func (m *Manager) Delete(name string) error {
 	if !validName.MatchString(name) {
 		return ErrInvalidName
 	}
+	defer lockIn(&m.fileLocks, name)()
 	dir := filepath.Join(m.StacksDir, name)
 	if _, err := os.Stat(dir); err != nil {
 		return err // NotExist bubbles up so the handler can 404
@@ -534,26 +540,32 @@ func (m *Manager) UpdateState(name string, change func(st *State) *State) error 
 	return m.saveState(name, st)
 }
 
-// UpdateCompose changes a stack's compose.yaml as it is on disk now, under
-// the lock Save takes: change gets the compose and returns the one to write
-// (the same text writes nothing). For fjord's own edits at the end of a long
-// action -- the copy that action loaded can be minutes old, and saving it
-// whole put back a compose the user had saved over meanwhile.
-func (m *Manager) UpdateCompose(name string, change func(compose string) string) (string, error) {
+// Update changes a stack as it is on disk now, under the lock Save and
+// Delete take: change gets the stack read inside the lock and edits it in
+// place; an error from change writes nothing and is returned as is, and so
+// does a change that leaves the files as they were. Every edit to an
+// existing stack goes through here rather than Get then Save: a copy loaded
+// before a slow step (an install's stay-up watch, a registry call) and saved
+// whole afterwards put back whatever was saved meanwhile.
+//
+// change must not call Save, Update or Delete: the lock is not reentrant.
+func (m *Manager) Update(name string, change func(st *Stack) error) (*Stack, error) {
 	if !ValidName(name) {
-		return "", ErrInvalidName
+		return nil, ErrInvalidName
 	}
 	defer lockIn(&m.fileLocks, name)()
-	path := filepath.Join(m.StacksDir, name, "compose.yaml")
-	old, err := os.ReadFile(path)
+	st, err := m.Get(name)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	out := change(string(old))
-	if out == string(old) {
-		return out, nil
+	before := *st
+	if err := change(st); err != nil {
+		return nil, err
 	}
-	return out, writeFileAtomic(path, []byte(out), 0644)
+	if st.Compose == before.Compose && st.Env == before.Env && st.Director == before.Director && st.Makejail == before.Makejail {
+		return st, nil
+	}
+	return st, m.save(st)
 }
 
 // lock takes the stack's state lock and returns its release.
