@@ -35,8 +35,8 @@ import (
 // by name).
 func (s *server) keepAddresses(ctx context.Context, st *stack.Stack) (kept, skipped []string) {
 	be := s.backendFor(st)
-	if !be.Capabilities().PinServices || st.Compose == "" {
-		return nil, nil // appjail's director names no compose networks
+	if caps := be.Capabilities(); !caps.PinServices || caps.KeepsAddresses || st.Compose == "" {
+		return nil, nil
 	}
 	status, err := be.Status(ctx, st)
 	if err != nil {

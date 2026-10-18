@@ -2953,7 +2953,7 @@
                   on:openUpdate={() => openUpdatePanel(selectedStack!.name)}
                   on:rollback={(e) => rollback(selectedStack!.name, e.detail)}
                   on:unpin={(e) => unpin(selectedStack!.name, e.detail)}
-                  versionable={!selectedStack.director}
+                  versionable={!selectedStack.director || (!!updateInfo?.pinServices && !!selectedStack.compose?.trim())}
                   on:version={(e) =>
                     (changeVersion = {
                       name: selectedStack!.name,

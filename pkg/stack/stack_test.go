@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestMigrateEngineRecordsOnlyMissing(t *testing.T) {
@@ -45,5 +46,35 @@ func TestAllocateNameSlugsAndSuffixes(t *testing.T) {
 	os.RemoveAll(filepath.Join(dir, "radarr"))
 	if got := m.AllocateName("Radarr", "radarr"); got != "radarr" {
 		t.Fatalf("after delete = %q, want radarr (name is free again)", got)
+	}
+}
+
+// Saving a director stack again leaves an unchanged Makejail alone: director
+// rebuilds every service built from it when the file is newer than its last
+// run (a rollback of one sidecar restarted the app, netlab 2026-10-18).
+func TestSaveKeepsUnchangedMakejail(t *testing.T) {
+	m := NewManager(t.TempDir())
+	st := &Stack{Name: "aj", Director: "services:\n  web:\n    name: aj_web\n", Makejail: "OPTION from=ghcr.io/x/web:${tag}\n"}
+	if err := m.Save(st); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(st.Dir, "Makejail")
+	old := time.Now().Add(-time.Hour)
+	if err := os.Chtimes(path, old, old); err != nil {
+		t.Fatal(err)
+	}
+	st.Director = "services:\n  web:\n    name: aj_web\n    arguments:\n      - tag: 'pkg'\n"
+	if err := m.Save(st); err != nil {
+		t.Fatal(err)
+	}
+	if fi, err := os.Stat(path); err != nil || !fi.ModTime().Equal(old) {
+		t.Fatalf("the Makejail was rewritten: %v %v", fi.ModTime(), err)
+	}
+	st.Makejail = "OPTION from=ghcr.io/x/web2:${tag}\n"
+	if err := m.Save(st); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(path); string(b) != st.Makejail {
+		t.Fatalf("a changed Makejail was not written: %q", b)
 	}
 }

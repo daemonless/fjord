@@ -24,10 +24,9 @@ type isRollbackKey struct{}
 // recordRollback saves, for each service about to be updated, the image its
 // container runs now. services empty = all of them.
 func (s *server) recordRollback(ctx context.Context, st *stack.Stack, services []string) {
-	// Rollback pins a service's image in the compose and updates just that
-	// service. An engine that does not run from the compose (appjail
-	// director, whose spec names makejails) cannot be pinned there, so
-	// nothing is recorded and no rollback is offered.
+	// Rollback pins a service's image in the compose (and, on AppJail, the
+	// director) and updates just that service. An engine that cannot take a
+	// pin records nothing and offers no rollback.
 	if !s.backendFor(st).Capabilities().PinServices {
 		return
 	}
@@ -92,19 +91,17 @@ func (s *server) stackRollback(w http.ResponseWriter, r *http.Request, name stri
 		http.Error(w, "no state for "+name, 500)
 		return
 	}
-	compose := st.Compose
 	for _, svc := range req.Services {
 		rb, ok := state.Rollback[svc]
 		if !ok {
 			http.Error(w, fmt.Sprintf("%s has no earlier image recorded for %s", name, svc), 400)
 			return
 		}
-		if compose, err = composepkg.SetServiceImage(compose, svc, withoutDigest(rb.Ref)+"@"+rb.Digest); err != nil {
+		if err := setServiceImage(st, svc, withoutDigest(rb.Ref)+"@"+rb.Digest); err != nil {
 			http.Error(w, err.Error(), 400)
 			return
 		}
 	}
-	st.Compose = compose
 	if err := s.manager.Save(st); err != nil {
 		http.Error(w, err.Error(), 500)
 		return
@@ -135,13 +132,7 @@ func (s *server) stackUnpin(w http.ResponseWriter, r *http.Request, name string)
 		http.Error(w, "Stack not found", 404)
 		return
 	}
-	list, _ := composepkg.ServiceImageList(st.Compose)
-	cur := ""
-	for _, si := range list {
-		if si.Service == req.Service {
-			cur = si.Image
-		}
-	}
+	cur := serviceImage(st, req.Service)
 	if !strings.Contains(cur, "@") {
 		http.Error(w, req.Service+" is not pinned", 400)
 		return
@@ -153,12 +144,10 @@ func (s *server) stackUnpin(w http.ResponseWriter, r *http.Request, name string)
 			restore = rb.Compose
 		}
 	}
-	compose, err := composepkg.SetServiceImage(st.Compose, req.Service, restore)
-	if err != nil {
+	if err := setServiceImage(st, req.Service, restore); err != nil {
 		http.Error(w, err.Error(), 400)
 		return
 	}
-	st.Compose = compose
 	if err := s.manager.Save(st); err != nil {
 		http.Error(w, err.Error(), 500)
 		return
@@ -173,4 +162,49 @@ func withoutDigest(ref string) string {
 		return ref[:at]
 	}
 	return ref
+}
+
+// setServiceImage makes a service run ref: written in the compose where the
+// compose has the service, the director following on AppJail; in the
+// director alone for a director project whose compose does not name it
+// (an AppJail stack made from a director file, with no compose).
+func setServiceImage(st *stack.Stack, service, ref string) error {
+	if composeImage(st.Compose, service) != "" {
+		compose, err := composepkg.SetServiceImage(st.Compose, service, ref)
+		if err != nil {
+			return err
+		}
+		st.Compose = compose
+		return directorFollowsCompose(st, []string{service})
+	}
+	if strings.TrimSpace(st.Director) == "" {
+		return fmt.Errorf("no service %q", service)
+	}
+	director, err := setDirectorImage(st.Director, service, ref, makejailRepoOf(st))
+	if err != nil {
+		return err
+	}
+	st.Director = director
+	return nil
+}
+
+// serviceImage is the image a service is set to run: the compose's, or on a
+// director project without one, the director's.
+func serviceImage(st *stack.Stack, service string) string {
+	if img := composeImage(st.Compose, service); img != "" {
+		return img
+	}
+	return directorImage(st, service)
+}
+
+// composeImage is a service's image as the compose writes it, "" when the
+// compose has no such service.
+func composeImage(compose, service string) string {
+	list, _ := composepkg.ServiceImageList(compose)
+	for _, si := range list {
+		if si.Service == service {
+			return si.Image
+		}
+	}
+	return ""
 }

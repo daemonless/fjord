@@ -1,6 +1,7 @@
-// One service of an AppJail stack, updated from the panel. The stack (t-aju:
-// web and sync, sync built from a stale image) is made by appjail-update.sh,
-// which also checks the jails afterwards; this is the page's half.
+// One service of an AppJail stack, updated from the panel, then rolled back.
+// The stack (t-aju: web and sync, sync built from a stale image) is made by
+// appjail-update.sh, which also checks the jails after each step; this is
+// the page's half. STEP=rollback: Roll back sync from its row.
 const { chromium } = require('playwright-core');
 const BASE = 'http://127.0.0.1:3567';
 const NAME = 't-aju';
@@ -12,6 +13,29 @@ const detail = async (page) => (await page.request.get(BASE + '/api/stacks/' + N
   const page = await (await b.newContext({ viewport: { width: 1400, height: 1100 } })).newPage();
   page.setDefaultTimeout(30000);
   try {
+    if (process.env.STEP === 'rollback') {
+      await page.goto(BASE + '/?t=' + Date.now() + '#/stacks/' + NAME, { waitUntil: 'networkidle' });
+      await page.getByRole('button', { name: '↶ roll back' }).first().waitFor({ timeout: 90000 });
+      await page.getByRole('button', { name: '↶ roll back' }).first().click();
+      const sure = page.getByRole('button', { name: 'Roll back', exact: true });
+      const asked = (await page.locator('body').innerText()).match(/Roll sync back to [^\n?]+\?/);
+      note('Roll back says where to, and asks first', !!asked, asked ? asked[0] : 'no confirmation shown');
+      await sure.click();
+      let d, seen = false;
+      for (let i = 0; i < 100 && !seen; i++) { d = await detail(page); seen = !!d.busy; if (!seen) await sleep(300); }
+      for (let i = 0; i < 120; i++) { d = await detail(page); if (!d.busy) break; await sleep(3000); }
+      await sleep(3000);
+      d = await detail(page);
+      note('rolled back, running, no failure recorded', d.status?.state === 'running' && !d.state?.last_failure, `${d.status?.state}, ${JSON.stringify(d.state?.last_failure || null)}`);
+      note('the director pins sync to a digest', /from: ghcr\.io\/daemonless\/syncthing:latest@sha256:[0-9a-f]{64}/.test(d.director || ''), (d.director || '').split('\n').find((l) => /syncthing/.test(l))?.trim() || 'no syncthing line');
+      await page.goto(BASE + '/?t=' + Date.now() + '#/stacks/' + NAME, { waitUntil: 'networkidle' });
+      await sleep(3000);
+      await page.screenshot({ path: '/out/appjail-rollback-done.png', fullPage: true });
+      const body = await page.locator('body').innerText();
+      note('the row says pinned, with unpin', /pinned · unpin/.test(body), /pinned/.test(body) ? 'pinned shown' : 'no pinned badge');
+      await b.close();
+      return;
+    }
     await page.goto(BASE + '/?t=' + Date.now() + '#/stacks/' + NAME, { waitUntil: 'networkidle' });
     await page.getByText(/available/).first().waitFor({ timeout: 90000 }).catch(() => {});
     await sleep(500);
@@ -40,8 +64,9 @@ const detail = async (page) => (await page.request.get(BASE + '/api/stacks/' + N
     await page.getByText(/Up to date/).first().waitFor({ timeout: 90000 }).catch(() => {});
     const body = await page.locator('body').innerText();
     await page.screenshot({ path: '/out/appjail-update-done.png', fullPage: true });
-    // No Roll back: nothing can pin an AppJail service to an image yet.
-    note('the page says Up to date, and offers no Roll back it cannot do', /Up to date/.test(body) && !/roll back/i.test(body), `${/Up to date/.test(body) ? 'Up to date' : 'no Up to date'}, ${/roll back/i.test(body) ? 'roll back offered' : 'no roll back'}`);
+    // The image it ran before is recorded, and the director can be pinned
+    // to it: Roll back is offered.
+    note('the page says Up to date and offers Roll back', /Up to date/.test(body) && /roll back/i.test(body), `${/Up to date/.test(body) ? 'Up to date' : 'no Up to date'}, ${/roll back/i.test(body) ? 'roll back offered' : 'no roll back'}`);
   } catch (e) {
     note('run', false, e.message.split('\n')[0]);
     await page.screenshot({ path: '/out/appjail-update-error.png', fullPage: true }).catch(() => {});

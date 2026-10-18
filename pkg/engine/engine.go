@@ -474,6 +474,11 @@ type Capabilities struct {
 	// pin written there takes effect -- an image digest (rollback, a
 	// service's own version) or an address.
 	PinServices bool `json:"pinServices"`
+	// KeepsAddresses: a rebuilt service gets the address it had without fjord
+	// pinning it. AppJail's epairs keep their names, so their generated MACs
+	// and DHCP leases, and its virtualnet keeps a jail's reservation; podman's
+	// host-local hands out the next address and its epairs are numbered.
+	KeepsAddresses bool `json:"keepsAddresses"`
 	// RestartPolicies are the restart policies a stack on this engine can
 	// take, as compose spells them (unless-stopped, always, on-failure, no);
 	// none means fjord sets none. RestartOnExit: the engine itself restarts a
