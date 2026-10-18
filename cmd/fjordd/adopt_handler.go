@@ -186,7 +186,8 @@ func (s *server) handleAdopt(w http.ResponseWriter, r *http.Request) {
 		if name == "" {
 			name = found.Name
 		}
-		id := s.manager.AllocateName(name, a.Service)
+		id, release := s.manager.AllocateName(name, a.Service)
+		defer release()
 		compose := a.Compose
 		if port, https := s.adoptWebHint(ctx, be, a.Service, found.Image); port != "" {
 			compose += fmt.Sprintf("\nx-fjord:\n  web_port: %q\n", port)
