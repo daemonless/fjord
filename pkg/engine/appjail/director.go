@@ -203,7 +203,8 @@ func directorUpdate(ctx context.Context, s *stack.Stack, jails []svcJail) (io.Re
 	return directorOp(ctx, s,
 		func(w io.Writer) error { return pullNamedImages(ctx, w, jails) },
 		func(w io.Writer) error { return downDestroy(ctx, stackDir(s.Dir), w) },
-		directorUpStep(ctx, s))
+		directorUpStep(ctx, s),
+		func(w io.Writer) error { return watchJails(ctx, w, jails, healthWindow, "the update") })
 }
 
 // directorUpdateStopped is an update of a stack that is not running: the new
@@ -258,7 +259,8 @@ func directorUpdateServices(ctx context.Context, s *stack.Stack, jails []svcJail
 				return fmt.Errorf("not running: %s", strings.Join(down, ", "))
 			}
 			return nil
-		})
+		},
+		func(w io.Writer) error { return watchJails(ctx, w, jails, healthWindow, "the update") })
 }
 
 // pullNamedImages pulls the image of each service that names one (`from:`).
