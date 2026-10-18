@@ -958,7 +958,7 @@
             <div class="flex flex-col gap-1">
               <label class="text-sm font-semibold text-fjord-fg-secondary flex items-center gap-2" for={v.name}>
                 <span class="font-mono text-fjord-accent/90">{v.name}</span>
-                {#if v.optional !== true}<span class="text-fjord-danger" title="Required">*</span>{/if}
+                {#if v.optional !== true}<span class="text-fjord-danger" title="Required">*</span>{:else}<span class="text-xs font-normal text-fjord-fg-dim" data-optional>(optional)</span>{/if}
                 {#if v.type === 'path'}<span class="text-[10px] font-normal uppercase tracking-wide text-fjord-fg-dim border border-fjord-border rounded px-1.5 py-0.5">host path</span>{/if}
               </label>
               {#if v.label}
