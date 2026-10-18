@@ -81,29 +81,23 @@ func (s *server) stackRollback(w http.ResponseWriter, r *http.Request, name stri
 		http.Error(w, `send {"services": [...]}`, 400)
 		return
 	}
-	st, err := s.manager.Get(name)
-	if err != nil {
-		http.Error(w, "Stack not found", 404)
-		return
-	}
-	state, err := s.manager.LoadState(name)
-	if err != nil || state == nil {
-		http.Error(w, "no state for "+name, 500)
-		return
-	}
-	for _, svc := range req.Services {
-		rb, ok := state.Rollback[svc]
-		if !ok {
-			http.Error(w, fmt.Sprintf("%s has no earlier image recorded for %s", name, svc), 400)
-			return
+	if _, err := s.manager.Update(name, func(st *stack.Stack) error {
+		state, err := s.manager.LoadState(name)
+		if err != nil || state == nil {
+			return httpError{500, "no state for " + name}
 		}
-		if err := setServiceImage(st, svc, withoutDigest(rb.Ref)+"@"+rb.Digest); err != nil {
-			http.Error(w, err.Error(), 400)
-			return
+		for _, svc := range req.Services {
+			rb, ok := state.Rollback[svc]
+			if !ok {
+				return httpError{400, fmt.Sprintf("%s has no earlier image recorded for %s", name, svc)}
+			}
+			if err := setServiceImage(st, svc, withoutDigest(rb.Ref)+"@"+rb.Digest); err != nil {
+				return httpError{400, err.Error()}
+			}
 		}
-	}
-	if err := s.manager.Save(st); err != nil {
-		http.Error(w, err.Error(), 500)
+		return nil
+	}); err != nil {
+		replyErr(w, err)
 		return
 	}
 	body, _ := json.Marshal(map[string][]string{"services": req.Services})
@@ -127,29 +121,24 @@ func (s *server) stackUnpin(w http.ResponseWriter, r *http.Request, name string)
 		http.Error(w, `send {"service": "..."}`, 400)
 		return
 	}
-	st, err := s.manager.Get(name)
-	if err != nil {
-		http.Error(w, "Stack not found", 404)
-		return
-	}
-	cur := serviceImage(st, req.Service)
-	if !strings.Contains(cur, "@") {
-		http.Error(w, req.Service+" is not pinned", 400)
-		return
-	}
-	restore := withoutDigest(cur)
-	if state, _ := s.manager.LoadState(name); state != nil {
-		if rb, ok := state.Rollback[req.Service]; ok && rb.Compose != "" &&
-			composepkg.ExpandEnv(rb.Compose, st.EnvMap()) == restore {
-			restore = rb.Compose
+	if _, err := s.manager.Update(name, func(st *stack.Stack) error {
+		cur := serviceImage(st, req.Service)
+		if !strings.Contains(cur, "@") {
+			return httpError{400, req.Service + " is not pinned"}
 		}
-	}
-	if err := setServiceImage(st, req.Service, restore); err != nil {
-		http.Error(w, err.Error(), 400)
-		return
-	}
-	if err := s.manager.Save(st); err != nil {
-		http.Error(w, err.Error(), 500)
+		restore := withoutDigest(cur)
+		if state, _ := s.manager.LoadState(name); state != nil {
+			if rb, ok := state.Rollback[req.Service]; ok && rb.Compose != "" &&
+				composepkg.ExpandEnv(rb.Compose, st.EnvMap()) == restore {
+				restore = rb.Compose
+			}
+		}
+		if err := setServiceImage(st, req.Service, restore); err != nil {
+			return httpError{400, err.Error()}
+		}
+		return nil
+	}); err != nil {
+		replyErr(w, err)
 		return
 	}
 	s.fleet.forget(name)
