@@ -754,8 +754,15 @@ func (s *server) stackSave(w http.ResponseWriter, r *http.Request, name string) 
 		http.Error(w, "not saved: "+strings.Join(c, "; "), 409)
 		return
 	}
-	if err := s.manager.Save(st); err != nil {
-		http.Error(w, err.Error(), 500)
+	save := s.manager.Save
+	if !created {
+		save = s.manager.Replace
+	}
+	if err := save(st); err != nil {
+		if errors.Is(err, stack.ErrDeleting) {
+			err = httpError{http.StatusConflict, name + " is being deleted; not saved"}
+		}
+		replyErr(w, err)
 		return
 	}
 	// Save has just written the director; the templates it references need
@@ -886,15 +893,19 @@ func (s *server) stackSetTag(w http.ResponseWriter, r *http.Request, name string
 				return
 			}
 		}
-		st.Compose, st.Env = newCompose, newEnv
-		// And where appjail reads it: the service's from:, or the Makejail's
-		// tag argument, pin included.
-		if err := directorFollowsCompose(st, []string{body.Service}); err != nil {
-			http.Error(w, "director: "+err.Error(), 400)
-			return
-		}
-		if err := s.manager.Save(st); err != nil {
-			http.Error(w, err.Error(), 500)
+		if _, err := s.manager.Update(name, func(fresh *stack.Stack) error {
+			if err := unchangedSince(fresh, st); err != nil {
+				return err
+			}
+			fresh.Compose, fresh.Env = newCompose, newEnv
+			// And where appjail reads it: the service's from:, or the
+			// Makejail's tag argument, pin included.
+			if err := directorFollowsCompose(fresh, []string{body.Service}); err != nil {
+				return httpError{400, "director: " + err.Error()}
+			}
+			return nil
+		}); err != nil {
+			replyErr(w, err)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -929,17 +940,21 @@ func (s *server) stackSetTag(w http.ResponseWriter, r *http.Request, name string
 			return
 		}
 	}
-	st.Compose, st.Env = newCompose, newEnv
-	// And where appjail will read it. Setting only the compose left the jail
-	// on whatever ${tag} defaults to, so the version on screen and the version
-	// running were different numbers. A pin goes along: the digest, not just
-	// the tag.
-	if err := directorFollowsCompose(st, nil); err != nil {
-		http.Error(w, "director: "+err.Error(), 400)
-		return
-	}
-	if err := s.manager.Save(st); err != nil {
-		http.Error(w, err.Error(), 500)
+	if _, err := s.manager.Update(name, func(fresh *stack.Stack) error {
+		if err := unchangedSince(fresh, st); err != nil {
+			return err
+		}
+		fresh.Compose, fresh.Env = newCompose, newEnv
+		// And where appjail will read it. Setting only the compose left the
+		// jail on whatever ${tag} defaults to, so the version on screen and
+		// the version running were different numbers. A pin goes along: the
+		// digest, not just the tag.
+		if err := directorFollowsCompose(fresh, nil); err != nil {
+			return httpError{400, "director: " + err.Error()}
+		}
+		return nil
+	}); err != nil {
+		replyErr(w, err)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -1240,8 +1255,15 @@ func requestedServices(r *http.Request, st *stack.Stack, engineKnows func() []st
 
 // stackLifecycle runs up/down/update/restart, streaming the backend's output.
 func (s *server) stackLifecycle(w http.ResponseWriter, r *http.Request, name, action string) {
-	st, err := s.manager.Get(name)
-	if err != nil {
+	s.lifecycle(w, r, name, action, nil)
+}
+
+// lifecycle is stackLifecycle with a step that runs once the stack's lock is
+// held, before the stack is read: rollback writes its pin there. Written
+// first, a busy stack refused the update and kept the pin -- the compose
+// said the old image while the container still ran the new one.
+func (s *server) lifecycle(w http.ResponseWriter, r *http.Request, name, action string, locked func() error) {
+	if _, err := s.manager.Get(name); err != nil {
 		http.Error(w, "Stack not found", 404)
 		return
 	}
@@ -1252,6 +1274,19 @@ func (s *server) stackLifecycle(w http.ResponseWriter, r *http.Request, name, ac
 		return
 	}
 	defer unlock()
+	if locked != nil {
+		if err := locked(); err != nil {
+			replyErr(w, err)
+			return
+		}
+	}
+	// Read under the lock: locked may have changed it, and so may a save
+	// made while this waited to take over a stay-up watch.
+	st, err := s.manager.Get(name)
+	if err != nil {
+		http.Error(w, "Stack not found", 404)
+		return
+	}
 
 	// Generous timeout: update pulls images, which can be slow.
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
@@ -1438,16 +1473,30 @@ func (s *server) directorSetTag(ctx context.Context, w http.ResponseWriter, st *
 		}
 		img += "@" + digest
 	}
-	if err := setServiceImage(st, service, img); err != nil {
-		http.Error(w, err.Error(), 400)
-		return
-	}
-	if err := s.manager.Save(st); err != nil {
-		http.Error(w, err.Error(), 500)
+	if _, err := s.manager.Update(st.Name, func(fresh *stack.Stack) error {
+		if err := unchangedSince(fresh, st); err != nil {
+			return err
+		}
+		if err := setServiceImage(fresh, service, img); err != nil {
+			return httpError{400, err.Error()}
+		}
+		return nil
+	}); err != nil {
+		replyErr(w, err)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.Write([]byte(`{"status":"ok"}`))
+}
+
+// unchangedSince refuses a change worked out from snap when the stack has
+// been saved since. Set tag asks the registry first (up to 30s, outside the
+// lock); writing its answer over a save made meanwhile would undo that save.
+func unchangedSince(fresh, snap *stack.Stack) error {
+	if fresh.Compose != snap.Compose || fresh.Env != snap.Env || fresh.Director != snap.Director {
+		return httpError{http.StatusConflict, fresh.Name + " was changed while fjord looked up that version; try again"}
+	}
+	return nil
 }
 
 // stackDismissFailure forgets the stack's last failure. Without it Dismiss

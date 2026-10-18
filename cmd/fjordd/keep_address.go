@@ -124,11 +124,14 @@ func (s *server) keepAddresses(ctx context.Context, st *stack.Stack) (kept, skip
 		}
 		return compose
 	}
-	out, err := s.manager.UpdateCompose(st.Name, pin)
+	saved, err := s.manager.Update(st.Name, func(fresh *stack.Stack) error {
+		fresh.Compose = pin(fresh.Compose)
+		return nil
+	})
 	if err != nil {
 		return []string{"could not keep addresses: " + err.Error()}, skipped
 	}
-	st.Compose = out
+	st.Compose = saved.Compose
 	if len(kept) == 0 {
 		return nil, skipped
 	}
