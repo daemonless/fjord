@@ -60,6 +60,7 @@ wire.
 | retag-var | Change Version on an image whose tag is a variable sets .env and leaves the compose as written | t-var |
 | leftover | a private network whose stack is gone reads as left over and can be deleted | |
 | appjail-dns | the Setup check for jail name resolution tells the truth: with dnsmasq stopped it is a terminal job with the commands on screen, and gone once they are run (leaves dnsmasq configured for appjail) | |
+| appjail-update | one service of an AppJail stack updated from the panel, only its jail rebuilt; then rolled back from its row: the jail runs the image it had, pinned, and the other jail never restarts | t-aju |
 | privdel | deleting a stack removes its private network | t-pd |
 | apply | Apply recreates what a Save changed, even with an exec session holding the old container | t-apply |
 | wire | New Network asks the wire; networks that do not fit it are flagged | |

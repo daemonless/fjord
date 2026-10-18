@@ -863,11 +863,11 @@ func (s *server) stackSetTag(w http.ResponseWriter, r *http.Request, name string
 		return
 	}
 	if body.Service != "" {
-		// A director stack's jails read the tag from the director, which has
-		// one: the Makejail image's. Other services (a database a choice
-		// added) name their own image there and keep it.
-		if st.Director != "" && !isMakejailService(st, body.Service) {
-			http.Error(w, body.Service+" runs its own image on AppJail; its version comes with the app", 400)
+		// A director service the compose does not name -- bundles call a
+		// sidecar authelia-redis where the compose says redis, and the page
+		// lists the director's names: its version goes to the director.
+		if st.Director != "" && composeImage(st.Compose, body.Service) == "" {
+			s.directorSetTag(r.Context(), w, st, body.Service, body.Tag, body.Pin)
 			return
 		}
 		if why := s.noBuildForRetag(r.Context(), st.Compose, body.Service, body.Tag); why != "" {
@@ -887,11 +887,11 @@ func (s *server) stackSetTag(w http.ResponseWriter, r *http.Request, name string
 			}
 		}
 		st.Compose, st.Env = newCompose, newEnv
-		if st.Director != "" {
-			if st.Director, err = setDirectorTag(st.Director, body.Tag); err != nil {
-				http.Error(w, "director tag: "+err.Error(), 500)
-				return
-			}
+		// And where appjail reads it: the service's from:, or the Makejail's
+		// tag argument, pin included.
+		if err := directorFollowsCompose(st, []string{body.Service}); err != nil {
+			http.Error(w, "director: "+err.Error(), 400)
+			return
 		}
 		if err := s.manager.Save(st); err != nil {
 			http.Error(w, err.Error(), 500)
@@ -932,13 +932,11 @@ func (s *server) stackSetTag(w http.ResponseWriter, r *http.Request, name string
 	st.Compose, st.Env = newCompose, newEnv
 	// And where appjail will read it. Setting only the compose left the jail
 	// on whatever ${tag} defaults to, so the version on screen and the version
-	// running were different numbers.
-	if st.Director != "" {
-		st.Director, err = setDirectorTag(st.Director, body.Tag)
-		if err != nil {
-			http.Error(w, "director tag: "+err.Error(), 500)
-			return
-		}
+	// running were different numbers. A pin goes along: the digest, not just
+	// the tag.
+	if err := directorFollowsCompose(st, nil); err != nil {
+		http.Error(w, "director: "+err.Error(), 400)
+		return
 	}
 	if err := s.manager.Save(st); err != nil {
 		http.Error(w, err.Error(), 500)
@@ -1415,6 +1413,41 @@ func (s *server) noBuildForRetag(ctx context.Context, compose, service, tag stri
 		}
 	}
 	return ""
+}
+
+// directorSetTag moves one director service to tag, pinned to the digest
+// the tag resolves to now when asked, written into the director alone.
+func (s *server) directorSetTag(ctx context.Context, w http.ResponseWriter, st *stack.Stack, service, tag string, pin bool) {
+	cur := directorImage(st, service)
+	if cur == "" {
+		http.Error(w, "no service "+service+" in the director", 400)
+		return
+	}
+	if why := s.noBuildHere(ctx, registry.Repo(cur), tag); why != "" {
+		http.Error(w, why, http.StatusConflict)
+		return
+	}
+	img := imageRepo(cur) + ":" + tag
+	if pin {
+		dctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
+		digest, err := registry.Digest(dctx, img)
+		if err != nil {
+			http.Error(w, err.Error(), 502)
+			return
+		}
+		img += "@" + digest
+	}
+	if err := setServiceImage(st, service, img); err != nil {
+		http.Error(w, err.Error(), 400)
+		return
+	}
+	if err := s.manager.Save(st); err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Write([]byte(`{"status":"ok"}`))
 }
 
 // stackDismissFailure forgets the stack's last failure. Without it Dismiss

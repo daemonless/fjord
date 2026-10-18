@@ -310,8 +310,14 @@ func (m *Manager) Save(stack *Stack) error {
 		// unterminated final line (an `OPTION from=` lost that way builds an
 		// empty jail instead of the OCI container).
 		body := strings.TrimRight(stack.Makejail, "\n") + "\n"
-		if err := writeFileAtomic(filepath.Join(dir, "Makejail"), []byte(body), 0644); err != nil {
-			return fmt.Errorf("failed to write Makejail: %w", err)
+		// Only when it changed: director rebuilds every service built from
+		// the Makejail when the file is newer than its last run, so a save of
+		// anything else (a rollback pinning one sidecar) rebuilt them all.
+		path := filepath.Join(dir, "Makejail")
+		if old, err := os.ReadFile(path); err != nil || string(old) != body {
+			if err := writeFileAtomic(path, []byte(body), 0644); err != nil {
+				return fmt.Errorf("failed to write Makejail: %w", err)
+			}
 		}
 	}
 
