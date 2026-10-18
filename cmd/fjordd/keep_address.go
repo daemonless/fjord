@@ -58,70 +58,79 @@ func (s *server) keepAddresses(ctx context.Context, st *stack.Stack) (kept, skip
 			ids[c.Service] = c.ID
 		}
 	}
-	compose := st.Compose
 	// What other stacks have, worked out once and only if something is to be
 	// pinned: an address another stack has is never pinned here (see
 	// takenAddresses), it is reported.
 	var taken map[string]addrHolder
-	per := composepkg.ServiceAttachments(compose)
-	svcs := make([]string, 0, len(per))
-	for svc := range per {
-		svcs = append(svcs, svc)
-	}
-	sort.Strings(svcs)
-	for _, svc := range svcs {
-		for _, a := range per[svc] {
-			if private[a.Network] {
-				continue
-			}
-			n, ok := hostnet.Get(a.Network)
-			if !ok || n.Static {
-				continue
-			}
-			if n.DHCP {
-				if a.MAC != "" {
+	// Pinned into the compose as it is on disk now, not st's copy: st was
+	// loaded when the action started, and an install's stream runs on through
+	// its stay-up watch. Saving that copy at the end undid a Save made
+	// meanwhile -- host networking set during the watch came back as the old
+	// networks with this MAC pinned (netlab, type test).
+	pin := func(compose string) string {
+		kept, skipped = nil, nil
+		per := composepkg.ServiceAttachments(compose)
+		svcs := make([]string, 0, len(per))
+		for svc := range per {
+			svcs = append(svcs, svc)
+		}
+		sort.Strings(svcs)
+		for _, svc := range svcs {
+			for _, a := range per[svc] {
+				if private[a.Network] {
 					continue
 				}
-				mac := hostnet.MACOf(a.Network, ids[svc])
-				if mac == "" {
+				n, ok := hostnet.Get(a.Network)
+				if !ok || n.Static {
 					continue
 				}
-				out, err := composepkg.PinMAC(compose, svc, a.Network, mac)
+				if n.DHCP {
+					if a.MAC != "" {
+						continue
+					}
+					mac := hostnet.MACOf(a.Network, ids[svc])
+					if mac == "" {
+						continue
+					}
+					out, err := composepkg.PinMAC(compose, svc, a.Network, mac)
+					if err != nil || out == compose {
+						continue
+					}
+					compose = out
+					kept = append(kept, fmt.Sprintf("kept %s's MAC %s on %s, which its DHCP lease follows", svc, mac, a.Network))
+					continue
+				}
+				if a.IP != "" {
+					continue
+				}
+				ip := held[svc][a.Network]
+				if parsed := net.ParseIP(ip); parsed == nil || parsed.To4() == nil {
+					continue
+				}
+				if taken == nil {
+					taken = s.takenAddresses(ctx, st.Name)
+				}
+				if h, ok := taken[a.Network+"|"+ip]; ok {
+					skipped = append(skipped, clashText(svc, ip, a.Network, h, fixOnStackPage))
+					continue
+				}
+				out, err := composepkg.PinAddress(compose, svc, a.Network, ip)
 				if err != nil || out == compose {
 					continue
 				}
 				compose = out
-				kept = append(kept, fmt.Sprintf("kept %s's MAC %s on %s, which its DHCP lease follows", svc, mac, a.Network))
-				continue
+				kept = append(kept, fmt.Sprintf("kept %s on %s (%s)", svc, ip, a.Network))
 			}
-			if a.IP != "" {
-				continue
-			}
-			ip := held[svc][a.Network]
-			if parsed := net.ParseIP(ip); parsed == nil || parsed.To4() == nil {
-				continue
-			}
-			if taken == nil {
-				taken = s.takenAddresses(ctx, st.Name)
-			}
-			if h, ok := taken[a.Network+"|"+ip]; ok {
-				skipped = append(skipped, clashText(svc, ip, a.Network, h, fixOnStackPage))
-				continue
-			}
-			out, err := composepkg.PinAddress(compose, svc, a.Network, ip)
-			if err != nil || out == compose {
-				continue
-			}
-			compose = out
-			kept = append(kept, fmt.Sprintf("kept %s on %s (%s)", svc, ip, a.Network))
 		}
+		return compose
 	}
+	out, err := s.manager.UpdateCompose(st.Name, pin)
+	if err != nil {
+		return []string{"could not keep addresses: " + err.Error()}, skipped
+	}
+	st.Compose = out
 	if len(kept) == 0 {
 		return nil, skipped
-	}
-	st.Compose = compose
-	if err := s.manager.Save(st); err != nil {
-		return []string{"could not keep addresses: " + err.Error()}, skipped
 	}
 	return kept, skipped
 }
