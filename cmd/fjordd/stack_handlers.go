@@ -553,10 +553,10 @@ func (s *server) stackSave(w http.ResponseWriter, r *http.Request, name string) 
 	// the copy it loaded. Saving that copy put the old image straight back:
 	// a rollback of zensical was undone by two Saves during its health watch.
 	// So a save must say which version it edited, and a stale one is refused.
+	// Checked here, before the slow part, and again as it writes (below).
 	if payload.BaseHash != "" {
 		if existing, err := s.manager.Get(name); err == nil && composeHash(existing) != payload.BaseHash {
-			http.Error(w, name+"'s compose changed on the server since you opened it (a rollback, version change or "+
-				"another tab). Reload to see it -- copy your edits first, reloading replaces them.", http.StatusConflict)
+			replyErr(w, changedSinceOpened(name))
 			return
 		}
 	}
@@ -717,8 +717,12 @@ func (s *server) stackSave(w http.ResponseWriter, r *http.Request, name string) 
 	st := &stack.Stack{Name: name, Compose: composeYAML, Env: payload.Env}
 	created := false
 	var oldCompose, oldEnv string
+	base := payload.BaseHash // what this save edited; else what it read here
 	if existing, err := s.manager.Get(name); err == nil {
 		oldCompose, oldEnv = existing.Compose, existing.Env
+		if base == "" {
+			base = composeHash(existing)
+		}
 		existing.Compose = composeYAML
 		existing.Env = payload.Env
 		if existing.Director != "" {
@@ -756,7 +760,16 @@ func (s *server) stackSave(w http.ResponseWriter, r *http.Request, name string) 
 	}
 	save := s.manager.Save
 	if !created {
-		save = s.manager.Replace
+		// The address check and the network plan above take time; a rollback,
+		// version change or restart policy written meanwhile is not undone.
+		save = func(st *stack.Stack) error {
+			return s.manager.Replace(st, func(cur *stack.Stack) error {
+				if composeHash(cur) != base {
+					return changedSinceOpened(name)
+				}
+				return nil
+			})
+		}
 	}
 	if err := save(st); err != nil {
 		if errors.Is(err, stack.ErrDeleting) {
@@ -842,6 +855,12 @@ func (s *server) stackSave(w http.ResponseWriter, r *http.Request, name string) 
 
 // composeHash identifies what a stack's runtime spec says: the compose, and
 // the director spec when there is one (a rollback can rewrite either).
+// changedSinceOpened refuses a save whose base is not the stack on disk.
+func changedSinceOpened(name string) httpError {
+	return httpError{http.StatusConflict, name + "'s compose changed on the server since you opened it (a rollback, " +
+		"version change or another tab). Reload to see it -- copy your edits first, reloading replaces them."}
+}
+
 func composeHash(st *stack.Stack) string {
 	sum := sha256.Sum256([]byte(st.Compose + "\x00" + st.Director))
 	return hex.EncodeToString(sum[:8])

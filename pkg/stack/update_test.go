@@ -107,7 +107,7 @@ func TestReplaceRefusesADeletedStack(t *testing.T) {
 	m := NewManager(dir)
 	m.Save(&Stack{Name: "s", Compose: "services: {}\n"})
 	m.SetDesiredState("s", "deleting")
-	if err := m.Replace(&Stack{Name: "s", Compose: "changed\n"}); !errors.Is(err, ErrDeleting) {
+	if err := m.Replace(&Stack{Name: "s", Compose: "changed\n"}, nil); !errors.Is(err, ErrDeleting) {
 		t.Errorf("deleting: err %v", err)
 	}
 	if st, _ := m.Get("s"); st.Compose != "services: {}\n" {
@@ -116,7 +116,7 @@ func TestReplaceRefusesADeletedStack(t *testing.T) {
 	if err := m.Delete("s"); err != nil {
 		t.Fatal(err)
 	}
-	if err := m.Replace(&Stack{Name: "s", Compose: "back\n"}); !errors.Is(err, fs.ErrNotExist) {
+	if err := m.Replace(&Stack{Name: "s", Compose: "back\n"}, nil); !errors.Is(err, fs.ErrNotExist) {
 		t.Errorf("deleted: err %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(dir, "s")); !errors.Is(err, fs.ErrNotExist) {
@@ -129,10 +129,34 @@ func TestReplaceWrites(t *testing.T) {
 	m := NewManager(t.TempDir())
 	m.Save(&Stack{Name: "s", Compose: "services: {}\n"})
 	m.SetDesiredState("s", "running")
-	if err := m.Replace(&Stack{Name: "s", Compose: "changed\n"}); err != nil {
+	if err := m.Replace(&Stack{Name: "s", Compose: "changed\n"}, nil); err != nil {
 		t.Fatal(err)
 	}
 	if st, _ := m.Get("s"); st.Compose != "changed\n" {
 		t.Errorf("compose %q", st.Compose)
+	}
+}
+
+// Replace's check sees the stack as it is on disk when it writes, under the
+// lock Update takes: a change made after the caller read the stack (a
+// rollback's pin) is caught there, and the refused replace writes nothing.
+func TestReplaceCheckSeesTheStackOnDisk(t *testing.T) {
+	m := NewManager(t.TempDir())
+	m.Save(&Stack{Name: "s", Compose: "image: a\n"})
+	read, _ := m.Get("s")                                                              // the editor's save reads the stack...
+	m.Update("s", func(st *Stack) error { st.Compose = "image: a@pin\n"; return nil }) // ...a rollback pins it
+	stale := errors.New("stale")
+	read.Compose = "image: a\nedited: true\n"
+	err := m.Replace(read, func(cur *Stack) error {
+		if cur.Compose != "image: a\n" {
+			return stale
+		}
+		return nil
+	})
+	if err != stale {
+		t.Fatalf("err %v, want the check's", err)
+	}
+	if st, _ := m.Get("s"); st.Compose != "image: a@pin\n" {
+		t.Errorf("pin written over: %q", st.Compose)
 	}
 }
