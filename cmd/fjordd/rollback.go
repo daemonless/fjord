@@ -81,29 +81,28 @@ func (s *server) stackRollback(w http.ResponseWriter, r *http.Request, name stri
 		http.Error(w, `send {"services": [...]}`, 400)
 		return
 	}
-	if _, err := s.manager.Update(name, func(st *stack.Stack) error {
-		state, err := s.manager.LoadState(name)
-		if err != nil || state == nil {
-			return httpError{500, "no state for " + name}
-		}
-		for _, svc := range req.Services {
-			rb, ok := state.Rollback[svc]
-			if !ok {
-				return httpError{400, fmt.Sprintf("%s has no earlier image recorded for %s", name, svc)}
-			}
-			if err := setServiceImage(st, svc, withoutDigest(rb.Ref)+"@"+rb.Digest); err != nil {
-				return httpError{400, err.Error()}
-			}
-		}
-		return nil
-	}); err != nil {
-		replyErr(w, err)
-		return
-	}
 	body, _ := json.Marshal(map[string][]string{"services": req.Services})
 	r2 := r.WithContext(context.WithValue(r.Context(), isRollbackKey{}, true))
 	r2.Body = io.NopCloser(bytes.NewReader(body))
-	s.stackLifecycle(w, r2, name, "update")
+	s.lifecycle(w, r2, name, "update", func() error {
+		_, err := s.manager.Update(name, func(st *stack.Stack) error {
+			state, err := s.manager.LoadState(name)
+			if err != nil || state == nil {
+				return httpError{500, "no state for " + name}
+			}
+			for _, svc := range req.Services {
+				rb, ok := state.Rollback[svc]
+				if !ok {
+					return httpError{400, fmt.Sprintf("%s has no earlier image recorded for %s", name, svc)}
+				}
+				if err := setServiceImage(st, svc, withoutDigest(rb.Ref)+"@"+rb.Digest); err != nil {
+					return httpError{400, err.Error()}
+				}
+			}
+			return nil
+		})
+		return err
+	})
 }
 
 // stackUnpin lets a pinned service take updates again: POST .../unpin

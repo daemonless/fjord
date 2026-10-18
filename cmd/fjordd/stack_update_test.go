@@ -63,3 +63,29 @@ func TestUnchangedSince(t *testing.T) {
 		t.Errorf("changed: %v", err)
 	}
 }
+
+// A rollback on a busy stack is refused before it pins anything. It wrote
+// the pin first, and the 409 left the compose on the old image while the
+// container still ran the new one.
+func TestRollbackOnABusyStackWritesNothing(t *testing.T) {
+	compose := "services:\n  web:\n    image: repo/web:2.0\n"
+	s := unpinFixture(t, compose)
+	s.manager.UpdateState("app", func(st *stack.State) *stack.State {
+		return &stack.State{SchemaVersion: 1, Rollback: map[string]stack.RollbackImage{
+			"web": {Ref: "repo/web:1.0", Digest: "sha256:abc"},
+		}}
+	})
+	unlock, ok := lockStackAs("app", "up")
+	if !ok {
+		t.Fatal("lock")
+	}
+	defer unlock()
+	rec := httptest.NewRecorder()
+	s.stackRollback(rec, httptest.NewRequest(http.MethodPost, "/api/stacks/app/rollback", strings.NewReader(`{"services":["web"]}`)), "app")
+	if rec.Code != http.StatusConflict {
+		t.Errorf("%d %s", rec.Code, rec.Body)
+	}
+	if st, _ := s.manager.Get("app"); st.Compose != compose {
+		t.Errorf("pinned anyway:\n%s", st.Compose)
+	}
+}

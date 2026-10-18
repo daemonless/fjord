@@ -1255,8 +1255,15 @@ func requestedServices(r *http.Request, st *stack.Stack, engineKnows func() []st
 
 // stackLifecycle runs up/down/update/restart, streaming the backend's output.
 func (s *server) stackLifecycle(w http.ResponseWriter, r *http.Request, name, action string) {
-	st, err := s.manager.Get(name)
-	if err != nil {
+	s.lifecycle(w, r, name, action, nil)
+}
+
+// lifecycle is stackLifecycle with a step that runs once the stack's lock is
+// held, before the stack is read: rollback writes its pin there. Written
+// first, a busy stack refused the update and kept the pin -- the compose
+// said the old image while the container still ran the new one.
+func (s *server) lifecycle(w http.ResponseWriter, r *http.Request, name, action string, locked func() error) {
+	if _, err := s.manager.Get(name); err != nil {
 		http.Error(w, "Stack not found", 404)
 		return
 	}
@@ -1267,6 +1274,19 @@ func (s *server) stackLifecycle(w http.ResponseWriter, r *http.Request, name, ac
 		return
 	}
 	defer unlock()
+	if locked != nil {
+		if err := locked(); err != nil {
+			replyErr(w, err)
+			return
+		}
+	}
+	// Read under the lock: locked may have changed it, and so may a save
+	// made while this waited to take over a stay-up watch.
+	st, err := s.manager.Get(name)
+	if err != nil {
+		http.Error(w, "Stack not found", 404)
+		return
+	}
 
 	// Generous timeout: update pulls images, which can be slow.
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
