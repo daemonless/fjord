@@ -3,6 +3,7 @@
 package doctor
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"io"
@@ -112,17 +113,7 @@ func platform(cfg Config) platformInfo {
 			Why:   "With ifconfig_DEFAULT=\"DHCP\" in rc.conf (FreeBSD's VM images ship it), devd runs dhclient on every interface that appears -- each container's and jail's epair too. The host then takes LAN leases on them, and the router hands out addresses nobody is using.",
 			Fix:   "# name the host's own NIC instead of DEFAULT (vtnet0 here; see `route -n get default`):\nsysrc ifconfig_vtnet0=\"DHCP\"\nsysrc -x ifconfig_DEFAULT",
 		},
-		{
-			ID: "appjail-dns", Name: "jail name resolution (appjail-dns + dnsmasq)", Engine: "appjail", HostOnly: true,
-			Group: "networking",
-			Probe: appjailDNSProbe,
-			// No Install button: this reconfigures the host's dnsmasq (appjail's
-			// config answers on every interface, with its own upstream servers),
-			// which is the operator's call to make by hand until 0.3.5 can prove
-			// the full setup.
-			Why: "Jails on one network find each other by name only when appjail-dns writes the names and dnsmasq answers with appjail's config. appjail-dns alone only keeps a hosts file, so it \"runs\" while no jail finds another and a director project's services have to address each other by IP. Note appjail's dnsmasq config listens on every interface and uses its own upstream resolvers.",
-			Fix: "pkg install -y dnsmasq\nsysrc dnsmasq_enable=YES\nsysrc dnsmasq_conf=" + appjailDNSMasqConf + "\nservice dnsmasq start\nsysrc appjail_dns_enable=YES\nservice appjail-dns restart",
-		},
+		appjailDNSCheck(),
 		{
 			ID: "appjail-git", Name: "git, for makejails on GitHub", Engine: "appjail", HostOnly: true,
 			Group: "extras", Optional: true,
@@ -562,8 +553,87 @@ func dnsnameProbe(ctx context.Context) (Status, string) {
 }
 
 // appjailDNSMasqConf is the dnsmasq config appjail ships: addn-hosts on the
-// file appjail-dns writes, so jail names resolve.
-const appjailDNSMasqConf = "/usr/local/share/appjail/files/dnsmasq.conf"
+// file appjail-dns writes, so jail names resolve -- but on every interface,
+// and only through OpenDNS. fjord writes its own (appjail.DNSConf).
+const appjailDNSMasqConf = appjail.StockDNSConf
+
+// runsWith says dnsmasq is set to (rc var) or running with (command line)
+// the given config.
+func runsWith(conf, rcConf, args string) bool {
+	return rcConf == conf || strings.Contains(args, conf)
+}
+
+// appjailDNSCheck is jail name resolution. Its button installs dnsmasq if it
+// must, writes fjord's config for the AppJail networks there are, points
+// dnsmasq at it and starts appjail-dns: one click on a bare host. A dnsmasq
+// running with a config fjord did not write is someone's, and left alone
+// (no button; the fix says what fjord would do).
+func appjailDNSCheck() Check {
+	return Check{
+		ID: "appjail-dns", Name: "jail name resolution (appjail-dns + dnsmasq)", Engine: "appjail", HostOnly: true,
+		Group:    "networking",
+		Probe:    appjailDNSProbe,
+		Install:  setupJailDNS,
+		Commands: jailDNSCommands,
+		Action:   "Set up jail name resolution",
+		Installed: func() bool {
+			ctx := context.Background()
+			conf := strings.TrimSpace(firstLine(run(ctx, "sysrc", "-n", "dnsmasq_conf")))
+			return exec.CommandContext(ctx, "service", "dnsmasq", "status").Run() == nil && foreignDNSConf(conf)
+		},
+		Why: "Jails on one network find each other by name only when appjail-dns writes the names and dnsmasq answers them. appjail-dns alone only keeps a hosts file, so it \"runs\" while no jail finds another. fjord's dnsmasq config answers only on the AppJail networks (appjail's own answers on every interface, the LAN included) and asks this host's resolvers for everything else, so jails keep the LAN's names.",
+		FixFunc: func() string {
+			return "pkg install -y dnsmasq\nmkdir -p " + filepath.Dir(appjail.DNSConf) + "\ncat > " + appjail.DNSConf + " <<'EOF'\n" +
+				appjail.DNSConfBody(context.Background()) + "EOF\n" + strings.Join(jailDNSCommands[2:], "\n")
+		},
+	}
+}
+
+// jailDNSCommands are what the button runs, for the setup page.
+var jailDNSCommands = []string{
+	"pkg install -y dnsmasq",
+	"# write " + appjail.DNSConf + " (the AppJail networks' bridges)",
+	"sysrc dnsmasq_enable=YES",
+	"sysrc dnsmasq_conf=" + appjail.DNSConf,
+	"service dnsmasq restart",
+	"sysrc appjail_dns_enable=YES",
+	"service appjail-dns restart",
+}
+
+// foreignDNSConf says a dnsmasq config is neither appjail's nor fjord's: the
+// operator's own, which fjord does not touch. Empty is dnsmasq's default
+// file, also the operator's.
+func foreignDNSConf(conf string) bool {
+	return conf != appjailDNSMasqConf && conf != appjail.DNSConf
+}
+
+func setupJailDNS(ctx context.Context, w io.Writer) error {
+	conf := strings.TrimSpace(firstLine(run(ctx, "sysrc", "-n", "dnsmasq_conf")))
+	if exec.CommandContext(ctx, "service", "dnsmasq", "status").Run() == nil && foreignDNSConf(conf) {
+		return fmt.Errorf("dnsmasq here runs with %s, not a config fjord or appjail wrote: fjord leaves it alone", cmp.Or(conf, "its default config"))
+	}
+	if _, err := os.Stat("/usr/local/sbin/dnsmasq"); err != nil {
+		if err := pkgInstall(ctx, "dnsmasq", w); err != nil {
+			return err
+		}
+	}
+	fmt.Fprintf(w, "$ cat > %s\n", appjail.DNSConf)
+	if _, err := appjail.WriteDNSConf(ctx); err != nil {
+		return err
+	}
+	for _, args := range [][]string{
+		{"sysrc", "dnsmasq_enable=YES"},
+		{"sysrc", "dnsmasq_conf=" + appjail.DNSConf},
+		{"service", "dnsmasq", "restart"},
+		{"sysrc", "appjail_dns_enable=YES"},
+		{"service", "appjail-dns", "restart"},
+	} {
+		if err := runShown(ctx, w, nil, args[0], args[1:]...); err != nil {
+			return err
+		}
+	}
+	return nil
+}
 
 // appjailDNSProbe reports whether appjail's name resolution WORKS, which
 // takes two services. appjail-dns(8) only keeps /var/tmp/appjail-hosts and
@@ -618,12 +688,14 @@ func appjailDNSStatus(installed, dnsmasqInstalled, dnsmasqRunning bool, dnsmasqC
 		return Warn, "dnsmasq is not installed -- appjail-dns only writes a hosts file, dnsmasq is what answers; jails cannot find each other by name"
 	case !dnsmasqRunning:
 		return Warn, "dnsmasq is not running -- appjail-dns only writes a hosts file, dnsmasq is what answers; jails cannot find each other by name"
-	case dnsmasqConf != appjailDNSMasqConf && !strings.Contains(dnsmasqArgs, appjailDNSMasqConf):
-		return Warn, "dnsmasq is running, but not with appjail's config (" + appjailDNSMasqConf + ") -- the jail names are not in what it answers"
+	case runsWith(appjailDNSMasqConf, dnsmasqConf, dnsmasqArgs):
+		return Warn, "dnsmasq answers with appjail's stock config: on every interface, your LAN included, and only through OpenDNS, so jails lose your LAN's names -- Install switches it to fjord's"
+	case !runsWith(appjail.DNSConf, dnsmasqConf, dnsmasqArgs):
+		return Warn, "dnsmasq is running with another config (" + cmp.Or(dnsmasqConf, "its default") + "), so the jail names are not in what it answers; fjord leaves a dnsmasq it did not set up alone"
 	case !appjailRunning:
 		return Warn, "dnsmasq is ready, but appjail-dns is not running -- nothing writes the jail names for it"
 	}
-	return OK, "running: appjail-dns writes the names, dnsmasq answers with appjail's config"
+	return OK, "running: appjail-dns writes the names, dnsmasq answers them on the AppJail networks only"
 }
 
 // podmanServiceStaleProbe reports a podman API service older than the podman

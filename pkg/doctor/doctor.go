@@ -56,7 +56,10 @@ type Check struct {
 	// reported when not ok. It must paste into a root shell as-is: no prose,
 	// no "(optional)" asides -- those belong in Why.
 	Fix string
-	Pkg map[string]string // GOOS -> package name: installed by Install when set
+	// FixFunc, when set, writes Fix at the time the check fails: for a fix
+	// that depends on the host (the networks a config must name).
+	FixFunc func() string
+	Pkg     map[string]string // GOOS -> package name: installed by Install when set
 	// Install puts what the check wants in place, for the Install button,
 	// writing what it does to w as it goes; nil with a Pkg entry means "pkg
 	// install" that package.
@@ -172,6 +175,9 @@ func Run(ctx context.Context, cfg Config) Report {
 		}
 		if st != OK {
 			r.Fix = c.Fix
+			if c.FixFunc != nil {
+				r.Fix = c.FixFunc()
+			}
 			r.Installable = p.canInstall && p.mode == "host" && (c.Install != nil || c.Pkg[p.os] != "") &&
 				(c.Installed == nil || !c.Installed())
 		}
