@@ -27,6 +27,9 @@ import (
 // option instead of leaking the runtime's raw response.
 var ErrInUse = errors.New("resource in use")
 
+// ErrNotSupported: the engine cannot do this on this host.
+var ErrNotSupported = errors.New("not supported on this host")
+
 // Port is one published port mapping of a running container.
 type Port struct {
 	HostPort      int    `json:"hostPort"`
@@ -56,6 +59,10 @@ type ContainerStatus struct {
 	// segment over the LAN, so the link offered to open the app pointed at an
 	// address no browser can reach.
 	Addresses map[string]string `json:"addresses,omitempty"`
+	// MACs is the container's MAC on each network, where the engine reports
+	// it (podman on Linux). keepAddresses pins it on a DHCP network so the
+	// lease follows the container across recreates.
+	MACs map[string]string `json:"macs,omitempty"`
 	// Address is the container's own IP on an attachable network, when it has
 	// one. Reported by the backend because the compose records an address only
 	// when the user pinned it: an auto-assigned one exists solely at runtime.
@@ -204,7 +211,10 @@ type NetworkKind struct {
 	// instead of a range podman's IPAM allocates from. When available it is
 	// the better
 	// default: one allocator instead of two on the same wire.
-	SupportsDHCP        bool `json:"supportsDhcp,omitempty"`
+	SupportsDHCP bool `json:"supportsDhcp,omitempty"`
+	// NoStatic: this kind cannot make a network where nothing hands out
+	// addresses and every stack brings its own (Linux macvlan, for now).
+	NoStatic            bool `json:"noStatic,omitempty"`
 	SupportsMTU         bool `json:"supportsMtu,omitempty"`
 	SupportsRange       bool `json:"supportsRange,omitempty"`
 	SupportsDescription bool `json:"supportsDescription,omitempty"`
@@ -300,6 +310,9 @@ type NetworkParent struct {
 // Apply uses it so a Save's changes land even when podman-compose would
 // quietly keep the old container.
 type Recreator interface {
+	// Recreate replaces services' containers, brings up the rest of the
+	// stack without replacing it, and watches the replaced ones stay up --
+	// last, so an action taken meanwhile can end the watch.
 	Recreate(ctx context.Context, s *stack.Stack, services []string) (io.ReadCloser, error)
 }
 
@@ -372,6 +385,9 @@ type Descriptor struct {
 	Name        string
 	Description string
 	Package     string // OS package that provides it (for host-mode install)
+	// OS is the GOOS the engine runs on, "" for any. An engine for another
+	// OS is not listed at all, rather than offered with an Install button.
+	OS string
 	// Available reports whether the engine can run here: ok, a reason when it
 	// can't, and a non-fatal warning when it can but with caveats (e.g. an old
 	// version). ok=false with reason means unavailable; ok=true with warning
@@ -387,14 +403,22 @@ type Descriptor struct {
 // is possible. Project names a runtime-side grouping made outside fjord (a
 // director project), so the handler can tell fjord's own jails apart.
 type Unmanaged struct {
-	ID          string     `json:"id"`
-	Name        string     `json:"name"`
-	Image       string     `json:"image"`
-	State       string     `json:"state"`
-	Project     string     `json:"project,omitempty"`
-	RunArgs     []string   `json:"-"`
-	Spec        *AdoptSpec `json:"-"`
-	Unadoptable string     `json:"-"`
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+	Image   string `json:"image"`
+	State   string `json:"state"`
+	Project string `json:"project,omitempty"`
+	// A compose project started outside fjord (podman-compose by hand, a
+	// systemd unit): imported whole, from its own compose file, rather than
+	// adopted container by container. Services lists its containers' services;
+	// Unit names the systemd unit that runs it, when one does.
+	ComposeFiles []string   `json:"composeFiles,omitempty"`
+	WorkDir      string     `json:"workDir,omitempty"`
+	Services     []string   `json:"services,omitempty"`
+	Unit         string     `json:"unit,omitempty"`
+	RunArgs      []string   `json:"-"`
+	Spec         *AdoptSpec `json:"-"`
+	Unadoptable  string     `json:"-"`
 }
 
 // AdoptSpec is the stack an unmanaged container becomes: a compose file and

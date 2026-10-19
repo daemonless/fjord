@@ -47,6 +47,7 @@ var Descriptor = engine.Descriptor{
 	Name:        "appjail",
 	Description: "Native FreeBSD jails from OCI images, orchestrated by appjail-director.",
 	Package:     "appjail sysutils/py-director", // appjail + appjail-director (py-director)
+	OS:          "freebsd",
 	Available:   available,
 	New:         func() engine.Backend { return NewBackend() },
 }

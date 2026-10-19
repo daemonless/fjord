@@ -40,9 +40,7 @@ func seed(t *testing.T, body string) string {
 	if err := os.WriteFile(filepath.Join(dir, "lan.conflist"), []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	old := hostnet.ConfDir
-	hostnet.ConfDir = dir
-	t.Cleanup(func() { hostnet.ConfDir = old })
+	t.Cleanup(hostnet.UseConflists(dir))
 	return filepath.Join(dir, "lan.conflist")
 }
 

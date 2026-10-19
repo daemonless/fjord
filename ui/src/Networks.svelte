@@ -16,6 +16,7 @@
     label: string;
     help?: string;
     parentLabel?: string;
+    noStatic?: boolean;
     parentSetups?: Setup[];
     parentInterfaces?: { name: string; detail?: string; uplink?: boolean }[];
     needsGateway?: boolean;
@@ -366,6 +367,7 @@
   // what the form said and what the request carried.
   $: if (kind && !kind.supportsDhcp && addressSource === 'dhcp') addressSource = 'pool';
   $: needsParent = !!kind?.parentLabel;
+  const article = (w?: string) => (/^[aeiou]/i.test(w ?? '') ? 'an' : 'a');
   $: isPrivate = kind?.id === 'nat';
   // A LAN network has nowhere to attach without a bridge; say so rather than
   // letting someone fill in a form that cannot succeed.
@@ -1099,7 +1101,7 @@
                 {/if}
               </div>
               <select id="n-parent" bind:value={form.parent} on:change={onParentChange} class={inputCls}>
-                <option value="">Select a {kind.parentLabel?.toLowerCase()}…</option>
+                <option value="">Select {article(kind.parentLabel)} {kind.parentLabel?.toLowerCase()}…</option>
                 {#each parents as p}
                   <option value={p.name}
                     >{p.name}{netsOn(p.name)
@@ -1181,7 +1183,7 @@
                    different screen. -->
               <span class="text-sm font-semibold text-fjord-fg-secondary">Addresses</span>
               <div class="flex gap-2">
-                {#each [{ id: 'dhcp', label: 'DHCP' }, { id: 'pool', label: 'Range' }, { id: 'static', label: 'Static' }] as src}
+                {#each [{ id: 'dhcp', label: 'DHCP' }, { id: 'pool', label: 'Range' }, { id: 'static', label: 'Static' }].filter((x) => !(x.id === 'static' && kind?.noStatic)) as src}
                   <button
                     type="button"
                     on:click={() => { addressSource = src.id as typeof addressSource; applyParent(); }}
@@ -1194,8 +1196,8 @@
               </div>
               <p class="text-xs text-fjord-fg-dim">
                 {#if addressSource === 'dhcp'}
-                  The DHCP server on this segment leases one to each stack, keyed on its MAC, so reservations you
-                  already have apply. A stack can still be given a fixed address instead.
+                  The DHCP server on this segment leases each stack an address, and reservations you already have
+                  for a MAC apply. A stack can still be given a fixed address instead.
                 {:else if addressSource === 'pool'}
                   {form.subnet || 'The subnet'} is handed out by podman's IPAM from a range set aside here. appjail
                   cannot ask it, so an appjail stack needs an address typed in.
@@ -1317,7 +1319,7 @@
             {/each}
             {#if parents.length}
               <span class="font-mono"
-                >{parents.length} {parents.length === 1 ? 'bridge' : 'bridges'} on this host</span
+                >{parents.length} {(kind?.parentLabel || 'bridge').toLowerCase()}{parents.length === 1 ? '' : 's'} on this host</span
               >
             {/if}
           </div>

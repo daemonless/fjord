@@ -608,7 +608,8 @@
       (stack?.services ?? []).map((v: any) => {
         const rows = (v.networks ?? []).map((n: any) => ({ ...n }));
         if (rows.length) return [v.name, rows];
-        return [v.name, [{ network: v.hostNetwork ? 'host' : v.noNetwork ? 'none' : '', ip: '', mac: '' }]];
+        // On the compose's default network: that is bridge, and says so.
+        return [v.name, [{ network: v.hostNetwork ? 'host' : v.noNetwork ? 'none' : 'bridge', ip: '', mac: '' }]];
       }),
     );
     savedSvcNets = JSON.stringify(svcNets);
@@ -1361,6 +1362,9 @@
       if (execStatus[name] === 'running' && watchStarted(logs[name])) {
         execStatus[name] = 'watching';
         execMessage[name] = 'Checking it stays up';
+        // fjordd counts the changes applied from here (clearPendingAfter):
+        // the banner goes now, not after the whole check.
+        refreshState(name);
       }
     }
   }
@@ -2201,7 +2205,7 @@
               />
             {:else}
               <!-- The heading stays a heading; the rename is a button inside it. -->
-              <h2 class="text-2xl font-semibold text-fjord-fg truncate">
+              <h2 class="shrink-0 max-w-[16rem] text-2xl font-semibold text-fjord-fg truncate">
                 <button
                   on:click={() => { editingName = true; nameEdit = label(selectedStack); }}
                   title="Click to rename (id: {selectedStack.name})"
@@ -2225,7 +2229,10 @@
               >
             {/if}
             {#each (selectedStack.status?.containers || []).filter((c) => c.detail) as c}
-              <span class="shrink-0 text-xs text-fjord-warning truncate" title={c.name}>{c.detail}</span>
+              <!-- Gives way first (the name last): shrink-0 kept a long one whole and the
+                   row ran under Revert and Save. The whole line is on hover, and on the
+                   service's card. -->
+              <span class="min-w-0 max-w-sm shrink-[20] text-xs text-fjord-warning truncate" title="{c.name}: {c.detail}">{c.detail}</span>
             {/each}
             {#if selectedStack.state?.engine}
               <span class="shrink-0 flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-fjord-bg border border-fjord-border text-fjord-fg-muted" title="Runtime engine"

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
+	"log"
 	"net"
 	"os"
 	"os/exec"
@@ -44,6 +45,9 @@ func ProbeSegment(ctx context.Context, bridge string) (engine.Segment, error) {
 	}
 	probeMu.Lock()
 	defer probeMu.Unlock()
+	// Probes run one at a time, so any probe interface here now is one a
+	// killed fjordd left behind (review 2.1): clear it before adding another.
+	sweepProbes(ctx)
 
 	out, err := exec.CommandContext(ctx, "ifconfig", "epair", "create").Output()
 	if err != nil {
@@ -58,6 +62,7 @@ func ProbeSegment(ctx context.Context, bridge string) (engine.Segment, error) {
 	defer exec.Command("ifconfig", a, "destroy").Run()
 
 	steps := [][]string{
+		{a, "description", probeDescr},
 		{b, "ether", probeMAC(bridge)},
 		{bridge, "addm", a},
 		{a, "up"},
@@ -109,6 +114,44 @@ func ProbeSegment(ctx context.Context, bridge string) (engine.Segment, error) {
 		case <-time.After(250 * time.Millisecond):
 		}
 	}
+}
+
+// probeDescr marks the host end of a probe's epair, so one a killed fjordd
+// left on the bridge can be found again.
+const probeDescr = "fjord-probe"
+
+// sweepProbes destroys probe interfaces left from before, and the dhclient
+// left asking on one.
+func sweepProbes(ctx context.Context) {
+	out, err := exec.CommandContext(ctx, "ifconfig", "-a").Output()
+	if err != nil {
+		return
+	}
+	for _, ifc := range staleProbes(string(out)) {
+		log.Printf("networks: removing %s, left by an earlier probe", ifc)
+		exec.CommandContext(ctx, "ifconfig", ifc, "destroy").Run()
+	}
+	exec.CommandContext(ctx, "pkill", "-f", "^dhclient -d -c "+filepath.Join(os.TempDir(), "fjord-probe-")).Run()
+	old, _ := filepath.Glob(filepath.Join(os.TempDir(), "fjord-probe-*"))
+	for _, d := range old {
+		os.RemoveAll(d)
+	}
+}
+
+// staleProbes reads `ifconfig -a` for interfaces described as a probe's.
+func staleProbes(ifconfig string) []string {
+	var out []string
+	cur := ""
+	for _, line := range strings.Split(ifconfig, "\n") {
+		if line != "" && line[0] != '\t' && line[0] != ' ' {
+			cur, _, _ = strings.Cut(line, ":")
+			continue
+		}
+		if strings.TrimSpace(line) == "description: "+probeDescr && cur != "" {
+			out = append(out, cur)
+		}
+	}
+	return out
 }
 
 // probeHost is the name the probe's DHCP request carries. dhclient sends the

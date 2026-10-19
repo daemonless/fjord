@@ -9,6 +9,7 @@ import (
 	"time"
 
 	composepkg "github.com/daemonless/fjord/pkg/compose"
+	"github.com/daemonless/fjord/pkg/engine"
 	"github.com/daemonless/fjord/pkg/stack"
 )
 
@@ -92,31 +93,73 @@ func (s *server) pendingFor(st *stack.Stack) []string {
 	return out
 }
 
-// clearPendingAfter passes stream through and, once it ends without an
-// [error], takes done off the pending list (nil = all of it) -- those recorded
-// before read, the mark taken before the operation read the stack. A failed
-// recreate leaves them pending, so the banner keeps saying the changes are not
-// applied.
+// clearPendingAfter passes stream through and takes done off the pending
+// list (nil = all of it) -- those recorded before read, the mark taken before
+// the operation read the stack -- once the containers carry the changes: when
+// the stay-up check starts, or the stream ends, with no [error] before it. A
+// failed recreate leaves them pending, so the banner keeps saying the changes
+// are not applied. A failed check does not: the app has its new config, and
+// the stack reads as idle from the check's start (watchable).
 func (s *server) clearPendingAfter(name string, done []string, read uint64, stream io.ReadCloser) io.ReadCloser {
 	watch := &errorWatch{}
-	return &thenReader{r: io.TeeReader(stream, watch), c: stream, after: func() string {
-		if watch.seen {
-			return ""
-		}
-		err := s.manager.UpdateState(name, func(st *stack.State) *stack.State {
-			if st == nil || len(st.PendingServices) == 0 {
-				return nil
-			}
-			st.PendingServices = slices.DeleteFunc(st.PendingServices, func(svc string) bool {
-				return (done == nil || slices.Contains(done, svc)) && !s.pending.after(name, svc, read)
+	var once sync.Once
+	clear := func() {
+		once.Do(func() {
+			err := s.manager.UpdateState(name, func(st *stack.State) *stack.State {
+				if st == nil || len(st.PendingServices) == 0 {
+					return nil
+				}
+				st.PendingServices = slices.DeleteFunc(st.PendingServices, func(svc string) bool {
+					return (done == nil || slices.Contains(done, svc)) && !s.pending.after(name, svc, read)
+				})
+				return st
 			})
-			return st
+			if err != nil {
+				log.Printf("%s: clear applied changes: %v", name, err)
+			}
 		})
-		if err != nil {
-			log.Printf("%s: clear applied changes: %v", name, err)
+	}
+	check := &lineWatch{prefix: engine.WatchStartPrefix, seen: clear}
+	return &thenReader{r: io.TeeReader(io.TeeReader(stream, watch), check), c: stream, after: func() string {
+		if !watch.seen {
+			clear()
 		}
 		return ""
 	}}
+}
+
+// lineWatch calls seen the first time a line starts with prefix, unless an
+// [error] line came first. Line by line, so an [error] after the prefix in
+// the same chunk does not count against it.
+type lineWatch struct {
+	prefix string
+	seen   func()
+	line   []byte // the current line so far, up to len(prefix)
+	done   bool
+}
+
+func (l *lineWatch) Write(p []byte) (int, error) {
+	for _, c := range p {
+		if l.done {
+			break
+		}
+		if c == '\n' {
+			l.line = l.line[:0]
+			continue
+		}
+		if len(l.line) >= len(l.prefix) {
+			continue
+		}
+		l.line = append(l.line, c)
+		switch {
+		case string(l.line) == "[error]":
+			l.done = true
+		case string(l.line) == l.prefix:
+			l.done = true
+			l.seen()
+		}
+	}
+	return len(p), nil
 }
 
 // errorWatch notices an "[error]" line in a stream, across chunk boundaries,

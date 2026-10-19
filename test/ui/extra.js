@@ -81,7 +81,10 @@ async function setupScreen(page) {
 }
 
 // ---------- multi-service stack ----------
-// paperless-ngx: paperless + redis, both network_mode: host, redis at localhost.
+// paperless-ngx: paperless + redis. The catalog runs both on host networking;
+// on a host with a LAN network the wizard's plan puts paperless there and
+// redis on a private segment instead. Either way it must answer on :8000,
+// wherever fjordd says it is.
 async function paperless(page, name, engine) {
   await openWizard(page, 'paperless', name);
   await page.getByLabel('PAPERLESS_ADMIN_PASSWORD').fill('t-pass-1234').catch(() => {});
@@ -105,10 +108,13 @@ async function paperless(page, name, engine) {
   if (d?.status?.state !== 'running') { await shot(page, `fail-${name}`); note(`${name}: install`, false, `stack state ${d?.status?.state}`); return; }
   const compose = d.compose || '';
   const hostModes = (compose.match(/network_mode:\s*host/g) || []).length;
-  // Host networking: the app is on this host's own addresses, so loopback works.
-  const code = await answers(page, 'http://127.0.0.1:8000/', 300);
+  // On host networking it is on this host's own addresses, so loopback;
+  // with an address of its own, that address.
+  const app = (d.status?.containers || []).find((c) => /paperless/.test(c.service || c.name));
+  const where = hostModes ? '127.0.0.1' : app?.address || '127.0.0.1';
+  const code = await answers(page, `http://${where}:8000/`, 300);
   await shot(page, `${name}-stack`);
-  note(`${name}: install`, code === 200, `running on ${engine}; network_mode host on ${hostModes}/2 services; :8000 -> ${code}`);
+  note(`${name}: install`, code === 200, `running on ${engine}; network_mode host on ${hostModes}/2 services; ${where}:8000 -> ${code}`);
 }
 
 // ---------- Adopt ----------
@@ -116,7 +122,10 @@ async function paperless(page, name, engine) {
 async function adopt(page) {
   await page.goto(BASE + '/', { waitUntil: 'networkidle' });
   await page.goto(BASE + '/#/adopt', { waitUntil: 'networkidle' });
-  await sleep(2000);
+  // A hash change: networkidle does not wait for the list, which asks both
+  // engines about every container and jail.
+  await page.getByText('Looking for containers').waitFor({ state: 'hidden', timeout: 60000 }).catch(() => {});
+  await sleep(500);
   // The smallest block holding t-adopt and a Preview button (it stays while
   // Adopt & replace turns into Replace): not the list, which also holds the
   // playwright container running this test.
@@ -157,16 +166,22 @@ async function adopt(page) {
       await page.getByRole('button', { name: 'Cancel', exact: true }).click({ timeout: 3000 }).catch(() => {});
     }
   };
+  const keep = (process.env.KEEP || '').split(',');
+  // A refused delete leaves jails behind; say so here, with fjordd's reason.
+  const drop = async (name) => {
+    if (keep.includes(name) || !made.includes(name)) return;
+    const r = await api(page, `/api/stacks/${name}?data=1`, { method: 'DELETE' });
+    if (r.status !== 200) note(`${name}: delete`, false, `${r.status} ${String(r.body).slice(0, 200)}`);
+  };
   try {
     await step('setup', () => setupScreen(page));
     // Both paperless installs use host :8000, so one at a time.
     await step('pl', async () => { made.push('t-pl'); await paperless(page, 't-pl', 'podman'); });
-    await api(page, '/api/stacks/t-pl?data=1', { method: 'DELETE' });
+    await drop('t-pl');
     await step('pj', async () => { made.push('t-pj'); await paperless(page, 't-pj', 'appjail'); });
-    await api(page, '/api/stacks/t-pj?data=1', { method: 'DELETE' });
+    await drop('t-pj');
     await step('adopt', () => adopt(page));
   } finally {
-    const keep = (process.env.KEEP || '').split(',');
     for (const s of made.filter((x) => !keep.includes(x))) await api(page, `/api/stacks/${s}?data=1`, { method: 'DELETE' });
     note('no page errors', errs.length === 0, errs.length ? errs.join(' | ') : 'none');
     const pass = results.filter((r) => r.ok).length;

@@ -14,6 +14,7 @@ import (
 
 	composepkg "github.com/daemonless/fjord/pkg/compose"
 	"github.com/daemonless/fjord/pkg/doctor"
+	"github.com/daemonless/fjord/pkg/manifest"
 	"github.com/daemonless/fjord/pkg/stack"
 )
 
@@ -58,14 +59,7 @@ func (s *server) conflicts(ctx context.Context, st *stack.Stack, where string) [
 	// containers on one address, and whichever the router believes wins.
 	problems := clashes(st, s.takenAddresses(ctx, st.Name), where)
 
-	ports := composepkg.PublishedPorts(st.Compose, env)
-	// A stack with an address of its own binds nothing on the host: its ports
-	// live on that address. Checking them against the host's would refuse two
-	// stacks that each have their own IP and happen to share a port -- which
-	// is the whole point of giving them one.
-	if net, _ := composepkg.AttachedNetwork(st.Compose); net != "" {
-		ports = nil
-	}
+	ports := hostPublishedPorts(st.Compose, env)
 	hostPorts := s.hostNetworkPorts(ctx, st, env)
 	if len(ports) == 0 && len(hostPorts) == 0 {
 		return problems
@@ -233,22 +227,50 @@ func (s *server) provisionBindDirs(st *stack.Stack, env map[string]string) []str
 		gid = n
 	}
 	var problems []string
+	enforcing := selinuxEnforcing()
 	for _, b := range composepkg.BindMounts(st.Compose, env) {
 		clean := filepath.Clean(b.Source)
 		if !anywhere && !strings.HasPrefix(clean, root) {
 			continue // jailed fjordd: outside the managed root is not ours to create
 		}
-		if _, err := os.Stat(clean); err == nil {
-			continue
-		}
-		if err := os.MkdirAll(clean, 0o755); err != nil {
+		// Never through a link a container could have planted (review 1.3):
+		// a dangling one in its data folder made fjord create and chown
+		// the folder it named, wherever that was.
+		created, err := manifest.MkdirOwned(clean, 0o755, uid, gid)
+		if err != nil {
 			problems = append(problems, fmt.Sprintf("bind mount %s: cannot create: %v", clean, err))
 			continue
 		}
-		_ = os.Chown(clean, uid, gid)
-		log.Printf("preflight %s: provisioned %s (uid %d)", st.Name, clean, uid)
+		if created {
+			log.Printf("preflight %s: provisioned %s (uid %d)", st.Name, clean, uid)
+		}
+		if !enforcing {
+			continue
+		}
+		// fjord's own folders get the label podman's :z gives; anyone else's
+		// is left as it is and named, with the fix.
+		label, problem := selinuxAction(clean, selinuxType(clean), b.Options, created || s.isAppData(clean))
+		if problem != "" {
+			problems = append(problems, problem)
+		} else if label {
+			if err := labelForContainers(clean); err != nil {
+				problems = append(problems, fmt.Sprintf("bind mount %s: could not label it for containers (SELinux): %v", clean, err))
+			} else {
+				log.Printf("preflight %s: labelled %s for containers (SELinux)", st.Name, clean)
+			}
+		}
 	}
 	return problems
+}
+
+// isAppData reports whether path is under one of the App data folders.
+func (s *server) isAppData(path string) bool {
+	for _, l := range s.appDataLocations() {
+		if l = filepath.Clean(l); path == l || strings.HasPrefix(path, l+string(os.PathSeparator)) {
+			return true
+		}
+	}
+	return false
 }
 
 // otherStackPorts are the host ports the other stacks set to run publish
@@ -268,12 +290,41 @@ func (s *server) otherStackPorts(st *stack.Stack) map[string]string {
 		if err != nil {
 			continue
 		}
-		if net, _ := composepkg.AttachedNetwork(o.Compose); net != "" {
-			continue // its ports are on its own address
-		}
-		for _, p := range composepkg.PublishedPorts(o.Compose, o.EnvMap()) {
-			out[fmt.Sprintf("%d/%s", p.Host, cmp.Or(p.Proto, "tcp"))] = o.Name
+		for _, p := range hostPublishedPorts(o.Compose, o.EnvMap()) {
+			out[portKey(p)] = o.Name
 		}
 	}
 	return out
+}
+
+// hostPublishedPorts are the ports a stack's services bind on the host. A
+// service whose every network gives it an address of its own binds nothing
+// here: its ports live on that address, and two such stacks sharing a port
+// is the point of giving them one. Decided per service, not per stack (review
+// 2.4): a stack with a private segment still publishes its front service.
+func hostPublishedPorts(composeYAML string, env map[string]string) []composepkg.PublishedPort {
+	atts := composepkg.ServiceAttachments(composeYAML)
+	var out []composepkg.PublishedPort
+	for _, svc := range composepkg.ParseServices(composeYAML, env) {
+		if onlyOwnAddresses(atts[svc.Name]) {
+			continue
+		}
+		for _, p := range svc.Ports {
+			out = append(out, composepkg.PublishedPort{Host: p.Host, Proto: cmp.Or(p.Proto, "tcp")})
+		}
+	}
+	return out
+}
+
+func onlyOwnAddresses(atts []composepkg.Attachment) bool {
+	for _, a := range atts {
+		if !ownAddress(a.Network) {
+			return false
+		}
+	}
+	return len(atts) > 0
+}
+
+func portKey(p composepkg.PublishedPort) string {
+	return fmt.Sprintf("%d/%s", p.Host, cmp.Or(p.Proto, "tcp"))
 }

@@ -85,3 +85,54 @@ func TestLeftoverRemove(t *testing.T) {
 		}
 	}
 }
+
+// A system folder is never an App data location (review 1.2): the left-over
+// list showed /var's folders with a Delete button that removes as root.
+func TestStorageRefusesSystemFolders(t *testing.T) {
+	s := &server{fjordRoot: filepath.Join(t.TempDir(), "var", "db", "fjord")}
+	os.MkdirAll(s.fjordRoot, 0o755)
+	post := func(loc string) int {
+		rec := httptest.NewRecorder()
+		s.handleStorageSettings(rec, httptest.NewRequest("POST", "/api/settings/storage", strings.NewReader(`{"locations":["`+loc+`"]}`)))
+		return rec.Code
+	}
+	for _, bad := range []string{"/", "/var", "/etc/", "/usr/local", "/home", "/var/db", filepath.Dir(s.fjordRoot)} {
+		if code := post(bad); code != 400 {
+			t.Errorf("%s accepted (%d)", bad, code)
+		}
+	}
+	if code := post("/containers"); code != 200 {
+		t.Errorf("/containers refused (%d)", code)
+	}
+}
+
+// One set by hand in the settings file before this check is still never
+// listed from.
+func TestLeftoversSkipASystemLocation(t *testing.T) {
+	s, _ := leftoverFixture(t)
+	if err := updateSettings(s.fjordRoot, func(st *savedSettings) { st.AppData = []string{"/var"} }); err != nil {
+		t.Fatal(err)
+	}
+	found, _ := s.findLeftovers(context.Background())
+	for _, f := range found.Folders {
+		if strings.HasPrefix(f.Path, "/var/") {
+			t.Fatalf("listed %s", f.Path)
+		}
+	}
+}
+
+// A mount named through a symlink is the folder it points at: in use, not
+// left over.
+func TestLeftoversSeeThroughSymlinks(t *testing.T) {
+	s, root := leftoverFixture(t)
+	link := filepath.Join(root, "via")
+	if err := os.Symlink(filepath.Join(root, "apps"), link); err != nil {
+		t.Fatal(err)
+	}
+	s.backends = map[string]engine.Backend{"podman": mountingEngine{engine.Unavailable("podman"),
+		[]string{filepath.Join(root, "apps/ansible-svc"), filepath.Join(link, "oldapp/config")}}}
+	found, _ := s.findLeftovers(context.Background())
+	if len(found.Folders) != 0 {
+		t.Errorf("listed an in-use folder: %+v", found.Folders)
+	}
+}

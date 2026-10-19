@@ -43,7 +43,7 @@ func (s *server) findLeftovers(ctx context.Context) (leftovers, error) {
 		}
 		for _, m := range stackMounts(full) {
 			if m.Kind == "bind" && filepath.IsAbs(m.Source) {
-				used = append(used, filepath.Clean(m.Source))
+				used = append(used, resolved(m.Source))
 			}
 		}
 	}
@@ -63,15 +63,20 @@ func (s *server) findLeftovers(ctx context.Context) (leftovers, error) {
 		if err != nil {
 			return out, err // unsure means nothing is offered
 		}
-		used = append(used, paths...)
+		for _, p := range paths {
+			used = append(used, resolved(p))
+		}
 	}
 	sort.Strings(out.Unchecked)
 	for _, loc := range s.dataLocations() {
 		entries, _ := os.ReadDir(loc)
 		for _, e := range entries {
 			dir := filepath.Join(loc, e.Name())
+			// Compared with links followed: a mount named through a symlink
+			// is this folder, in use.
+			real := resolved(dir)
 			if strings.HasPrefix(e.Name(), ".") || stacks[e.Name()] || !isRealDir(dir) ||
-				anyInside(used, dir) || containsAny(used, dir) {
+				anyInside(used, real) || containsAny(used, real) {
 				continue
 			}
 			n, more := dirSize(dir, time.Second)

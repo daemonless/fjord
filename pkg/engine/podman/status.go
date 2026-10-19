@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"runtime"
 	"strings"
 	"time"
 
@@ -29,7 +30,17 @@ type libpodContainer struct {
 		ContainerPort int    `json:"container_port"`
 		Protocol      string `json:"protocol"`
 	} `json:"Ports"`
+	// reported is podman's own address per network, where podman knows it
+	// (podmanReportsAddresses), and reportedMAC the MAC on each.
+	reported    map[string]string
+	reportedMAC map[string]string
 }
+
+// podmanReportsAddresses: on Linux netavark knows every container's address
+// and podman reports it. On FreeBSD podman cannot parse a third-party CNI
+// plugin's conflist and reports none for an epair network, so the address is
+// read from CNI's own state instead (hostnet).
+var podmanReportsAddresses = runtime.GOOS == "linux"
 
 // Status queries the libpod REST API over the podman unix socket for
 // containers labeled with this stack's podman-compose project. The project
@@ -77,7 +88,63 @@ func (b *Backend) listStackContainers(ctx context.Context, name string) ([]libpo
 	if err := json.NewDecoder(resp.Body).Decode(&containers); err != nil {
 		return nil, fmt.Errorf("decode libpod response: %w", err)
 	}
+	if podmanReportsAddresses && len(containers) > 0 {
+		// The libpod list names a container's networks but not its addresses;
+		// the compat list carries both.
+		if addrs, macs, err := b.reportedAddresses(ctx, q); err == nil {
+			for i := range containers {
+				containers[i].reported = addrs[containers[i].ID]
+				containers[i].reportedMAC = macs[containers[i].ID]
+			}
+		}
+	}
 	return containers, nil
+}
+
+// reportedAddresses is podman's address and MAC for each container on each
+// network, by container ID, from the compat API's list.
+func (b *Backend) reportedAddresses(ctx context.Context, q url.Values) (addrs, macs map[string]map[string]string, err error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://d/v4.0.0/containers/json?"+q.Encode(), nil)
+	if err != nil {
+		return nil, nil, err
+	}
+	resp, err := b.http.Do(req)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, nil, fmt.Errorf("containers/json: unexpected status %s", resp.Status)
+	}
+	var list []struct {
+		ID              string `json:"Id"`
+		NetworkSettings struct {
+			Networks map[string]struct {
+				IPAddress  string `json:"IPAddress"`
+				MacAddress string `json:"MacAddress"`
+			} `json:"Networks"`
+		} `json:"NetworkSettings"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&list); err != nil {
+		return nil, nil, err
+	}
+	addrs, macs = map[string]map[string]string{}, map[string]map[string]string{}
+	put := func(m map[string]map[string]string, id, n, v string) {
+		if v == "" {
+			return
+		}
+		if m[id] == nil {
+			m[id] = map[string]string{}
+		}
+		m[id][n] = v
+	}
+	for _, c := range list {
+		for n, v := range c.NetworkSettings.Networks {
+			put(addrs, c.ID, n, v.IPAddress)
+			put(macs, c.ID, n, v.MacAddress)
+		}
+	}
+	return addrs, macs, nil
 }
 
 // UsedPorts maps "port/proto" -> container name for every container's
@@ -161,7 +228,7 @@ func aggregateStatus(containers []libpodContainer, health func(libpodContainer) 
 			}
 		}
 		cs := engine.ContainerStatus{Name: name, ID: c.ID, Service: c.Labels["io.podman.compose.service"], State: c.State, Ports: ports,
-			Address: containerAddress(c), Addresses: containerAddresses(c)}
+			Address: containerAddress(c), Addresses: containerAddresses(c), MACs: c.reportedMAC}
 		if cs.State == "running" {
 			up++
 			if health != nil {
@@ -227,6 +294,10 @@ func containerAddresses(c libpodContainer) map[string]string {
 	out := map[string]string{}
 	needLease := false
 	for _, n := range c.Networks {
+		if addr := c.reported[n]; addr != "" {
+			out[n] = addr
+			continue
+		}
 		if addr := hostnet.AddressOf(n, c.ID); addr != "" {
 			out[n] = addr
 			continue
@@ -259,6 +330,9 @@ func containerAddress(c libpodContainer) string {
 		return ""
 	}
 	for _, n := range c.Networks {
+		if addr := c.reported[n]; addr != "" {
+			return addr
+		}
 		if addr := hostnet.AddressOf(n, c.ID); addr != "" {
 			return addr
 		}

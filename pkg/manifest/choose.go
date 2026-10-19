@@ -22,9 +22,15 @@ func (m *Manifest) ApplyChoices(picks map[string]string, values map[string]strin
 	if len(m.Choices) == 0 {
 		return answers, nil
 	}
-	known := map[string]*Var{}
+	// Indices, not pointers: an add below can move m.Variables, and a pointer
+	// taken before it then changed the old copy (review 4.4).
+	known := map[string]int{}
 	for i := range m.Variables {
-		known[m.Variables[i].Name] = &m.Variables[i]
+		known[m.Variables[i].Name] = i
+	}
+	add := func(v Var) {
+		m.Variables = append(m.Variables, v)
+		known[v.Name] = len(m.Variables) - 1
 	}
 	var drop []string
 	m.picked = nil
@@ -54,9 +60,8 @@ func (m *Manifest) ApplyChoices(picks map[string]string, values map[string]strin
 		// host); it wins over anything typed.
 		for k, v := range o.Env {
 			values[k] = v
-			if known[k] == nil {
-				m.Variables = append(m.Variables, Var{Name: k, Type: "string", Optional: true})
-				known[k] = &m.Variables[len(m.Variables)-1]
+			if _, ok := known[k]; !ok {
+				add(Var{Name: k, Type: "string", Optional: true})
 			}
 		}
 		// Defaults seed what the added services need, unless typed over.
@@ -64,18 +69,16 @@ func (m *Manifest) ApplyChoices(picks map[string]string, values map[string]strin
 			if values[k] == "" {
 				values[k] = o.Defaults[k]
 			}
-			if known[k] == nil {
-				m.Variables = append(m.Variables, Var{Name: k, Type: "string", Optional: true})
-				known[k] = &m.Variables[len(m.Variables)-1]
+			if _, ok := known[k]; !ok {
+				add(Var{Name: k, Type: "string", Optional: true})
 			}
 		}
 		for _, k := range o.Secrets {
 			if values[k] == "" {
 				values[k] = randomSecret(24)
 			}
-			if known[k] == nil {
-				m.Variables = append(m.Variables, Var{Name: k, Type: "secret", Optional: true})
-				known[k] = &m.Variables[len(m.Variables)-1]
+			if _, ok := known[k]; !ok {
+				add(Var{Name: k, Type: "secret", Optional: true})
 			}
 		}
 		// What the option asks for is required, and typed by the person.
@@ -84,14 +87,13 @@ func (m *Manifest) ApplyChoices(picks map[string]string, values map[string]strin
 			if typ == "" {
 				typ = "string"
 			}
-			if v := known[a.Name]; v != nil {
-				v.Optional = false
+			if i, ok := known[a.Name]; ok {
+				m.Variables[i].Optional = false
 				if typ == "secret" {
-					v.Type = typ
+					m.Variables[i].Type = typ
 				}
 			} else {
-				m.Variables = append(m.Variables, Var{Name: a.Name, Type: typ, Default: a.Default})
-				known[a.Name] = &m.Variables[len(m.Variables)-1]
+				add(Var{Name: a.Name, Type: typ, Default: a.Default})
 			}
 			if values[a.Name] == "" && a.Default != "" {
 				values[a.Name] = a.Default

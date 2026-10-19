@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/daemonless/fjord/pkg/engine/appjail"
 )
 
 // The real numbers from jupiter, 2026-09-22. podman_service had been up since
@@ -110,7 +112,7 @@ func TestHostZone(t *testing.T) {
 // appjail-dns is only "running" when dnsmasq answers with appjail's config;
 // each missing piece is named, in the order it gets fixed.
 func TestAppjailDNSStatus(t *testing.T) {
-	conf := appjailDNSMasqConf
+	conf, stock := appjail.DNSConf, appjailDNSMasqConf
 	cases := []struct {
 		name                                        string
 		installed, dnsmasqInstalled, dnsmasqRunning bool
@@ -122,9 +124,12 @@ func TestAppjailDNSStatus(t *testing.T) {
 		{"nothing installed", false, false, false, "", "", false, Warn, "appjail-dns is not installed"},
 		{"no dnsmasq", true, false, false, "", "", true, Warn, "dnsmasq is not installed"},
 		{"dnsmasq stopped (fjordfresh, netlab)", true, true, false, "", "", true, Warn, "dnsmasq is not running"},
-		{"dnsmasq on its own config", true, true, true, "/usr/local/etc/dnsmasq.conf", "123 dnsmasq -C /usr/local/etc/dnsmasq.conf", true, Warn, "not with appjail's config"},
+		{"dnsmasq on its own config", true, true, true, "/usr/local/etc/dnsmasq.conf", "123 dnsmasq -C /usr/local/etc/dnsmasq.conf", true, Warn, "fjord leaves a dnsmasq it did not set up alone"},
+		{"dnsmasq on its default file", true, true, true, "", "123 dnsmasq", true, Warn, "its default"},
+		// netlab, 2026-10-17: *:53 and OpenDNS.
+		{"appjail's stock config", true, true, true, stock, "", true, Warn, "every interface, your LAN included"},
 		{"dnsmasq right, appjail-dns stopped", true, true, true, conf, "", false, Warn, "appjail-dns is not running"},
-		{"all there, by rc var", true, true, true, conf, "", true, OK, "running"},
+		{"all there, by rc var", true, true, true, conf, "", true, OK, "AppJail networks only"},
 		{"all there, config on the command line", true, true, true, "", "123 dnsmasq -C " + conf, true, OK, "running"},
 	}
 	for _, c := range cases {

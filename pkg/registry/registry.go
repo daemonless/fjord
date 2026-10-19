@@ -78,14 +78,7 @@ const manifestAccept = "application/vnd.oci.image.index.v1+json," +
 // content digest podman would pull -- the index digest for multi-arch images,
 // else the single manifest digest. Used to pin a stack to an exact image.
 func Digest(ctx context.Context, image string) (string, error) {
-	host, repo := splitImage(image)
-	ref := "latest"
-	if slash := strings.LastIndex(repo, "/"); slash >= 0 || !strings.Contains(repo, "/") {
-		if colon := strings.LastIndex(repo, ":"); colon > slash {
-			ref = repo[colon+1:]
-			repo = repo[:colon]
-		}
-	}
+	host, repo, ref := manifestRef(image)
 	u := "https://" + host + "/v2/" + repo + "/manifests/" + ref
 	dg, err := manifestDigest(ctx, u, repo)
 	if err != nil {
@@ -677,4 +670,25 @@ func Repo(image string) string {
 		ref = ref[:colon]
 	}
 	return ref
+}
+
+// manifestRef splits an image into registry host, repository and the
+// reference to ask the registry for: a pinned "@sha256:..." digest when there
+// is one (its tag beside it is dropped), else the tag, else "latest". Split
+// at the last colon first, "repo:tag@sha256:abc" asked for
+// /v2/repo:tag@sha256/manifests/abc (review 4.7.1).
+func manifestRef(image string) (host, repo, ref string) {
+	host, repo = splitImage(image)
+	if at := strings.Index(repo, "@"); at >= 0 {
+		repo, ref = repo[:at], repo[at+1:]
+		if slash, colon := strings.LastIndex(repo, "/"), strings.LastIndex(repo, ":"); colon > slash {
+			repo = repo[:colon]
+		}
+		return host, repo, ref
+	}
+	ref = "latest"
+	if slash, colon := strings.LastIndex(repo, "/"), strings.LastIndex(repo, ":"); colon > slash {
+		repo, ref = repo[:colon], repo[colon+1:]
+	}
+	return host, repo, ref
 }

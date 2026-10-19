@@ -54,7 +54,7 @@ IMAGE=ghcr.io/daemonless/playwright:latest
 OUT=test/ui/out
 
 # The default order: cheap and read-only first, the long installs last.
-SUITE="open-link keys default-install update wording busy output-elsewhere shell-light folders outcome arch retag-var leftover appjail-dns appjail-update update-stopped privdel apply wire type matrix multi extra restart"
+SUITE="open-link keys default-install update wording busy output-elsewhere shell-light folders outcome arch retag-var leftover appjail-dns appjail-update update-stopped privdel apply wire type matrix multi extra restart linux"
 # Opt-in: image-specific, or needing something the default host lacks.
 OPT_IN="lnms-admin choice"
 
@@ -87,8 +87,8 @@ del_net() { curl -s -o /dev/null --max-time 60 -X DELETE -H "Origin: $FJORD" "$F
 # terminal and the test's log.
 run_js() {
   _js=$1; shift
-  on "cd $REMOTE && podman run --rm --network host $* \
-    -v \$PWD/$_js.js:/app/t.js:ro -v \$PWD/out:/out \
+  on "cd $REMOTE && podman run --rm --network host $* $JS_MOUNTS \
+    -v \$PWD/$_js.js:/app/t.js:ro$Z -v \$PWD/out:/out${Z:+:z} \
     $IMAGE node /app/t.js 2>&1 | grep -v -E '^\[(usermod|init)\]'" | tee -a "$LOG"
 }
 
@@ -98,6 +98,18 @@ for t in $tests; do [ -f "test/ui/$t.js" ] || { echo "no test/ui/$t.js" >&2; exi
 
 step "Copying test/ui to $HOST:$REMOTE"
 on "mkdir -p $REMOTE/out && chmod 1777 $REMOTE/out" || exit 1   # the container writes screenshots as its PUID
+# The daemonless image is a FreeBSD one. A Linux host runs Microsoft's, at the
+# same playwright version, with playwright-core installed once beside the tests.
+# Its mounts need :z, or SELinux keeps the container out of them; FreeBSD's
+# podman takes no such option.
+JS_MOUNTS= Z=
+if [ "$(on uname -s)" = Linux ]; then
+  PW=1.64.1 Z=,z
+  IMAGE=mcr.microsoft.com/playwright:v$PW-noble
+  on "mkdir -p $REMOTE/node; [ -d $REMOTE/node/node_modules/playwright-core ] || podman run --rm -v $REMOTE/node:/n:z -w /n $IMAGE npm install --prefix /n playwright-core@$PW" >/dev/null || exit 1
+  on "[ -d $REMOTE/node/node_modules/playwright-core ]" || { echo "playwright-core did not install on $HOST" >&2; exit 1; }
+  JS_MOUNTS="-v $REMOTE/node/node_modules:/node_modules:ro,z -e NODE_PATH=/node_modules"
+fi
 if [ "$LOCAL" = 1 ]; then $SUDO cp test/ui/*.js "$REMOTE/" || exit 1; else scp -q test/ui/*.js "$HOST:$REMOTE/" || exit 1; fi
 [ "$LOCAL" = 1 ] && [ -z "${OFFHOST:-}" ] && echo "note: OFFHOST is not set, so off-host checks run from this machine" >&2
 on "podman image exists $IMAGE" || { echo "$IMAGE is not on $HOST: podman pull it first" >&2; exit 1; }
@@ -123,8 +135,8 @@ for t in $tests; do
 done
 
 step "Leftovers on $HOST"
-left=$(on 'c=$(podman ps -a --format "{{.Names}}" | grep "^t-"); n=$(podman network ls --format "{{.Name}}" | grep "^t-"); j=$(jls name 2>/dev/null | grep "^t-"); echo "$c $n $j" | tr -s " \n" " "' | sed 's/^ *//;s/ *$//')
-if [ -n "$left" ]; then echo "FAIL leftovers: $left"; fail=$((fail + 1)); else echo "PASS nothing named t-* left behind"; fi
+left=$(on 'c=$(podman ps -a --format "{{.Names}}" | grep "^t-"); n=$(podman network ls --format "{{.Name}}" | grep "^t-"); j=$(appjail jail list -HIpt name 2>/dev/null | grep "^t[-_]"); echo "$c $n $j" | tr -s " \n" " "' | sed 's/^ *//;s/ *$//')
+if [ -n "$left" ]; then echo "FAIL leftovers: $left"; fail=$((fail + 1)); else echo "PASS nothing named t-* (or a jail t_*) left behind"; fi
 
 step "Summary"
 printf '%s passed, %s failed' "$pass" "$fail"

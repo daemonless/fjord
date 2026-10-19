@@ -182,13 +182,7 @@ func evalService(ctx context.Context, local LocalImages, sv Service, schemeFor S
 	}
 	// Compare only the digest portion, so repo-name spelling doesn't matter
 	// (bare "postgres:16" vs canonical "docker.io/library/postgres@...").
-	localDigests := make([]string, 0, len(digests))
-	for _, d := range digests {
-		if at := strings.LastIndex(d, "@"); at >= 0 {
-			localDigests = append(localDigests, d[at+1:])
-		}
-	}
-	if hasBytes(ctx, sv.Image, reg, localDigests) {
+	if hasBytes(ctx, sv.Image, reg, localDigestsOf(digests)) {
 		return with("current")
 	}
 	b := with("available")
@@ -202,6 +196,9 @@ func evalService(ctx context.Context, local LocalImages, sv Service, schemeFor S
 // platform is rebuilt, so on its own it flags an arm64-only rebuild as an
 // update on amd64 that pulls nothing new.
 func hasBytes(ctx context.Context, image, reg string, known []string) bool {
+	if len(known) == 0 {
+		return false // nothing to compare: known[0] below panicked (review 4.3)
+	}
 	if slices.Contains(known, reg) {
 		return true
 	}
@@ -270,4 +267,19 @@ func imageTag(image string) string {
 		return ref[colon+1:]
 	}
 	return "latest"
+}
+
+// localDigestsOf is the digest part of each local repo digest -- "repo@sha256:..."
+// or a bare "sha256:..." as podman may report one -- so repo-name spelling
+// does not matter (bare "postgres:16" vs "docker.io/library/postgres@...").
+func localDigestsOf(digests []string) []string {
+	out := make([]string, 0, len(digests))
+	for _, d := range digests {
+		if at := strings.LastIndex(d, "@"); at >= 0 {
+			out = append(out, d[at+1:])
+		} else if strings.HasPrefix(d, "sha256:") {
+			out = append(out, d)
+		}
+	}
+	return out
 }

@@ -408,12 +408,17 @@
   $: movableCount = catalogs.filter((c) => !c.builtin).length;
 
   let defaultCatalogURL = '';
+  let defaultCatalogName = 'daemonless';
   async function loadCatalogs() {
     try {
       const res = await fetch('/api/catalogs');
       if (res.ok) catalogs = await res.json();
       const st = await fetch('/api/setup/state');
-      if (st.ok) defaultCatalogURL = (await st.json()).defaultCatalog || '';
+      if (st.ok) {
+        const j = await st.json();
+        defaultCatalogURL = j.defaultCatalog || '';
+        defaultCatalogName = j.defaultCatalogName || defaultCatalogName;
+      }
     } catch {
       // list stays stale; individual actions surface their own errors
     }
@@ -422,7 +427,7 @@
   // The default catalog is an ordinary source; once removed, one click puts it back.
   $: hasDefault = !defaultCatalogURL || catalogs.some((c: any) => (c.url || '').replace(/\/+$/, '') === defaultCatalogURL.replace(/\/+$/, ''));
   function readdDefault() {
-    newName = 'daemonless';
+    newName = defaultCatalogName;
     newURL = defaultCatalogURL;
     addCatalog();
   }
@@ -1013,7 +1018,7 @@
             on:click={readdDefault}
             disabled={adding}
             class="mt-3 flex items-center gap-1.5 text-xs font-medium text-fjord-fg-muted hover:text-fjord-fg py-1 px-2.5 rounded-md border border-fjord-border hover:border-fjord-accent/40 transition-colors disabled:opacity-40"
-            ><Icon name="plus" size={12} /> Re-add the daemonless catalog</button
+            ><Icon name="plus" size={12} /> Re-add the {defaultCatalogName} catalog</button
           >
         {/if}
       </div>
@@ -1021,8 +1026,8 @@
       {/if}
 
       <p class="text-xs text-fjord-fg-faint mt-6 max-w-2xl">
-        Everything else comes from the daemon's environment (<code>FJORD_*</code> variables — via rc.conf on FreeBSD
-        or the container environment). Host readiness checks live on the <b>System</b> page.
+        Everything else comes from the daemon's environment (<code>FJORD_*</code> variables — via rc.conf on FreeBSD,
+        the systemd unit on Linux, or the container environment). Host readiness checks live on the <b>System</b> page.
       </p>
     {/if}
 

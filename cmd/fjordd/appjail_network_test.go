@@ -45,9 +45,7 @@ func seedNetwork(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "vlan6.conflist"), []byte(dhcp), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	old := hostnet.ConfDir
-	hostnet.ConfDir = dir
-	t.Cleanup(func() { hostnet.ConfDir = old })
+	t.Cleanup(hostnet.UseConflists(dir))
 }
 
 // The generated options must match what was proven by hand on jupiter:
@@ -343,9 +341,7 @@ func seedDualStackNetwork(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "vlan5.conflist"), []byte(conf), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	old := hostnet.ConfDir
-	hostnet.ConfDir = dir
-	t.Cleanup(func() { hostnet.ConfDir = old })
+	t.Cleanup(hostnet.UseConflists(dir))
 }
 
 // The v6 half is a SECOND ifconfig on the same epair, not a replacement: a

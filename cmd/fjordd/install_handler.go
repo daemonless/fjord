@@ -225,7 +225,7 @@ func (s *server) handleInstall(w http.ResponseWriter, r *http.Request) {
 	// Data kept from an earlier install under this name was set up with that
 	// install's secrets; new made-up ones lock the app out of its database.
 	dataDir := filepath.Join(base, slug)
-	reused := reuseSecrets(dataDir, req.Values)
+	reused := reuseSecrets(s.fjordRoot, dataDir, m, req.Values)
 	answers, err := m.ApplyChoices(req.Choices, req.Values)
 	if err != nil {
 		http.Error(w, err.Error(), 400)
@@ -629,7 +629,7 @@ func (s *server) handleInstall(w http.ResponseWriter, r *http.Request) {
 	if err := s.manager.SaveState(id, st.State); err != nil {
 		log.Printf("install %s: persist state: %v", id, err)
 	}
-	if err := saveSecrets(dataDir, m, res.Env); err != nil {
+	if err := saveSecrets(s.fjordRoot, dataDir, m, res.Env); err != nil {
 		log.Printf("install %s: keep secrets with the data: %v", id, err)
 	}
 	installed = true
@@ -743,6 +743,12 @@ func expandPathTemplates(values map[string]string, exps []pathExpansion, pathVar
 	var dirs []manifest.ProvisionDir
 	seen := map[string]bool{}
 	own := func(p string) {
+		// Cleaned, and never with "..": "/containers/app/../../etc" starts
+		// with /containers/ and was provisioned as the app's (review 1.3).
+		if strings.Contains("/"+p+"/", "/../") {
+			return
+		}
+		p = filepath.Clean(p)
 		if strings.HasPrefix(p, strings.TrimRight(base, "/")+"/") && !seen[p] {
 			seen[p] = true
 			dirs = append(dirs, manifest.ProvisionDir{Path: p, Uid: 1000, Gid: 1000, Mode: 0o755})
@@ -829,13 +835,15 @@ func anotherStacksFolder(dirs []manifest.ProvisionDir, base, slug string, existi
 	}
 	root := strings.TrimRight(base, "/") + "/"
 	for _, d := range dirs {
-		rel := strings.TrimPrefix(d.Path, root)
-		if rel == d.Path {
+		// Cleaned first: "/containers/app/../other/data" is other's.
+		path := filepath.Clean(d.Path)
+		rel := strings.TrimPrefix(path, root)
+		if rel == path {
 			continue
 		}
 		top, _, _ := strings.Cut(rel, "/")
 		if name, ok := owner[top]; ok {
-			return fmt.Sprintf("%s is inside %s's folder (%s%s) -- give this install a folder of its own", d.Path, name, root, top)
+			return fmt.Sprintf("%s is inside %s's folder (%s%s) -- give this install a folder of its own", path, name, root, top)
 		}
 	}
 	return ""

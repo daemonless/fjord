@@ -6,7 +6,11 @@ export type Candidate = {
   id: string; name: string; image: string; state: string; engine: string;
   service?: string; compose?: string; env?: string; notes?: string[]; error?: string;
   director?: string; makejail?: string; template?: string; project?: string;
+  // A compose project started outside fjord: imported whole, not adopted.
+  composeFiles?: string[]; workDir?: string; services?: string[]; unit?: string;
 };
+
+export const isProject = (c: Candidate) => !!c.composeFiles?.length;
 
 export async function listCandidates(): Promise<Candidate[]> {
   try {
@@ -22,7 +26,8 @@ export async function adoptContainer(c: Candidate, replace: boolean): Promise<st
   const r = await fetch('/api/adopt', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ container: c.name, engine: c.engine, replace }),
+    // A project by its id: a plain container may share the project's name.
+    body: JSON.stringify({ container: isProject(c) ? c.id : c.name, engine: c.engine, replace }),
   });
   if (!r.ok) throw new Error((await r.text()).trim() || `HTTP ${r.status}`);
   return (await r.json()).id;

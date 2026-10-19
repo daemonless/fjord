@@ -194,11 +194,16 @@
   let catalogs: CatalogRow[] = [];
   let catalogURL = ''; // "add another" input; the default catalog is already configured
   let defaultCatalogURL = '';
+  let defaultCatalogName = 'daemonless';
   let addingCatalog = false;
   async function loadCatalog() {
     try {
       const st = await fetch('/api/setup/state');
-      if (st.ok) defaultCatalogURL = (await st.json()).defaultCatalog || '';
+      if (st.ok) {
+        const j = await st.json();
+        defaultCatalogURL = j.defaultCatalog || '';
+        defaultCatalogName = j.defaultCatalogName || defaultCatalogName;
+      }
       const r = await fetch('/api/catalogs');
       if (r.ok) catalogs = ((await r.json()) || []).filter((c: CatalogRow) => !c.builtin);
     } catch {}
@@ -480,7 +485,7 @@
             on:click={() => addCatalog(defaultCatalogURL)}
             disabled={addingCatalog}
             class="mt-3 flex items-center gap-1.5 text-xs font-medium text-fjord-fg-muted hover:text-fjord-fg py-1 px-2.5 rounded-md border border-fjord-border hover:border-fjord-accent/40 transition-colors disabled:opacity-40"
-            ><Icon name="plus" size={12} /> Re-add the daemonless catalog</button
+            ><Icon name="plus" size={12} /> Re-add the {defaultCatalogName} catalog</button
           >
         {/if}
       {:else if step === 3}

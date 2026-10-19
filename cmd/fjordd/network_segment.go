@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net"
@@ -99,7 +100,7 @@ func (s *server) runWireChecks() {
 }
 
 func (s *server) checkWires() {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	ctx, cancel := context.WithTimeout(daemonCtx, 5*time.Minute)
 	defer cancel()
 	be := s.primaryBackend()
 	prober, ok := be.(engine.SegmentProber)
@@ -118,6 +119,9 @@ func (s *server) checkWires() {
 	}
 	for _, bridge := range bridgesToAsk(nets, parents) {
 		seg, err := prober.ProbeSegment(ctx, bridge)
+		if errors.Is(err, engine.ErrNotSupported) {
+			return
+		}
 		if err != nil {
 			log.Printf("networks: could not ask %s's wire: %v", bridge, err)
 			continue

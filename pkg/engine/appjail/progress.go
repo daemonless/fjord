@@ -30,7 +30,11 @@ func directorUpStep(ctx context.Context, s *stack.Stack) func(io.Writer) error {
 		if build > 0 {
 			fmt.Fprintf(w, "[fjord] %s\n", upSummary(build, start))
 		}
-		return runDirector(ctx, newProgressWriter(w, build+start), s.Dir, false, "up")
+		err := runDirector(ctx, newProgressWriter(w, build+start), s.Dir, false, "up")
+		if err == nil {
+			followNewBridges(ctx)
+		}
+		return err
 	}
 }
 

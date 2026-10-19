@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"runtime"
 	"sort"
 	"strings"
 
@@ -50,7 +51,11 @@ func (s *server) keepAddresses(ctx context.Context, st *stack.Stack) (kept, skip
 	}
 	held := map[string]map[string]string{} // service -> network -> address
 	ids := map[string]string{}             // service -> container
+	macs := map[string]map[string]string{} // service -> network -> MAC, where reported
 	for _, c := range status.Containers {
+		if c.Service != "" && c.MACs != nil {
+			macs[c.Service] = c.MACs
+		}
 		if c.Service != "" && c.Addresses != nil {
 			held[c.Service] = c.Addresses
 		}
@@ -88,7 +93,10 @@ func (s *server) keepAddresses(ctx context.Context, st *stack.Stack) (kept, skip
 					if a.MAC != "" {
 						continue
 					}
-					mac := hostnet.MACOf(a.Network, ids[svc])
+					mac := macs[svc][a.Network] // podman's report (Linux)
+					if mac == "" {
+						mac = hostnet.MACOf(a.Network, ids[svc]) // CNI's state (FreeBSD)
+					}
 					if mac == "" {
 						continue
 					}
@@ -97,7 +105,7 @@ func (s *server) keepAddresses(ctx context.Context, st *stack.Stack) (kept, skip
 						continue
 					}
 					compose = out
-					kept = append(kept, fmt.Sprintf("kept %s's MAC %s on %s, which its DHCP lease follows", svc, mac, a.Network))
+					kept = append(kept, fmt.Sprintf("kept %s's MAC %s on %s, %s", svc, mac, a.Network, macLeaseNote))
 					continue
 				}
 				if a.IP != "" {
@@ -179,3 +187,12 @@ func (t *thenReader) Read(p []byte) (int, error) {
 }
 
 func (t *thenReader) Close() error { return t.c.Close() }
+
+// macLeaseNote is what a pinned MAC does for a DHCP lease. On Linux netavark
+// names each container to the DHCP server by its own id (option 61), which a
+// recreate changes: the server hands out a new address unless it holds a
+// reservation for the MAC (netlab-linux: .183 -> .184 with the MAC kept).
+var macLeaseNote = map[bool]string{
+	true:  "which its DHCP lease follows",
+	false: "so a reservation for it on your DHCP server keeps its address (podman names each container to the server by its own id)",
+}[runtime.GOOS != "linux"]

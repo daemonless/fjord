@@ -155,16 +155,18 @@ export function splitPlan(edits: Record<string, Iface[]>): {
     let placed = false;
     // bridge alone is the mode (no networks key); next to other networks it
     // is an interface on compose's default network.
-    const alone = rows.filter((r) => r.network).length === 1;
+    const alone = rows.length === 1;
     for (const r of rows) {
-      if (!r.network) continue;
+      // A row with no network named is drawn as bridge (the picker's rule),
+      // so it is saved as bridge: skipping it saved two such rows as "none".
+      const net = r.network || 'bridge';
       placed = true;
-      if (ALONE.includes(r.network) || (r.network === 'bridge' && alone)) {
-        modes[svc] = r.network;
+      if (ALONE.includes(net) || (net === 'bridge' && alone)) {
+        modes[svc] = net;
         continue;
       }
       networks.push({
-        network: r.network,
+        network: net,
         service: svc,
         ip: (r.ip ?? '').trim(),
         ip6: (r.ip6 ?? '').trim(),

@@ -66,6 +66,46 @@ by name needs `cni-dnsname`. Until the 2026Q4 quarterly packages are built,
 both come from the `latest` package set
 (`/usr/local/etc/pkg/repos/FreeBSD.conf`: `url: "pkg+https://pkg.FreeBSD.org/${ABI}/latest"`).
 
+## Install a release (Linux host)
+
+fjord runs on Linux with rootful podman (Fedora, Debian, Ubuntu). The
+installer checks podman, installs `fjordd` and its systemd unit, and starts
+podman's API socket and fjord:
+
+```sh
+# Fedora: dnf install -y podman podman-compose   Debian/Ubuntu: apt install -y podman podman-compose
+curl -fsSL https://github.com/daemonless/fjord/releases/latest/download/install-linux.sh | sudo sh
+```
+
+Or by hand:
+
+```sh
+V=0.4.0
+curl -fsSLo /usr/local/sbin/fjordd https://github.com/daemonless/fjord/releases/download/v$V/fjordd-linux-$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
+curl -fsSLo /etc/systemd/system/fjordd.service https://github.com/daemonless/fjord/releases/download/v$V/fjordd.service
+chmod 755 /usr/local/sbin/fjordd
+systemctl daemon-reload
+systemctl enable --now podman.socket fjordd
+```
+
+On Linux:
+- **Until fjord has a login (0.4.1), whoever reaches port 3567 has root on
+  the machine.** Keep it on your LAN; never forward it to the internet.
+- A host firewall (firewalld on Fedora Server, ufw) blocks the page from the
+  LAN until port 3567 is let in; the **System** page says how. Apps'
+  published ports need nothing: podman opens those.
+- With SELinux enforcing, fjord labels the folders it makes for an app (App
+  data) for containers. A folder of your own (a media library) needs `:z` on
+  the mount, or `chcon -R -t container_file_t <dir>`; fjord says which.
+- LAN networks (a container with its own address) are macvlan on a host
+  interface. DHCP on them needs netavark's proxy:
+  `systemctl enable --now netavark-dhcp-proxy.socket`. The DHCP server sees
+  each container by its own id, so a recreated app keeps its address only
+  through a reservation for the MAC fjord pins -- or use a range network,
+  where fjord pins the address itself.
+- The App Store shows apps for Linux (the linuxserver.io catalog); FreeBSD
+  images are left out.
+
 ## Build from source (FreeBSD host)
 
 ```sh

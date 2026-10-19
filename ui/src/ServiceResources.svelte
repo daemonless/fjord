@@ -222,9 +222,14 @@
     const unused = pickable(networks, '').find((n) => !used.includes(n.name) && !sameBridgeAs(svc, -1, n))?.name;
     const privateFree = planning && !used.includes('private') ? 'private' : '';
     const network = unused || privateFree || pickable(networks, '')[0]?.name || (planning ? 'private' : '');
+    // Nothing to put it on: a row with no network reads as a second bridge.
+    if (!network) return;
     edits[svc] = [...rows(svc), { network, ip: '', mac: '' }];
     touch();
   }
+  // Whether "+ interface" has a network to offer this service.
+  const canAdd = (svc: string) =>
+    planning || pickable(networks, '').some((n) => !rows(svc).some((r) => r.network === n.name));
   function removeRow(svc: string, i: number) {
     edits[svc] = rows(svc).filter((_, j) => j !== i);
     touch();
@@ -580,11 +585,13 @@
               <div class="mt-2 flex items-center gap-3">
                 <button
                   on:click={() => addRow(s.name)}
-                  disabled={bridgeAlone && (edits[s.name] ?? []).some((r) => !r.network || r.network === 'bridge')}
+                  disabled={!canAdd(s.name) || (bridgeAlone && (edits[s.name] ?? []).some((r) => !r.network || r.network === 'bridge'))}
                   class="text-xs px-2.5 py-1 rounded-lg bg-fjord-inset border border-fjord-border text-fjord-fg-secondary hover:text-fjord-fg hover:border-fjord-accent/40 transition-colors disabled:opacity-40"
                   >+ interface</button
                 >
-                {#if bridgeAlone && (edits[s.name] ?? []).some((r) => !r.network || r.network === 'bridge')}
+                {#if !canAdd(s.name)}
+                  <span class="text-xs text-fjord-fg-dim">No other network to add — make one on the Networks page.</span>
+                {:else if bridgeAlone && (edits[s.name] ?? []).some((r) => !r.network || r.network === 'bridge')}
                   <span class="text-xs text-fjord-fg-dim">On this engine bridge stands alone — pick a network instead to add more.</span>
                 {/if}
               </div>

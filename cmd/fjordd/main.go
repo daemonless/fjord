@@ -11,6 +11,8 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
+	"slices"
 	"strings"
 	"time"
 
@@ -39,9 +41,20 @@ func envOr(key, def string) string {
 // engineDescriptors is the registry of known engines, in default-preference
 // order. Adding an engine is adding its Descriptor here -- no engine-specific
 // code lives in the generic daemon; each engine describes and detects itself.
-var engineDescriptors = []engine.Descriptor{
+var engineDescriptors = enginesFor([]engine.Descriptor{
 	podman.Descriptor,
 	appjail.Descriptor,
+}, runtime.GOOS)
+
+// enginesFor keeps the engines that run on goos.
+func enginesFor(all []engine.Descriptor, goos string) []engine.Descriptor {
+	var out []engine.Descriptor
+	for _, d := range all {
+		if d.OS == "" || d.OS == goos {
+			out = append(out, d)
+		}
+	}
+	return out
 }
 
 // engineNames joins the registered engine names for help text.
@@ -190,6 +203,7 @@ func main() {
 	// engine packages that read os.Getenv directly) honor flag overrides.
 	os.Setenv("FJORD_LISTEN", *fListen)
 	os.Setenv("FJORD_STACKS_DIR", *fStacksDir)
+	os.Setenv("FJORD_LISTEN", *fListen) // the doctor checks the firewall lets this port in
 	os.Setenv("FJORD_STORAGE_BASE", *fStorageBase)
 	os.Setenv("FJORD_ENGINE", *fEngine)
 	os.Setenv("FJORD_PODMAN_SOCKET", *fPodmanSocket)
@@ -231,7 +245,7 @@ func main() {
 		// Add the default catalog (FJORD_CATALOG_URL overrides which) as an
 		// ordinary, removable source and remember that we did, so a user who
 		// deletes it later doesn't get it back on every restart.
-		id, url := "daemonless", defaultCatalogURL
+		id, url := defaultCatalog()
 		if env := os.Getenv("FJORD_CATALOG_URL"); env != "" {
 			id, url = "default", env
 		}
@@ -248,6 +262,8 @@ func main() {
 		}
 	}
 	cat := catalog.New(filepath.Join(fjordRoot, "catalog"), sources)
+	// The store offers only what this OS can run.
+	cat.RunsOn = func(os []string) bool { return slices.Contains(os, runtime.GOOS) }
 	if unfetched := cat.Unfetched(); len(unfetched) > 0 {
 		go func() {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
@@ -332,7 +348,7 @@ func main() {
 
 	// Default binds all interfaces so container port publishing reaches it; a
 	// host daemon can narrow it to loopback via FJORD_LISTEN.
-	closeShellsOnExit()
+	stopOnSignal()
 	fmt.Printf("Web UI listening on %s\n", addr)
 	hostname, _ := os.Hostname()
 	resolv, _ := os.ReadFile("/etc/resolv.conf")

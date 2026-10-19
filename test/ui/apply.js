@@ -53,7 +53,12 @@ const banner = (page) => page.getByText(/still use the old configuration/);
       let d;
       for (let i = 0; i < 80; i++) { d = await detail(page); if (!d.busy && d.status?.state === 'running') break; await sleep(3000); }
       await sleep(3000);
-      for (let i = 0; i < 20 && !applied; i++) await sleep(500);
+      // Idle now, with the stay-up check still running: the changes are
+      // applied from here, so the banner is gone before the check ends.
+      const pendingNow = (await detail(page)).state?.pending_services || [];
+      const bannerNow = await banner(page).isVisible();
+      // The page gets Apply's output when its stream ends, after the check.
+      for (let i = 0; i < 360 && !applied; i++) await sleep(500);
       const out = applied;
       console.log('--- Apply output (as the page got it):\n' + out.split('\n').filter((l) => /fjord|warn|error|refused|podman-compose|exec/.test(l)).join('\n') + '\n---');
       await page.screenshot({ path: '/out/apply-after.png', fullPage: true });
@@ -62,8 +67,8 @@ const banner = (page) => page.getByText(/still use the old configuration/);
       note('Apply replaced the container', after !== before, `${before.slice(0, 12)} -> ${after.slice(0, 12)}`);
       note('the new container publishes 3111', /3111/.test(port), `ports ${port}`);
       note('the refusal was handled, not hidden', /recreate refused/.test(out) && !/\[error\]/.test(out), /recreate refused/.test(out) ? 'force-removed and retried' : 'no refusal in the output');
-      note('nothing left pending', !(d.state?.pending_services || []).length, `pending: ${(d.state?.pending_services || []).join(', ') || 'none'}`);
-      note('banner gone', !(await banner(page).isVisible()), (await banner(page).isVisible()) ? 'still shown' : 'gone');
+      note('nothing left pending once the check starts', !pendingNow.length, `pending: ${pendingNow.join(', ') || 'none'}`);
+      note('banner gone once the check starts', !bannerNow, bannerNow ? 'still shown' : 'gone');
     }
   } catch (e) {
     note('run', false, e.message.split('\n')[0]);

@@ -90,6 +90,7 @@ func (b *Backend) CreateNetwork(ctx context.Context, spec engine.NetworkSpec) (e
 	if out, err := exec.CommandContext(ctx, "appjail", args...).CombinedOutput(); err != nil {
 		return engine.Network{}, fmt.Errorf("appjail network add: %w: %s", err, strings.TrimSpace(string(out)))
 	}
+	refreshDNS(ctx)
 	// Read it back: appjail derives the gateway, so the spec does not know it.
 	for _, n := range listVirtualnets(ctx) {
 		if n.Name == spec.Name {
@@ -144,6 +145,7 @@ func (b *Backend) RemoveNetwork(ctx context.Context, name string, force bool) er
 	args = append(args, name)
 	out, err := exec.CommandContext(ctx, "appjail", args...).CombinedOutput()
 	if err == nil {
+		refreshDNS(ctx)
 		return nil
 	}
 	msg := strings.TrimSpace(string(out))

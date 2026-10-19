@@ -9,9 +9,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -135,14 +137,15 @@ func (s *server) handleStacksList(w http.ResponseWriter, r *http.Request) {
 // ownAddress reports whether a network gives a container an address of its
 // own on a real segment, rather than one behind the host's NAT.
 //
-// The network's own definition says which: an epair puts the container on the
-// bridge's segment, any other driver is a bridge the runtime NATs. Guessing
+// The network's own definition says which: an epair (FreeBSD) or a macvlan
+// (Linux) puts the container on the LAN's segment, any other driver is a
+// bridge the runtime NATs. Guessing
 // from "is it attached" gets a private network wrong -- it is attached, and
 // its 10.x address is no more reachable from a browser than the default
 // bridge's is.
 func ownAddress(network string) bool {
 	def, ok := hostnet.Get(network)
-	return ok && def.Type == "epair"
+	return ok && (def.Type == "epair" || def.Type == "macvlan")
 }
 
 // nameIfaces fills in what a container will call each interface. podman numbers
@@ -340,6 +343,14 @@ func (s *server) removeStack(name string, data bool) (int, string) {
 						" -- the stack is stopped and still listed; fix that and delete again"
 				}
 				log.Printf("delete %s: removed app data %s", name, d.Path)
+			}
+			// Its secrets went with the data when they were kept in it; kept
+			// apart now (review 1.4), they go when its folder does.
+			for _, loc := range s.appDataLocations() {
+				dir := filepath.Join(loc, name)
+				if _, err := os.Stat(dir); errors.Is(err, fs.ErrNotExist) {
+					os.Remove(secretsPath(s.fjordRoot, dir))
+				}
 			}
 		}
 	}
@@ -1139,8 +1150,9 @@ func loadBusy(name string) *busyOp {
 // watchable lets the operation holding name's lock be taken over once it is
 // down to its health watch: the stack reads as idle from then on, and the next
 // action ends the watch instead of being refused (see lockStackAs). Only for
-// operations whose watch is their last step -- an up that recreates and then
-// starts the rest would start them after the action that took over.
+// operations whose watch is their last step -- an up that recreated and then
+// started the rest would start them after the action that took over, which is
+// why Apply now starts the rest before its check.
 func watchable(ctx context.Context, name string) context.Context {
 	op := loadBusy(name)
 	if op == nil {
@@ -1193,6 +1205,16 @@ func lockStackAs(name, action string) (unlock func(), ok bool) {
 	}, true
 }
 
+// lockStackTakingOver takes name's lock as lockStackAs does -- ending a
+// stay-up watch rather than refusing -- for a change too quick to show as
+// busy or to start an Output of its own (the restart policy).
+func lockStackTakingOver(name string) (unlock func(), ok bool) {
+	if u, ok := lockStack(name); ok {
+		return u, true
+	}
+	return takeOver(name)
+}
+
 // takeOver ends the health watch of the operation holding name's lock and
 // waits for it to wind down. Refused, as before, when the holder is not down
 // to its watch, or when another action took over first: a second click must
@@ -1230,6 +1252,9 @@ func busyWith(name string) string {
 }
 
 func lockStack(name string) (unlock func(), ok bool) {
+	if stopping.Load() {
+		return nil, false // fjordd is stopping: start nothing it would abandon
+	}
 	mu, _ := lifecycleLocks.LoadOrStore(name, &sync.Mutex{})
 	m := mu.(*sync.Mutex)
 	if !m.TryLock() {
@@ -1335,9 +1360,10 @@ func (s *server) lifecycle(w http.ResponseWriter, r *http.Request, name, action 
 		be := s.backendFor(st)
 		pending := s.pendingFor(st)
 		if rec, ok := be.(engine.Recreator); ok && len(pending) > 0 {
+			// Its stay-up check is its last step, so it can be taken over.
 			var first io.ReadCloser
-			if first, err = rec.Recreate(ctx, st, pending); err == nil {
-				stream = s.clearPendingAfter(name, pending, read, thenStream(first, func() (io.ReadCloser, error) { return be.Up(ctx, st) }))
+			if first, err = rec.Recreate(watchable(ctx, name), st, pending); err == nil {
+				stream = s.clearPendingAfter(name, pending, read, first)
 			}
 		} else {
 			stream, err = be.Up(ctx, st)

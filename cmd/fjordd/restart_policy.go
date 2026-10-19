@@ -116,7 +116,9 @@ func (s *server) stackRestart(w http.ResponseWriter, r *http.Request, name strin
 		http.Error(w, "invalid JSON payload", 400)
 		return
 	}
-	unlock, ok := lockStack(name)
+	// The page shows a watched stack as idle and offers this chip: the change
+	// ends the watch, as Start and Stop do, instead of a 409.
+	unlock, ok := lockStackTakingOver(name)
 	if !ok {
 		http.Error(w, anotherOperation(name), http.StatusConflict)
 		return

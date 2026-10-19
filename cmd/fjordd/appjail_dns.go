@@ -23,9 +23,20 @@ const appjailAutoNetwork = "ajnet"
 // appjailHosts is the hosts file appjail-dns keeps for dnsmasq.
 const appjailHosts = "/var/tmp/appjail-hosts"
 
-// jailDNSAnswers: dnsmasq resolves a name appjail-dns published. A new
-// network is only listed once it has a jail, so any listed name will do.
+// jailDNSAnswers: dnsmasq resolves a name appjail-dns published, asked where
+// a jail asks -- an AppJail network's gateway. fjord's dnsmasq config answers
+// only there, not on loopback (which local_unbound may hold); appjail's own
+// answers everywhere, gateways included. A new network is only listed once it
+// has a jail, so any listed name will do.
 var jailDNSAnswers = func(ctx context.Context) bool {
+	// fjord's own setup says so before any name exists: on a fresh host the
+	// first stack's jails are the first names, so asking for one found
+	// nothing and they were never pointed at the gateway. Not whether it runs
+	// this second: a restart in flight is not a reason to leave jails on the
+	// LAN's resolver, and a stopped appjail-dns is the setup check's to say.
+	if appjail.DNSConfInUse(ctx) {
+		return true
+	}
 	b, err := os.ReadFile(appjailHosts)
 	if err != nil {
 		return false
@@ -40,11 +51,33 @@ var jailDNSAnswers = func(ctx context.Context) bool {
 	if name == "" {
 		return false
 	}
+	for _, at := range append(jailDNSServers(ctx), "127.0.0.1") {
+		if resolvesAt(ctx, at, name) {
+			return true
+		}
+	}
+	return false
+}
+
+// jailDNSServers are the AppJail networks' gateways, where jails send their
+// lookups.
+var jailDNSServers = func(ctx context.Context) []string {
+	var out []string
+	for _, n := range appjail.Virtualnets(ctx) {
+		if n.Gateway != "" {
+			out = append(out, n.Gateway)
+		}
+	}
+	return out
+}
+
+// resolvesAt says the DNS server at addr answers for name.
+func resolvesAt(ctx context.Context, addr, name string) bool {
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
 	r := &net.Resolver{PreferGo: true, Dial: func(ctx context.Context, proto, _ string) (net.Conn, error) {
 		var d net.Dialer
-		return d.DialContext(ctx, proto, "127.0.0.1:53")
+		return d.DialContext(ctx, proto, net.JoinHostPort(addr, "53"))
 	}}
 	addrs, err := r.LookupHost(ctx, name)
 	return err == nil && len(addrs) > 0

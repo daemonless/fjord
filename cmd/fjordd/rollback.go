@@ -48,8 +48,14 @@ func (s *server) recordRollback(ctx context.Context, st *stack.Stack, services [
 		if state.Rollback == nil {
 			state.Rollback = map[string]stack.RollbackImage{}
 		}
+		// After a failed update the running image is the one that failed: a
+		// retry recording it lost the version that worked (review 2.5).
+		failed := state.LastFailure != nil && state.LastFailure.Action == "update"
 		for _, ri := range ris {
 			if ri.Digest == "" || ri.Ref == "" || (len(services) > 0 && !slices.Contains(services, ri.Service)) {
+				continue
+			}
+			if _, kept := state.Rollback[ri.Service]; kept && failed {
 				continue
 			}
 			state.Rollback[ri.Service] = stack.RollbackImage{
