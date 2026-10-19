@@ -55,7 +55,7 @@ func (b *Backend) Up(ctx context.Context, s *stack.Stack) (io.ReadCloser, error)
 	pr, pw := io.Pipe()
 	go func() {
 		defer pw.Close()
-		b.bringUp(ctx, pw, s, false, nil)
+		b.bringUp(ctx, pw, s, recreateChanged, nil)
 	}()
 	return pr, nil
 }
@@ -78,7 +78,7 @@ func (b *Backend) UpWatched(ctx context.Context, s *stack.Stack) (io.ReadCloser,
 		up, upw := io.Pipe()
 		go func() {
 			defer upw.Close()
-			b.bringUp(ctx, upw, s, false, nil)
+			b.bringUp(ctx, upw, s, recreateChanged, nil)
 		}()
 		io.Copy(io.MultiWriter(pw, seen), up)
 		if strings.Contains(seen.String(), "[error]") {
@@ -100,7 +100,7 @@ func (b *Backend) UpWatched(ctx context.Context, s *stack.Stack) (io.ReadCloser,
 // netns anyway.
 // only limits it to those services (empty = the whole stack): only they are
 // recreated, force-removed on a refused recreate, and started.
-func (b *Backend) bringUp(ctx context.Context, pw *io.PipeWriter, s *stack.Stack, forceRecreate bool, only []string) {
+func (b *Backend) bringUp(ctx context.Context, pw *io.PipeWriter, s *stack.Stack, mode recreate, only []string) {
 	b.removeOrphanStorage(ctx, pw, s.Name)
 	b.releaseOrphanAddresses(ctx, pw, s)
 	// What compose up would pull, pulled first, so the images can be checked
@@ -114,7 +114,7 @@ func (b *Backend) bringUp(ctx context.Context, pw *io.PipeWriter, s *stack.Stack
 		fmt.Fprintf(pw, "\n%s\n[error] not started: pick a version built for %s\n", strings.Join(wrong, "\n"), hostPlatform())
 		return
 	}
-	args := upArgs(forceRecreate, only)
+	args := upArgs(mode, only)
 	started := time.Now()
 	// A copy of what compose says, to explain a failure its own words don't.
 	seen := &lastBytes{}
@@ -133,7 +133,7 @@ func (b *Backend) bringUp(ctx context.Context, pw *io.PipeWriter, s *stack.Stack
 	// "active exec sessions ... name already in use", starts the old container
 	// again and exits 0. So the retry is decided by the containers, not the
 	// exit code -- any that predate this recreate were not replaced.
-	if forceRecreate {
+	if mode == recreateAll {
 		stale := b.notRecreated(ctx, s, only, started)
 		if err != nil || len(stale) > 0 {
 			// The usual reason a teardown is refused is a lingering exec
@@ -157,7 +157,7 @@ func (b *Backend) bringUp(ctx context.Context, pw *io.PipeWriter, s *stack.Stack
 	if b.explainNoDHCP(ctx, pw, seen.String()) {
 		return // `podman start` would fail the same way
 	}
-	if err != nil && forceRecreate {
+	if err != nil && mode == recreateAll {
 		fmt.Fprintf(pw, "\n[error] recreate failed, the stack still runs its previous image: %s\n", commandError(seen.String(), err))
 		return
 	}
@@ -364,7 +364,7 @@ func (b *Backend) Restart(ctx context.Context, s *stack.Stack) (io.ReadCloser, e
 			fmt.Fprintf(pw, "\n[error] stop: %s\n", commandError(seen.String(), err))
 			return
 		}
-		b.bringUp(ctx, pw, s, false, nil)
+		b.bringUp(ctx, pw, s, recreateChanged, nil)
 	}()
 	return pr, nil
 }
@@ -422,7 +422,7 @@ func (b *Backend) Update(ctx context.Context, s *stack.Stack, services []string)
 			return
 		}
 		started := time.Now()
-		b.bringUp(ctx, pw, s, true, recreate)
+		b.bringUp(ctx, pw, s, recreateAll, recreate)
 		if b.verifyRecreated(ctx, pw, s, recreate, started, "updated", "on the image it had") {
 			b.watchHealthy(ctx, pw, s, recreate, healthWindow, "the update")
 		}
@@ -458,10 +458,23 @@ func (b *Backend) Recreate(ctx context.Context, s *stack.Stack, services []strin
 		defer pw.Close()
 		fmt.Fprintf(pw, "[fjord] applying the saved changes: recreating %s\n", strings.Join(recreate, ", "))
 		started := time.Now()
-		b.bringUp(ctx, pw, s, true, recreate)
+		b.bringUp(ctx, pw, s, recreateAll, recreate)
 		if b.verifyRecreated(ctx, pw, s, recreate, started, "given the saved changes", "on its previous configuration") {
 			b.watchHealthy(ctx, pw, s, recreate, healthWindow, "the update")
 		}
+	}()
+	return pr, nil
+}
+
+// StartRest brings up what Recreate did not, recreating nothing. A plain Up
+// here re-made every container: podman-compose tears all of them down when
+// any one's config hash differs from the file's, and after Recreate every
+// other container's does. Implements engine.Recreator.
+func (b *Backend) StartRest(ctx context.Context, s *stack.Stack) (io.ReadCloser, error) {
+	pr, pw := io.Pipe()
+	go func() {
+		defer pw.Close()
+		b.bringUp(ctx, pw, s, recreateNone, nil)
 	}()
 	return pr, nil
 }
@@ -833,8 +846,21 @@ func ofServices(cs []libpodContainer, services []string) []libpodContainer {
 	return out
 }
 
+// recreate is which existing containers an up replaces.
+type recreate int
+
+const (
+	// recreateChanged is podman-compose's own rule: all of them when any
+	// one's config hash differs from the compose file's.
+	recreateChanged recreate = iota
+	// recreateAll replaces them whatever the hash says (--force-recreate).
+	recreateAll
+	// recreateNone only creates and starts what is missing (--no-recreate).
+	recreateNone
+)
+
 // upArgs is the podman-compose command line for bringUp.
-func upArgs(forceRecreate bool, only []string) []string {
+func upArgs(mode recreate, only []string) []string {
 	args := []string{"--in-pod=false", "up", "-d"}
 	// Never with a service list: podman-compose 1.5 then counts every service
 	// NOT named as an orphan and deletes its container. Updating immich's
@@ -843,7 +869,8 @@ func upArgs(forceRecreate bool, only []string) []string {
 	if len(only) == 0 {
 		args = append(args, "--remove-orphans")
 	}
-	if forceRecreate {
+	switch mode {
+	case recreateAll:
 		// podman-compose decides whether to recreate by comparing a hash of the
 		// compose FILE, not the image: `up -d` after a pull leaves the existing
 		// container in place and `podman start` then starts it on the old image.
@@ -851,6 +878,8 @@ func upArgs(forceRecreate bool, only []string) []string {
 		// itself; one that pulls a moved tag (:latest) does not, and silently
 		// keeps running the image it already had.
 		args = append(args, "--force-recreate")
+	case recreateNone:
+		args = append(args, "--no-recreate")
 	}
 	if len(only) > 0 {
 		args = append(append(args, "--no-deps"), only...)

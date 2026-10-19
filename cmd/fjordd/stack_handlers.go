@@ -1337,7 +1337,7 @@ func (s *server) lifecycle(w http.ResponseWriter, r *http.Request, name, action 
 		if rec, ok := be.(engine.Recreator); ok && len(pending) > 0 {
 			var first io.ReadCloser
 			if first, err = rec.Recreate(ctx, st, pending); err == nil {
-				stream = s.clearPendingAfter(name, pending, read, thenStream(first, func() (io.ReadCloser, error) { return be.Up(ctx, st) }))
+				stream = s.clearPendingAfter(name, pending, read, thenStream(first, func() (io.ReadCloser, error) { return rec.StartRest(ctx, st) }))
 			}
 		} else {
 			stream, err = be.Up(ctx, st)

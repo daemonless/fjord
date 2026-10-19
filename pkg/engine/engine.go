@@ -301,6 +301,9 @@ type NetworkParent struct {
 // quietly keep the old container.
 type Recreator interface {
 	Recreate(ctx context.Context, s *stack.Stack, services []string) (io.ReadCloser, error)
+	// StartRest brings up the rest of the stack after Recreate without
+	// replacing anything Recreate left alone.
+	StartRest(ctx context.Context, s *stack.Stack) (io.ReadCloser, error)
 }
 
 // Segment is what a wire says about itself when asked: its subnet and the
