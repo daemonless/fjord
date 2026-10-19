@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	composepkg "github.com/daemonless/fjord/pkg/compose"
 	"github.com/daemonless/fjord/pkg/stack"
@@ -56,19 +57,18 @@ func directorLock(dir string) *sync.Mutex {
 // tearing down an already-stopped stack is a normal delete, not an error, so
 // it is reported as "nothing to tear down" rather than a raw non-zero exit.
 func runDirector(ctx context.Context, w io.Writer, dir string, tolerateMissing bool, args ...string) error {
-	cmd := exec.CommandContext(ctx, "appjail-director", args...)
-	cmd.Dir = dir
-	cmd.Env = directorEnv(dir)
-	// Stream live -- `up` can pull and build for a while, and an empty Output
-	// panel until it finishes reads as "nothing happened". A copy is kept only
-	// to recognise the tolerated "Project not found" exit afterwards.
-	var buf bytes.Buffer
 	fmt.Fprintf(w, "$ appjail-director %s\n", strings.Join(args, " "))
-	// One writer for both, so os/exec serializes the writes into buf.
-	out := io.MultiWriter(w, &buf)
-	cmd.Stdout, cmd.Stderr = out, out
-	err := cmd.Run()
-	if err != nil && tolerateMissing && bytes.Contains(buf.Bytes(), []byte("Project not found")) {
+	start := time.Now()
+	out, err := directorOnce(ctx, w, dir, args)
+	if err != nil {
+		if lock := staleDirectorLock(out, dir); lock != "" {
+			fmt.Fprintf(w, "[fjord] %s was left by a run that was stopped; removing it and running again\n", lock)
+			if rmErr := os.Remove(lock); rmErr == nil {
+				out, err = directorOnce(ctx, w, dir, args)
+			}
+		}
+	}
+	if err != nil && tolerateMissing && bytes.Contains(out, []byte("Project not found")) {
 		fmt.Fprintln(w, "[fjord] nothing to tear down (already stopped)")
 		return nil
 	}
@@ -76,9 +76,63 @@ func runDirector(ctx context.Context, w io.Writer, dir string, tolerateMissing b
 		// [error], not [fjord]: the UI reads an action as failed only from an
 		// [error] line, so this used to report a failed `up` as a success.
 		fmt.Fprintf(w, "[error] appjail-director %s failed: %v\n", args[0], err)
-		showDirectorLog(ctx, w, dir)
+		showDirectorLog(ctx, w, dir, start)
 	}
 	return err
+}
+
+// directorOnce runs appjail-director once, streaming live -- `up` can pull
+// and build for a while, and an empty Output panel until it finishes reads as
+// "nothing happened" -- and returns a copy of what it printed.
+func directorOnce(ctx context.Context, w io.Writer, dir string, args []string) ([]byte, error) {
+	cmd := exec.CommandContext(ctx, "appjail-director", args...)
+	cmd.Dir = dir
+	cmd.Env = directorEnv(dir)
+	var buf bytes.Buffer
+	// One writer for both, so os/exec serializes the writes into buf.
+	out := io.MultiWriter(w, &buf)
+	cmd.Stdout, cmd.Stderr = out, out
+	err := cmd.Run()
+	return buf.Bytes(), err
+}
+
+// directorLockFile is the lock a ProjectLocked refusal names.
+var directorLockFile = regexp.MustCompile(`rm -f (/\S+/lock)\b`)
+
+// staleDirectorLock is the lock file a ProjectLocked refusal names, when no
+// appjail-director is running for this stack: fjordd runs one per stack at a
+// time (directorLock), so the lock is left from a run that was killed -- an
+// install past its deadline. Left alone it refused every up and down of the
+// stack's name for good, a delete included, which then left its jails. ""
+// when the refusal is not that, or a director is running here.
+func staleDirectorLock(out []byte, dir string) string {
+	if !bytes.Contains(out, []byte("ProjectLocked")) {
+		return ""
+	}
+	m := directorLockFile.FindSubmatch(out)
+	if m == nil || !strings.HasPrefix(string(m[1]), "/tmp/director/locks/") {
+		return ""
+	}
+	if directorRunningIn(dir) {
+		return ""
+	}
+	return string(m[1])
+}
+
+// directorRunningIn says an appjail-director process is working in dir (its
+// cwd: director is always run from the stack's folder).
+var directorRunningIn = func(dir string) bool {
+	pids, _ := exec.Command("pgrep", "-f", "appjail-director").Output()
+	for _, pid := range strings.Fields(string(pids)) {
+		out, _ := exec.Command("procstat", "-h", "-f", pid).Output()
+		for _, line := range strings.Split(string(out), "\n") {
+			f := strings.Fields(line)
+			if len(f) > 3 && f[2] == "cwd" && f[len(f)-1] == dir {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // ansiColor matches the colour codes appjail writes into its logs.
@@ -91,7 +145,7 @@ var ansiColor = regexp.MustCompile(`\x1b\[[0-9;]*m`)
 // stream of "Creating ..." lines, and the reason -- "git(1) is not
 // installed", from building a gh+ makejail -- was only in
 // /root/.director/logs/<run>/<service>/makejail.log.
-func showDirectorLog(ctx context.Context, w io.Writer, dir string) {
+func showDirectorLog(ctx context.Context, w io.Writer, dir string, since time.Time) {
 	cmd := exec.CommandContext(ctx, "appjail-director", "info")
 	cmd.Dir = dir
 	cmd.Env = directorEnv(dir)
@@ -107,6 +161,12 @@ func showDirectorLog(ctx context.Context, w io.Writer, dir string) {
 	}
 	_ = filepath.WalkDir(logDir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
+			return nil
+		}
+		// "last log" is the project's last run that logged, which is not
+		// this one when director refused before starting (ProjectLocked):
+		// a build log from hours before read as this failure's reason.
+		if fi, err := d.Info(); err != nil || fi.ModTime().Before(since) {
 			return nil
 		}
 		data, err := os.ReadFile(path)
