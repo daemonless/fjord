@@ -1300,7 +1300,9 @@ func (s *server) lifecycle(w http.ResponseWriter, r *http.Request, name, action 
 		}
 	}
 	// Read under the lock: locked may have changed it, and so may a save
-	// made while this waited to take over a stay-up watch.
+	// made while this waited to take over a stay-up watch. The mark first:
+	// a save after it is not in what this applies.
+	read := s.pending.now()
 	st, err := s.manager.Get(name)
 	if err != nil {
 		http.Error(w, "Stack not found", 404)
@@ -1335,7 +1337,7 @@ func (s *server) lifecycle(w http.ResponseWriter, r *http.Request, name, action 
 		if rec, ok := be.(engine.Recreator); ok && len(pending) > 0 {
 			var first io.ReadCloser
 			if first, err = rec.Recreate(ctx, st, pending); err == nil {
-				stream = s.clearPendingAfter(name, pending, thenStream(first, func() (io.ReadCloser, error) { return be.Up(ctx, st) }))
+				stream = s.clearPendingAfter(name, pending, read, thenStream(first, func() (io.ReadCloser, error) { return be.Up(ctx, st) }))
 			}
 		} else {
 			stream, err = be.Up(ctx, st)
@@ -1363,7 +1365,7 @@ func (s *server) lifecycle(w http.ResponseWriter, r *http.Request, name, action 
 		stream, err = s.backendFor(st).Update(watchable(ctx, name), st, services)
 		if err == nil {
 			// An update recreates what it touches, from the saved config.
-			stream = s.clearPendingAfter(name, services, stream)
+			stream = s.clearPendingAfter(name, services, read, stream)
 		}
 		if err == nil && note != "" {
 			stream = struct {

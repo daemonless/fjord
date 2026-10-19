@@ -24,6 +24,7 @@ type server struct {
 	// platformsFn answers what a tag is built for; nil = the registry.
 	platformsFn func(ctx context.Context, image, tag string) ([]string, error)
 	manager     *stack.Manager
+	pending     pendingMarks
 	// The engine registry is swapped whole by rebuildBackends (an Extensions
 	// toggle) while other requests read it; mu makes that a clean handoff.
 	mu         sync.RWMutex
