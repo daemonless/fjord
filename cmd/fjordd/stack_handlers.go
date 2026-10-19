@@ -137,14 +137,15 @@ func (s *server) handleStacksList(w http.ResponseWriter, r *http.Request) {
 // ownAddress reports whether a network gives a container an address of its
 // own on a real segment, rather than one behind the host's NAT.
 //
-// The network's own definition says which: an epair puts the container on the
-// bridge's segment, any other driver is a bridge the runtime NATs. Guessing
+// The network's own definition says which: an epair (FreeBSD) or a macvlan
+// (Linux) puts the container on the LAN's segment, any other driver is a
+// bridge the runtime NATs. Guessing
 // from "is it attached" gets a private network wrong -- it is attached, and
 // its 10.x address is no more reachable from a browser than the default
 // bridge's is.
 func ownAddress(network string) bool {
 	def, ok := hostnet.Get(network)
-	return ok && def.Type == "epair"
+	return ok && (def.Type == "epair" || def.Type == "macvlan")
 }
 
 // nameIfaces fills in what a container will call each interface. podman numbers

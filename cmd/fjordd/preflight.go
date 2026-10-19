@@ -59,14 +59,7 @@ func (s *server) conflicts(ctx context.Context, st *stack.Stack, where string) [
 	// containers on one address, and whichever the router believes wins.
 	problems := clashes(st, s.takenAddresses(ctx, st.Name), where)
 
-	ports := composepkg.PublishedPorts(st.Compose, env)
-	// A stack with an address of its own binds nothing on the host: its ports
-	// live on that address. Checking them against the host's would refuse two
-	// stacks that each have their own IP and happen to share a port -- which
-	// is the whole point of giving them one.
-	if net, _ := composepkg.AttachedNetwork(st.Compose); net != "" {
-		ports = nil
-	}
+	ports := hostPublishedPorts(st.Compose, env)
 	hostPorts := s.hostNetworkPorts(ctx, st, env)
 	if len(ports) == 0 && len(hostPorts) == 0 {
 		return problems
@@ -297,12 +290,41 @@ func (s *server) otherStackPorts(st *stack.Stack) map[string]string {
 		if err != nil {
 			continue
 		}
-		if net, _ := composepkg.AttachedNetwork(o.Compose); net != "" {
-			continue // its ports are on its own address
-		}
-		for _, p := range composepkg.PublishedPorts(o.Compose, o.EnvMap()) {
-			out[fmt.Sprintf("%d/%s", p.Host, cmp.Or(p.Proto, "tcp"))] = o.Name
+		for _, p := range hostPublishedPorts(o.Compose, o.EnvMap()) {
+			out[portKey(p)] = o.Name
 		}
 	}
 	return out
+}
+
+// hostPublishedPorts are the ports a stack's services bind on the host. A
+// service whose every network gives it an address of its own binds nothing
+// here: its ports live on that address, and two such stacks sharing a port
+// is the point of giving them one. Decided per service, not per stack (review
+// 2.4): a stack with a private segment still publishes its front service.
+func hostPublishedPorts(composeYAML string, env map[string]string) []composepkg.PublishedPort {
+	atts := composepkg.ServiceAttachments(composeYAML)
+	var out []composepkg.PublishedPort
+	for _, svc := range composepkg.ParseServices(composeYAML, env) {
+		if onlyOwnAddresses(atts[svc.Name]) {
+			continue
+		}
+		for _, p := range svc.Ports {
+			out = append(out, composepkg.PublishedPort{Host: p.Host, Proto: cmp.Or(p.Proto, "tcp")})
+		}
+	}
+	return out
+}
+
+func onlyOwnAddresses(atts []composepkg.Attachment) bool {
+	for _, a := range atts {
+		if !ownAddress(a.Network) {
+			return false
+		}
+	}
+	return len(atts) > 0
+}
+
+func portKey(p composepkg.PublishedPort) string {
+	return fmt.Sprintf("%d/%s", p.Host, cmp.Or(p.Proto, "tcp"))
 }
