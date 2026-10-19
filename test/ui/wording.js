@@ -33,13 +33,16 @@ const note = (id, ok, msg) => console.log(`${ok ? 'PASS' : 'FAIL'} ${id}: ${msg}
 
     // The image was removed before the run, so the pull takes a while: poll
     // the stack page for the reason line rather than guess a delay.
+    // Opened before the install saves the stack, the page falls back to
+    // the list and stays there: wait for the stack to exist.
+    for (let i = 0; i < 100 && !(await page.request.get(BASE + '/api/stacks/t-word')).ok(); i++) await sleep(200);
     await other.goto(BASE + '/#/stacks/t-word', { waitUntil: 'load' });
     const reasonLine = other.locator('span.text-xs').filter({ hasText: /come back when it finishes/ }).first();
     await reasonLine.waitFor({ timeout: 30000 }).catch(() => {});
     const reason = await reasonLine.innerText().catch(() => '');
     const start = other.getByRole('button', { name: /^Start$/ }).first();
     const startTitle = await start.getAttribute('title').catch(() => null);
-    const stopTitle = await other.getByRole('button', { name: /^Stop/ }).first().getAttribute('title').catch(() => null);
+    const stopTitle = await other.getByRole('button', { name: 'Stop…', exact: true }).getAttribute('title').catch(() => null);
     const more = await other.getByRole('button', { name: /come back when it finishes/ }).count();
     await other.screenshot({ path: '/out/wording-busy.png', fullPage: true });
     note('mid-pull: the action row says why', /^Installing… — actions come back when it finishes$/.test(reason), `"${reason}"`);

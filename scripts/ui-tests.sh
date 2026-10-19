@@ -135,8 +135,8 @@ for t in $tests; do
 done
 
 step "Leftovers on $HOST"
-left=$(on 'c=$(podman ps -a --format "{{.Names}}" | grep "^t-"); n=$(podman network ls --format "{{.Name}}" | grep "^t-"); j=$(jls name 2>/dev/null | grep "^t-"); echo "$c $n $j" | tr -s " \n" " "' | sed 's/^ *//;s/ *$//')
-if [ -n "$left" ]; then echo "FAIL leftovers: $left"; fail=$((fail + 1)); else echo "PASS nothing named t-* left behind"; fi
+left=$(on 'c=$(podman ps -a --format "{{.Names}}" | grep "^t-"); n=$(podman network ls --format "{{.Name}}" | grep "^t-"); j=$(appjail jail list -HIpt name 2>/dev/null | grep "^t[-_]"); echo "$c $n $j" | tr -s " \n" " "' | sed 's/^ *//;s/ *$//')
+if [ -n "$left" ]; then echo "FAIL leftovers: $left"; fail=$((fail + 1)); else echo "PASS nothing named t-* (or a jail t_*) left behind"; fi
 
 step "Summary"
 printf '%s passed, %s failed' "$pass" "$fail"
