@@ -1362,6 +1362,9 @@
       if (execStatus[name] === 'running' && watchStarted(logs[name])) {
         execStatus[name] = 'watching';
         execMessage[name] = 'Checking it stays up';
+        // fjordd counts the changes applied from here (clearPendingAfter):
+        // the banner goes now, not after the whole check.
+        refreshState(name);
       }
     }
   }
