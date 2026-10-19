@@ -213,3 +213,18 @@ func TestOtherArchRebuildNotYetPulled(t *testing.T) {
 		t.Errorf("new amd64 bytes, not re-pulled: state = %q, want available", st.State)
 	}
 }
+
+// Digests podman reports without a repository ("sha256:...", no "@") were
+// dropped, and hasBytes then read known[0] of an empty list: a panic in the
+// update check (review 4.3). A bare digest counts, and an empty list is "no".
+func TestHasBytesWithBareOrNoDigests(t *testing.T) {
+	old := registryPlatform
+	t.Cleanup(func() { registryPlatform = old })
+	registryPlatform = func(_ context.Context, _, index string) (string, error) { return "sha256:plat", nil }
+	if hasBytes(context.Background(), "x", "sha256:reg", nil) {
+		t.Error("nothing known, yet has the bytes")
+	}
+	if got := localDigestsOf([]string{"sha256:abc", "repo@sha256:def"}); len(got) != 2 || got[0] != "sha256:abc" || got[1] != "sha256:def" {
+		t.Errorf("local digests %v", got)
+	}
+}
