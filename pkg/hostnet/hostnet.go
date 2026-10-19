@@ -23,8 +23,15 @@ import (
 )
 
 // ConfDir is where podman reads network definitions from. Every file here is
-// a live network.
+// a live network. On Linux it is netavark's (hostnet_linux.go).
 var ConfDir = "/usr/local/etc/cni/net.d"
+
+// confExt and parseDef are the file name suffix and format of a definition in
+// ConfDir: CNI conflists here, netavark JSON on Linux.
+var (
+	confExt  = ".conflist"
+	parseDef = parse
+)
 
 // NameRe bounds a network name: it becomes a filename and an interface name
 // component, so neither path separators nor exotic characters are allowed.
@@ -64,7 +71,7 @@ type Network struct {
 }
 
 // Path returns the conflist path for a network name.
-func Path(name string) string { return filepath.Join(ConfDir, name+".conflist") }
+func Path(name string) string { return filepath.Join(ConfDir, name+confExt) }
 
 // Get reads one network's definition. ok is false when the name is invalid or
 // no such network is defined.
@@ -76,7 +83,7 @@ func Get(name string) (Network, bool) {
 	if err != nil {
 		return Network{}, false
 	}
-	return parse(name, data)
+	return parseDef(name, data)
 }
 
 // List returns every defined network, ordered by name.
@@ -87,7 +94,7 @@ func List() []Network {
 	}
 	var out []Network
 	for _, e := range entries {
-		name, ok := strings.CutSuffix(e.Name(), ".conflist")
+		name, ok := strings.CutSuffix(e.Name(), confExt)
 		if !ok || !NameRe.MatchString(name) {
 			continue
 		}

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"runtime"
 	"strings"
 	"time"
 
@@ -29,7 +30,16 @@ type libpodContainer struct {
 		ContainerPort int    `json:"container_port"`
 		Protocol      string `json:"protocol"`
 	} `json:"Ports"`
+	// reported is podman's own address per network, where podman knows it
+	// (podmanReportsAddresses).
+	reported map[string]string
 }
+
+// podmanReportsAddresses: on Linux netavark knows every container's address
+// and podman reports it. On FreeBSD podman cannot parse a third-party CNI
+// plugin's conflist and reports none for an epair network, so the address is
+// read from CNI's own state instead (hostnet).
+var podmanReportsAddresses = runtime.GOOS == "linux"
 
 // Status queries the libpod REST API over the podman unix socket for
 // containers labeled with this stack's podman-compose project. The project
@@ -77,7 +87,56 @@ func (b *Backend) listStackContainers(ctx context.Context, name string) ([]libpo
 	if err := json.NewDecoder(resp.Body).Decode(&containers); err != nil {
 		return nil, fmt.Errorf("decode libpod response: %w", err)
 	}
+	if podmanReportsAddresses && len(containers) > 0 {
+		// The libpod list names a container's networks but not its addresses;
+		// the compat list carries both.
+		if addrs, err := b.reportedAddresses(ctx, q); err == nil {
+			for i := range containers {
+				containers[i].reported = addrs[containers[i].ID]
+			}
+		}
+	}
 	return containers, nil
+}
+
+// reportedAddresses is podman's address for each container on each network,
+// by container ID, from the compat API's list.
+func (b *Backend) reportedAddresses(ctx context.Context, q url.Values) (map[string]map[string]string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://d/v4.0.0/containers/json?"+q.Encode(), nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := b.http.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("containers/json: unexpected status %s", resp.Status)
+	}
+	var list []struct {
+		ID              string `json:"Id"`
+		NetworkSettings struct {
+			Networks map[string]struct {
+				IPAddress string `json:"IPAddress"`
+			} `json:"Networks"`
+		} `json:"NetworkSettings"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&list); err != nil {
+		return nil, err
+	}
+	out := map[string]map[string]string{}
+	for _, c := range list {
+		for n, v := range c.NetworkSettings.Networks {
+			if v.IPAddress != "" {
+				if out[c.ID] == nil {
+					out[c.ID] = map[string]string{}
+				}
+				out[c.ID][n] = v.IPAddress
+			}
+		}
+	}
+	return out, nil
 }
 
 // UsedPorts maps "port/proto" -> container name for every container's
@@ -227,6 +286,10 @@ func containerAddresses(c libpodContainer) map[string]string {
 	out := map[string]string{}
 	needLease := false
 	for _, n := range c.Networks {
+		if addr := c.reported[n]; addr != "" {
+			out[n] = addr
+			continue
+		}
 		if addr := hostnet.AddressOf(n, c.ID); addr != "" {
 			out[n] = addr
 			continue
@@ -259,6 +322,9 @@ func containerAddress(c libpodContainer) string {
 		return ""
 	}
 	for _, n := range c.Networks {
+		if addr := c.reported[n]; addr != "" {
+			return addr
+		}
 		if addr := hostnet.AddressOf(n, c.ID); addr != "" {
 			return addr
 		}
