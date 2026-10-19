@@ -1,0 +1,20 @@
+# fjord's daemon on Linux. Installed by install-linux.sh, or by hand:
+#   install -m 644 fjordd.service /etc/systemd/system/
+#   systemctl enable --now podman.socket fjordd
+# Configuration is FJORD_* variables (FJORD_LISTEN, FJORD_STACKS_DIR,
+# FJORD_CATALOG_URL, FJORD_ALLOWED_HOSTS ...) in /etc/default/fjordd.
+# Until fjord has a login (0.4.1), whoever reaches its port has root on this
+# machine: keep it on your LAN, never on the internet.
+[Unit]
+Description=fjord stack manager
+Documentation=https://github.com/daemonless/fjord
+Wants=network-online.target podman.socket
+After=network-online.target podman.socket
+
+[Service]
+EnvironmentFile=-/etc/default/fjordd
+ExecStart=/usr/local/sbin/fjordd
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
