@@ -7,7 +7,9 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/daemonless/fjord/pkg/engine"
 	"github.com/daemonless/fjord/pkg/stack"
 )
 
@@ -164,5 +166,42 @@ func TestDismissFailureForgetsIt(t *testing.T) {
 	s.handleStackRoutes(w, httptest.NewRequest(http.MethodPost, "/api/stacks/nope/dismiss-failure", nil))
 	if w.Code != http.StatusNotFound {
 		t.Errorf("unknown stack: status %d, want 404", w.Code)
+	}
+}
+
+// The changes are applied once the containers are recreated, which is when
+// the stay-up check starts: the stack reads as idle from then on, and a
+// check that fails (a crash, or someone stopping the app) is about the app,
+// not about whether it got the saved config.
+func TestPendingClearedWhenTheCheckStarts(t *testing.T) {
+	s := &server{manager: stack.NewManager(t.TempDir())}
+	s.manager.Save(&stack.Stack{Name: "app", Compose: "services:\n  web:\n    image: x\n"})
+	s.manager.EnsureState("app")
+	pending := func() []string { st, _ := s.manager.LoadState("app"); return st.PendingServices }
+
+	s.recordPending("app", []string{"web"})
+	pr, pw := io.Pipe()
+	stream := s.clearPendingAfter("app", []string{"web"}, s.pending.now(), pr)
+	done := make(chan struct{})
+	go func() { io.ReadAll(stream); close(done) }()
+	pw.Write([]byte("recreated web\n" + engine.WatchStartPrefix + "web stays up for 1m0s\n"))
+	for i := 0; i < 100 && len(pending()) > 0; i++ {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if len(pending()) != 0 {
+		t.Errorf("once the check started: %v, want none pending", pending())
+	}
+	pw.Write([]byte("[error] web keeps crashing\n"))
+	pw.Close()
+	<-done
+	if len(pending()) != 0 {
+		t.Errorf("after the check failed: %v, want none pending", pending())
+	}
+
+	// An [error] before the check: the recreate itself failed.
+	s.recordPending("app", []string{"web"})
+	io.ReadAll(s.clearPendingAfter("app", []string{"web"}, s.pending.now(), io.NopCloser(strings.NewReader("[error] web was not given the saved changes\n"+engine.WatchStartPrefix+"web stays up\n"))))
+	if !slices.Equal(pending(), []string{"web"}) {
+		t.Errorf("after a failed recreate: %v, want web pending", pending())
 	}
 }
