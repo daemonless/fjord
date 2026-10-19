@@ -224,3 +224,19 @@ func TestStartOnBootLeftDownIsStopped(t *testing.T) {
 		t.Fatalf("desired = %+v, want stopped", st)
 	}
 }
+
+// During a stay-up watch the stack reads as idle and the page offers the
+// restart chip; the change used to get a 409 (the plain stack lock) while
+// Start, Stop and Update end the watch. It ends the watch too now.
+func TestRestartPolicyTakesOverAWatch(t *testing.T) {
+	s := restartFixture(t, onExit)
+	stopped := holdWatching(t, "gitea")
+	if rec := postRestart(s, `{"policy":"no"}`); rec.Code != http.StatusOK {
+		t.Fatalf("%d %s", rec.Code, rec.Body)
+	}
+	select {
+	case <-stopped:
+	default:
+		t.Error("the watch was not ended")
+	}
+}

@@ -1193,6 +1193,16 @@ func lockStackAs(name, action string) (unlock func(), ok bool) {
 	}, true
 }
 
+// lockStackTakingOver takes name's lock as lockStackAs does -- ending a
+// stay-up watch rather than refusing -- for a change too quick to show as
+// busy or to start an Output of its own (the restart policy).
+func lockStackTakingOver(name string) (unlock func(), ok bool) {
+	if u, ok := lockStack(name); ok {
+		return u, true
+	}
+	return takeOver(name)
+}
+
 // takeOver ends the health watch of the operation holding name's lock and
 // waits for it to wind down. Refused, as before, when the holder is not down
 // to its watch, or when another action took over first: a second click must
