@@ -393,14 +393,22 @@ type Descriptor struct {
 // is possible. Project names a runtime-side grouping made outside fjord (a
 // director project), so the handler can tell fjord's own jails apart.
 type Unmanaged struct {
-	ID          string     `json:"id"`
-	Name        string     `json:"name"`
-	Image       string     `json:"image"`
-	State       string     `json:"state"`
-	Project     string     `json:"project,omitempty"`
-	RunArgs     []string   `json:"-"`
-	Spec        *AdoptSpec `json:"-"`
-	Unadoptable string     `json:"-"`
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+	Image   string `json:"image"`
+	State   string `json:"state"`
+	Project string `json:"project,omitempty"`
+	// A compose project started outside fjord (podman-compose by hand, a
+	// systemd unit): imported whole, from its own compose file, rather than
+	// adopted container by container. Services lists its containers' services;
+	// Unit names the systemd unit that runs it, when one does.
+	ComposeFiles []string   `json:"composeFiles,omitempty"`
+	WorkDir      string     `json:"workDir,omitempty"`
+	Services     []string   `json:"services,omitempty"`
+	Unit         string     `json:"unit,omitempty"`
+	RunArgs      []string   `json:"-"`
+	Spec         *AdoptSpec `json:"-"`
+	Unadoptable  string     `json:"-"`
 }
 
 // AdoptSpec is the stack an unmanaged container becomes: a compose file and

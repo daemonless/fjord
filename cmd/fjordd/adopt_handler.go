@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -45,6 +46,45 @@ type adoptCandidate struct {
 	Error    string   `json:"error,omitempty"` // why it can't be adopted
 }
 
+// importSpec is a compose project started outside fjord, as the stack it
+// becomes: its own compose file, with paths relative to its folder made
+// absolute (fjord keeps the copy in its stack folder), and its .env. The
+// original files stay where they are.
+func importSpec(u engine.Unmanaged) (*engine.AdoptSpec, error) {
+	file := u.ComposeFiles[0]
+	if !filepath.IsAbs(file) {
+		file = filepath.Join(u.WorkDir, file)
+	}
+	raw, err := os.ReadFile(file)
+	if err != nil {
+		return nil, fmt.Errorf("read the project's compose file: %w", err)
+	}
+	compose, err := composepkg.AbsolutePaths(string(raw), u.WorkDir)
+	if err != nil {
+		return nil, err
+	}
+	a := &engine.AdoptSpec{Service: u.Project, Compose: compose}
+	if env, err := os.ReadFile(filepath.Join(u.WorkDir, ".env")); err == nil {
+		a.Env = string(env)
+	}
+	a.Notes = append(a.Notes, "Imported from "+file+"; that file stays where it is, fjord keeps its own copy.")
+	if unitEnabled(u.Unit) {
+		a.Notes = append(a.Notes, "The systemd unit "+u.Unit+" also runs this project: turn it off (systemctl disable --now "+u.Unit+"), or both will start it.")
+	}
+	return a, nil
+}
+
+// unitEnabled reports whether a systemd unit exists and is enabled. podman-
+// compose labels every project with podman-compose@<project>.service whether
+// or not that unit was ever installed, so the label alone says nothing.
+func unitEnabled(unit string) bool {
+	if unit == "" {
+		return false
+	}
+	out, err := exec.Command("systemctl", "is-enabled", unit).Output()
+	return err == nil && strings.TrimSpace(string(out)) == "enabled"
+}
+
 // adoptSpec resolves what an unmanaged container becomes: the engine's own
 // conversion when it made one, else the compose translation of the run line.
 func adoptSpec(u engine.Unmanaged) (*engine.AdoptSpec, error) {
@@ -53,6 +93,9 @@ func adoptSpec(u engine.Unmanaged) (*engine.AdoptSpec, error) {
 	}
 	if u.Spec != nil {
 		return u.Spec, nil
+	}
+	if len(u.ComposeFiles) > 0 {
+		return importSpec(u)
 	}
 	if len(u.RunArgs) == 0 {
 		return nil, fmt.Errorf("nothing recorded to recreate %s from", u.Name)
@@ -186,7 +229,27 @@ func (s *server) handleAdopt(w http.ResponseWriter, r *http.Request) {
 		if name == "" {
 			name = found.Name
 		}
+		project := len(found.ComposeFiles) > 0
+		if project && req.Replace {
+			http.Error(w, "a compose project is imported as it runs; there is nothing to replace", 400)
+			return
+		}
 		id, release := s.manager.AllocateName(name, a.Service)
+		if project {
+			// Its containers carry the project's name: the stack must have it
+			// too, or fjord would not know them as its own.
+			// As recorded, not slugged: "my_app" must stay "my_app".
+			release()
+			id, release = found.Project, func() {}
+			if !stack.ValidName(id) {
+				http.Error(w, "the project's name "+id+" cannot be a stack name", 409)
+				return
+			}
+			if _, err := s.manager.Get(id); err == nil {
+				http.Error(w, "a stack named "+id+" already exists; the project keeps its name", 409)
+				return
+			}
+		}
 		defer release()
 		compose := a.Compose
 		if port, https := s.adoptWebHint(ctx, be, a.Service, found.Image); port != "" {
@@ -215,7 +278,7 @@ func (s *server) handleAdopt(w http.ResponseWriter, r *http.Request) {
 		st.State = &stack.State{
 			SchemaVersion: 1,
 			Origin:        stack.OriginInfo{Type: "adopted", AppID: a.Service},
-			DesiredState:  "stopped",
+			DesiredState:  map[bool]string{true: "running", false: "stopped"}[project && found.State == "running"],
 			Engine:        req.Engine,
 			DisplayName:   name,
 			InstalledAt:   time.Now().UTC().Format(time.RFC3339),
