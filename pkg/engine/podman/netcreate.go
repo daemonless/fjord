@@ -45,6 +45,9 @@ func (b *Backend) networkKinds() []engine.NetworkKind {
 		SupportsMTU:         true,
 		SupportsDescription: false,
 	}}
+	if k, ok := lanKind(); ok { // Linux: kernel macvlan
+		return append([]engine.NetworkKind{k}, kinds...)
+	}
 	if runtime.GOOS != "freebsd" || !pluginInstalled() {
 		return kinds
 	}
@@ -66,6 +69,9 @@ func (b *Backend) CreateNetwork(ctx context.Context, spec engine.NetworkSpec) (e
 	}
 	if spec.Kind != "" && spec.Kind != "lan" {
 		return engine.Network{}, fmt.Errorf("unknown network kind %q", spec.Kind)
+	}
+	if runtime.GOOS == "linux" {
+		return b.createMacvlan(ctx, spec)
 	}
 	if spec.AddressSource == "static" && !cniPlugin("static") {
 		return engine.Network{}, errors.New("the CNI static IPAM plugin is not installed at /usr/local/libexec/cni/static, so a network that assigns no addresses cannot be created here")
@@ -215,12 +221,19 @@ func (b *Backend) NetworkParents(ctx context.Context) ([]engine.NetworkParent, e
 	if len(b.networkKinds()) == 0 {
 		return nil, nil
 	}
+	if runtime.GOOS == "linux" {
+		return linuxParents(), nil
+	}
 	return lannet.Parents(ctx)
 }
 
 // ProbeSegment asks a bridge's wire which segment it is. Implements
 // engine.SegmentProber.
 func (b *Backend) ProbeSegment(ctx context.Context, parent string) (engine.Segment, error) {
+	if runtime.GOOS == "linux" {
+		// The probe is FreeBSD's: dhclient on a throwaway epair.
+		return engine.Segment{}, engine.ErrNotSupported
+	}
 	return lannet.ProbeSegment(ctx, parent)
 }
 
@@ -269,8 +282,11 @@ func pluginSupports(feature string) bool {
 // installed produces a network that accepts containers and then fails every
 // one of them at start.
 func (b *Backend) networkNote() string {
+	if runtime.GOOS == "linux" {
+		return "" // macvlan and bridge networks: lanKind
+	}
 	if runtime.GOOS != "freebsd" {
-		return "Creating networks is only supported on FreeBSD hosts; on Linux use podman network create."
+		return "Creating LAN networks is supported on FreeBSD and Linux hosts."
 	}
 	if !pluginInstalled() {
 		// Deliberately not just "pkg install cni-epair": the port is not in

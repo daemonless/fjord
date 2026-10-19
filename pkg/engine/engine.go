@@ -27,6 +27,9 @@ import (
 // option instead of leaking the runtime's raw response.
 var ErrInUse = errors.New("resource in use")
 
+// ErrNotSupported: the engine cannot do this on this host.
+var ErrNotSupported = errors.New("not supported on this host")
+
 // Port is one published port mapping of a running container.
 type Port struct {
 	HostPort      int    `json:"hostPort"`
@@ -56,6 +59,10 @@ type ContainerStatus struct {
 	// segment over the LAN, so the link offered to open the app pointed at an
 	// address no browser can reach.
 	Addresses map[string]string `json:"addresses,omitempty"`
+	// MACs is the container's MAC on each network, where the engine reports
+	// it (podman on Linux). keepAddresses pins it on a DHCP network so the
+	// lease follows the container across recreates.
+	MACs map[string]string `json:"macs,omitempty"`
 	// Address is the container's own IP on an attachable network, when it has
 	// one. Reported by the backend because the compose records an address only
 	// when the user pinned it: an auto-assigned one exists solely at runtime.
@@ -204,7 +211,10 @@ type NetworkKind struct {
 	// instead of a range podman's IPAM allocates from. When available it is
 	// the better
 	// default: one allocator instead of two on the same wire.
-	SupportsDHCP        bool `json:"supportsDhcp,omitempty"`
+	SupportsDHCP bool `json:"supportsDhcp,omitempty"`
+	// NoStatic: this kind cannot make a network where nothing hands out
+	// addresses and every stack brings its own (Linux macvlan, for now).
+	NoStatic            bool `json:"noStatic,omitempty"`
 	SupportsMTU         bool `json:"supportsMtu,omitempty"`
 	SupportsRange       bool `json:"supportsRange,omitempty"`
 	SupportsDescription bool `json:"supportsDescription,omitempty"`

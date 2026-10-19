@@ -11,6 +11,17 @@ import (
 func osChecks(cfg Config) []Check {
 	port := listenPort()
 	return []Check{{
+		ID: "dhcp-proxy", Name: "DHCP for LAN networks", Group: "networking", HostOnly: true, Optional: true,
+		Probe: func(ctx context.Context) (Status, string) {
+			out, _ := exec.CommandContext(ctx, "systemctl", "is-active", "netavark-dhcp-proxy.socket").Output()
+			if strings.TrimSpace(string(out)) == "active" {
+				return OK, "netavark-dhcp-proxy.socket is active"
+			}
+			return Warn, "netavark-dhcp-proxy.socket is not active: LAN networks can only use a pool of addresses"
+		},
+		Why: "A LAN network whose addresses come from your DHCP server asks it through netavark's dhcp-proxy. Without it, LAN networks take addresses from a pool this host hands out.",
+		Fix: "systemctl enable --now netavark-dhcp-proxy.socket",
+	}, {
 		ID: "firewall", Name: "host firewall", Group: "firewall", HostOnly: true, Optional: true,
 		Probe: func(ctx context.Context) (Status, string) {
 			if out, err := exec.CommandContext(ctx, "firewall-cmd", "--state").Output(); err == nil && strings.TrimSpace(string(out)) == "running" {
