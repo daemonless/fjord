@@ -290,7 +290,11 @@ func (m *Manager) Save(stack *Stack) error {
 // teardown) or its directory is gone. Save there brought a deleted stack
 // back: a delete stops the stack first, which can take minutes, and an
 // editor's save in that time wrote compose.yaml after the delete removed it.
-func (m *Manager) Replace(stack *Stack) error {
+//
+// check, when set, gets the stack as it is on disk, under the same lock as
+// Update, and refuses with an error: the caller read the stack before slow
+// work, and a change made since (a rollback's pin) would be written over.
+func (m *Manager) Replace(stack *Stack, check func(cur *Stack) error) error {
 	if !ValidName(stack.Name) {
 		return ErrInvalidName
 	}
@@ -304,6 +308,15 @@ func (m *Manager) Replace(stack *Stack) error {
 	}
 	if st != nil && st.DesiredState == "deleting" {
 		return ErrDeleting
+	}
+	if check != nil {
+		cur, err := m.Get(stack.Name)
+		if err != nil {
+			return err
+		}
+		if err := check(cur); err != nil {
+			return err
+		}
 	}
 	return m.save(stack)
 }

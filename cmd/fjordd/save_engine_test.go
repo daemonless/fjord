@@ -54,3 +54,33 @@ func TestSaveDuringDeleteIsRefused(t *testing.T) {
 		t.Errorf("written anyway:\n%s", st.Compose)
 	}
 }
+
+// An editor copy loaded before a rollback pinned the image is refused, and
+// the pin stays; a copy of what is on disk saves.
+func TestSaveRefusesAStaleEditorCopy(t *testing.T) {
+	s := &server{
+		manager:   stack.NewManager(t.TempDir()),
+		backends:  map[string]engine.Backend{"podman": engine.Unavailable("podman")},
+		defEngine: "podman",
+	}
+	s.manager.Save(&stack.Stack{Name: "app", Compose: "services:\n  web:\n    image: x\n"})
+	opened, _ := s.manager.Get("app")
+	stale := composeHash(opened)
+	s.manager.Update("app", func(st *stack.Stack) error { st.Compose = "services:\n  web:\n    image: x@sha256:abc\n"; return nil })
+	save := func(base string) *httptest.ResponseRecorder {
+		rec := httptest.NewRecorder()
+		body := `{"compose":"services:\n  web:\n    image: y\n","env":"","baseHash":"` + base + `"}`
+		s.stackSave(rec, httptest.NewRequest(http.MethodPost, "/api/stacks/app/save", strings.NewReader(body)), "app")
+		return rec
+	}
+	if rec := save(stale); rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "since you opened it") {
+		t.Errorf("stale: %d %s", rec.Code, rec.Body)
+	}
+	if st, _ := s.manager.Get("app"); !strings.Contains(st.Compose, "x@sha256:abc") {
+		t.Errorf("pin written over:\n%s", st.Compose)
+	}
+	cur, _ := s.manager.Get("app")
+	if rec := save(composeHash(cur)); rec.Code != http.StatusOK {
+		t.Errorf("current: %d %s", rec.Code, rec.Body)
+	}
+}
