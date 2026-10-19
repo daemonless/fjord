@@ -245,7 +245,7 @@ func main() {
 		// Add the default catalog (FJORD_CATALOG_URL overrides which) as an
 		// ordinary, removable source and remember that we did, so a user who
 		// deletes it later doesn't get it back on every restart.
-		id, url := "daemonless", defaultCatalogURL
+		id, url := defaultCatalog()
 		if env := os.Getenv("FJORD_CATALOG_URL"); env != "" {
 			id, url = "default", env
 		}
