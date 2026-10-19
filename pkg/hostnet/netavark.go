@@ -51,3 +51,12 @@ func parseNetavark(name string, data []byte) (Network, bool) {
 	}
 	return n, true
 }
+
+// UseConflists points hostnet at dir, read as CNI conflists whatever the OS,
+// and returns what puts it back: for tests that write FreeBSD's format, which
+// on Linux hostnet would otherwise look for as netavark JSON.
+func UseConflists(dir string) (restore func()) {
+	oldDir, oldExt, oldParse := ConfDir, confExt, parseDef
+	ConfDir, confExt, parseDef = dir, ".conflist", parse
+	return func() { ConfDir, confExt, parseDef = oldDir, oldExt, oldParse }
+}

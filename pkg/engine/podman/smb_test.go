@@ -3,6 +3,7 @@ package podman
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -35,7 +36,8 @@ func TestWriteNsmbSectionManagedBlock(t *testing.T) {
 	if strings.Contains(got, "password=s3cret") {
 		t.Errorf("old password survived the rewrite:\n%s", got)
 	}
-	if !hasSMBCredentials("mars", "alice") || hasSMBCredentials("mars", "nobody") {
+	// nsmb.conf is FreeBSD's; Linux keeps a credentials file per share.
+	if runtime.GOOS == "freebsd" && (!hasSMBCredentials("mars", "alice") || hasSMBCredentials("mars", "nobody")) {
 		t.Errorf("hasSMBCredentials wrong")
 	}
 	if fi, _ := os.Stat(nsmbConf); fi.Mode().Perm() != 0o600 {

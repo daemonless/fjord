@@ -39,9 +39,7 @@ func clashFixture(t *testing.T) *server {
 	conf := filepath.Join(root, "net.d")
 	os.MkdirAll(conf, 0o755)
 	os.WriteFile(filepath.Join(conf, "vlan5.conflist"), []byte(`{"cniVersion":"0.4.0","name":"vlan5","plugins":[{"type":"epair","master":"vlan5bridge","ipam":{"type":"host-local","ranges":[[{"subnet":"192.168.5.0/24","gateway":"192.168.5.1"}]]}}]}`), 0o644)
-	old := hostnet.ConfDir
-	hostnet.ConfDir = conf
-	t.Cleanup(func() { hostnet.ConfDir = old })
+	t.Cleanup(hostnet.UseConflists(conf))
 
 	stacks := filepath.Join(root, "stacks")
 	write := func(name, compose string) {
