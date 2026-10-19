@@ -348,7 +348,7 @@ func main() {
 
 	// Default binds all interfaces so container port publishing reaches it; a
 	// host daemon can narrow it to loopback via FJORD_LISTEN.
-	closeShellsOnExit()
+	stopOnSignal()
 	fmt.Printf("Web UI listening on %s\n", addr)
 	hostname, _ := os.Hostname()
 	resolv, _ := os.ReadFile("/etc/resolv.conf")

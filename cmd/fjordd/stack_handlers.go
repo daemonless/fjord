@@ -1252,6 +1252,9 @@ func busyWith(name string) string {
 }
 
 func lockStack(name string) (unlock func(), ok bool) {
+	if stopping.Load() {
+		return nil, false // fjordd is stopping: start nothing it would abandon
+	}
 	mu, _ := lifecycleLocks.LoadOrStore(name, &sync.Mutex{})
 	m := mu.(*sync.Mutex)
 	if !m.TryLock() {

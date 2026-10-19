@@ -15,6 +15,10 @@ After=network-online.target podman.socket
 EnvironmentFile=-/etc/default/fjordd
 ExecStart=/usr/local/sbin/fjordd
 Restart=on-failure
+# A stop waits up to 60s for an install or up in flight (fjordd's own
+# deadline): signal fjordd alone, so podman-compose is not killed beside it.
+KillMode=mixed
+TimeoutStopSec=90
 
 [Install]
 WantedBy=multi-user.target

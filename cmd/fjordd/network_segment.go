@@ -100,7 +100,7 @@ func (s *server) runWireChecks() {
 }
 
 func (s *server) checkWires() {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	ctx, cancel := context.WithTimeout(daemonCtx, 5*time.Minute)
 	defer cancel()
 	be := s.primaryBackend()
 	prober, ok := be.(engine.SegmentProber)
