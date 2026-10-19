@@ -63,7 +63,12 @@ func (m *Manifest) Resolve(values map[string]string, slug, storageBase string) (
 		case "zfs_dataset":
 			var abs string
 			if filepath.IsAbs(val) {
-				abs = val // explicit override: bind an existing/chosen host path
+				// explicit override: bind an existing/chosen host path -- one
+				// that names where it goes ("/containers/x/../../etc" does not)
+				if strings.Contains("/"+val+"/", "/../") {
+					return nil, fmt.Errorf("%s must not climb out with .., got %q", v.Name, val)
+				}
+				abs = filepath.Clean(val)
 			} else {
 				name := val
 				if name == "" {
@@ -138,17 +143,10 @@ func (m *Manifest) Resolve(values map[string]string, slug, storageBase string) (
 func Provision(dirs []ProvisionDir) error {
 	for _, d := range dirs {
 		// Adopt an existing dir as-is: don't chown someone's migrated data out
-		// from under them. Only freshly-created dirs get the ownership spec.
-		_, err := os.Stat(d.Path)
-		existed := err == nil
-		if err := os.MkdirAll(d.Path, d.Mode); err != nil {
-			return fmt.Errorf("mkdir %s: %w", d.Path, err)
-		}
-		if existed {
-			continue
-		}
-		if err := os.Chown(d.Path, d.Uid, d.Gid); err != nil {
-			return fmt.Errorf("chown %s: %w", d.Path, err)
+		// from under them. Only freshly-created levels get the ownership spec,
+		// and never through a link a container could have planted.
+		if _, err := MkdirOwned(d.Path, d.Mode, d.Uid, d.Gid); err != nil {
+			return err
 		}
 	}
 	return nil

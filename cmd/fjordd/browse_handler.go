@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"github.com/daemonless/fjord/pkg/manifest"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -129,30 +130,11 @@ func (s *server) browseMkdir(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "fjord only creates folders under its App data locations or folder sets; create "+full+" by hand", http.StatusForbidden)
 		return
 	}
-	if fi, err := os.Stat(full); err == nil && fi.IsDir() {
-		// Already there -- adopt as-is, don't re-chown existing data.
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{"path": full})
+	// Only the levels it makes are the service's, and never through a link a
+	// container could have planted in its folder (review 1.3).
+	if _, err := manifest.MkdirOwned(full, 0o755, 1000, 1000); err != nil {
+		http.Error(w, err.Error(), http.StatusForbidden)
 		return
-	}
-	// Topmost missing level (the first one MkdirAll will create).
-	made := full
-	for p := filepath.Dir(full); len(p) > len(base); p = filepath.Dir(p) {
-		if _, err := os.Stat(p); err == nil {
-			break
-		}
-		made = p
-	}
-	if err := os.MkdirAll(full, 0o755); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	// Chown only the newly-created levels (full down to made) to the service uid.
-	for p := full; ; p = filepath.Dir(p) {
-		_ = os.Chown(p, 1000, 1000)
-		if p == made {
-			break
-		}
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"path": full})

@@ -14,6 +14,7 @@ import (
 
 	composepkg "github.com/daemonless/fjord/pkg/compose"
 	"github.com/daemonless/fjord/pkg/doctor"
+	"github.com/daemonless/fjord/pkg/manifest"
 	"github.com/daemonless/fjord/pkg/stack"
 )
 
@@ -239,14 +240,15 @@ func (s *server) provisionBindDirs(st *stack.Stack, env map[string]string) []str
 		if !anywhere && !strings.HasPrefix(clean, root) {
 			continue // jailed fjordd: outside the managed root is not ours to create
 		}
-		created := false
-		if _, err := os.Stat(clean); err != nil {
-			if err := os.MkdirAll(clean, 0o755); err != nil {
-				problems = append(problems, fmt.Sprintf("bind mount %s: cannot create: %v", clean, err))
-				continue
-			}
-			_ = os.Chown(clean, uid, gid)
-			created = true
+		// Never through a link a container could have planted (review 1.3):
+		// a dangling one in its data folder made fjord create and chown
+		// the folder it named, wherever that was.
+		created, err := manifest.MkdirOwned(clean, 0o755, uid, gid)
+		if err != nil {
+			problems = append(problems, fmt.Sprintf("bind mount %s: cannot create: %v", clean, err))
+			continue
+		}
+		if created {
 			log.Printf("preflight %s: provisioned %s (uid %d)", st.Name, clean, uid)
 		}
 		if !enforcing {
