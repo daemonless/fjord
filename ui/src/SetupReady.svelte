@@ -107,7 +107,10 @@
 {#if loading && !loadedOnce}
   <div class="flex items-center gap-2 text-sm text-fjord-fg-dim"><Spinner size={14} /> Checking the host…</div>
 {:else}
-  <p class="text-sm text-fjord-fg-body mb-3">Apps run in FreeBSD jails, with podman, AppJail, or both. Pick what you want:</p>
+  <!-- The engines listed are this OS's: AppJail only on FreeBSD. -->
+  <p class="text-sm text-fjord-fg-body mb-3">
+    {#if names.includes('appjail')}Apps run in FreeBSD jails, with podman, AppJail, or both. Pick what you want:{:else}Apps run in containers, with podman:{/if}
+  </p>
   <div class="grid sm:grid-cols-2 gap-2 mb-6">
     {#each engines as e (e.name)}
       <label

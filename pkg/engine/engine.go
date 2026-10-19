@@ -375,6 +375,9 @@ type Descriptor struct {
 	Name        string
 	Description string
 	Package     string // OS package that provides it (for host-mode install)
+	// OS is the GOOS the engine runs on, "" for any. An engine for another
+	// OS is not listed at all, rather than offered with an Install button.
+	OS string
 	// Available reports whether the engine can run here: ok, a reason when it
 	// can't, and a non-fatal warning when it can but with caveats (e.g. an old
 	// version). ok=false with reason means unavailable; ok=true with warning

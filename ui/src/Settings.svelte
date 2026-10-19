@@ -1021,8 +1021,8 @@
       {/if}
 
       <p class="text-xs text-fjord-fg-faint mt-6 max-w-2xl">
-        Everything else comes from the daemon's environment (<code>FJORD_*</code> variables — via rc.conf on FreeBSD
-        or the container environment). Host readiness checks live on the <b>System</b> page.
+        Everything else comes from the daemon's environment (<code>FJORD_*</code> variables — via rc.conf on FreeBSD,
+        the systemd unit on Linux, or the container environment). Host readiness checks live on the <b>System</b> page.
       </p>
     {/if}
 

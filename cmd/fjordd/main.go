@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -39,9 +40,20 @@ func envOr(key, def string) string {
 // engineDescriptors is the registry of known engines, in default-preference
 // order. Adding an engine is adding its Descriptor here -- no engine-specific
 // code lives in the generic daemon; each engine describes and detects itself.
-var engineDescriptors = []engine.Descriptor{
+var engineDescriptors = enginesFor([]engine.Descriptor{
 	podman.Descriptor,
 	appjail.Descriptor,
+}, runtime.GOOS)
+
+// enginesFor keeps the engines that run on goos.
+func enginesFor(all []engine.Descriptor, goos string) []engine.Descriptor {
+	var out []engine.Descriptor
+	for _, d := range all {
+		if d.OS == "" || d.OS == goos {
+			out = append(out, d)
+		}
+	}
+	return out
 }
 
 // engineNames joins the registered engine names for help text.
