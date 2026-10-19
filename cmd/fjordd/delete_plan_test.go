@@ -97,6 +97,13 @@ func TestDeletePlanSymlink(t *testing.T) {
 // without it, the data stays.
 func TestDeleteWithData(t *testing.T) {
 	s, root := deleteFixture(t)
+	keep := func() string { // the secrets kept for notes' data folder
+		p := secretsPath(s.fjordRoot, filepath.Join(root, "apps/notes"))
+		os.MkdirAll(filepath.Dir(p), 0o700)
+		os.WriteFile(p, []byte("P=x\n"), 0o600)
+		return p
+	}
+	kept := keep()
 	rec := httptest.NewRecorder()
 	s.stackDelete(rec, "notes", false)
 	if rec.Code != 200 {
@@ -105,10 +112,17 @@ func TestDeleteWithData(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(root, "apps/notes/db/ibdata1")); err != nil {
 		t.Errorf("plain delete removed app data")
 	}
+	if _, err := os.Stat(kept); err != nil {
+		t.Errorf("plain delete removed the secrets kept with the data")
+	}
 
 	s, root = deleteFixture(t)
+	kept = keep()
 	rec = httptest.NewRecorder()
 	s.stackDelete(rec, "notes", true)
+	if _, err := os.Stat(kept); err == nil {
+		t.Errorf("delete with data left its secrets")
+	}
 	if rec.Code != 200 {
 		t.Fatalf("delete with data: %d %s", rec.Code, rec.Body)
 	}

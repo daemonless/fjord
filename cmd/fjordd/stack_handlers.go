@@ -9,9 +9,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -340,6 +342,14 @@ func (s *server) removeStack(name string, data bool) (int, string) {
 						" -- the stack is stopped and still listed; fix that and delete again"
 				}
 				log.Printf("delete %s: removed app data %s", name, d.Path)
+			}
+			// Its secrets went with the data when they were kept in it; kept
+			// apart now (review 1.4), they go when its folder does.
+			for _, loc := range s.appDataLocations() {
+				dir := filepath.Join(loc, name)
+				if _, err := os.Stat(dir); errors.Is(err, fs.ErrNotExist) {
+					os.Remove(secretsPath(s.fjordRoot, dir))
+				}
 			}
 		}
 	}
