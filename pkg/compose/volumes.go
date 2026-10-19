@@ -391,8 +391,9 @@ func quotedScalar(v string) *yaml.Node {
 
 // BindMount is one host-path bind mount a service declares.
 type BindMount struct {
-	Source string // absolute host path, ${VAR}s resolved
-	Dest   string
+	Source  string // absolute host path, ${VAR}s resolved
+	Dest    string
+	Options string // what follows the destination ("ro", "z", "ro,Z"), or ""
 }
 
 // BindMounts returns every service's host-path bind mounts (short-form
@@ -427,7 +428,7 @@ func BindMounts(composeYAML string, env map[string]string) []BindMount {
 			if len(parts) < 2 || !strings.HasPrefix(parts[0], "/") {
 				continue // named volume or unresolved -- not a host bind
 			}
-			out = append(out, BindMount{Source: parts[0], Dest: parts[1]})
+			out = append(out, BindMount{Source: parts[0], Dest: parts[1], Options: strings.Join(parts[2:], ":")})
 		}
 	}
 	return out

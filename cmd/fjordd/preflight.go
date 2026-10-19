@@ -233,22 +233,49 @@ func (s *server) provisionBindDirs(st *stack.Stack, env map[string]string) []str
 		gid = n
 	}
 	var problems []string
+	enforcing := selinuxEnforcing()
 	for _, b := range composepkg.BindMounts(st.Compose, env) {
 		clean := filepath.Clean(b.Source)
 		if !anywhere && !strings.HasPrefix(clean, root) {
 			continue // jailed fjordd: outside the managed root is not ours to create
 		}
-		if _, err := os.Stat(clean); err == nil {
+		created := false
+		if _, err := os.Stat(clean); err != nil {
+			if err := os.MkdirAll(clean, 0o755); err != nil {
+				problems = append(problems, fmt.Sprintf("bind mount %s: cannot create: %v", clean, err))
+				continue
+			}
+			_ = os.Chown(clean, uid, gid)
+			created = true
+			log.Printf("preflight %s: provisioned %s (uid %d)", st.Name, clean, uid)
+		}
+		if !enforcing {
 			continue
 		}
-		if err := os.MkdirAll(clean, 0o755); err != nil {
-			problems = append(problems, fmt.Sprintf("bind mount %s: cannot create: %v", clean, err))
-			continue
+		// fjord's own folders get the label podman's :z gives; anyone else's
+		// is left as it is and named, with the fix.
+		label, problem := selinuxAction(clean, selinuxType(clean), b.Options, created || s.isAppData(clean))
+		if problem != "" {
+			problems = append(problems, problem)
+		} else if label {
+			if err := labelForContainers(clean); err != nil {
+				problems = append(problems, fmt.Sprintf("bind mount %s: could not label it for containers (SELinux): %v", clean, err))
+			} else {
+				log.Printf("preflight %s: labelled %s for containers (SELinux)", st.Name, clean)
+			}
 		}
-		_ = os.Chown(clean, uid, gid)
-		log.Printf("preflight %s: provisioned %s (uid %d)", st.Name, clean, uid)
 	}
 	return problems
+}
+
+// isAppData reports whether path is under one of the App data folders.
+func (s *server) isAppData(path string) bool {
+	for _, l := range s.appDataLocations() {
+		if l = filepath.Clean(l); path == l || strings.HasPrefix(path, l+string(os.PathSeparator)) {
+			return true
+		}
+	}
+	return false
 }
 
 // otherStackPorts are the host ports the other stacks set to run publish
