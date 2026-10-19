@@ -25,7 +25,7 @@ func platform(cfg Config) platformInfo {
 		os:         runtime.GOOS,
 		mode:       mode,
 		canInstall: false,
-		checks: []Check{
+		checks: append([]Check{
 			{
 				ID: "podman", Name: "podman CLI", Engine: "podman",
 				Probe: binProbe("podman"),
@@ -51,6 +51,6 @@ func platform(cfg Config) platformInfo {
 				Fix:   "# with your distribution's package manager, e.g.\nsudo apt install -y conmon\n# or: sudo dnf install -y conmon",
 			},
 			rootCheck(cfg.FjordRoot),
-		},
+		}, osChecks(cfg)...),
 	}
 }

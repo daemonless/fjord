@@ -202,6 +202,7 @@ func main() {
 	// engine packages that read os.Getenv directly) honor flag overrides.
 	os.Setenv("FJORD_LISTEN", *fListen)
 	os.Setenv("FJORD_STACKS_DIR", *fStacksDir)
+	os.Setenv("FJORD_LISTEN", *fListen) // the doctor checks the firewall lets this port in
 	os.Setenv("FJORD_STORAGE_BASE", *fStorageBase)
 	os.Setenv("FJORD_ENGINE", *fEngine)
 	os.Setenv("FJORD_PODMAN_SOCKET", *fPodmanSocket)
