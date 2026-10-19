@@ -92,9 +92,9 @@ describe('splitPlan', () => {
     expect(modes).toEqual({ redis: 'host' });
   });
 
-  it('drops empty rows rather than sending a nameless network', () => {
+  it('never sends a nameless network: an unnamed row is bridge, as drawn', () => {
     const { networks } = splitPlan({ web: [{ network: '' }, { network: 'lan' }] });
-    expect(networks).toHaveLength(1);
+    expect(networks.map((n) => n.network)).toEqual(['bridge', 'lan']);
   });
 });
 
@@ -136,9 +136,9 @@ describe('splitPlan: a service emptied on screen', () => {
     expect(modes).toEqual({ database: 'none' });
   });
 
-  it('treats a row with a blank network the same way', () => {
+  it('reads a row with a blank network as the bridge it is drawn as', () => {
     const { modes } = splitPlan({ database: [{ network: '' }] });
-    expect(modes).toEqual({ database: 'none' });
+    expect(modes).toEqual({ database: 'bridge' });
   });
 });
 
@@ -389,5 +389,21 @@ describe('addressesNeeded', () => {
   });
   it('built-in modes and unknown networks are not its business', () => {
     expect(addressesNeeded({ web: [{ network: 'bridge' }, { network: 'host' }] }, nets, 'appjail')).toEqual([]);
+  });
+});
+
+// A row with no network named is drawn as "bridge" (the picker's own rule),
+// so it saves as bridge: two such rows -- a stack on the default network,
+// plus "+ interface" where nothing else could be picked -- saved as
+// network_mode: none and took the service off every network.
+describe('splitPlan: what is drawn is what is saved', () => {
+  it('saves an unnamed row as bridge, never none', () => {
+    expect(splitPlan({ web: [{ network: '' }] })).toEqual({ networks: [], modes: { web: 'bridge' } });
+    const two = splitPlan({ web: [{ network: '' }, { network: 'lan' }] });
+    expect(two.modes.web).toBeUndefined();
+    expect(two.networks.map((n) => n.network)).toEqual(['bridge', 'lan']);
+  });
+  it('still says none for a service left with no rows', () => {
+    expect(splitPlan({ web: [] })).toEqual({ networks: [], modes: { web: 'none' } });
   });
 });

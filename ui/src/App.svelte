@@ -608,7 +608,8 @@
       (stack?.services ?? []).map((v: any) => {
         const rows = (v.networks ?? []).map((n: any) => ({ ...n }));
         if (rows.length) return [v.name, rows];
-        return [v.name, [{ network: v.hostNetwork ? 'host' : v.noNetwork ? 'none' : '', ip: '', mac: '' }]];
+        // On the compose's default network: that is bridge, and says so.
+        return [v.name, [{ network: v.hostNetwork ? 'host' : v.noNetwork ? 'none' : 'bridge', ip: '', mac: '' }]];
       }),
     );
     savedSvcNets = JSON.stringify(svcNets);
