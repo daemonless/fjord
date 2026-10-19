@@ -1139,8 +1139,9 @@ func loadBusy(name string) *busyOp {
 // watchable lets the operation holding name's lock be taken over once it is
 // down to its health watch: the stack reads as idle from then on, and the next
 // action ends the watch instead of being refused (see lockStackAs). Only for
-// operations whose watch is their last step -- an up that recreates and then
-// starts the rest would start them after the action that took over.
+// operations whose watch is their last step -- an up that recreated and then
+// started the rest would start them after the action that took over, which is
+// why Apply now starts the rest before its check.
 func watchable(ctx context.Context, name string) context.Context {
 	op := loadBusy(name)
 	if op == nil {
@@ -1345,9 +1346,10 @@ func (s *server) lifecycle(w http.ResponseWriter, r *http.Request, name, action 
 		be := s.backendFor(st)
 		pending := s.pendingFor(st)
 		if rec, ok := be.(engine.Recreator); ok && len(pending) > 0 {
+			// Its stay-up check is its last step, so it can be taken over.
 			var first io.ReadCloser
-			if first, err = rec.Recreate(ctx, st, pending); err == nil {
-				stream = s.clearPendingAfter(name, pending, read, thenStream(first, func() (io.ReadCloser, error) { return rec.StartRest(ctx, st) }))
+			if first, err = rec.Recreate(watchable(ctx, name), st, pending); err == nil {
+				stream = s.clearPendingAfter(name, pending, read, first)
 			}
 		} else {
 			stream, err = be.Up(ctx, st)

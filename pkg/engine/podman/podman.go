@@ -459,22 +459,16 @@ func (b *Backend) Recreate(ctx context.Context, s *stack.Stack, services []strin
 		fmt.Fprintf(pw, "[fjord] applying the saved changes: recreating %s\n", strings.Join(recreate, ", "))
 		started := time.Now()
 		b.bringUp(ctx, pw, s, recreateAll, recreate)
-		if b.verifyRecreated(ctx, pw, s, recreate, started, "given the saved changes", "on its previous configuration") {
-			b.watchHealthy(ctx, pw, s, recreate, healthWindow, "the update")
+		if !b.verifyRecreated(ctx, pw, s, recreate, started, "given the saved changes", "on its previous configuration") {
+			return
 		}
-	}()
-	return pr, nil
-}
-
-// StartRest brings up what Recreate did not, recreating nothing. A plain Up
-// here re-made every container: podman-compose tears all of them down when
-// any one's config hash differs from the file's, and after Recreate every
-// other container's does. Implements engine.Recreator.
-func (b *Backend) StartRest(ctx context.Context, s *stack.Stack) (io.ReadCloser, error) {
-	pr, pw := io.Pipe()
-	go func() {
-		defer pw.Close()
+		// The rest of the stack next, recreating nothing: a plain up re-made
+		// every container (podman-compose 1.5.0 tears all of them down when
+		// any one's config hash differs from the file's, as every other one's
+		// does now). The check last, so the next action can take over from it
+		// -- a second Apply within the 30 s check was refused as busy.
 		b.bringUp(ctx, pw, s, recreateNone, nil)
+		b.watchHealthy(ctx, pw, s, recreate, healthWindow, "the update")
 	}()
 	return pr, nil
 }
