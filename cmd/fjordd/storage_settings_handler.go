@@ -39,12 +39,18 @@ func (s *server) handleStorageSettings(w http.ResponseWriter, r *http.Request) {
 		seen := map[string]bool{}
 		clean := make([]string, 0, len(req.Locations))
 		for _, l := range req.Locations {
-			l = strings.TrimRight(strings.TrimSpace(l), "/")
+			if l = strings.TrimSpace(l); l != "/" {
+				l = strings.TrimRight(l, "/")
+			}
 			if l == "" || seen[l] {
 				continue
 			}
 			if !filepath.IsAbs(l) {
 				http.Error(w, "App data locations must be absolute paths: "+l, 400)
+				return
+			}
+			if why := s.unsafeDataLocation(l); why != "" {
+				http.Error(w, "not an App data location: "+why+". Pick a folder of its own, like /containers", 400)
 				return
 			}
 			seen[l] = true

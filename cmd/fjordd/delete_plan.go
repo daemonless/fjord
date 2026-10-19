@@ -96,7 +96,8 @@ func (s *server) dataLocations() []string {
 	for _, l := range append(s.appDataLocations(), os.Getenv("FJORD_STORAGE_BASE"),
 		filepath.Join(s.fjordRoot, "containers"), filepath.Join(s.fjordRoot, "volumes")) {
 		l = filepath.Clean(l)
-		if l != "." && l != "/" && filepath.IsAbs(l) && !seen[l] {
+		// One set by hand before the check (unsafeDataLocation) is still not one.
+		if l != "." && l != "/" && filepath.IsAbs(l) && !seen[l] && s.unsafeDataLocation(l) == "" {
 			seen[l] = true
 			out = append(out, l)
 		}
