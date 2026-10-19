@@ -168,3 +168,27 @@ func TestApplyChoicesMergesHostnames(t *testing.T) {
 		}
 	}
 }
+
+// An option that adds a variable and then asks for one the manifest already
+// has: the add can move m.Variables, and the ask's change went to the old
+// copy (review 4.4) -- DB_HOST stayed optional, so the install went ahead
+// with no database host.
+func TestApplyChoicesAskAfterAdd(t *testing.T) {
+	m := &Manifest{
+		Variables: make([]Var, 1, 1),
+		Choices: []Choice{{ID: "db", Default: "ext", Options: []Option{{
+			ID:  "ext",
+			Env: map[string]string{"DB_KIND": "mariadb"},
+			Ask: []Ask{{Name: "DB_HOST"}},
+		}}}},
+	}
+	m.Variables[0] = Var{Name: "DB_HOST", Type: "string", Optional: true}
+	if _, err := m.ApplyChoices(nil, map[string]string{"DB_HOST": "db.lan"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, v := range m.Variables {
+		if v.Name == "DB_HOST" && v.Optional {
+			t.Error("DB_HOST is still optional: the ask was lost")
+		}
+	}
+}
