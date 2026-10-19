@@ -269,13 +269,26 @@ func pfInsertSnippet(rules []string, path string) string {
 const pfValidate = "kldload -n pf\n" +
 	"pfctl -nf /etc/pf.conf   # validate before loading\n"
 
+// kldLoaded asks kldstat whether a module is loaded. A kldstat the doctor's
+// deadline killed is no answer: it read as "pf is not loaded" on a host
+// whose pf was up.
+func kldLoaded(ctx context.Context, mod string) (bool, error) {
+	err := exec.CommandContext(ctx, "kldstat", "-q", "-m", mod).Run()
+	if ctx.Err() != nil {
+		return false, fmt.Errorf("could not check %s in time", mod)
+	}
+	return err == nil, nil
+}
+
 // appjailPfProbe checks pf carries AppJail's NAT/rdr anchors, which its
 // virtual-network jails need (the appjail-director default). Mirrors pfProbe.
 func appjailPfProbe(ctx context.Context) (Status, string) {
 	if _, err := exec.LookPath("kldstat"); err != nil {
 		return Unknown, "kldstat not available here to check pf"
 	}
-	if exec.CommandContext(ctx, "kldstat", "-q", "-m", "pf").Run() != nil {
+	if pfLoaded, err := kldLoaded(ctx, "pf"); err != nil {
+		return Unknown, err.Error()
+	} else if !pfLoaded {
 		return Warn, "pf is not loaded -- virtual-network jails cannot be created; host-network jails are unaffected"
 	}
 	out, err := exec.CommandContext(ctx, "pfctl", "-s", "nat").Output()
@@ -448,7 +461,9 @@ func pfProbe(ctx context.Context) (Status, string) {
 	if _, err := exec.LookPath("kldstat"); err != nil {
 		return Unknown, "kldstat not available here to check pf"
 	}
-	if exec.CommandContext(ctx, "kldstat", "-q", "-m", "pf").Run() != nil {
+	if pfLoaded, err := kldLoaded(ctx, "pf"); err != nil {
+		return Unknown, err.Error()
+	} else if !pfLoaded {
 		return Warn, "pf is not loaded -- bridge-network stacks will fail; host-network stacks are unaffected"
 	}
 	out, err := exec.CommandContext(ctx, "pfctl", "-s", "nat").Output()
