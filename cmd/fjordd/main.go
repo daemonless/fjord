@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"time"
 
@@ -261,6 +262,8 @@ func main() {
 		}
 	}
 	cat := catalog.New(filepath.Join(fjordRoot, "catalog"), sources)
+	// The store offers only what this OS can run.
+	cat.RunsOn = func(os []string) bool { return slices.Contains(os, runtime.GOOS) }
 	if unfetched := cat.Unfetched(); len(unfetched) > 0 {
 		go func() {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)

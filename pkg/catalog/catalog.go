@@ -47,6 +47,11 @@ type Cache struct {
 
 	srcMu   sync.RWMutex
 	sources []Source
+
+	// RunsOn reports whether images for these OSes (OCI names: "linux",
+	// "freebsd") can run on this host; nil keeps everything. An entry names
+	// its OS, or its catalog does for all of them; one naming none is kept.
+	RunsOn func(os []string) bool
 }
 
 func New(dir string, sources []Source) *Cache {
@@ -202,6 +207,7 @@ func (c *Cache) Merged() ([]byte, error) {
 			return
 		}
 		var doc struct {
+			OS   []string         `json:"os"`
 			Apps []map[string]any `json:"apps"`
 		}
 		if json.Unmarshal(raw, &doc) != nil {
@@ -211,6 +217,15 @@ func (c *Cache) Merged() ([]byte, error) {
 			appID, _ := a["id"].(string)
 			if appID == "" {
 				continue
+			}
+			// Out before grouping: grouped by id, another OS's image could lead
+			// the card (daemonless's FreeBSD jellyfin over linuxserver's).
+			osList := entryOS(a, doc.OS)
+			if c.RunsOn != nil && len(osList) > 0 && !c.RunsOn(osList) {
+				continue
+			}
+			if len(osList) > 0 {
+				a["os"] = osList
 			}
 			icon, _ := a["icon"].(string)
 			manifestURL, _ := a["manifest_url"].(string)
@@ -650,4 +665,20 @@ func (c *Cache) TagScheme(repo string) (channels []string, aliases map[string]st
 		return channels, aliases
 	}
 	return nil, nil
+}
+
+// entryOS is the OS list an entry declares, else its catalog's.
+func entryOS(a map[string]any, catalogOS []string) []string {
+	if l, ok := a["os"].([]any); ok && len(l) > 0 {
+		var out []string
+		for _, v := range l {
+			if s, ok := v.(string); ok && s != "" {
+				out = append(out, s)
+			}
+		}
+		if len(out) > 0 {
+			return out
+		}
+	}
+	return catalogOS
 }
