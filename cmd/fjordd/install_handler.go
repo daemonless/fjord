@@ -201,7 +201,8 @@ func (s *server) handleInstall(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	id := s.manager.AllocateName(req.Name, req.AppID)
+	id, release := s.manager.AllocateName(req.Name, req.AppID)
+	defer release()
 	installed := false // saved for good; see the network cleanup below
 	m, err := manifest.Parse(req.Manifest)
 	if err != nil {
