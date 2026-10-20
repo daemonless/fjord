@@ -1277,9 +1277,10 @@ func (s *server) stackLifecycle(w http.ResponseWriter, r *http.Request, name, ac
 		be := s.backendFor(st)
 		pending := s.pendingFor(st)
 		if rec, ok := be.(engine.Recreator); ok && len(pending) > 0 {
+			// Its stay-up check is its last step, so it can be taken over.
 			var first io.ReadCloser
-			if first, err = rec.Recreate(ctx, st, pending); err == nil {
-				stream = s.clearPendingAfter(name, pending, thenStream(first, func() (io.ReadCloser, error) { return be.Up(ctx, st) }))
+			if first, err = rec.Recreate(watchable(ctx, name), st, pending); err == nil {
+				stream = s.clearPendingAfter(name, pending, first)
 			}
 		} else {
 			stream, err = be.Up(ctx, st)

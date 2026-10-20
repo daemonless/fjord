@@ -300,6 +300,9 @@ type NetworkParent struct {
 // Apply uses it so a Save's changes land even when podman-compose would
 // quietly keep the old container.
 type Recreator interface {
+	// Recreate replaces services' containers, brings up the rest of the
+	// stack without replacing it, and watches the replaced ones stay up --
+	// last, so an action taken meanwhile can end the watch.
 	Recreate(ctx context.Context, s *stack.Stack, services []string) (io.ReadCloser, error)
 }
 
