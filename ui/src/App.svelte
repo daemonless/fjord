@@ -3166,11 +3166,11 @@
           on:back={() => (currentView = 'stacks')}
           on:adopted={async (e) => {
             await loadStacks();
-            if (e.detail) {
-              const st = stacks.find((x) => x.name === e.detail);
+            if (e.detail.id) {
+              const st = stacks.find((x) => x.name === e.detail.id);
               if (st) {
                 await selectStack(st);
-                up(st.name);
+                if (e.detail.start) up(st.name);
               }
             }
           }}
