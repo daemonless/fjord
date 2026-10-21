@@ -3,7 +3,7 @@
 Releases are tagged on GitHub; each rc is a pre-release with the pull
 requests it carries. This file is the story per release.
 
-## 0.3.2 — unreleased
+## 0.3.2 — 2026-10-21
 
 Fixes only, for 0.3.1. New work goes into 0.4.0 (Linux).
 
