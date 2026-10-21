@@ -3,6 +3,25 @@
 Releases are tagged on GitHub; each rc is a pre-release with the pull
 requests it carries. This file is the story per release.
 
+## 0.3.2 — 2026-10-21
+
+Fixes only, for 0.3.1. New work goes into 0.4.0 (Linux).
+
+- Apply after a save recreates only the services you changed. It recreated
+  every container in the stack: podman-compose tears all of them down when
+  any one's configuration differs from the file's. A second Apply during the
+  first one's stay-up check now takes over instead of being refused. (#149)
+- Two installs started at the same time no longer get the same stack name,
+  the second writing over the first. (#146)
+- A save made while an install is still checking its app stays up is kept,
+  not put back to the install's copy. (#142)
+- Adopting a jail with no network no longer gives it network "NETWORKS" at
+  address "NETWORK_IP4". (#143)
+- The Shell tab is readable in light mode. (#133)
+- The Shell tab says to restart podman's API service when a podman upgrade
+  left it unable to start shells, and stops retrying instead of looping.
+  (#150)
+
 ## 0.3.1 — 2026-10-14
 
 Stack choices, AppJail catching up, and fjord saying what is wrong instead
