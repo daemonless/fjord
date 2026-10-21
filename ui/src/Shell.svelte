@@ -50,7 +50,10 @@
     let dropped = 0;
     const MAX_PENDING = 2 * 1024 * 1024;
     ws.onmessage = (e) => {
-      attempts = 0; // a shell that talks is a healthy one
+      // A shell that talks is a healthy one. Text frames are fjordd's own
+      // ("exec failed: ..."), not the shell's: resetting on those retried a
+      // shell that could not start forever.
+      if (typeof e.data !== 'string') attempts = 0;
       const data = typeof e.data === 'string' ? e.data : new Uint8Array(e.data);
       const size = typeof data === 'string' ? data.length : data.byteLength;
       if (pending > MAX_PENDING) {

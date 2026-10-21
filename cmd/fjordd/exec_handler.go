@@ -6,11 +6,13 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"sync/atomic"
 	"time"
 
 	"github.com/gorilla/websocket"
 
+	"github.com/daemonless/fjord/pkg/doctor"
 	"github.com/daemonless/fjord/pkg/engine"
 )
 
@@ -63,7 +65,7 @@ func (s *server) stackExec(w http.ResponseWriter, r *http.Request, name string) 
 	defer conn.Close()
 	sess, err := s.backendFor(st).Exec(context.Background(), engine.ExecOptions{Container: container})
 	if err != nil {
-		conn.WriteMessage(websocket.TextMessage, []byte("exec failed: "+err.Error()+"\r\n"))
+		conn.WriteMessage(websocket.TextMessage, []byte("exec failed: "+err.Error()+"\r\n"+execHint(r.Context(), err)))
 		return
 	}
 	defer sess.Close()
@@ -142,4 +144,19 @@ func (s *server) stackExec(w http.ResponseWriter, r *http.Request, name string) 
 			}
 		}
 	}
+}
+
+// execHint is why a shell failed when doctor knows: podman upgraded under its
+// running API service leaves every exec "no such file or directory" while the
+// CLI works, so it reads as a fjord bug. The tab says what to run instead.
+func execHint(ctx context.Context, err error) string {
+	if !strings.Contains(err.Error(), "no such file or directory") {
+		return ""
+	}
+	r, ok := doctor.RunOne(ctx, doctor.Config{Engines: []string{"podman"}}, "podman-stale")
+	if !ok || r.Status != doctor.Warn {
+		return ""
+	}
+	return "\r\npodman's API service is out of date: " + r.Detail + ".\r\nFix, as root:\r\n  " +
+		strings.ReplaceAll(r.Fix, "\n", "\r\n  ") + "\r\n"
 }
