@@ -4,13 +4,14 @@
   import Spinner from './Spinner.svelte';
   import EngineMark from './EngineMark.svelte';
   import { toast } from './toast';
-  import { listCandidates, adoptContainer, startStack, type Candidate, isProject } from './adopt';
+  import { listCandidates, adoptContainer, startStack, type Candidate, isProject, startsAfterReplace } from './adopt';
 
   // Containers and jails no stack owns, and the stack each would become. The
   // daemon builds the preview from what the engine recorded (podman's run
   // line, appjail's jail settings), so what you see is exactly what gets
   // written.
-  const dispatch = createEventDispatcher<{ adopted: string; back: void }>();
+  // adopted: the new stack to open ('' for none), and whether to start it.
+  const dispatch = createEventDispatcher<{ adopted: { id: string; start: boolean }; back: void }>();
 
   // embedded: inside the setup wizard -- its own title, no way "back" to a
   // Stacks page it came from. initial: a list the caller already looked up,
@@ -36,10 +37,10 @@
   });
 
   // replace: remove the old container so the stack takes its name; the
-  // stack is then started like any other. Without replace the stack is
-  // created stopped and the old container keeps running.
-  // Everything adoptable, one after another: adopt+replace, then start, so
-  // a host built by hand becomes stacks in one go. Failures are reported and
+  // stack is then started if the old container was running. Without replace
+  // the stack is created stopped and the old container keeps running.
+  // Everything adoptable, one after another: adopt+replace, then start the
+  // ones that were running, so a host built by hand becomes stacks in one go. Failures are reported and
   // the run continues with the next container.
   let allBusy = false;
   let progress = '';
@@ -58,7 +59,7 @@
       progress = `${i + 1} / ${todo.length}: ${c.name}`;
       try {
         const id = await adoptContainer(c, true);
-        await startStack(id);
+        if (startsAfterReplace(c)) await startStack(id);
       } catch (e: any) {
         failed++;
         toast(`${c.name}: ${e.message}`, { kind: 'error' });
@@ -67,7 +68,7 @@
     allBusy = false;
     progress = '';
     toast(failed ? `Adopted ${todo.length - failed}, ${failed} failed` : `Adopted ${todo.length} containers`, { kind: failed ? 'error' : 'success' });
-    dispatch('adopted', '');
+    dispatch('adopted', { id: '', start: false });
     await load();
   }
 
@@ -76,7 +77,8 @@
     busy = c.name;
     try {
       const id = await adoptContainer(c, replace);
-      if (replace && embedded) {
+      const start = replace && startsAfterReplace(c);
+      if (start && embedded) {
         // Nothing around the wizard starts it (the app opens the stack and
         // starts it there), so start it here and say if it did not.
         try {
@@ -87,11 +89,17 @@
         }
       } else {
         toast(
-          isProject(c) ? `Imported ${c.name} — fjord manages it now` : replace ? `Adopted ${c.name} — starting` : `Created stack ${id} (stopped)`,
+          isProject(c)
+            ? `Imported ${c.name} — fjord manages it now`
+            : start
+              ? `Adopted ${c.name} — starting`
+              : replace
+                ? `Adopted ${c.name} — stopped, as it was`
+                : `Created stack ${id} (stopped)`,
           { kind: 'success' },
         );
       }
-      dispatch('adopted', replace ? id : '');
+      dispatch('adopted', { id: replace ? id : '', start: start && !embedded });
       // The app moves on to the new stack; the wizard stays on this list.
       if (!replace || embedded) await load();
     } catch (e: any) {
@@ -116,8 +124,8 @@
       {#if list.filter((c) => !c.error).length > 1}
         {#if confirmAll}
           <span class="text-xs text-fjord-fg-secondary max-w-xs">
-            Removes {list.filter((c) => !c.error).length} containers and starts each as a stack with the same mounts,
-            network address and name. Data stays where it is.
+            Removes {list.filter((c) => !c.error).length} containers and makes each a stack with the same mounts,
+            network address and name; the running ones are started. Data stays where it is.
           </span>
           <button
             on:click={adoptAll}
@@ -189,7 +197,7 @@
                 <button
                   on:click={() => (confirmReplace = c.name)}
                   disabled={!!c.error || working}
-                  title="Remove the container and start it as a stack"
+                  title="Remove the container and make it a stack, running if it was"
                   class="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg bg-fjord-accent hover:bg-fjord-accent-hover text-white disabled:opacity-40"
                   >{#if busy === c.name}<Spinner size={13} />{/if}Adopt &amp; replace</button>
               {/if}
@@ -197,8 +205,8 @@
             </div>
             {#if confirmReplace === c.name}
               <div class="text-xs text-fjord-fg-secondary mt-2">
-                Removes the container <b>{c.name}</b> and starts it as a stack with the same mounts, network address and name.
-                Data stays where it is.
+                Removes the container <b>{c.name}</b> and makes it a stack with the same mounts, network address and name,
+                {startsAfterReplace(c) ? 'started' : 'stopped, as it is now'}. Data stays where it is.
               </div>
             {/if}
             {#if open[c.name] && c.compose}

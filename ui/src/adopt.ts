@@ -12,6 +12,10 @@ export type Candidate = {
 
 export const isProject = (c: Candidate) => !!c.composeFiles?.length;
 
+// After a replace the stack runs only if the container it replaces was
+// running: a stopped or never-started one stays stopped.
+export const startsAfterReplace = (c: Candidate) => c.state === 'running';
+
 export async function listCandidates(): Promise<Candidate[]> {
   try {
     const r = await fetch('/api/adopt');
