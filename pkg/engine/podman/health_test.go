@@ -13,11 +13,7 @@ import (
 func upContainer(name string) libpodContainer {
 	c := libpodContainer{ID: name + "-id", Names: []string{"/" + name}, State: "running",
 		Labels: map[string]string{"io.podman.compose.service": name}}
-	c.Ports = append(c.Ports, struct {
-		HostPort      int    `json:"host_port"`
-		ContainerPort int    `json:"container_port"`
-		Protocol      string `json:"protocol"`
-	}{HostPort: 3456, ContainerPort: 3456, Protocol: "tcp"})
+	c.Ports = append(c.Ports, libpodPort{HostPort: 3456, ContainerPort: 3456, Protocol: "tcp"})
 	return c
 }
 

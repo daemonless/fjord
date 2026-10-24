@@ -24,16 +24,48 @@ type libpodContainer struct {
 	Labels   map[string]string `json:"Labels"`
 	Created  time.Time         `json:"Created"`
 	// StartedAt is when the container last started, in Unix seconds.
-	StartedAt int64 `json:"StartedAt"`
-	Ports     []struct {
-		HostPort      int    `json:"host_port"`
-		ContainerPort int    `json:"container_port"`
-		Protocol      string `json:"protocol"`
-	} `json:"Ports"`
+	StartedAt int64       `json:"StartedAt"`
+	Ports     libpodPorts `json:"Ports"`
 	// reported is podman's own address per network, where podman knows it
 	// (podmanReportsAddresses), and reportedMAC the MAC on each.
 	reported    map[string]string
 	reportedMAC map[string]string
+}
+
+// libpodPort is one published port.
+type libpodPort struct {
+	HostPort      int    `json:"host_port"`
+	ContainerPort int    `json:"container_port"`
+	Protocol      string `json:"protocol"`
+}
+
+// libpodPorts holds one entry per port. podman folds consecutive ports into
+// one entry with a range: "3000-3001:3000-3001" is host_port 3000, range 2.
+// Reading host_port alone lost 3001, and a stack's own 3001 then counted as
+// "in use by a process on the host".
+type libpodPorts []libpodPort
+
+func (ps *libpodPorts) UnmarshalJSON(b []byte) error {
+	var raw []struct {
+		libpodPort
+		Range int `json:"range"`
+	}
+	if err := json.Unmarshal(b, &raw); err != nil {
+		return err
+	}
+	out := make(libpodPorts, 0, len(raw))
+	for _, r := range raw {
+		for i := 0; i < max(r.Range, 1); i++ {
+			p := r.libpodPort
+			if p.HostPort > 0 {
+				p.HostPort += i
+			}
+			p.ContainerPort += i
+			out = append(out, p)
+		}
+	}
+	*ps = out
+	return nil
 }
 
 // podmanReportsAddresses: on Linux netavark knows every container's address
