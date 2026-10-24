@@ -107,3 +107,47 @@ func mustJSON(t *testing.T, s string) string {
 	}
 	return string(b)
 }
+
+// An options edit hands back the new compose and the service view with the
+// mount's options; one podman would refuse is refused before it is written.
+func TestComposeMountsOptions(t *testing.T) {
+	const compose = `services:
+  app:
+    image: nginx
+    volumes:
+      - /srv/data:/data
+`
+	post := func(opts string) *httptest.ResponseRecorder {
+		body := `{"op":"options","service":"app","dest":"/data","options":` + opts + `,"compose":` +
+			mustJSON(t, compose) + `,"env":""}`
+		rec := httptest.NewRecorder()
+		(&server{}).handleComposeMounts(rec, httptest.NewRequest(http.MethodPost, "/api/compose/mounts", strings.NewReader(body)))
+		return rec
+	}
+	rec := post(`["ro","z"]`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
+	}
+	var got struct {
+		Compose  string `json:"compose"`
+		Services []struct {
+			Volumes []struct {
+				Dest     string   `json:"dest"`
+				ReadOnly bool     `json:"readOnly"`
+				Options  []string `json:"options"`
+			} `json:"volumes"`
+		} `json:"services"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got.Compose, `"/srv/data:/data:ro,z"`) {
+		t.Errorf("compose:\n%s", got.Compose)
+	}
+	if v := got.Services[0].Volumes[0]; !v.ReadOnly || len(v.Options) != 2 {
+		t.Errorf("view %+v", v)
+	}
+	if rec := post(`["bogus"]`); rec.Code != http.StatusBadRequest {
+		t.Errorf("bogus option: status %d", rec.Code)
+	}
+}

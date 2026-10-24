@@ -1,6 +1,7 @@
 package main
 
 import (
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -125,5 +126,36 @@ func TestGuardHost(t *testing.T) {
 	h.ServeHTTP(rr, req)
 	if !strings.Contains(rr.Body.String(), "--allowed-hosts evil.example") {
 		t.Errorf("the refusal must say how to allow the name: %q", rr.Body.String())
+	}
+}
+
+func TestGuardMutationsBodyLimit(t *testing.T) {
+	read := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if _, err := io.ReadAll(r.Body); err != nil {
+			http.Error(w, err.Error(), http.StatusRequestEntityTooLarge)
+			return
+		}
+		w.WriteHeader(200)
+	})
+	h := guardMutations(read)
+	big := strings.Repeat("x", maxBody+1)
+	for _, chunked := range []bool{false, true} {
+		r := httptest.NewRequest("POST", "/api/stacks/x/save", strings.NewReader(big))
+		r.Header.Set("Content-Type", "application/json")
+		if chunked {
+			r.ContentLength = -1 // no length up front: the reader stops it
+		}
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		if w.Code != http.StatusRequestEntityTooLarge {
+			t.Errorf("chunked=%v: a body over maxBody got %d, want 413", chunked, w.Code)
+		}
+	}
+	r := httptest.NewRequest("POST", "/api/stacks/x/save", strings.NewReader(`{"compose":"services: {}"}`))
+	r.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	if w.Code != 200 {
+		t.Errorf("a small body: %d, want 200", w.Code)
 	}
 }

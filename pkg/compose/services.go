@@ -2,6 +2,7 @@ package compose
 
 import (
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -45,6 +46,7 @@ type VolMount struct {
 	Name     string
 	Dest     string
 	ReadOnly bool
+	Options  []string // what follows the destination, ro included
 }
 
 // ParseServices returns every compose service with its image, env, ports,
@@ -160,8 +162,9 @@ func ParseServices(composeYAML string, env map[string]string) []Service {
 				default:
 					continue
 				}
-				if len(parts) >= 3 && strings.Contains(parts[2], "ro") {
-					vm.ReadOnly = true
+				if len(parts) >= 3 {
+					vm.Options = MountOptions(strings.Join(parts[2:], ":"))
+					vm.ReadOnly = slices.Contains(vm.Options, "ro")
 				}
 				s.Volumes = append(s.Volumes, vm)
 			}

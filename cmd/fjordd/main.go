@@ -3,6 +3,7 @@ package main
 import (
 	"compress/gzip"
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -172,25 +173,38 @@ type gzipWriter struct {
 
 func (g gzipWriter) Write(b []byte) (int, error) { return g.w.Write(b) }
 
+const defaultStacksDir = "/var/db/fjord/stacks"
+
 func main() {
 	// Config comes from FJORD_* env vars; each is also a flag that overrides
 	// its env var. Flags default to the env value (or the built-in default),
 	// and the resolved value is written back to the env so every consumer --
 	// some deep in the engine packages -- reads one source of truth.
+	if len(os.Args) > 1 && os.Args[1] == "passwd" {
+		if err := runPasswd(os.Args[2:], os.Stdin, os.Stdout); err != nil {
+			if !errors.Is(err, flag.ErrHelp) {
+				fmt.Fprintf(os.Stderr, "fjordd passwd: %v\n", err)
+			}
+			os.Exit(1)
+		}
+		return
+	}
 	var (
 		fVersion      = flag.Bool("version", false, "print version and exit")
 		fVersionV     = flag.Bool("v", false, "print version and exit (alias)")
 		fListen       = flag.String("listen", envOr("FJORD_LISTEN", ":3567"), "listen address")
-		fStacksDir    = flag.String("stacks-dir", envOr("FJORD_STACKS_DIR", "/var/db/fjord/stacks"), "stacks directory")
+		fStacksDir    = flag.String("stacks-dir", envOr("FJORD_STACKS_DIR", defaultStacksDir), "stacks directory")
 		fStorageBase  = flag.String("storage-base", os.Getenv("FJORD_STORAGE_BASE"), "default App data location")
 		fEngine       = flag.String("engine", os.Getenv("FJORD_ENGINE"), "default engine ("+engineNames()+")")
 		fPodmanSocket = flag.String("podman-socket", os.Getenv("FJORD_PODMAN_SOCKET"), "podman API socket")
 		fHostAddr     = flag.String("host-addr", os.Getenv("FJORD_HOST_ADDR"), "host address advertised to the UI")
 		fCatalogURL   = flag.String("catalog-url", os.Getenv("FJORD_CATALOG_URL"), "bootstrap catalog on first run")
 		fAllowedHosts = flag.String("allowed-hosts", os.Getenv("FJORD_ALLOWED_HOSTS"), "more names this host answers to, comma-separated (a reverse proxy's)")
+		fAuth         = flag.String("auth", os.Getenv("FJORD_AUTH"), "sign-in: password (default), or none when only loopback or --trusted-proxy can connect")
+		fTrustedProxy = flag.String("trusted-proxy", os.Getenv("FJORD_TRUSTED_PROXY"), "reverse proxy addresses or ranges, comma-separated (their X-Forwarded-For is believed)")
 	)
 	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "fjordd %s\n\nUsage: fjordd [flags]\n\n"+
+		fmt.Fprintf(os.Stderr, "fjordd %s\n\nUsage: fjordd [flags]\n       fjordd passwd [--user NAME] [--password-stdin]\n\n"+
 			"Each flag can also be set with its FJORD_* env var; the flag wins.\n\nFlags:\n", version)
 		flag.PrintDefaults()
 	}
@@ -210,12 +224,14 @@ func main() {
 	os.Setenv("FJORD_HOST_ADDR", *fHostAddr)
 	os.Setenv("FJORD_CATALOG_URL", *fCatalogURL)
 	os.Setenv("FJORD_ALLOWED_HOSTS", *fAllowedHosts)
+	os.Setenv("FJORD_AUTH", *fAuth)
+	os.Setenv("FJORD_TRUSTED_PROXY", *fTrustedProxy)
 
 	fmt.Printf("Starting fjordd %s - Compose Manager MVP\n", version)
 
 	stacksDir := os.Getenv("FJORD_STACKS_DIR")
 	if stacksDir == "" {
-		stacksDir = "/var/db/fjord/stacks"
+		stacksDir = defaultStacksDir
 	}
 	// The fjord root (parent of stacks) is where provisioned volumes live.
 	fjordRoot := filepath.Dir(stacksDir)
@@ -285,6 +301,12 @@ func main() {
 		addr = ":3567"
 	}
 
+	gate, err := newAuthGate(fjordRoot, addr, authEnv(), os.Getenv("FJORD_TRUSTED_PROXY"))
+	if err != nil {
+		log.Fatal(err)
+	}
+	gate.logAuthStart()
+
 	podman.SMBCredDir = filepath.Join(fjordRoot, "smb") // Linux cifs credential files (root-only)
 	backends, defEngine := buildBackends(fjordRoot)
 	if len(backends) == 0 {
@@ -331,6 +353,7 @@ func main() {
 	http.HandleFunc("/healthz", srv.handleHealthz)
 	api := http.NewServeMux()
 	srv.routes(api)
+	gate.routes(api)
 	http.Handle("/api/", guardMutations(api)) // same-origin + JSON on every mutation
 	http.Handle("/catalog/", api)
 
@@ -352,7 +375,18 @@ func main() {
 	fmt.Printf("Web UI listening on %s\n", addr)
 	hostname, _ := os.Hostname()
 	resolv, _ := os.ReadFile("/etc/resolv.conf")
-	log.Fatal(http.ListenAndServe(addr, guardHost(newHostAllow(hostname, string(resolv), *fAllowedHosts), http.DefaultServeMux)))
+	httpd := &http.Server{
+		Addr:    addr,
+		Handler: guardHost(newHostAllow(hostname, string(resolv), *fAllowedHosts), gate.wrap(http.DefaultServeMux)),
+		// A client that opens connections and never finishes its headers
+		// holds them forever otherwise. No read or write timeout: the event
+		// stream, logs, action output and the shell stay open for as long
+		// as they are watched (a read deadline would survive into the
+		// shell's hijacked connection).
+		ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout:       2 * time.Minute,
+	}
+	log.Fatal(httpd.ListenAndServe())
 }
 
 // logKept logs what start-on-boot pinned, and what it would not pin.

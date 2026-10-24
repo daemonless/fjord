@@ -44,13 +44,23 @@ func sameOrigin(r *http.Request) bool {
 	return true
 }
 
+// maxBody caps a request body. The largest real one is a stack save
+// (compose, .env, director file): kilobytes. Nothing uploads files.
+const maxBody = 8 << 20
+
 // guardMutations wraps the API mux: cross-origin mutating requests are
-// refused, and a request that carries a body must declare it as JSON (a
-// plain HTML form can't do that, which is the point).
+// refused, a request that carries a body must declare it as JSON (a plain
+// HTML form can't do that, which is the point), and no body may exceed
+// maxBody.
 func guardMutations(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete:
+			if r.ContentLength > maxBody {
+				http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+				return
+			}
+			r.Body = http.MaxBytesReader(w, r.Body, maxBody)
 			if !sameOrigin(r) {
 				http.Error(w, "cross-origin request refused", http.StatusForbidden)
 				return

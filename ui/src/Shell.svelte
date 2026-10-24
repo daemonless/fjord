@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { checkSession } from './auth';
   import { onMount, onDestroy } from 'svelte';
   import { onThemeChange } from './theme';
   import { xtermTheme } from './termTheme';
@@ -33,6 +34,8 @@
     const url = `${proto}://${location.host}/api/stacks/${encodeURIComponent(stack)}/exec?container=${encodeURIComponent(container)}`;
     ws = new WebSocket(url);
     ws.binaryType = 'arraybuffer';
+    // A refused upgrade (401: the session ended) looks like any close.
+    ws.addEventListener('close', () => checkSession());
     ws.onopen = () => {
       state = 'connected';
       // Do NOT reset the backoff here: an exec that fails right after the

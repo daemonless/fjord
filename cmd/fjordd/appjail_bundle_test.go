@@ -240,3 +240,22 @@ func TestWriteAppjailBundleHostnameInsideAValue(t *testing.T) {
 		t.Errorf("a hostname nothing reads is still left out:\n%s", env)
 	}
 }
+
+// A wizard value left empty does not let the bundle's placeholder through:
+// "<PASS>" written was transmission's password. A real default stays, and a
+// key the wizard does not ask about is kept as declared.
+func TestDirectorEnvDropsPlaceholdersLeftEmpty(t *testing.T) {
+	const defaults = "DIRECTOR_PROJECT=\nPASS=<PASS>\nTS_AUTHKEY=tskey-auth-xxxx\nRPC_SECRET=${RPC_SECRET}\nMAXMEM=512\nOTHER=<OTHER>\n"
+	resolved := map[string]string{"PASS": "", "TS_AUTHKEY": "", "RPC_SECRET": "", "MAXMEM": ""}
+	out := directorEnv(defaults, "t", resolved, nil, map[string]string{}, map[string]bool{})
+	for _, gone := range []string{"PASS=", "TS_AUTHKEY=", "RPC_SECRET="} {
+		if strings.Contains(out, "\n"+gone) || strings.HasPrefix(out, gone) {
+			t.Errorf("%s placeholder written:\n%s", gone, out)
+		}
+	}
+	for _, kept := range []string{"MAXMEM=512\n", "OTHER=<OTHER>\n"} {
+		if !strings.Contains(out, kept) {
+			t.Errorf("%s lost:\n%s", kept, out)
+		}
+	}
+}

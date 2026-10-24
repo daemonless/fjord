@@ -44,3 +44,36 @@ func TestDropVolumesNoVars(t *testing.T) {
 		t.Fatalf("no-op expected, got err=%v out=%q", err, out)
 	}
 }
+
+// An optional setting left empty reaches the app unset, not set to nothing;
+// one with its own default, or inside a longer value, stays.
+func TestDropEnvReferencing(t *testing.T) {
+	in := `services:
+  app:
+    image: x
+    environment:
+      - DB_TYPE=${DB_TYPE}
+      - KEEP=${KEEP}
+      - URL=postgres://${DB_HOST}/app
+      - TZ=${TZ:-UTC}
+  side:
+    image: y
+    environment:
+      DB_TYPE: ${DB_TYPE}
+      OTHER: fixed
+`
+	out, err := DropEnvReferencing(in, []string{"DB_TYPE", "DB_HOST", "TZ"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, gone := range []string{"DB_TYPE=", "DB_TYPE:"} {
+		if strings.Contains(out, gone) {
+			t.Errorf("%s still there:\n%s", gone, out)
+		}
+	}
+	for _, kept := range []string{"KEEP=${KEEP}", "URL=postgres://${DB_HOST}/app", "TZ=${TZ:-UTC}", "OTHER: fixed"} {
+		if !strings.Contains(out, kept) {
+			t.Errorf("%s dropped:\n%s", kept, out)
+		}
+	}
+}

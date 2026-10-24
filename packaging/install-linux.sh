@@ -65,6 +65,9 @@ cat <<MSG
 
 fjord is running: http://${ip:-this-host}:$port
 
-Until fjord has a login (0.4.1), whoever reaches port $port has root on this
-machine. Keep it on your LAN; never forward it to the internet.
+Set up the account there with this setup code:
+  $(cat /var/db/fjord/setup-code 2>/dev/null || echo "(none: the account exists; forgot it? fjordd passwd)")
+
+fjord is root on this machine and speaks plain HTTP: keep port $port on
+your LAN; never forward it to the internet.
 MSG

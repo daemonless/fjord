@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Account from './Account.svelte';
   import { onMount, createEventDispatcher, tick } from 'svelte';
   import Icon from './Icon.svelte';
   import Spinner from './Spinner.svelte';
@@ -77,11 +78,11 @@
 
   // Settings is organized into tabs; the active one lives in the URL
   // (#/settings/<tab>), owned by App: it arrives as a prop, changes go up.
-  export let tab: 'storage' | 'extensions' | 'catalogs' | 'advanced' = 'storage';
+  export let tab: 'storage' | 'extensions' | 'catalogs' | 'advanced' | 'account' = 'storage';
   const dispatch = createEventDispatcher();
-  let activeTab: 'storage' | 'extensions' | 'catalogs' | 'advanced' = tab;
+  let activeTab: 'storage' | 'extensions' | 'catalogs' | 'advanced' | 'account' = tab;
   $: activeTab = tab;
-  function selectTab(t: 'storage' | 'extensions' | 'catalogs' | 'advanced') {
+  function selectTab(t: 'storage' | 'extensions' | 'catalogs' | 'advanced' | 'account') {
     activeTab = t;
     dispatch('tab', t);
   }
@@ -647,6 +648,12 @@
             ? 'border-fjord-accent text-fjord-fg'
             : 'border-transparent text-fjord-fg-muted hover:text-fjord-fg-body'}">Advanced</button
         >
+        <button
+          on:click={() => selectTab('account')}
+          class="px-4 py-2 text-sm font-medium -mb-px border-b-2 transition-colors {activeTab === 'account'
+            ? 'border-fjord-accent text-fjord-fg'
+            : 'border-transparent text-fjord-fg-muted hover:text-fjord-fg-body'}">Account</button
+        >
       </div>
 
       {#if activeTab === 'storage'}
@@ -1105,6 +1112,10 @@
           class="px-3 py-1.5 rounded-lg text-sm font-medium bg-fjord-border hover:bg-fjord-accent hover:text-white transition-colors">Run setup again</button
         >
       </div>
+    {/if}
+
+    {#if activeTab === 'account'}
+      <Account />
     {/if}
   </div>
 </div>

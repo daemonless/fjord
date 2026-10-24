@@ -2,6 +2,7 @@
 // bridge next to a LAN network, host and back without losing rows, Save both
 // ways, and AppJail's limits. run-typec.sh checks the published port off-host.
 const { chromium } = require('playwright-core');
+const { signedIn } = require('./session');
 const BASE = process.env.FJORD || 'http://127.0.0.1:3567';
 const SVC = 'openspeedtest';
 const PORT = '3106';
@@ -203,7 +204,7 @@ async function appjailLimits(page) {
 
 (async () => {
   const browser = await chromium.launch({ args: ['--no-sandbox', '--disable-setuid-sandbox'] });
-  const page = await (await browser.newContext({ viewport: { width: 1400, height: 1100 } })).newPage();
+  const page = await (await browser.newContext(signedIn({ viewport: { width: 1400, height: 1100 } }))).newPage();
   page.setDefaultTimeout(20000);
   const errs = [];
   page.on('pageerror', (e) => errs.push(e.message));

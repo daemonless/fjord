@@ -11,6 +11,7 @@
   import Adopt from './Adopt.svelte';
   import System from './System.svelte';
   import Settings from './Settings.svelte';
+  import { auth, checkSession, SIGNED_IN } from './auth';
   import SetupWizard from './SetupWizard.svelte';
   import Dashboard from './Dashboard.svelte';
   import LogView from './LogView.svelte';
@@ -20,6 +21,7 @@
   import type { StackRestart } from './restartPolicy';
   import DirPicker from './DirPicker.svelte';
   import Spinner from './Spinner.svelte';
+  import LoginButton from './LoginButton.svelte';
   import Icon from './Icon.svelte';
   import ServiceResources from './ServiceResources.svelte';
   import { splitPlan } from './planSeed';
@@ -50,7 +52,7 @@
   };
   type StackStatus = { state: string; containers: ContainerStatus[]; staleSince?: string };
   type StackState = { group?: string; desired_state?: string; engine?: string; order?: number; origin?: { type?: string; app_id?: string }; choices?: Record<string, string>; pending_services?: string[]; last_failure?: { action: string; at: string; message: string } };
-  type Stack = { name: string; displayName?: string; icon?: string; dir: string; compose: string; env: string; director?: string; makejail?: string; engine?: string; status?: StackStatus; state?: StackState; services?: any[]; composeHash?: string; busy?: string; linkHost?: string; restart?: StackRestart };
+  type Stack = { name: string; displayName?: string; icon?: string; dir: string; compose: string; env: string; director?: string; makejail?: string; engine?: string; status?: StackStatus; state?: StackState; services?: any[]; composeHash?: string; busy?: string; linkHost?: string; restart?: StackRestart; listOnly?: boolean };
   // What the UI shows for a stack: its label, falling back to the id.
   const label = (s: { name: string; displayName?: string } | null | undefined) => s?.displayName || s?.name || '';
 
@@ -97,7 +99,7 @@
   let originalMakejail = '';
   let currentView: 'stacks' | 'store' | 'volumes' | 'networks' | 'system' | 'settings' | 'adopt' = 'stacks';
   // Settings sub-tab, mirrored into the URL (#/settings/<tab>) like the views.
-  let settingsTab: 'storage' | 'extensions' | 'catalogs' | 'advanced' = 'storage';
+  let settingsTab: 'storage' | 'extensions' | 'catalogs' | 'advanced' | 'account' = 'storage';
 
   // Draft for the "+" button: a FreeBSD base image that comes Up as-is, so a
   // blank stack is immediately a box you can open a shell in. A podman draft is
@@ -516,6 +518,22 @@
     if (varsPanelOpen) varsFocus = name;
     else varPop = { name, x: rect.left, y: rect.bottom + 4, value: stackVars[name] ?? '' };
   }
+  // .env values the compose never names reach no container: hand them to
+  // the app's (first) service, an edit held until Save.
+  async function passUnusedEnv() {
+    if (!selectedStack) return;
+    try {
+      const res = await fetch('/api/compose/pass-env', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ compose: selectedStack.compose ?? '', env: selectedStack.env ?? '', names: unusedEnv }),
+      });
+      if (!res.ok) throw new Error((await res.text()).trim() || `HTTP ${res.status}`);
+      adopt(await res.json());
+    } catch (e: any) {
+      toast(e.message || 'Could not change the compose', { kind: 'error' });
+    }
+  }
   function addUnsetVars() {
     if (!selectedStack) return;
     const env = (selectedStack.env ?? '').replace(/\s*$/, '');
@@ -870,12 +888,18 @@
       originalMakejail = '';
       return;
     }
-    // The list endpoint omits compose/env content; fetch the full stack detail
-    // so the editor actually shows the compose.yaml + .env.
+    // The list's .env has its secrets blanked: the editor needs the stack's
+    // own answer. Without it (fjord did not answer, the session ended) the
+    // list's copy is shown but never saved -- it would blank the passwords.
+    let full = false;
     try {
       const res = await fetch(`/api/stacks/${stack.name}`);
-      if (res.ok) stack = await res.json();
+      if (res.ok) {
+        stack = await res.json();
+        full = true;
+      }
     } catch {}
+    if (!full) stack = { ...stack!, listOnly: true };
     selectedStack = stack;
     currentView = 'stacks'; // selecting a stack always means the Stacks section
     showActionOutput(stack!.name);
@@ -1034,7 +1058,7 @@
       folderSets = [];
     }
   }
-  async function addFolderSet(service: string, setId: string, at: string, readOnly: boolean) {
+  async function addFolderSet(service: string, setId: string, at: string, readOnly: boolean, options: string[] = []) {
     const set = folderSets.find((s) => s.id === setId);
     if (!selectedStack || !set) return;
     // No container path typed: mount the set at /<set-name> ("Movies" ->
@@ -1069,7 +1093,7 @@
           source = await ensureRemoteVolume(f, { stack: selectedStack.name });
           kind = 'volume';
         }
-        adopt(await mountsAPI({ op: 'add', kind, service, source, dest: at, readOnly: readOnly }));
+        adopt(await mountsAPI({ op: 'add', kind, service, source, dest: at, readOnly, options }));
       }
       addSource = '';
       addingTo = '';
@@ -1089,7 +1113,7 @@
     if (!res.ok) throw new Error((await res.text()).trim() || `HTTP ${res.status}`);
     return res.json();
   }
-  async function addMount(d: { service: string; kind: string; source: string; dest: string; readOnly: boolean }) {
+  async function addMount(d: { service: string; kind: string; source: string; dest: string; readOnly: boolean; options?: string[] }) {
     if (!selectedStack || !d.source.trim() || !d.dest.trim()) return;
     try {
       adopt(await mountsAPI({ op: 'add', ...d }));
@@ -1099,9 +1123,19 @@
       toast(e.message || 'Add failed', { kind: 'error' });
     }
   }
+  // A mount's options changed (or "Add :z" on an SELinux warning): an edit
+  // like adding one, held until Save.
+  async function setMountOptions(d: { service: string; dest: string; options: string[] }) {
+    if (!selectedStack) return;
+    try {
+      adopt(await mountsAPI({ op: 'options', ...d }));
+    } catch (e: any) {
+      toast(e.message || 'Could not set the options', { kind: 'error' });
+    }
+  }
   // NFS/SMB from the Resources tab: same row format + credential store as the
   // folder-set editor (remote.ts), then mounted as its named volume.
-  async function addRemoteMount(d: { service: string; row: string; dest: string; readOnly: boolean }) {
+  async function addRemoteMount(d: { service: string; row: string; dest: string; readOnly: boolean; options?: string[] }) {
     if (!selectedStack) return;
     if (!d.dest) {
       toast('Enter the container path to mount it at', { kind: 'error' });
@@ -1109,7 +1143,7 @@
     }
     try {
       const source = await ensureRemoteVolume(d.row, { stack: selectedStack.name });
-      adopt(await mountsAPI({ op: 'add', kind: 'volume', service: d.service, source, dest: d.dest, readOnly: d.readOnly }));
+      adopt(await mountsAPI({ op: 'add', kind: 'volume', service: d.service, source, dest: d.dest, readOnly: d.readOnly, options: d.options }));
       addingTo = '';
       loadVolumes(selectedStack.name);
     } catch (e: any) {
@@ -1166,7 +1200,7 @@
     } else if (section === 'settings') {
       currentView = 'settings';
       // 'plugins' is the pre-rename route; keep it working for old links
-      settingsTab = name === 'extensions' || name === 'plugins' ? 'extensions' : name === 'catalogs' || name === 'advanced' ? name : 'storage';
+      settingsTab = name === 'extensions' || name === 'plugins' ? 'extensions' : name === 'catalogs' || name === 'advanced' || name === 'account' ? name : 'storage';
       await selectStack(null);
     } else if (section === 'stacks' && name) {
       currentView = 'stacks';
@@ -1219,9 +1253,32 @@
     await restoreFromHash();
     routeReady = true;
     window.addEventListener('hashchange', restoreFromHash);
+    window.addEventListener(SIGNED_IN, signedInAgain);
   });
 
+  // Signed in again over this page (its session had ended): reload what
+  // failed meanwhile and reopen the live stream.
+  // Pages that load their own data (Settings, System, ...) are made anew;
+  // the stack view's edits live here and the App store keeps an open wizard.
+  let viewEpoch = 0;
+  function signedInAgain() {
+    viewEpoch++;
+    loadStacks();
+    loadEngines();
+    loadNetworks();
+    loadVolumes();
+    loadFleetUpdates();
+    if (!eventSource || eventSource.readyState === EventSource.CLOSED) subscribeEvents();
+    if (selectedStack?.listOnly) selectStack(selectedStack);
+  }
+
+  async function signOut() {
+    await fetch('/api/auth/logout', { method: 'POST' }).catch(() => {});
+    location.reload();
+  }
+
   onDestroy(() => {
+    window.removeEventListener(SIGNED_IN, signedInAgain);
     eventSource?.close();
     unwatchTheme?.();
   });
@@ -1248,6 +1305,10 @@
   }
   async function save() {
     if (!selectedStack) return;
+    if (selectedStack.listOnly) {
+      toast("This stack's files did not load, so there is nothing safe to save. Open it again.", { kind: 'error' });
+      return;
+    }
     saving = true;
     try {
       const body: Record<string, unknown> = {
@@ -1456,6 +1517,11 @@
         try {
           applyStackEvent(JSON.parse(e.data));
         } catch {}
+      };
+      // The browser retries a dropped stream by itself, but gives up on an
+      // answer like 401: then the session may have ended.
+      eventSource.onerror = () => {
+        if (eventSource?.readyState === EventSource.CLOSED) checkSession();
       };
     } catch {}
   }
@@ -2145,6 +2211,22 @@
           : 'text-fjord-fg-muted hover:text-fjord-fg'}"><Icon name="settings" size={15} /> Settings</button
       >
     </nav>
+    {#if $auth && $auth !== 'unreachable' && $auth.off}
+      <button
+        on:click={() => {
+          selectStack(null);
+          settingsTab = 'account';
+          currentView = 'settings';
+        }}
+        title="FJORD_AUTH=none: only this host and the proxy in front of it can reach fjord"
+        class="mx-3 mb-2 px-2 py-1.5 rounded-md text-left text-xs text-fjord-warning border border-fjord-warning/40">Sign-in is off</button
+      >
+    {:else if $auth && $auth !== 'unreachable' && $auth.user}
+      <div class="flex items-center gap-2 px-4 pb-1 text-xs text-fjord-fg-dim">
+        <span class="min-w-0 truncate" title="Signed in as {$auth.user}">{$auth.user}</span>
+        <button on:click={signOut} class="ml-auto shrink-0 hover:text-fjord-fg">Sign out</button>
+      </div>
+    {/if}
     <!-- Which fjord this is, where anyone reporting a problem can see it. -->
     {#if daemonVersion}
       <button
@@ -2258,6 +2340,7 @@
                   ? ''
                   : 'opacity-40 pointer-events-none'}"><Icon name="external" size={13} /> Open</a
               >
+              <LoginButton stack={selectedStack.name} />
             {/if}
             {#if openUrl && links.length > 1}
               <details
@@ -2895,11 +2978,22 @@
             {:else if activeTab === 'env'}
               <div class="h-full flex flex-col">
                 {#if unusedEnv.length}
-                  <div class="shrink-0 px-4 py-2 text-xs bg-fjord-card border-b border-fjord-border text-fjord-fg-secondary">
-                    <span class="font-mono text-fjord-fg-body">{unusedEnv.join(', ')}</span>
-                    {unusedEnv.length === 1 ? 'is' : 'are'} not used by this stack{#if (selectedStack as any).ownAddress && unusedEnv.every((n) => /PORT$/.test(n))}:
-                      it has its own address on {(selectedStack as any).network}, so nothing is published on this host's
-                      ports, and the app answers on its own port there{:else}, so changing {unusedEnv.length === 1 ? 'it' : 'them'} has no effect{/if}.
+                  {@const portsOnly = (selectedStack as any).ownAddress && unusedEnv.every((n) => /PORT$/.test(n))}
+                  <div class="shrink-0 flex items-center gap-3 px-4 py-2 text-xs bg-fjord-card border-b border-fjord-border text-fjord-fg-secondary">
+                    <span class="flex-1">
+                      <span class="font-mono text-fjord-fg-body">{unusedEnv.join(', ')}</span>
+                      {unusedEnv.length === 1 ? 'is' : 'are'} not used by this stack{#if portsOnly}:
+                        it has its own address on {(selectedStack as any).network}, so nothing is published on this host's
+                        ports, and the app answers on its own port there{:else}, so changing {unusedEnv.length === 1 ? 'it' : 'them'} has no effect{/if}.
+                    </span>
+                    {#if !portsOnly && !selectedStack.director}
+                      <button
+                        on:click={passUnusedEnv}
+                        title="Add {unusedEnv.map((n) => `${n}=\${${n}}`).join(', ')} to the app's environment in the compose"
+                        class="shrink-0 px-2.5 py-1 rounded-lg font-medium bg-fjord-border hover:bg-fjord-accent hover:text-white transition-colors"
+                        >Pass {unusedEnv.length === 1 ? 'it' : 'them'} to the app</button
+                      >
+                    {/if}
                   </div>
                 {/if}
                 {#if unsetVars.length}
@@ -2981,7 +3075,8 @@
                   on:unmount={(e) => removeMount(e.detail)}
                   on:add={(e) => addMount(e.detail)}
                   on:remote={(e) => addRemoteMount(e.detail)}
-                  on:folderset={(e) => addFolderSet(e.detail.service, e.detail.id, e.detail.dest, e.detail.readOnly)}
+                  on:folderset={(e) => addFolderSet(e.detail.service, e.detail.id, e.detail.dest, e.detail.readOnly, e.detail.options)}
+                  on:mountoptions={(e) => setMountOptions(e.detail)}
                   on:browse={() => (pickingMount = true)}
                   on:openAdd={(e) => { addingTo = e.detail; addSource = ''; }}
                   on:closeAdd={() => { addingTo = ''; addSource = ''; }}
@@ -3154,15 +3249,15 @@
       </div>
     {:else if currentView === 'volumes'}
       <div class="p-6 h-full overflow-hidden">
-        <Volumes />
+        {#key viewEpoch}<Volumes />{/key}
       </div>
     {:else if currentView === 'networks'}
       <div class="p-6 h-full overflow-hidden">
-        <Networks />
+        {#key viewEpoch}<Networks />{/key}
       </div>
     {:else if currentView === 'adopt'}
       <div class="p-6 h-full overflow-hidden">
-        <Adopt
+        {#key viewEpoch}<Adopt
           on:back={() => (currentView = 'stacks')}
           on:adopted={async (e) => {
             await loadStacks();
@@ -3174,15 +3269,15 @@
               }
             }
           }}
-        />
+        />{/key}
       </div>
     {:else if currentView === 'system'}
       <div class="p-6 h-full overflow-hidden">
-        <System />
+        {#key viewEpoch}<System />{/key}
       </div>
     {:else if currentView === 'settings'}
       <div class="p-6 h-full overflow-hidden">
-        <Settings tab={settingsTab} on:tab={(e) => (settingsTab = e.detail)} />
+        {#key viewEpoch}<Settings tab={settingsTab} on:tab={(e) => (settingsTab = e.detail)} />{/key}
       </div>
     {:else}
       <!-- Default landing: dashboard overview of all stacks -->

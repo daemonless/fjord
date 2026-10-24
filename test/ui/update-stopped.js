@@ -3,6 +3,7 @@
 // is made by update-stopped.sh; this page stops it, takes the update, checks
 // nothing came up, then starts it.
 const { chromium } = require('playwright-core');
+const { signedIn } = require('./session');
 const BASE = 'http://127.0.0.1:3567';
 const NAME = process.env.STACK;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -19,7 +20,7 @@ const open = async (page) => {
 };
 (async () => {
   const b = await chromium.launch({ args: ['--no-sandbox'] });
-  const page = await (await b.newContext({ viewport: { width: 1400, height: 1100 } })).newPage();
+  const page = await (await b.newContext(signedIn({ viewport: { width: 1400, height: 1100 } }))).newPage();
   page.setDefaultTimeout(30000);
   try {
     // 1. Stop, through the confirm.

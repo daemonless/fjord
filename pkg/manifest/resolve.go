@@ -21,7 +21,7 @@ type ProvisionDir struct {
 type Resolved struct {
 	Env           map[string]string // VAR -> value, written to .env
 	Dirs          []ProvisionDir    // host dirs to mkdir + chown
-	EmptyOptional []string          // optional vars left empty; drop their ${VAR} volume mounts
+	EmptyOptional []string          // optional vars left empty; drop their mounts, ports and settings
 }
 
 // Resolve maps user-supplied values (falling back to defaults) to .env entries
@@ -127,9 +127,10 @@ func (m *Manifest) Resolve(values map[string]string, slug, storageBase string) (
 			if val == "" && !v.Optional {
 				return nil, fmt.Errorf("required value %q is empty", v.Name)
 			}
-			// An optional port left blank must not stay as "${VAR}:443" in the
-			// compose; record it so the install drops that publish line.
-			if val == "" && v.Type == "port" {
+			// An optional value left blank is dropped where it is the whole of
+			// something: a port must not stay as "${VAR}:443", and a setting
+			// must not reach the app as set-to-nothing (see DropEnvReferencing).
+			if val == "" && v.Optional {
 				res.EmptyOptional = append(res.EmptyOptional, v.Name)
 			}
 			res.Env[v.Name] = val

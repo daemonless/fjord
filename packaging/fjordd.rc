@@ -15,6 +15,10 @@
 # available; defaults suit a host install.)
 # fjordd answers only to an IP, localhost and this host's own name; behind a
 # reverse proxy, add its name: FJORD_ALLOWED_HOSTS=fjord.example.com
+#
+# Sign-in: the first visit asks for the setup code in
+# /var/db/fjord/setup-code; `fjordd passwd` sets or resets the password (add
+# --stacks-dir if FJORD_STACKS_DIR is set here).
 
 . /etc/rc.subr
 

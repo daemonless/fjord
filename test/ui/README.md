@@ -12,6 +12,13 @@ the addresses, what answers. Every bug found by hand becomes one of these.
 names an ssh destination the published-port checks run from, since pf never
 redirects a host's own published port back to it.
 
+fjord's sign-in: the runner signs in once as `FJORD_USER` (default `admin`)
+with `FJORD_PASSWORD`, every test's browser starts with that session
+(`session.js`: `newContext(signedIn({...}))` in a new test), and it signs
+out at the end:
+
+    FJORD_PASSWORD=... scripts/ui-tests.sh root@192.168.4.103
+
 Each test is `<name>.js`, a Playwright script run in
 `ghcr.io/daemonless/playwright` on the host itself (`--network host`, so
 `127.0.0.1:3567` is fjordd). `<name>.sh` beside it, when there is one, does

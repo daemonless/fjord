@@ -3,7 +3,7 @@
 # tables exist, and that the app answers from off-host. Needs a catalog that
 # carries x-fjord.choices for vikunja (CHOICE_CATALOG, default "proof").
 before() {
-  curl -s --max-time 20 "$FJORD/api/catalogs" | grep -q "\"${CHOICE_CATALOG:-proof}\"" || { echo "no '${CHOICE_CATALOG:-proof}' catalog on this host"; return 1; }
+  curl -s --max-time 20 -b "$FJORD_COOKIE" "$FJORD/api/catalogs" | grep -q "\"${CHOICE_CATALOG:-proof}\"" || { echo "no '${CHOICE_CATALOG:-proof}' catalog on this host"; return 1; }
 }
 UI_ENV="-e CHOICE_CATALOG=${CHOICE_CATALOG:-proof}"
 after() {

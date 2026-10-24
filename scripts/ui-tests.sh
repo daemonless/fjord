@@ -50,6 +50,32 @@ else
   FJORD="http://$IP:3567"
 fi
 REMOTE=/root/fjord-ui-tests
+
+# Sign in once for the whole run, as FJORD_USER (default admin) with
+# FJORD_PASSWORD; the tests' browsers and the curl helpers carry the session
+# (test/ui/session.js), and it is signed out at the end. Nothing when
+# fjord's sign-in is off.
+# signs_in: whether this fjordd asks for a sign-in (no: off, or a fjordd
+# from before sign-in, which has no /api/auth/state).
+signs_in() {
+  _st=$(curl -s --max-time 10 -w '\n%{http_code}' "$FJORD/api/auth/state") || return 1
+  case $_st in *'"off":true'*|*404) return 1 ;; esac
+}
+signin() {
+  signs_in || return 0
+  [ -n "${FJORD_PASSWORD:-}" ] || { echo "fjord asks for a sign-in: set FJORD_PASSWORD (and FJORD_USER when not admin)" >&2; return 1; }
+  _pw=$(printf '%s' "$FJORD_PASSWORD" | sed 's/[\\"]/\\&/g')
+  curl -s --max-time 30 -c - -o /dev/null -H "Origin: $FJORD" -H 'Content-Type: application/json' \
+    -d "{\"user\":\"${FJORD_USER:-admin}\",\"password\":\"$_pw\"}" "$FJORD/api/auth/login" |
+    awk '$6 == "fjord_session" { print $7 }'
+}
+FJORD_SESSION=$(signin) || exit 1
+if signs_in && [ -z "$FJORD_SESSION" ]; then
+  echo "signing in to $FJORD failed: check FJORD_USER / FJORD_PASSWORD" >&2
+  exit 1
+fi
+FJORD_COOKIE="fjord_session=$FJORD_SESSION"
+trap 'curl -s -o /dev/null --max-time 10 -X POST -H "Origin: $FJORD" -b "$FJORD_COOKIE" "$FJORD/api/auth/logout"' EXIT
 IMAGE=ghcr.io/daemonless/playwright:latest
 OUT=test/ui/out
 
@@ -77,18 +103,18 @@ answers() {
   return 1
 }
 # del_stack <name>... deletes stacks with their data through fjordd.
-del_stack() { for _s in "$@"; do curl -s -o /dev/null --max-time 180 -X DELETE -H "Origin: $FJORD" "$FJORD/api/stacks/$_s?data=1"; done; }
+del_stack() { for _s in "$@"; do curl -s -o /dev/null --max-time 180 -b "$FJORD_COOKIE" -X DELETE -H "Origin: $FJORD" "$FJORD/api/stacks/$_s?data=1"; done; }
 # say prints a line and keeps it in the test's log, where PASS/FAIL are
 # counted (after()'s output is already kept; main() has to use this).
 say() { echo "$*" | tee -a "$LOG"; }
 # del_net <name> <engine> deletes a network through fjordd.
-del_net() { curl -s -o /dev/null --max-time 60 -X DELETE -H "Origin: $FJORD" "$FJORD/api/networks/$1?engine=$2"; }
+del_net() { curl -s -o /dev/null --max-time 60 -b "$FJORD_COOKIE" -X DELETE -H "Origin: $FJORD" "$FJORD/api/networks/$1?engine=$2"; }
 # run_js <name> [-e K=V ...] runs the script on the host; output goes to the
 # terminal and the test's log.
 run_js() {
   _js=$1; shift
-  on "cd $REMOTE && podman run --rm --network host $* $JS_MOUNTS \
-    -v \$PWD/$_js.js:/app/t.js:ro$Z -v \$PWD/out:/out${Z:+:z} \
+  on "cd $REMOTE && podman run --rm --network host $* $JS_MOUNTS -e FJORD_SESSION=$FJORD_SESSION \
+    -v \$PWD/$_js.js:/app/t.js:ro$Z -v \$PWD/session.js:/app/session.js:ro$Z -v \$PWD/out:/out${Z:+:z} \
     $IMAGE node /app/t.js 2>&1 | grep -v -E '^\[(usermod|init)\]'" | tee -a "$LOG"
 }
 

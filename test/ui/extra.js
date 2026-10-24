@@ -1,6 +1,7 @@
 // fjord UI tests beyond the network matrix: Setup, a multi-service stack on
 // both engines, and Adopt. Same rules: through the real pages, checked by outcome.
 const { chromium } = require('playwright-core');
+const { signedIn } = require('./session');
 const BASE = process.env.FJORD || 'http://127.0.0.1:3567';
 
 const results = [];
@@ -152,7 +153,7 @@ async function adopt(page) {
 
 (async () => {
   const browser = await chromium.launch({ args: ['--no-sandbox', '--disable-setuid-sandbox'] });
-  const page = await (await browser.newContext({ viewport: { width: 1400, height: 1100 } })).newPage();
+  const page = await (await browser.newContext(signedIn({ viewport: { width: 1400, height: 1100 } }))).newPage();
   page.setDefaultTimeout(20000);
   const errs = [];
   page.on('pageerror', (e) => errs.push(e.message));

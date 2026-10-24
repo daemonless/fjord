@@ -2,6 +2,7 @@
 // no background of its own, and xterm painted that transparent as black
 // under the light theme's dark text -- the prompt all but invisible.
 const { chromium } = require('playwright-core');
+const { signedIn } = require('./session');
 const BASE = 'http://127.0.0.1:3567';
 const NAME = 't-shl';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -14,7 +15,7 @@ const lum = (c) => {
 };
 (async () => {
   const b = await chromium.launch({ args: ['--no-sandbox'] });
-  const ctx = await b.newContext({ viewport: { width: 1400, height: 1100 } });
+  const ctx = await b.newContext(signedIn({ viewport: { width: 1400, height: 1100 } }));
   await ctx.addInitScript(() => { try { localStorage.setItem('fjord-theme', 'light'); } catch {} });
   const page = await ctx.newPage();
   page.setDefaultTimeout(30000);

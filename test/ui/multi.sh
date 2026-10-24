@@ -5,7 +5,7 @@ STACKS="t-m2 t-j2 t-ms t-js"
 
 after() {
   for s in $STACKS; do
-    info=$(curl -s --max-time 20 "$FJORD/api/stacks/$s" | python3 -c '
+    info=$(curl -s --max-time 20 -b "$FJORD_COOKIE" "$FJORD/api/stacks/$s" | python3 -c '
 import json,sys
 d=json.load(sys.stdin)
 print((d.get("state") or {}).get("engine") or d.get("engine") or "podman")

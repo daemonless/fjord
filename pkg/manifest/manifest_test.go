@@ -187,3 +187,22 @@ func TestResolvePublicURL(t *testing.T) {
 		}
 	}
 }
+
+func TestParseLogin(t *testing.T) {
+	m, err := Parse(`services:
+  app:
+    image: x
+x-fjord:
+  info:
+    id: app
+  login:
+    user: ${CUSTOM_USER}
+    password: ${PASSWORD}
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.Login == nil || m.Login.User != "${CUSTOM_USER}" || m.Login.Password != "${PASSWORD}" {
+		t.Errorf("login %+v", m.Login)
+	}
+}

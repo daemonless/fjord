@@ -13,7 +13,7 @@ const volBase = `services:
 `
 
 func TestAttachVolume(t *testing.T) {
-	out, err := AttachVolume(volBase, FirstService, "media", "/data", true)
+	out, err := AttachVolume(volBase, FirstService, "media", "/data", []string{"ro"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -26,16 +26,16 @@ func TestAttachVolume(t *testing.T) {
 		t.Fatalf("NamedVolumes = %v, want [media]", got)
 	}
 	// attaching the same volume again is rejected
-	if _, err := AttachVolume(out, FirstService, "media", "/other", false); err == nil {
+	if _, err := AttachVolume(out, FirstService, "media", "/other", nil); err == nil {
 		t.Fatal("expected duplicate-attach error")
 	}
 }
 
 func TestAttachVolumeValidation(t *testing.T) {
-	if _, err := AttachVolume(volBase, FirstService, "", "/data", false); err == nil {
+	if _, err := AttachVolume(volBase, FirstService, "", "/data", nil); err == nil {
 		t.Fatal("expected error for empty name")
 	}
-	if _, err := AttachVolume(volBase, FirstService, "media", "data", false); err == nil {
+	if _, err := AttachVolume(volBase, FirstService, "media", "data", nil); err == nil {
 		t.Fatal("expected error for relative path")
 	}
 }
@@ -56,7 +56,7 @@ const multiBase = `services:
 `
 
 func TestAttachBindMountNamesItsService(t *testing.T) {
-	out, err := AttachBindMount(multiBase, "database", "/mnt", "/test", false)
+	out, err := AttachBindMount(multiBase, "database", "/mnt", "/test", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,7 +70,7 @@ func TestAttachBindMountNamesItsService(t *testing.T) {
 }
 
 func TestAttachBindMountUnknownService(t *testing.T) {
-	if _, err := AttachBindMount(multiBase, "nope", "/mnt", "/test", false); err == nil {
+	if _, err := AttachBindMount(multiBase, "nope", "/mnt", "/test", nil); err == nil {
 		t.Fatal("expected an error naming a service that is not there")
 	}
 }

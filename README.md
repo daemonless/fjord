@@ -9,9 +9,10 @@ FreeBSD OCI containers a first-class experience, but engine-neutral by
 design: the same compose runs on **podman** or **AppJail**, and the catalog
 format carries nothing vendor-specific.
 
-> **Tech preview — no authentication.** Anyone who can reach the port can
-> run containers as root on the host. Keep it on a trusted LAN, or bind it
-> to loopback (`FJORD_LISTEN=127.0.0.1:3567`) and reach it over SSH.
+> **fjord is root on its host.** Whoever signs in can run anything there.
+> It speaks plain HTTP, so the password crosses your network unencrypted:
+> keep it on a trusted LAN, or put a reverse proxy with HTTPS in front.
+> Never forward port 3567 to the internet.
 
 ## What's new in 0.3
 
@@ -57,6 +58,10 @@ service podman_service start
 service fjordd start
 ```
 
+Then open `http://<host>:3567` and set up the account with the setup code
+fjord made on the host ([Signing in](#signing-in)):
+`cat /var/db/fjord/setup-code`.
+
 LAN networks (a container with its own address) need the
 [cni-epair](https://github.com/daemonless/cni-epair) plugin; the **System**
 page says how to install it.
@@ -89,8 +94,9 @@ systemctl enable --now podman.socket fjordd
 ```
 
 On Linux:
-- **Until fjord has a login (0.4.1), whoever reaches port 3567 has root on
-  the machine.** Keep it on your LAN; never forward it to the internet.
+- Set up the account with the code fjord made on the host:
+  `sudo cat /var/db/fjord/setup-code` ([Signing in](#signing-in)). Keep
+  port 3567 on your LAN; never forward it to the internet.
 - A host firewall (firewalld on Fedora Server, ufw) blocks the page from the
   LAN until port 3567 is let in; the **System** page says how. Apps'
   published ports need nothing: podman opens those.
@@ -127,7 +133,8 @@ service podman_service start
 service fjordd start
 ```
 
-Open `http://<host>:3567`. The **System** page runs host-readiness checks
+Open `http://<host>:3567` and set up the account with the code in
+`/var/db/fjord/setup-code`. The **System** page runs host-readiness checks
 (missing tools, dead podman socket, pf rules) with copyable fixes — start
 there if anything misbehaves.
 
@@ -140,6 +147,30 @@ there if anything misbehaves.
 - **Automated Host Diagnostics** — Built-in pre-flight checks inspect the Libpod API socket, Packet Filter redirection anchors (`cni-rdr` / `appjail-nat`), container init tools, and port conflicts before deployment.
 - **Structured Storage & Folder Sets** — Clean architectural separation between internal application state and persistent user data pools (local ZFS datasets, NFS exports, or SMB shares) mapped with reusable Folder Sets.
 - **Single Self-Contained Binary** — Written in Go with an embedded Svelte SPA frontend. Zero background Python runtimes, Node daemons, or database dependencies.
+
+## Signing in
+
+fjord has one account: a user name and a password.
+
+- **First run.** A fresh fjord has no account. It writes a setup code to
+  `/var/db/fjord/setup-code` (readable by root only) and the page asks for
+  it, so only someone with root on the host can claim fjord. Or create the
+  account before the first start, and there is no setup page:
+  `fjordd passwd` (or `echo "$PW" | fjordd passwd --password-stdin` from a
+  playbook).
+- **Forgot the password?** On the host, as root: `fjordd passwd`. It also
+  signs every browser out. If fjordd keeps its stacks somewhere other than
+  `/var/db/fjord/stacks`, add `--stacks-dir <that dir>`.
+- **Sessions** last 30 days from last use and survive restarts and upgrades.
+  **Settings → Account** lists where you are signed in, signs a browser out,
+  and changes the user name and password.
+- **No HTTPS yet.** fjord speaks plain HTTP. For HTTPS, put a reverse proxy
+  in front; tell fjord its address with `FJORD_TRUSTED_PROXY` so sign-ins
+  are recorded from the real address and cookies are marked Secure.
+- **A login of your own in front** (authelia, authentik, a Tailscale-only
+  proxy): `FJORD_AUTH=none` turns fjord's sign-in off, but only when
+  nothing else can reach it -- fjordd listens on loopback only, or
+  `FJORD_TRUSTED_PROXY` names the proxy and everything else is refused.
 
 ## Configuration
 
@@ -154,6 +185,9 @@ Environment variables (via `fjordd_env` in rc.conf):
 | `FJORD_ENGINE` | `podman` | default engine for new installs until one is set in Settings |
 | `FJORD_PODMAN_SOCKET` | `/var/run/podman/podman.sock` | libpod API socket |
 | `FJORD_HOST_ADDR` | `127.0.0.1` | address probed for host port conflicts |
+| `FJORD_ALLOWED_HOSTS` | *(unset)* | more names fjord answers to, comma-separated (a reverse proxy's) |
+| `FJORD_TRUSTED_PROXY` | *(unset)* | reverse proxy addresses or ranges, comma-separated: their `X-Forwarded-For` / `X-Forwarded-Proto` are believed |
+| `FJORD_AUTH` | `password` | `none` turns sign-in off; refused unless `FJORD_LISTEN` is loopback or `FJORD_TRUSTED_PROXY` is set |
 
 Everything else — App data locations, folder sets, catalogs, engines,
 plugins — lives in Settings and is persisted in `<fjord root>/settings.json`.

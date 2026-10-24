@@ -313,8 +313,14 @@ func (s *server) handleInstall(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 500)
 		return
 	}
-	// Optional ports left blank (an unused HTTPS listener) go the same way.
+	// Optional ports left blank (an unused HTTPS listener) go the same way,
+	// and settings, which reach the app unset rather than set to nothing.
 	composeYAML, err = composepkg.DropPortsReferencing(composeYAML, res.EmptyOptional)
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	composeYAML, err = composepkg.DropEnvReferencing(composeYAML, res.EmptyOptional)
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
@@ -494,7 +500,7 @@ func (s *server) handleInstall(w http.ResponseWriter, r *http.Request) {
 			if nested {
 				at = strings.TrimRight(dest, "/") + "/" + names[len(locals)+i]
 			}
-			composeYAML, err = composepkg.AttachVolume(composeYAML, composepkg.FirstService, vol, at, false)
+			composeYAML, err = composepkg.AttachVolume(composeYAML, composepkg.FirstService, vol, at, nil)
 			if err != nil {
 				http.Error(w, "attach "+vol+": "+err.Error(), 500)
 				return

@@ -3,6 +3,7 @@
 // VLAN 4; v6lab answers no DHCPv4; lan-range (192.168.86.0/24 on lanbridge)
 // is the wrong network left from before.
 const { chromium } = require('playwright-core');
+const { signedIn } = require('./session');
 const BASE = process.env.FJORD || 'http://127.0.0.1:3567';
 
 const results = [];
@@ -28,7 +29,7 @@ const warning = async (page) => (await page.locator('.text-fjord-warning').allIn
 
 (async () => {
   const browser = await chromium.launch({ args: ['--no-sandbox', '--disable-setuid-sandbox'] });
-  const page = await (await browser.newContext({ viewport: { width: 1400, height: 1100 } })).newPage();
+  const page = await (await browser.newContext(signedIn({ viewport: { width: 1400, height: 1100 } }))).newPage();
   page.setDefaultTimeout(20000);
   const errs = [];
   page.on('pageerror', (e) => errs.push(e.message));

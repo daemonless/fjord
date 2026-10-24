@@ -10,7 +10,7 @@ export function insidePort(compose: string, name: string): string {
 }
 
 /** ownAddress: the network puts a container on the wire with an address of
- *  its own (fjordd's ownAddress: an epair network). */
+ *  its own (fjordd's ownAddress: epair on FreeBSD, macvlan on Linux). */
 export function ownAddress(net: string, networks: { name: string; driver?: string }[]): boolean {
-  return !!net && networks.some((n) => n.name === net && n.driver === 'epair');
+  return !!net && networks.some((n) => n.name === net && (n.driver === 'epair' || n.driver === 'macvlan'));
 }

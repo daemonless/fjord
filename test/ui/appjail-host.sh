@@ -2,7 +2,7 @@
 # host's :3000); here, the bridge it ends on, from off-host. The appjail
 # default goes back to what it was before.
 before() {
-  AJ_DEFAULT=$(curl -s --max-time 10 "$FJORD/api/settings/network" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("forEngine",{}).get("appjail",""))')
+  AJ_DEFAULT=$(curl -s --max-time 10 -b "$FJORD_COOKIE" "$FJORD/api/settings/network" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("forEngine",{}).get("appjail",""))')
 }
 after() {
   # The JS ends with the stack back on bridge from the Services tab.

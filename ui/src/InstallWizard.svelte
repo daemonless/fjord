@@ -422,6 +422,39 @@
   // empty (manifest.MadeUp): the catalog default is a placeholder like
   // "changeme", and it was what got installed. `generate: false` marks one
   // only its owner has (a tunnel token), typed as before.
+  // A port another stack, container or program already holds: start on the
+  // nearest free one and say why, instead of Install refusing it (every
+  // linuxserver desktop app wants 3000 and 3001).
+  let portNotes: Record<string, string> = {};
+  async function freePorts() {
+    portNotes = {};
+    const vs = variables.filter((v: any) => v.type === 'port' && /^\d+$/.test(String(formData[v.name] ?? '')));
+    if (!vs.length) return;
+    const proto = (n: string) => (new RegExp('\\$\\{' + n + '\\}:\\d+/udp').test(manifestText) ? 'udp' : 'tcp');
+    const keys = vs.map((v: any) => `${formData[v.name]}/${proto(v.name)}`);
+    try {
+      const r = await fetch('/api/ports/free?ports=' + encodeURIComponent(keys.join(',')));
+      if (!r.ok) return;
+      const got: Record<string, { heldBy: string; free?: number }> = await r.json();
+      vs.forEach((v: any, i: number) => {
+        const t = got[keys[i]];
+        if (!t) return;
+        const was = formData[v.name];
+        if (Number(was) < 1024) {
+          // A well-known port is found by its number (DNS on 53, HTTP on
+          // 80): moved to 54, nothing would ask there.
+          portNotes[v.name] = `${was} is in use by ${t.heldBy}, and clients look for this app on ${was}: give it its own address on a LAN network (Networking, below).`;
+        } else if (t.free) {
+          formData[v.name] = String(t.free);
+          portNotes[v.name] = `${was} is in use by ${t.heldBy}, so ${t.free}.`;
+        } else portNotes[v.name] = `${was} is in use by ${t.heldBy}.`;
+      });
+      formData = formData;
+      portNotes = portNotes;
+    } catch {
+      // pre-flight still refuses a taken port at Install
+    }
+  }
   const madeUp = (v: any) => v.type === 'secret' && v.optional !== true && v.generate !== false;
   // One only its owner has starts empty and up front: its catalog default is
   // a placeholder too (cloudflared's YOUR_CLOUDFLARE_TOKEN_HERE), and filled
@@ -646,6 +679,11 @@
   // there, its port variables publish nothing (see ownPort.ts).
   $: webNet = perService ? exposedOn || planEdits[svcNames[0]]?.[0]?.network || '' : netChoice;
   $: webOwnAddress = ownAddress(webNet, networks);
+  // The app's own ports, where it answers at that address: said once under
+  // Networking, in place of port fields that would publish nothing.
+  $: ownPorts = webOwnAddress
+    ? [...new Set(variables.filter((v: any) => v.type === 'port').map((v: any) => insidePort(manifestText, v.name)).filter(Boolean))]
+    : [];
   // public_url fields follow where the app lands until someone types in one.
   let webPortHint = '';
   let webHttps = false;
@@ -855,6 +893,7 @@
         paths = paths;
         defaultedFrom = {};
         applyDefaultSets();
+        freePorts();
       }
       loadVersions();
     } catch (e: any) {
@@ -943,17 +982,19 @@
             {/if}
           </div>
 
+          {#snippet reachedAt()}
+            {#if ownPorts.length}
+              <p class="text-sm text-fjord-fg-body mt-1 mb-2">
+                It answers at its own address on <span class="font-mono">{webNet}</span>{#if webIP} (<span class="font-mono">{webIP}</span>){/if},
+                on {ownPorts.length > 1 ? 'ports' : 'port'} <span class="font-mono">{ownPorts.join(', ')}</span>. Nothing is published on this host.
+              </p>
+            {/if}
+          {/snippet}
+
           {#snippet varField(v: any)}
             {#if v.type === 'port' && webOwnAddress && insidePort(manifestText, v.name)}
-              <div class="flex flex-col gap-1">
-                <span class="text-sm font-semibold text-fjord-fg-secondary font-mono text-fjord-accent/90">{v.name}</span>
-                <div class="text-sm text-fjord-fg-body">
-                  Port <span class="font-mono">{insidePort(manifestText, v.name)}</span>, the app's own, at its address on {webNet}.
-                </div>
-                <div class="text-xs text-fjord-fg-dim">
-                  With an address of its own nothing is published on this host, so there is no port to choose here.
-                </div>
-              </div>
+              <!-- Nothing to choose: with its own address nothing is published
+                   on this host. Networking says where it answers instead. -->
             {:else}
             <div class="flex flex-col gap-1">
               <label class="text-sm font-semibold text-fjord-fg-secondary flex items-center gap-2" for={v.name}>
@@ -961,6 +1002,9 @@
                 {#if v.optional !== true}<span class="text-fjord-danger" title="Required">*</span>{:else}<span class="text-xs font-normal text-fjord-fg-dim" data-optional>(optional)</span>{/if}
                 {#if v.type === 'path'}<span class="text-[10px] font-normal uppercase tracking-wide text-fjord-fg-dim border border-fjord-border rounded px-1.5 py-0.5">host path</span>{/if}
               </label>
+              {#if portNotes[v.name]}
+                <div class="text-xs text-fjord-warning">{portNotes[v.name]}</div>
+              {/if}
               {#if v.label}
                 <div class="text-xs text-fjord-fg-dim">{#each linkify(v.label) as seg}{#if seg.url}<a href={seg.url} target="_blank" rel="noopener noreferrer" class="text-fjord-accent hover:underline">{seg.text}</a>{:else}{seg.text}{/if}{/each}</div>
               {/if}
@@ -1264,6 +1308,7 @@
             <div class="pt-4 border-t border-fjord-border">
               {#if perService}
                 <label class="text-sm font-semibold text-fjord-fg-secondary" for="net">Networking</label>
+                {@render reachedAt()}
                 {#if singleService}
                   {#if hostNetworked}
                     <p class="text-xs text-fjord-warning mt-1 mb-3">
@@ -1307,6 +1352,7 @@
                 />
               {:else}
                 <label class="text-sm font-semibold text-fjord-fg-secondary" for="net">Networking</label>
+                {@render reachedAt()}
                 {#if hostNetworked && !declaresNetworking && engineChoice !== 'appjail'}
                   <p class="text-xs text-fjord-warning mt-1 mb-2">
                     This app expects host networking — its services reach each other over
