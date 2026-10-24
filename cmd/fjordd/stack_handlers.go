@@ -252,6 +252,7 @@ func (s *server) stackDetail(w http.ResponseWriter, r *http.Request, name string
 		nameIfaces(atts)
 	}
 	svcs := stackServices(st, status)
+	s.markSELinux(svcs)
 	net, ip, mac := "", "", ""
 	own := false
 	if len(atts) > 0 {
@@ -717,7 +718,7 @@ func (s *server) stackSave(w http.ResponseWriter, r *http.Request, name string) 
 	}
 
 	if payload.Volume != "" {
-		attached, err := composepkg.AttachVolume(composeYAML, composepkg.FirstService, payload.Volume, payload.VolumePath, payload.VolumeRO)
+		attached, err := composepkg.AttachVolume(composeYAML, composepkg.FirstService, payload.Volume, payload.VolumePath, composepkg.WithReadOnly(nil, payload.VolumeRO))
 		if err != nil {
 			http.Error(w, "volume attach: "+err.Error(), 400)
 			return

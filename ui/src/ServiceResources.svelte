@@ -9,6 +9,8 @@
   import { createEventDispatcher } from 'svelte';
   import Icon from './Icon.svelte';
   import AddMount from './AddMount.svelte';
+  import MountOptionsPicker from './MountOptionsPicker.svelte';
+  import { withOption } from './mountOptions';
   import { addressProblem, address6Problem, usableRange, randomMAC } from './network';
   import { setInterface, serviceType, switchType, isolatedServices, ALONE, type Iface } from './planSeed';
 
@@ -40,6 +42,9 @@
     name?: string;
     kind?: string;
     readOnly?: boolean;
+    options?: string[];
+    /** The folder's SELinux type when SELinux will refuse it to the container. */
+    selinux?: string;
   };
   type ServiceView = {
     name: string;
@@ -103,9 +108,10 @@
   const dispatch = createEventDispatcher<{
     change: void;
     unmount: { service: string; dest: string };
-    add: { service: string; kind: string; source: string; dest: string; readOnly: boolean };
-    remote: { service: string; row: string; dest: string; readOnly: boolean };
-    folderset: { service: string; id: string; dest: string; readOnly: boolean };
+    add: { service: string; kind: string; source: string; dest: string; readOnly: boolean; options: string[] };
+    remote: { service: string; row: string; dest: string; readOnly: boolean; options: string[] };
+    folderset: { service: string; id: string; dest: string; readOnly: boolean; options: string[] };
+    mountoptions: { service: string; dest: string; options: string[] };
     browse: void;
     openAdd: string;
     closeAdd: void;
@@ -120,6 +126,18 @@
   // Keyed "<service>:<dest>", not "<dest>": the same container path is mounted
   // by several services (/etc/localtime is on four of immich's), and a single
   // key put every one of those rows into confirm at the same click.
+  // The mount whose options are open for editing ("<service>:<dest>"), and
+  // the options as edited so far.
+  let editingOpts = '';
+  let draftOpts: string[] = [];
+  function editOpts(service: string, v: ServiceVolume) {
+    editingOpts = `${service}:${v.dest}`;
+    draftOpts = [...(v.options ?? [])];
+  }
+  function saveOpts(service: string, dest: string, options: string[]) {
+    dispatch('mountoptions', { service, dest, options });
+    editingOpts = '';
+  }
   let confirmUnmount = '';
   // The same two clicks for an interface. Keyed by row index, which shifts
   // under any edit -- so every edit (touch) drops a pending confirm rather
@@ -610,8 +628,15 @@
                       <td class="py-1 pr-2 text-fjord-fg-dim">→</td>
                       <td class="py-1 pr-3 font-mono text-fjord-fg-body">{v.dest}</td>
                       <td class="py-1 text-right whitespace-nowrap">
-                        {#if v.readOnly}<span class="text-[10px] px-1 rounded bg-fjord-inset text-fjord-fg-dim mr-1">RO</span>{/if}
+                        {#each v.options ?? [] as o}<span class="text-[10px] px-1 rounded bg-fjord-inset text-fjord-fg-dim mr-1 font-mono">{o === 'ro' ? 'RO' : o}</span>{/each}
                         <span class="text-[10px] px-1 rounded bg-fjord-inset text-fjord-fg-dim">{v.kind ?? ''}</span>
+                        <button
+                          on:click={() => (editingOpts === `${s.name}:${v.dest}` ? (editingOpts = '') : editOpts(s.name, v))}
+                          title="Mount options: read-only, SELinux label, …"
+                          aria-label="Mount options"
+                          class="ml-1 align-middle text-fjord-fg-dim hover:text-fjord-fg transition-colors"
+                          ><Icon name="pencil" size={13} /></button
+                        >
                         {#if confirmUnmount === `${s.name}:${v.dest}`}
                           <button
                             on:click={() => { dispatch('unmount', { service: s.name, dest: v.dest ?? '' }); confirmUnmount = ''; }}
@@ -632,6 +657,40 @@
                         {/if}
                       </td>
                     </tr>
+                    {#if v.selinux}
+                      <tr>
+                        <td colspan="4" class="pb-1.5">
+                          <div class="flex items-center gap-2 px-2 py-1 rounded bg-fjord-warning/10 border border-fjord-warning/30 text-fjord-fg-body">
+                            <Icon name="alert" size={12} class="text-fjord-warning shrink-0" />
+                            <span class="flex-1">SELinux will refuse this folder to the container (it is labelled <span class="font-mono">{v.selinux}</span>).</span>
+                            <button
+                              on:click={() => saveOpts(s.name, v.dest ?? '', withOption(v.options ?? [], 'z'))}
+                              title="Relabel the folder at start so containers may use it (podman's :z)"
+                              class="shrink-0 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-fjord-warning/15 text-fjord-warning border border-fjord-warning/30 hover:bg-fjord-warning/25"
+                              >Add :z</button
+                            >
+                          </div>
+                        </td>
+                      </tr>
+                    {/if}
+                    {#if editingOpts === `${s.name}:${v.dest}`}
+                      <tr>
+                        <td colspan="4" class="pb-2">
+                          <div class="flex flex-wrap items-center gap-3 px-2 py-1.5 rounded bg-fjord-inset/40 border border-fjord-border">
+                            <MountOptionsPicker bind:options={draftOpts} />
+                            <span class="flex-1"></span>
+                            <button
+                              on:click={() => saveOpts(s.name, v.dest ?? '', draftOpts)}
+                              class="text-[10px] px-1.5 py-0.5 rounded bg-fjord-accent hover:bg-fjord-accent-hover text-white">Set</button
+                            >
+                            <button
+                              on:click={() => (editingOpts = '')}
+                              class="text-[10px] px-1.5 py-0.5 rounded text-fjord-fg-muted hover:text-fjord-fg">Cancel</button
+                            >
+                          </div>
+                        </td>
+                      </tr>
+                    {/if}
                   {/each}
                 </tbody>
               </table>

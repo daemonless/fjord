@@ -1034,7 +1034,7 @@
       folderSets = [];
     }
   }
-  async function addFolderSet(service: string, setId: string, at: string, readOnly: boolean) {
+  async function addFolderSet(service: string, setId: string, at: string, readOnly: boolean, options: string[] = []) {
     const set = folderSets.find((s) => s.id === setId);
     if (!selectedStack || !set) return;
     // No container path typed: mount the set at /<set-name> ("Movies" ->
@@ -1069,7 +1069,7 @@
           source = await ensureRemoteVolume(f, { stack: selectedStack.name });
           kind = 'volume';
         }
-        adopt(await mountsAPI({ op: 'add', kind, service, source, dest: at, readOnly: readOnly }));
+        adopt(await mountsAPI({ op: 'add', kind, service, source, dest: at, readOnly, options }));
       }
       addSource = '';
       addingTo = '';
@@ -1089,7 +1089,7 @@
     if (!res.ok) throw new Error((await res.text()).trim() || `HTTP ${res.status}`);
     return res.json();
   }
-  async function addMount(d: { service: string; kind: string; source: string; dest: string; readOnly: boolean }) {
+  async function addMount(d: { service: string; kind: string; source: string; dest: string; readOnly: boolean; options?: string[] }) {
     if (!selectedStack || !d.source.trim() || !d.dest.trim()) return;
     try {
       adopt(await mountsAPI({ op: 'add', ...d }));
@@ -1099,9 +1099,19 @@
       toast(e.message || 'Add failed', { kind: 'error' });
     }
   }
+  // A mount's options changed (or "Add :z" on an SELinux warning): an edit
+  // like adding one, held until Save.
+  async function setMountOptions(d: { service: string; dest: string; options: string[] }) {
+    if (!selectedStack) return;
+    try {
+      adopt(await mountsAPI({ op: 'options', ...d }));
+    } catch (e: any) {
+      toast(e.message || 'Could not set the options', { kind: 'error' });
+    }
+  }
   // NFS/SMB from the Resources tab: same row format + credential store as the
   // folder-set editor (remote.ts), then mounted as its named volume.
-  async function addRemoteMount(d: { service: string; row: string; dest: string; readOnly: boolean }) {
+  async function addRemoteMount(d: { service: string; row: string; dest: string; readOnly: boolean; options?: string[] }) {
     if (!selectedStack) return;
     if (!d.dest) {
       toast('Enter the container path to mount it at', { kind: 'error' });
@@ -1109,7 +1119,7 @@
     }
     try {
       const source = await ensureRemoteVolume(d.row, { stack: selectedStack.name });
-      adopt(await mountsAPI({ op: 'add', kind: 'volume', service: d.service, source, dest: d.dest, readOnly: d.readOnly }));
+      adopt(await mountsAPI({ op: 'add', kind: 'volume', service: d.service, source, dest: d.dest, readOnly: d.readOnly, options: d.options }));
       addingTo = '';
       loadVolumes(selectedStack.name);
     } catch (e: any) {
@@ -2981,7 +2991,8 @@
                   on:unmount={(e) => removeMount(e.detail)}
                   on:add={(e) => addMount(e.detail)}
                   on:remote={(e) => addRemoteMount(e.detail)}
-                  on:folderset={(e) => addFolderSet(e.detail.service, e.detail.id, e.detail.dest, e.detail.readOnly)}
+                  on:folderset={(e) => addFolderSet(e.detail.service, e.detail.id, e.detail.dest, e.detail.readOnly, e.detail.options)}
+                  on:mountoptions={(e) => setMountOptions(e.detail)}
                   on:browse={() => (pickingMount = true)}
                   on:openAdd={(e) => { addingTo = e.detail; addSource = ''; }}
                   on:closeAdd={() => { addingTo = ''; addSource = ''; }}
