@@ -79,3 +79,34 @@ func TestResolveGivenSecretNeverDefault(t *testing.T) {
 		t.Fatalf("optional given secret: %v %q, want empty", err, res.Env["TUNNEL_TOKEN"])
 	}
 }
+
+// The login's password is one a person can type; every other secret stays
+// 64 hex characters.
+func TestLoginSecretIsTypeable(t *testing.T) {
+	m, err := Parse(`services:
+  app:
+    image: x
+x-fjord:
+  info:
+    id: app
+  login:
+    user: admin
+    password: ${PASSWORD}
+  variables:
+    - name: PASSWORD
+      type: secret
+    - name: KEY
+      type: secret
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	values := map[string]string{}
+	m.MakeUpSecrets(values)
+	if p := values["PASSWORD"]; len(p) != 20 || strings.Trim(p, loginChars) != "" {
+		t.Errorf("login password %q", p)
+	}
+	if k := values["KEY"]; len(k) != 64 {
+		t.Errorf("other secret %q", k)
+	}
+}
