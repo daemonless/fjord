@@ -13,9 +13,14 @@ describe('insidePort', () => {
 });
 
 describe('ownAddress', () => {
-  const nets = [{ name: 'lan', driver: 'epair' }, { name: 'ajnet', driver: 'virtualnet' }];
-  it('is an epair network only', () => {
+  const nets = [
+    { name: 'lan', driver: 'epair' },
+    { name: 'vlan4_net', driver: 'macvlan' },
+    { name: 'ajnet', driver: 'virtualnet' },
+  ];
+  it('is an epair (FreeBSD) or macvlan (Linux) network', () => {
     expect(ownAddress('lan', nets)).toBe(true);
+    expect(ownAddress('vlan4_net', nets)).toBe(true);
     expect(ownAddress('ajnet', nets)).toBe(false);
     expect(ownAddress('bridge', nets)).toBe(false);
     expect(ownAddress('', nets)).toBe(false);

@@ -679,6 +679,11 @@
   // there, its port variables publish nothing (see ownPort.ts).
   $: webNet = perService ? exposedOn || planEdits[svcNames[0]]?.[0]?.network || '' : netChoice;
   $: webOwnAddress = ownAddress(webNet, networks);
+  // The app's own ports, where it answers at that address: said once under
+  // Networking, in place of port fields that would publish nothing.
+  $: ownPorts = webOwnAddress
+    ? [...new Set(variables.filter((v: any) => v.type === 'port').map((v: any) => insidePort(manifestText, v.name)).filter(Boolean))]
+    : [];
   // public_url fields follow where the app lands until someone types in one.
   let webPortHint = '';
   let webHttps = false;
@@ -977,17 +982,19 @@
             {/if}
           </div>
 
+          {#snippet reachedAt()}
+            {#if ownPorts.length}
+              <p class="text-sm text-fjord-fg-body mt-1 mb-2">
+                It answers at its own address on <span class="font-mono">{webNet}</span>{#if webIP} (<span class="font-mono">{webIP}</span>){/if},
+                on {ownPorts.length > 1 ? 'ports' : 'port'} <span class="font-mono">{ownPorts.join(', ')}</span>. Nothing is published on this host.
+              </p>
+            {/if}
+          {/snippet}
+
           {#snippet varField(v: any)}
             {#if v.type === 'port' && webOwnAddress && insidePort(manifestText, v.name)}
-              <div class="flex flex-col gap-1">
-                <span class="text-sm font-semibold text-fjord-fg-secondary font-mono text-fjord-accent/90">{v.name}</span>
-                <div class="text-sm text-fjord-fg-body">
-                  Port <span class="font-mono">{insidePort(manifestText, v.name)}</span>, the app's own, at its address on {webNet}.
-                </div>
-                <div class="text-xs text-fjord-fg-dim">
-                  With an address of its own nothing is published on this host, so there is no port to choose here.
-                </div>
-              </div>
+              <!-- Nothing to choose: with its own address nothing is published
+                   on this host. Networking says where it answers instead. -->
             {:else}
             <div class="flex flex-col gap-1">
               <label class="text-sm font-semibold text-fjord-fg-secondary flex items-center gap-2" for={v.name}>
@@ -1301,6 +1308,7 @@
             <div class="pt-4 border-t border-fjord-border">
               {#if perService}
                 <label class="text-sm font-semibold text-fjord-fg-secondary" for="net">Networking</label>
+                {@render reachedAt()}
                 {#if singleService}
                   {#if hostNetworked}
                     <p class="text-xs text-fjord-warning mt-1 mb-3">
@@ -1344,6 +1352,7 @@
                 />
               {:else}
                 <label class="text-sm font-semibold text-fjord-fg-secondary" for="net">Networking</label>
+                {@render reachedAt()}
                 {#if hostNetworked && !declaresNetworking && engineChoice !== 'appjail'}
                   <p class="text-xs text-fjord-warning mt-1 mb-2">
                     This app expects host networking — its services reach each other over
