@@ -217,6 +217,7 @@ func (s *server) routes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/compose/mounts", s.handleComposeMounts)
 	mux.HandleFunc("/api/mount-options", s.handleMountOptions)
 	mux.HandleFunc("/api/compose/pass-env", s.handleComposePassEnv)
+	mux.HandleFunc("/api/ports/free", s.handleFreePorts)
 	mux.HandleFunc("/api/settings/storage", s.handleStorageSettings)
 	mux.HandleFunc("/api/settings/wizard", s.handleWizardSettings)
 	mux.HandleFunc("/api/settings/restart", s.handleRestartSettings)

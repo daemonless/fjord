@@ -422,6 +422,39 @@
   // empty (manifest.MadeUp): the catalog default is a placeholder like
   // "changeme", and it was what got installed. `generate: false` marks one
   // only its owner has (a tunnel token), typed as before.
+  // A port another stack, container or program already holds: start on the
+  // nearest free one and say why, instead of Install refusing it (every
+  // linuxserver desktop app wants 3000 and 3001).
+  let portNotes: Record<string, string> = {};
+  async function freePorts() {
+    portNotes = {};
+    const vs = variables.filter((v: any) => v.type === 'port' && /^\d+$/.test(String(formData[v.name] ?? '')));
+    if (!vs.length) return;
+    const proto = (n: string) => (new RegExp('\\$\\{' + n + '\\}:\\d+/udp').test(manifestText) ? 'udp' : 'tcp');
+    const keys = vs.map((v: any) => `${formData[v.name]}/${proto(v.name)}`);
+    try {
+      const r = await fetch('/api/ports/free?ports=' + encodeURIComponent(keys.join(',')));
+      if (!r.ok) return;
+      const got: Record<string, { heldBy: string; free?: number }> = await r.json();
+      vs.forEach((v: any, i: number) => {
+        const t = got[keys[i]];
+        if (!t) return;
+        const was = formData[v.name];
+        if (Number(was) < 1024) {
+          // A well-known port is found by its number (DNS on 53, HTTP on
+          // 80): moved to 54, nothing would ask there.
+          portNotes[v.name] = `${was} is in use by ${t.heldBy}, and clients look for this app on ${was}: give it its own address on a LAN network (Networking, below).`;
+        } else if (t.free) {
+          formData[v.name] = String(t.free);
+          portNotes[v.name] = `${was} is in use by ${t.heldBy}, so ${t.free}.`;
+        } else portNotes[v.name] = `${was} is in use by ${t.heldBy}.`;
+      });
+      formData = formData;
+      portNotes = portNotes;
+    } catch {
+      // pre-flight still refuses a taken port at Install
+    }
+  }
   const madeUp = (v: any) => v.type === 'secret' && v.optional !== true && v.generate !== false;
   // One only its owner has starts empty and up front: its catalog default is
   // a placeholder too (cloudflared's YOUR_CLOUDFLARE_TOKEN_HERE), and filled
@@ -855,6 +888,7 @@
         paths = paths;
         defaultedFrom = {};
         applyDefaultSets();
+        freePorts();
       }
       loadVersions();
     } catch (e: any) {
@@ -961,6 +995,9 @@
                 {#if v.optional !== true}<span class="text-fjord-danger" title="Required">*</span>{:else}<span class="text-xs font-normal text-fjord-fg-dim" data-optional>(optional)</span>{/if}
                 {#if v.type === 'path'}<span class="text-[10px] font-normal uppercase tracking-wide text-fjord-fg-dim border border-fjord-border rounded px-1.5 py-0.5">host path</span>{/if}
               </label>
+              {#if portNotes[v.name]}
+                <div class="text-xs text-fjord-warning">{portNotes[v.name]}</div>
+              {/if}
               {#if v.label}
                 <div class="text-xs text-fjord-fg-dim">{#each linkify(v.label) as seg}{#if seg.url}<a href={seg.url} target="_blank" rel="noopener noreferrer" class="text-fjord-accent hover:underline">{seg.text}</a>{:else}{seg.text}{/if}{/each}</div>
               {/if}
