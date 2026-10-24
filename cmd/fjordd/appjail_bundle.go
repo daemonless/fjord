@@ -414,6 +414,12 @@ func directorEnv(envDefaults, stackID string, resolvedEnv, hostEnv, volPlacehold
 		}
 		if v, ok := resolvedEnv[key]; ok && v != "" {
 			env[key] = v // scalar name-match override
+		} else if ok && placeholderValue(env[key]) {
+			// Left empty in the wizard, and the bundle's value is only a
+			// placeholder: written, it was the setting -- transmission's
+			// password "<PASS>", tailscale's key "tskey-auth-xxxx".
+			delete(env, key)
+			continue
 		}
 		kept = append(kept, key)
 	}
@@ -531,4 +537,14 @@ func mapValue(m *yaml.Node, key string) *yaml.Node {
 		}
 	}
 	return nil
+}
+
+// placeholderValue: an env_defaults value that stands for one the user
+// gives, never a setting itself: "<PASS>", an unexpanded "${RPC_SECRET}",
+// "tskey-auth-xxxx".
+func placeholderValue(v string) bool {
+	v = strings.TrimSpace(v)
+	return (strings.HasPrefix(v, "<") && strings.HasSuffix(v, ">")) ||
+		(strings.HasPrefix(v, "${") && strings.HasSuffix(v, "}")) ||
+		strings.Contains(strings.ToLower(v), "xxxx")
 }
