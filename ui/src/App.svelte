@@ -11,6 +11,7 @@
   import Adopt from './Adopt.svelte';
   import System from './System.svelte';
   import Settings from './Settings.svelte';
+  import { auth, checkSession, SIGNED_IN } from './auth';
   import SetupWizard from './SetupWizard.svelte';
   import Dashboard from './Dashboard.svelte';
   import LogView from './LogView.svelte';
@@ -98,7 +99,7 @@
   let originalMakejail = '';
   let currentView: 'stacks' | 'store' | 'volumes' | 'networks' | 'system' | 'settings' | 'adopt' = 'stacks';
   // Settings sub-tab, mirrored into the URL (#/settings/<tab>) like the views.
-  let settingsTab: 'storage' | 'extensions' | 'catalogs' | 'advanced' = 'storage';
+  let settingsTab: 'storage' | 'extensions' | 'catalogs' | 'advanced' | 'account' = 'storage';
 
   // Draft for the "+" button: a FreeBSD base image that comes Up as-is, so a
   // blank stack is immediately a box you can open a shell in. A podman draft is
@@ -1193,7 +1194,7 @@
     } else if (section === 'settings') {
       currentView = 'settings';
       // 'plugins' is the pre-rename route; keep it working for old links
-      settingsTab = name === 'extensions' || name === 'plugins' ? 'extensions' : name === 'catalogs' || name === 'advanced' ? name : 'storage';
+      settingsTab = name === 'extensions' || name === 'plugins' ? 'extensions' : name === 'catalogs' || name === 'advanced' || name === 'account' ? name : 'storage';
       await selectStack(null);
     } else if (section === 'stacks' && name) {
       currentView = 'stacks';
@@ -1246,9 +1247,31 @@
     await restoreFromHash();
     routeReady = true;
     window.addEventListener('hashchange', restoreFromHash);
+    window.addEventListener(SIGNED_IN, signedInAgain);
   });
 
+  // Signed in again over this page (its session had ended): reload what
+  // failed meanwhile and reopen the live stream.
+  // Pages that load their own data (Settings, System, ...) are made anew;
+  // the stack view's edits live here and the App store keeps an open wizard.
+  let viewEpoch = 0;
+  function signedInAgain() {
+    viewEpoch++;
+    loadStacks();
+    loadEngines();
+    loadNetworks();
+    loadVolumes();
+    loadFleetUpdates();
+    if (!eventSource || eventSource.readyState === EventSource.CLOSED) subscribeEvents();
+  }
+
+  async function signOut() {
+    await fetch('/api/auth/logout', { method: 'POST' }).catch(() => {});
+    location.reload();
+  }
+
   onDestroy(() => {
+    window.removeEventListener(SIGNED_IN, signedInAgain);
     eventSource?.close();
     unwatchTheme?.();
   });
@@ -1483,6 +1506,11 @@
         try {
           applyStackEvent(JSON.parse(e.data));
         } catch {}
+      };
+      // The browser retries a dropped stream by itself, but gives up on an
+      // answer like 401: then the session may have ended.
+      eventSource.onerror = () => {
+        if (eventSource?.readyState === EventSource.CLOSED) checkSession();
       };
     } catch {}
   }
@@ -2172,6 +2200,22 @@
           : 'text-fjord-fg-muted hover:text-fjord-fg'}"><Icon name="settings" size={15} /> Settings</button
       >
     </nav>
+    {#if $auth && $auth !== 'unreachable' && $auth.off}
+      <button
+        on:click={() => {
+          selectStack(null);
+          settingsTab = 'account';
+          currentView = 'settings';
+        }}
+        title="FJORD_AUTH=none: only this host and the proxy in front of it can reach fjord"
+        class="mx-3 mb-2 px-2 py-1.5 rounded-md text-left text-xs text-fjord-warning border border-fjord-warning/40">Sign-in is off</button
+      >
+    {:else if $auth && $auth !== 'unreachable' && $auth.user}
+      <div class="flex items-center gap-2 px-4 pb-1 text-xs text-fjord-fg-dim">
+        <span class="min-w-0 truncate" title="Signed in as {$auth.user}">{$auth.user}</span>
+        <button on:click={signOut} class="ml-auto shrink-0 hover:text-fjord-fg">Sign out</button>
+      </div>
+    {/if}
     <!-- Which fjord this is, where anyone reporting a problem can see it. -->
     {#if daemonVersion}
       <button
@@ -3194,15 +3238,15 @@
       </div>
     {:else if currentView === 'volumes'}
       <div class="p-6 h-full overflow-hidden">
-        <Volumes />
+        {#key viewEpoch}<Volumes />{/key}
       </div>
     {:else if currentView === 'networks'}
       <div class="p-6 h-full overflow-hidden">
-        <Networks />
+        {#key viewEpoch}<Networks />{/key}
       </div>
     {:else if currentView === 'adopt'}
       <div class="p-6 h-full overflow-hidden">
-        <Adopt
+        {#key viewEpoch}<Adopt
           on:back={() => (currentView = 'stacks')}
           on:adopted={async (e) => {
             await loadStacks();
@@ -3214,15 +3258,15 @@
               }
             }
           }}
-        />
+        />{/key}
       </div>
     {:else if currentView === 'system'}
       <div class="p-6 h-full overflow-hidden">
-        <System />
+        {#key viewEpoch}<System />{/key}
       </div>
     {:else if currentView === 'settings'}
       <div class="p-6 h-full overflow-hidden">
-        <Settings tab={settingsTab} on:tab={(e) => (settingsTab = e.detail)} />
+        {#key viewEpoch}<Settings tab={settingsTab} on:tab={(e) => (settingsTab = e.detail)} />{/key}
       </div>
     {:else}
       <!-- Default landing: dashboard overview of all stacks -->

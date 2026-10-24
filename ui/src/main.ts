@@ -1,8 +1,11 @@
 import { mount } from 'svelte'
 import './app.css'
-import App from './App.svelte'
+import Root from './Root.svelte'
+import { guardFetch } from './auth'
 
-const app = mount(App, {
+guardFetch()
+
+const app = mount(Root, {
   target: document.getElementById('app')!,
 })
 
