@@ -200,6 +200,9 @@ func (s *server) handleStackRoutes(w http.ResponseWriter, r *http.Request) {
 		case "delete-preview":
 			s.stackDeletePreview(w, parts[0])
 			return
+		case "login":
+			s.stackLogin(w, r, parts[0])
+			return
 		}
 	}
 	if len(parts) != 2 || r.Method != http.MethodPost {

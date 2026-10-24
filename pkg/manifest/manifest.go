@@ -130,6 +130,8 @@ type Manifest struct {
 	Hostnames map[string]string
 	// Choices are the questions the stack asks; empty for most apps.
 	Choices []Choice
+	// Login is how to sign in to the app, nil when it says nothing.
+	Login *Login
 	// picked are the options ApplyChoices chose, one per choice.
 	picked []*Option
 }
@@ -272,6 +274,7 @@ func Parse(manifestYAML string) (*Manifest, error) {
 		Appjail    *AppjailBundle    `yaml:"appjail"`
 		Networking map[string]string `yaml:"networking"`
 		Hostnames  map[string]string `yaml:"hostnames"`
+		Login      *Login            `yaml:"login"`
 		Choices    []struct {
 			ID      string `yaml:"id"`
 			Kind    string `yaml:"kind"`
@@ -344,7 +347,16 @@ func Parse(manifestYAML string) (*Manifest, error) {
 
 	return &Manifest{compose: buf.String(), appjail: xf.Appjail, Variables: vars,
 		WebPort: xf.Info.WebPort, WebHTTPS: xf.Info.WebHTTPS,
-		Networking: xf.Networking, Hostnames: xf.Hostnames, Choices: choices}, nil
+		Networking: xf.Networking, Hostnames: xf.Hostnames, Choices: choices, Login: xf.Login}, nil
+}
+
+// Login is x-fjord.login. User and Password are each a ${VAR}, filled from
+// the stack's .env (a password fjord made up at install), or a literal: the
+// app's own default login.
+type Login struct {
+	User     string `yaml:"user"`
+	Password string `yaml:"password"`
+	Note     string `yaml:"note"`
 }
 
 // stripContainerNames removes container_name from every service mapping.

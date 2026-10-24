@@ -20,6 +20,7 @@
   import type { StackRestart } from './restartPolicy';
   import DirPicker from './DirPicker.svelte';
   import Spinner from './Spinner.svelte';
+  import LoginButton from './LoginButton.svelte';
   import Icon from './Icon.svelte';
   import ServiceResources from './ServiceResources.svelte';
   import { splitPlan } from './planSeed';
@@ -2268,6 +2269,7 @@
                   ? ''
                   : 'opacity-40 pointer-events-none'}"><Icon name="external" size={13} /> Open</a
               >
+              <LoginButton stack={selectedStack.name} />
             {/if}
             {#if openUrl && links.length > 1}
               <details
