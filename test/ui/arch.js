@@ -2,6 +2,7 @@
 // and hold the button; the API refuses the retag; and a compose edited to such
 // a tag is pulled, judged and not applied -- the running container stays.
 const { chromium } = require('playwright-core');
+const { signedIn } = require('./session');
 const BASE = 'http://127.0.0.1:3567';
 const NAME = 't-arch';
 const BAD = 'latest-aarch64'; // an arm64-only manifest; netlab is amd64
@@ -10,7 +11,7 @@ const note = (id, ok, msg) => console.log(`${ok ? 'PASS' : 'FAIL'} ${id}: ${msg}
 const detail = async (page) => (await page.request.get(BASE + '/api/stacks/' + NAME)).json();
 (async () => {
   const b = await chromium.launch({ args: ['--no-sandbox'] });
-  const page = await (await b.newContext({ viewport: { width: 1400, height: 1100 } })).newPage();
+  const page = await (await b.newContext(signedIn({ viewport: { width: 1400, height: 1100 } }))).newPage();
   page.setDefaultTimeout(20000);
   try {
     // 1. The wizard.

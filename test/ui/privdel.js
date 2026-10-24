@@ -1,11 +1,12 @@
 // A stack's private network goes when the stack is deleted, through the pages.
 const { chromium } = require('playwright-core');
+const { signedIn } = require('./session');
 const BASE = 'http://127.0.0.1:3567';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const note = (id, ok, msg) => console.log(`${ok ? 'PASS' : 'FAIL'} ${id}: ${msg}`);
 (async () => {
   const b = await chromium.launch({ args: ['--no-sandbox'] });
-  const page = await (await b.newContext({ viewport: { width: 1400, height: 1100 } })).newPage();
+  const page = await (await b.newContext(signedIn({ viewport: { width: 1400, height: 1100 } }))).newPage();
   page.setDefaultTimeout(20000);
   const nets = async () => (await (await page.request.get(BASE + '/api/networks')).json()).map((n) => n.name);
   try {

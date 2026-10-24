@@ -2,6 +2,7 @@
 // host as appjail's default, and an install with nothing else changed lands
 // there. appjail-host.sh checks the jail and the app from off-host.
 const { chromium } = require('playwright-core');
+const { signedIn } = require('./session');
 const BASE = 'http://127.0.0.1:3567';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const note = (id, ok, msg) => console.log(`${ok ? 'PASS' : 'FAIL'} ${id}: ${msg}`);
@@ -39,7 +40,7 @@ async function setType(page, type) {
 }
 (async () => {
   const b = await chromium.launch({ args: ['--no-sandbox'] });
-  const page = await (await b.newContext({ viewport: { width: 1400, height: 1100 } })).newPage();
+  const page = await (await b.newContext(signedIn({ viewport: { width: 1400, height: 1100 } }))).newPage();
   page.setDefaultTimeout(30000);
   const errs = [];
   page.on('pageerror', (e) => errs.push(e.message));

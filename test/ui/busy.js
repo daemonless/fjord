@@ -1,12 +1,13 @@
 // While an install pulls, the stack reads as busy, not as a problem, and a
 // second up is refused -- through the pages.
 const { chromium } = require('playwright-core');
+const { signedIn } = require('./session');
 const BASE = 'http://127.0.0.1:3567';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const note = (id, ok, msg) => console.log(`${ok ? 'PASS' : 'FAIL'} ${id}: ${msg}`);
 (async () => {
   const b = await chromium.launch({ args: ['--no-sandbox'] });
-  const ctx = await b.newContext({ viewport: { width: 1400, height: 1000 } });
+  const ctx = await b.newContext(signedIn({ viewport: { width: 1400, height: 1000 } }));
   const page = await ctx.newPage();
   page.setDefaultTimeout(20000);
   try {

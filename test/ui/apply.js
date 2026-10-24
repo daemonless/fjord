@@ -3,6 +3,7 @@
 // STEP=install: install t-apply (WEB_PORT 3110). STEP=apply: change the port
 // to 3111 on the .env tab, Save, reload, Apply Changes, check the outcome.
 const { chromium } = require('playwright-core');
+const { signedIn } = require('./session');
 const BASE = 'http://127.0.0.1:3567';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const note = (id, ok, msg) => console.log(`${ok ? 'PASS' : 'FAIL'} ${id}: ${msg}`);
@@ -10,7 +11,7 @@ const detail = async (page) => (await page.request.get(BASE + '/api/stacks/t-app
 const banner = (page) => page.getByText(/still use the old configuration/);
 (async () => {
   const b = await chromium.launch({ args: ['--no-sandbox'] });
-  const page = await (await b.newContext({ viewport: { width: 1400, height: 1100 } })).newPage();
+  const page = await (await b.newContext(signedIn({ viewport: { width: 1400, height: 1100 } }))).newPage();
   page.setDefaultTimeout(20000);
   try {
     if (process.env.STEP === 'install') {

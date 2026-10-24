@@ -6,7 +6,7 @@ C=t-restart_openspeedtest_1
 # is mounted on /dev/fd (conmon closes the port through it): without it the
 # crash checks are a SKIP naming the host check, with it they count.
 NO_FDESC='fdescfs is not mounted on /dev/fd, so conmon cannot free the port (host check "fdescfs")'
-fdesc_ok() { on "curl -s 127.0.0.1:3567/api/setup" | grep -q '"id":"fdescfs"[^}]*"status":"ok"'; }
+fdesc_ok() { on "curl -s -b $FJORD_COOKIE 127.0.0.1:3567/api/setup" | grep -q '"id":"fdescfs"[^}]*"status":"ok"'; }
 
 # crash kills the container's process; prints its state and restart count
 # after 15 s.

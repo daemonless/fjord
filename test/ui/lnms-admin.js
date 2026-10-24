@@ -2,6 +2,7 @@
 // install LibreNMS through the wizard with ADMIN_PASSWORD=admin, then log in
 // with it.
 const { chromium } = require('playwright-core');
+const { signedIn } = require('./session');
 const BASE = 'http://127.0.0.1:3567';
 const NAME = 't-lnms';
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin';
@@ -10,7 +11,7 @@ const note = (id, ok, msg) => console.log(`${ok ? 'PASS' : 'FAIL'} ${id}: ${msg}
 const shot = (page, n) => page.screenshot({ path: `/out/${n}.png`, fullPage: true }).catch(() => {});
 (async () => {
   const b = await chromium.launch({ args: ['--no-sandbox'] });
-  const page = await (await b.newContext({ viewport: { width: 1400, height: 1100 } })).newPage();
+  const page = await (await b.newContext(signedIn({ viewport: { width: 1400, height: 1100 } }))).newPage();
   page.setDefaultTimeout(30000);
   try {
     await page.goto(BASE + '/#/store', { waitUntil: 'networkidle' });
@@ -44,7 +45,7 @@ const shot = (page, n) => page.screenshot({ path: `/out/${n}.png`, fullPage: tru
     const open = await page.getByRole('link', { name: /Open/ }).first().getAttribute('href').catch(() => '');
     note('Open link', !!open, open || 'none');
     const url = open.replace(/\/$/, '') + '/login';
-    const app = await (await b.newContext()).newPage();
+    const app = await (await b.newContext(signedIn())).newPage();
     let loaded = false;
     for (let i = 0; i < 40 && !loaded; i++) {
       try {

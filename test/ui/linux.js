@@ -3,6 +3,7 @@
 // folder fjord made and on one it did not, and a macvlan LAN network made on
 // the Networks page. PARENT names the interface for the macvlan network.
 const { chromium } = require('playwright-core');
+const { signedIn } = require('./session');
 const BASE = 'http://127.0.0.1:3567';
 const PARENT = process.env.PARENT || '';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -98,7 +99,7 @@ async function macvlan(page) {
 
 (async () => {
   const b = await chromium.launch({ args: ['--no-sandbox'] });
-  const page = await (await b.newContext({ viewport: { width: 1400, height: 1100 } })).newPage();
+  const page = await (await b.newContext(signedIn({ viewport: { width: 1400, height: 1100 } }))).newPage();
   page.setDefaultTimeout(30000);
   for (const step of [setupAndSystem, installFromStore, selinux, macvlan]) {
     try { await step(page); } catch (e) {

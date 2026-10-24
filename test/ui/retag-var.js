@@ -2,6 +2,7 @@
 // the variable in .env and leaves the compose line as written; the container
 // comes back on the new tag. Through the pages, on a stack made for it.
 const { chromium } = require('playwright-core');
+const { signedIn } = require('./session');
 const BASE = 'http://127.0.0.1:3567';
 const NAME = 't-var';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -9,7 +10,7 @@ const note = (id, ok, msg) => console.log(`${ok ? 'PASS' : 'FAIL'} ${id}: ${msg}
 const detail = async (page) => (await page.request.get(BASE + '/api/stacks/' + NAME)).json();
 (async () => {
   const b = await chromium.launch({ args: ['--no-sandbox'] });
-  const page = await (await b.newContext({ viewport: { width: 1400, height: 1000 } })).newPage();
+  const page = await (await b.newContext(signedIn({ viewport: { width: 1400, height: 1000 } }))).newPage();
   page.setDefaultTimeout(30000);
   try {
     // The stack, the way the editor saves one: a tag that is a variable.

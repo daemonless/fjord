@@ -4,7 +4,7 @@
 # never redirects a host to itself); then both stacks go, with their data.
 after() {
   for s in t-def-podman t-def-appjail; do
-    url=$(curl -s --max-time 20 "$FJORD/api/stacks/$s" | python3 -c '
+    url=$(curl -s --max-time 20 -b "$FJORD_COOKIE" "$FJORD/api/stacks/$s" | python3 -c '
 import json,sys
 d=json.load(sys.stdin)
 env=dict(l.split("=",1) for l in d.get("env","").splitlines() if "=" in l)

@@ -4,13 +4,14 @@
 // they are filled, and an install on PostgreSQL runs with the database it
 // brought, the answer recorded on the stack.
 const { chromium } = require('playwright-core');
+const { signedIn } = require('./session');
 const BASE = 'http://127.0.0.1:3567';
 const NAME = 't-choice';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const note = (id, ok, msg) => console.log(`${ok ? 'PASS' : 'FAIL'} ${id}: ${msg}`);
 (async () => {
   const b = await chromium.launch({ args: ['--no-sandbox'] });
-  const page = await (await b.newContext({ viewport: { width: 1300, height: 1000 } })).newPage();
+  const page = await (await b.newContext(signedIn({ viewport: { width: 1300, height: 1000 } }))).newPage();
   page.setDefaultTimeout(30000);
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
