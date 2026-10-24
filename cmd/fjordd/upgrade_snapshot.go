@@ -21,8 +21,8 @@ const versionFile = ".version"
 // snapshotSkip are root entries never copied: the catalog is a cache fetched
 // again on the next refresh, backups would copy itself, and containers is
 // the default app-data folder -- the apps' own data, gigabytes, and not
-// fjord's to snapshot.
-var snapshotSkip = map[string]bool{"catalog": true, "backups": true, "containers": true}
+// fjord's to snapshot. A setup code restored later would reopen setup.
+var snapshotSkip = map[string]bool{"catalog": true, "backups": true, "containers": true, "setup-code": true, "auth.json.lock": true}
 
 // appDataInRoot is every app-data location from settings.json that sits
 // directly in the root, by entry name: those hold app data too. Read raw:
