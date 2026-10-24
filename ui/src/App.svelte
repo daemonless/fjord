@@ -52,7 +52,7 @@
   };
   type StackStatus = { state: string; containers: ContainerStatus[]; staleSince?: string };
   type StackState = { group?: string; desired_state?: string; engine?: string; order?: number; origin?: { type?: string; app_id?: string }; choices?: Record<string, string>; pending_services?: string[]; last_failure?: { action: string; at: string; message: string } };
-  type Stack = { name: string; displayName?: string; icon?: string; dir: string; compose: string; env: string; director?: string; makejail?: string; engine?: string; status?: StackStatus; state?: StackState; services?: any[]; composeHash?: string; busy?: string; linkHost?: string; restart?: StackRestart };
+  type Stack = { name: string; displayName?: string; icon?: string; dir: string; compose: string; env: string; director?: string; makejail?: string; engine?: string; status?: StackStatus; state?: StackState; services?: any[]; composeHash?: string; busy?: string; linkHost?: string; restart?: StackRestart; listOnly?: boolean };
   // What the UI shows for a stack: its label, falling back to the id.
   const label = (s: { name: string; displayName?: string } | null | undefined) => s?.displayName || s?.name || '';
 
@@ -888,12 +888,18 @@
       originalMakejail = '';
       return;
     }
-    // The list endpoint omits compose/env content; fetch the full stack detail
-    // so the editor actually shows the compose.yaml + .env.
+    // The list's .env has its secrets blanked: the editor needs the stack's
+    // own answer. Without it (fjord did not answer, the session ended) the
+    // list's copy is shown but never saved -- it would blank the passwords.
+    let full = false;
     try {
       const res = await fetch(`/api/stacks/${stack.name}`);
-      if (res.ok) stack = await res.json();
+      if (res.ok) {
+        stack = await res.json();
+        full = true;
+      }
     } catch {}
+    if (!full) stack = { ...stack!, listOnly: true };
     selectedStack = stack;
     currentView = 'stacks'; // selecting a stack always means the Stacks section
     showActionOutput(stack!.name);
@@ -1263,6 +1269,7 @@
     loadVolumes();
     loadFleetUpdates();
     if (!eventSource || eventSource.readyState === EventSource.CLOSED) subscribeEvents();
+    if (selectedStack?.listOnly) selectStack(selectedStack);
   }
 
   async function signOut() {
@@ -1298,6 +1305,10 @@
   }
   async function save() {
     if (!selectedStack) return;
+    if (selectedStack.listOnly) {
+      toast("This stack's files did not load, so there is nothing safe to save. Open it again.", { kind: 'error' });
+      return;
+    }
     saving = true;
     try {
       const body: Record<string, unknown> = {

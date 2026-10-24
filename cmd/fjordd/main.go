@@ -375,7 +375,18 @@ func main() {
 	fmt.Printf("Web UI listening on %s\n", addr)
 	hostname, _ := os.Hostname()
 	resolv, _ := os.ReadFile("/etc/resolv.conf")
-	log.Fatal(http.ListenAndServe(addr, guardHost(newHostAllow(hostname, string(resolv), *fAllowedHosts), gate.wrap(http.DefaultServeMux))))
+	httpd := &http.Server{
+		Addr:    addr,
+		Handler: guardHost(newHostAllow(hostname, string(resolv), *fAllowedHosts), gate.wrap(http.DefaultServeMux)),
+		// A client that opens connections and never finishes its headers
+		// holds them forever otherwise. No read or write timeout: the event
+		// stream, logs, action output and the shell stay open for as long
+		// as they are watched (a read deadline would survive into the
+		// shell's hijacked connection).
+		ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout:       2 * time.Minute,
+	}
+	log.Fatal(httpd.ListenAndServe())
 }
 
 // logKept logs what start-on-boot pinned, and what it would not pin.

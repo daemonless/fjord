@@ -115,6 +115,9 @@ func (s *server) handleStacksList(w http.ResponseWriter, r *http.Request) {
 			nameIfaces(atts)
 		}
 		svcs := stackServices(st, status)
+		// The list is every stack at once: it carries what links and tags
+		// need from .env, not the passwords (the stack's own page has them).
+		st.Env = redactSecrets(st.Env)
 		row := stackWithStatus{Stack: st, Status: status, Networks: atts, Busy: busyWith(st.Name),
 			NetworkMode: composepkg.NetworkMode(st.Compose),
 			Services:    svcs,
