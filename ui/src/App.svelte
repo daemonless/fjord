@@ -517,6 +517,22 @@
     if (varsPanelOpen) varsFocus = name;
     else varPop = { name, x: rect.left, y: rect.bottom + 4, value: stackVars[name] ?? '' };
   }
+  // .env values the compose never names reach no container: hand them to
+  // the app's (first) service, an edit held until Save.
+  async function passUnusedEnv() {
+    if (!selectedStack) return;
+    try {
+      const res = await fetch('/api/compose/pass-env', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ compose: selectedStack.compose ?? '', env: selectedStack.env ?? '', names: unusedEnv }),
+      });
+      if (!res.ok) throw new Error((await res.text()).trim() || `HTTP ${res.status}`);
+      adopt(await res.json());
+    } catch (e: any) {
+      toast(e.message || 'Could not change the compose', { kind: 'error' });
+    }
+  }
   function addUnsetVars() {
     if (!selectedStack) return;
     const env = (selectedStack.env ?? '').replace(/\s*$/, '');
@@ -2907,11 +2923,22 @@
             {:else if activeTab === 'env'}
               <div class="h-full flex flex-col">
                 {#if unusedEnv.length}
-                  <div class="shrink-0 px-4 py-2 text-xs bg-fjord-card border-b border-fjord-border text-fjord-fg-secondary">
-                    <span class="font-mono text-fjord-fg-body">{unusedEnv.join(', ')}</span>
-                    {unusedEnv.length === 1 ? 'is' : 'are'} not used by this stack{#if (selectedStack as any).ownAddress && unusedEnv.every((n) => /PORT$/.test(n))}:
-                      it has its own address on {(selectedStack as any).network}, so nothing is published on this host's
-                      ports, and the app answers on its own port there{:else}, so changing {unusedEnv.length === 1 ? 'it' : 'them'} has no effect{/if}.
+                  {@const portsOnly = (selectedStack as any).ownAddress && unusedEnv.every((n) => /PORT$/.test(n))}
+                  <div class="shrink-0 flex items-center gap-3 px-4 py-2 text-xs bg-fjord-card border-b border-fjord-border text-fjord-fg-secondary">
+                    <span class="flex-1">
+                      <span class="font-mono text-fjord-fg-body">{unusedEnv.join(', ')}</span>
+                      {unusedEnv.length === 1 ? 'is' : 'are'} not used by this stack{#if portsOnly}:
+                        it has its own address on {(selectedStack as any).network}, so nothing is published on this host's
+                        ports, and the app answers on its own port there{:else}, so changing {unusedEnv.length === 1 ? 'it' : 'them'} has no effect{/if}.
+                    </span>
+                    {#if !portsOnly && !selectedStack.director}
+                      <button
+                        on:click={passUnusedEnv}
+                        title="Add {unusedEnv.map((n) => `${n}=\${${n}}`).join(', ')} to the app's environment in the compose"
+                        class="shrink-0 px-2.5 py-1 rounded-lg font-medium bg-fjord-border hover:bg-fjord-accent hover:text-white transition-colors"
+                        >Pass {unusedEnv.length === 1 ? 'it' : 'them'} to the app</button
+                      >
+                    {/if}
                   </div>
                 {/if}
                 {#if unsetVars.length}

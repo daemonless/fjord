@@ -122,3 +122,33 @@ func (s *server) handleMountOptions(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{"offered": out})
 }
+
+// handleComposePassEnv backs the .env tab's "Pass to the app": the compose
+// the client holds, with NAME=${NAME} added to a service's environment for
+// each name. An edit like a mount change, held until Save.
+func (s *server) handleComposePassEnv(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		Compose string   `json:"compose"`
+		Env     string   `json:"env"`
+		Service string   `json:"service"` // "" = the first
+		Names   []string `json:"names"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid JSON payload", 400)
+		return
+	}
+	if req.Service == "" {
+		req.Service = composepkg.FirstService
+	}
+	out, err := composepkg.PassEnv(req.Compose, req.Service, req.Names)
+	if err != nil {
+		http.Error(w, err.Error(), 400)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(s.transformed(out, req.Env))
+}
