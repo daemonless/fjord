@@ -22,6 +22,10 @@
   import DirPicker from './DirPicker.svelte';
   import Spinner from './Spinner.svelte';
   import LoginButton from './LoginButton.svelte';
+  import OpenMenu from './OpenMenu.svelte';
+  import { names, openBy, deviceTrust, loadNames, openUrl as nameOrAddress, opensByName, linkUrl, addNames } from './names';
+  import TrustMark from './TrustMark.svelte';
+  import NamesPrompt from './NamesPrompt.svelte';
   import Icon from './Icon.svelte';
   import ServiceResources from './ServiceResources.svelte';
   import { splitPlan } from './planSeed';
@@ -219,6 +223,17 @@
     } catch {}
   };
   let sidebarWidth = loadSize('fjord.sidebarW', 288); // w-72
+  // Phones: the sidebar is a drawer behind a menu button, not a column
+  // that leaves the page a sliver. narrow follows the viewport.
+  let narrow = false;
+  let navOpen = false;
+  if (typeof window !== 'undefined' && window.matchMedia) {
+    const mq = window.matchMedia('(max-width: 767px)');
+    narrow = mq.matches;
+    mq.addEventListener('change', (e) => { narrow = e.matches; if (!narrow) navOpen = false; });
+  }
+  // Picking anything in the drawer closes it.
+  $: if (narrow && (selectedStack || currentView)) navOpen = false;
   let drawerHeight = loadSize('fjord.drawerH', 256); // h-64
   function setSidebar(w: number) {
     sidebarWidth = clamp(w, 200, 640);
@@ -464,11 +479,15 @@
   // else the host you're browsing fjord on, plus its primary published web
   // port. Empty when the stack publishes nothing web-ish.
 
-  $: openUrl = appUrl(selectedStack);
+  $: openUrl = nameOrAddress(selectedStack, $names, $openBy, $deviceTrust);
+  $: openByName = opensByName(selectedStack, $names, $openBy);
   // A stack of several apps opens each at its own address: Open is the main
   // one, the menu beside it the rest.
+  // Each by its name when it has one and this browser opens by name.
   $: links = selectedStack
-    ? serviceLinks(selectedStack.compose ?? '', parseEnv(selectedStack.env ?? ''), selectedStack.services ?? [], location.hostname)
+    ? serviceLinks(selectedStack.compose ?? '', parseEnv(selectedStack.env ?? ''), selectedStack.services ?? [], location.hostname).map(
+        (l) => ({ ...l, url: linkUrl($names, `${selectedStack!.name}/${l.service}`, l.url, $openBy, $deviceTrust) }),
+      )
     : [];
   let linksOpen = false;
   $: linkIcon = (service: string) =>
@@ -1243,6 +1262,7 @@
       .then((d) => { if (d?.hostname) document.title = `fjord - ${d.hostname}`; })
       .catch(() => {});
     await loadStacks();
+    loadNames();
     loadEngines();
     loadNetworks();
     loadVolumes();
@@ -1456,7 +1476,8 @@
       if (!res.ok) {
         const why = (await res.text()).trim() || res.statusText;
         execStatus[name] = 'error';
-        execMessage[name] = firstLine(why) || `HTTP ${res.status}`;
+        // "pre-flight failed:" alone says nothing; the reason is the next line.
+        execMessage[name] = why.split('\n').map((l) => l.trim()).filter(Boolean).slice(0, 2).join(' ').slice(0, 240) || `HTTP ${res.status}`;
         logs[name] += `[ERROR]: ${why}\n`;
         return;
       }
@@ -1716,6 +1737,18 @@
   ) as 'idle' | 'running' | 'error';
   // Down to the stay-up check: the actions are back, and say what using one does.
   $: watchNote = selectedStack && execStatus[selectedStack.name] === 'watching' ? 'Checking it stays up — any action ends the check' : '';
+  // One sentence about the stack, under the actions: what fjord is doing,
+  // else what a container reports (named when the stack has several), else
+  // the missing address, else the engine's lag. In the header's chip row
+  // these stretched it, moved Open about and got cut to "the app keeps crash…".
+  $: containerNote = (() => {
+    const cs = selectedStack?.status?.containers || [];
+    const c = cs.find((x) => x.detail);
+    if (!c) return '';
+    return cs.length > 1 && (c.service || c.name) ? `${c.service || c.name}: ${c.detail}` : c.detail || '';
+  })();
+  $: staleText = selectedStack ? staleNote(selectedStack.status, selectedStack.state?.engine || selectedStack.engine) : '';
+  $: stackNote = busyReason || watchNote || containerNote || noAddress || staleText;
   // Why the actions are greyed, in words: what fjordd is doing to the stack,
   // or what this page started. Grey alone read as broken.
   $: busyReason = !selectedStack
@@ -1835,6 +1868,8 @@
       location.hash = '#/stacks';
       await loadStacks();
       toast(`Deleted ${gone}`, { kind: 'success' });
+      // The daemon took its name away too, or it was the proxy itself.
+      setTimeout(loadNames, 1500);
     } catch (e: any) {
       deleting = '';
       toast(`Failed to delete ${name}: ${e.message}`, { kind: 'error' });
@@ -1880,6 +1915,8 @@
     /** service -> built-in mode (host/bridge/none). */
     networkModes?: Record<string, string>;
     choices?: Record<string, string>;
+    /** The name to give it (radarr.apps.lan), once it runs. */
+    givenName?: string;
     accepted?: () => void;
     refused?: (msg: string) => void;
   }>) {
@@ -1969,6 +2006,18 @@
       // Store to queue the next one, typically -- back to this page. The
       // stack is saved and its status is live in the list either way.
       if (found && stillWatching(key)) selectStack(found);
+      // A name once it runs, if the wizard asked for one; and a provider
+      // just installed shows Finish setup on its row.
+      const p = await loadNames();
+      if (found && e.detail.givenName && p.ready) {
+        try {
+          const [r] = await addNames([{ stack: found, label: e.detail.givenName }]);
+          if (r?.host) toast(`${name} is at ${r.host.name}.${p.domain}`, { kind: 'success' });
+          else toast(`${name} has no name yet: ${r?.error || `${p.provider} refused it`}`, { kind: 'error' });
+        } catch (err: any) {
+          toast(`${name} has no name yet: ${err?.message || err}`, { kind: 'error' });
+        }
+      }
     } catch (err: any) {
       // Before the hand-off there is no stack and no terminal to write to;
       // the wizard is still up, so the failure belongs in it.
@@ -1991,8 +2040,14 @@
   <SetupWizard on:done={setupDone} />
 {:else}
 <div class="h-screen flex text-fjord-fg-body overflow-hidden">
-  <!-- Sidebar: stack list (Dockge-style) -->
-  <aside class="shrink-0 bg-fjord-bg flex flex-col" style="width:{sidebarWidth}px">
+  {#if narrow && navOpen}
+    <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+    <div class="fixed inset-0 z-30 bg-black/50" on:click={() => (navOpen = false)}></div>
+  {/if}
+  <!-- Sidebar: stack list (Dockge-style); a drawer on phones -->
+  <aside
+    class="shrink-0 bg-fjord-bg flex flex-col {narrow ? (navOpen ? 'fixed inset-y-0 left-0 z-40 w-[85vw] max-w-xs shadow-2xl border-r border-fjord-border' : 'hidden') : ''}"
+    style={narrow ? '' : `width:${sidebarWidth}px`}>
     <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
     <div
       class="flex items-center gap-2.5 text-xl font-bold tracking-widest text-fjord-fg cursor-pointer px-5 py-4 border-b border-fjord-border"
@@ -2241,6 +2296,7 @@
   </aside>
 
   <!-- sidebar↔main sash: visible divider, widens + highlights on hover -->
+  {#if !narrow}
   <div
     role="slider"
     aria-orientation="vertical"
@@ -2257,8 +2313,22 @@
   >
     <div class="absolute inset-y-0 -left-1 -right-1 group-hover:bg-fjord-accent/60 transition-colors"></div>
   </div>
+  {/if}
 
-  <main class="relative flex-1 min-w-0 bg-fjord-bg/95 flex flex-col h-screen overflow-hidden pr-8">
+  <main class="relative flex-1 min-w-0 bg-fjord-bg/95 flex flex-col h-screen overflow-hidden {narrow ? '' : 'pr-8'}">
+    {#if narrow}
+      <!-- Phone bar: the menu opens the drawer; the brand goes home. -->
+      <div class="flex items-center gap-2 px-2 py-1.5 border-b border-fjord-border bg-fjord-bg shrink-0">
+        <button on:click={() => (navOpen = true)} aria-label="Menu" class="w-10 h-10 grid place-items-center rounded-md text-fjord-fg-secondary hover:text-fjord-fg hover:bg-fjord-border">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+        </button>
+        <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+        <div class="flex items-center gap-2 text-base font-bold tracking-widest text-fjord-fg cursor-pointer" on:click={() => { selectStack(null); currentView = 'stacks'; }}>
+          <Icon name="mountain" size={18} class="text-fjord-accent" />
+          <span><span class="text-fjord-accent">F</span>JORD</span>
+        </div>
+      </div>
+    {/if}
     <!-- Theme toggle: floats in main's right gutter so it stays top-right in
          every view without colliding with each view's own action row. -->
     <button
@@ -2271,8 +2341,8 @@
     {#if selectedStack}
       <div class="flex flex-col h-full overflow-hidden p-6">
         <!-- Header -->
-        <header class="flex justify-between items-center mb-4 shrink-0">
-          <div class="flex items-center gap-3 min-w-0">
+        <header class="flex justify-between items-center mb-4 shrink-0 flex-wrap gap-y-2">
+          <div class="flex items-center gap-3 min-w-0 flex-wrap gap-y-1">
             {#if editingName}
               <!-- svelte-ignore a11y-autofocus -->
               <input
@@ -2303,29 +2373,19 @@
                 ? BUSY_LABEL[selectedStack.busy] ?? 'Busy…'
                 : statusLabel(selectedStack.status)}</span
             >
-            {#if staleNote(selectedStack.status, selectedStack.state?.engine || selectedStack.engine)}
-              <span
-                class="shrink-0 text-xs text-fjord-fg-dim"
-                title="The engine did not answer in time -- usually a pull writing an image to disk. The state updates as soon as it answers."
-                >{staleNote(selectedStack.status, selectedStack.state?.engine || selectedStack.engine)}</span
-              >
-            {/if}
-            {#each (selectedStack.status?.containers || []).filter((c) => c.detail) as c}
-              <!-- Gives way first (the name last): shrink-0 kept a long one whole and the
-                   row ran under Revert and Save. The whole line is on hover, and on the
-                   service's card. -->
-              <span class="min-w-0 max-w-sm shrink-[20] text-xs text-fjord-warning truncate" title="{c.name}: {c.detail}">{c.detail}</span>
-            {/each}
+            <!-- Chips only up here. What the engine or a container has to say
+                 is the status line under the actions (stackNote). -->
             {#if selectedStack.state?.engine}
               <span class="shrink-0 flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-fjord-bg border border-fjord-border text-fjord-fg-muted" title="Runtime engine"
                 ><EngineMark engine={selectedStack.state.engine} size={12} strokeWidth={2.25} />{selectedStack.state.engine}</span
               >
             {/if}
             {#if noAddress}
+              <!-- Open stays where it is, greyed: the reason is the status line. -->
               <span
-                class="shrink-0 flex items-center gap-1 text-sm text-fjord-fg-muted"
-                title="A stack on its own IP publishes nothing on the host, so there is no link to open until the network gives it an address."
-                ><Icon name="external" size={13} /> {noAddress}</span
+                class="shrink-0 flex items-center gap-1 text-sm font-medium text-fjord-accent opacity-40"
+                title="A stack on its own IP publishes nothing on the host, so there is no link to open until the network gives it an address. {noAddress}"
+                ><Icon name="external" size={13} /> Open</span
               >
             {/if}
             {#if openUrl}
@@ -2334,12 +2394,18 @@
                 target="_blank"
                 rel="noreferrer"
                 title="Open {openUrl}"
-                class="shrink-0 flex items-center gap-1 text-sm font-medium text-fjord-accent hover:text-fjord-accent-hover hover:underline {statusLabel(
+                class="min-w-0 flex items-center gap-1 text-sm font-medium text-fjord-accent hover:text-fjord-accent-hover hover:underline {statusLabel(
                   selectedStack.status,
                 ) === 'running'
                   ? ''
-                  : 'opacity-40 pointer-events-none'}"><Icon name="external" size={13} /> Open</a
+                  : 'opacity-40 pointer-events-none'}"
+                ><Icon name="external" size={13} /> Open
+                <!-- where it goes, as the dashboard shows it: the name once the
+                     app has one, so the name is in sight, not only in the ▾ -->
+                <span class="min-w-0 max-w-64 truncate font-mono font-normal text-fjord-fg-secondary">{openUrl.replace(/^https?:\/\//, '').replace(/[#?].*$/, '').replace(/\/$/, '')}</span></a
               >
+              {#if openByName && statusLabel(selectedStack.status) === 'running'}<TrustMark {stacks} size={13} />{/if}
+              <OpenMenu stack={selectedStack} disabled={statusLabel(selectedStack.status) !== 'running'} />
               <LoginButton stack={selectedStack.name} />
             {/if}
             {#if openUrl && links.length > 1}
@@ -2712,9 +2778,14 @@
           <div
             class="flex items-center gap-3 mb-4 shrink-0 px-4 py-2.5 rounded-lg bg-fjord-warning/10 border border-fjord-warning/25 text-sm text-fjord-fg-body"
           >
-            <span class="flex-1"
-              >The running services still use the old configuration — apply the saved changes to recreate them.</span
-            >
+            <span class="flex-1">
+              {#if execStatus[selectedStack.name] === 'error' && execMessage[selectedStack.name]}
+                <span class="text-fjord-danger font-medium">Couldn't apply:</span> {execMessage[selectedStack.name]}
+                <span class="block text-xs text-fjord-fg-dim mt-0.5">The running services still use the old configuration. The Output below has the whole message.</span>
+              {:else}
+                The running services still use the old configuration — apply the saved changes to recreate them.
+              {/if}
+            </span>
             <button
               on:click={() => { needsApply[selectedStack!.name] = false; applyDismissed[selectedStack!.name] = true; }}
               title="Keep the running services as they are; the saved changes apply the next time the stack starts"
@@ -2726,7 +2797,7 @@
               disabled={busyNow}
               title={busyReason || undefined}
               class="shrink-0 px-3 py-1.5 rounded-lg text-sm font-medium bg-fjord-warning/15 text-fjord-warning border border-fjord-warning/40 hover:bg-fjord-warning/25 transition-colors disabled:opacity-40"
-              >Apply Changes</button
+              >{execStatus[selectedStack.name] === 'error' ? 'Try again' : 'Apply Changes'}</button
             >
           </div>
         {/if}
@@ -2797,8 +2868,13 @@
               ><Icon name="pin" size={12} /> Pinned</span
             >
           {/if}
-          {#if busyReason || watchNote}
-            <span class="text-xs text-fjord-fg-dim">{busyReason || watchNote}</span>
+          {#if stackNote}
+            <span
+              class="min-w-0 truncate text-xs {stackNote === containerNote ? 'text-fjord-warning' : 'text-fjord-fg-dim'}"
+              title={stackNote === staleText
+                ? 'The engine did not answer in time -- usually a pull writing an image to disk. The state updates as soon as it answers.'
+                : stackNote}>{stackNote}</span
+            >
           {/if}
           <div class="flex-1"></div>
           <div class="relative">
@@ -2865,6 +2941,8 @@
           </div>
         </div>
         {/if}
+
+        <NamesPrompt stack={selectedStack} {stacks} />
 
         <!-- Editor + tabs -->
         <div class="flex-1 flex flex-col bg-fjord-card border border-fjord-border rounded-xl shadow-xl overflow-hidden min-h-0">

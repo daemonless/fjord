@@ -132,6 +132,10 @@ type Manifest struct {
 	Choices []Choice
 	// Login is how to sign in to the app, nil when it says nothing.
 	Login *Login
+	// Names is set when the app gives other apps names (x-fjord.provides
+	// .names): fjord pairs with it at install and creates names through
+	// its API.
+	Names *NamesProvider
 	// picked are the options ApplyChoices chose, one per choice.
 	picked []*Option
 }
@@ -275,7 +279,10 @@ func Parse(manifestYAML string) (*Manifest, error) {
 		Networking map[string]string `yaml:"networking"`
 		Hostnames  map[string]string `yaml:"hostnames"`
 		Login      *Login            `yaml:"login"`
-		Choices    []struct {
+		Provides   *struct {
+			Names *NamesProvider `yaml:"names"`
+		} `yaml:"provides"`
+		Choices []struct {
 			ID      string `yaml:"id"`
 			Kind    string `yaml:"kind"`
 			Label   string `yaml:"label"`
@@ -345,9 +352,14 @@ func Parse(manifestYAML string) (*Manifest, error) {
 		choices = append(choices, ch)
 	}
 
-	return &Manifest{compose: buf.String(), appjail: xf.Appjail, Variables: vars,
+	m := &Manifest{compose: buf.String(), appjail: xf.Appjail, Variables: vars,
 		WebPort: xf.Info.WebPort, WebHTTPS: xf.Info.WebHTTPS,
-		Networking: xf.Networking, Hostnames: xf.Hostnames, Choices: choices, Login: xf.Login}, nil
+		Networking: xf.Networking, Hostnames: xf.Hostnames, Choices: choices, Login: xf.Login,
+	}
+	if xf.Provides != nil {
+		m.Names = xf.Provides.Names
+	}
+	return m, nil
 }
 
 // Login is x-fjord.login. User and Password are each a ${VAR}, filled from
@@ -357,6 +369,31 @@ type Login struct {
 	User     string `yaml:"user"`
 	Password string `yaml:"password"`
 	Note     string `yaml:"note"`
+}
+
+// NamesProvider is x-fjord.provides.names: an app that puts names in front
+// of other apps (radarr.apps.lan) and lets fjord manage them through the
+// names API (docs/names-provider.md). A reverse proxy is one; anything
+// serving the same calls may declare it. Nothing in fjord is specific to one.
+type NamesProvider struct {
+	// Port is the container port its HTTPS API answers on (the same one
+	// its own page is served on). fjord reaches it where a browser would:
+	// the published port on the host, or the container's own address.
+	Port int `yaml:"port"`
+	// Key is the ${VAR} holding the bearer key fjord sends; a secret fjord
+	// makes up at install and the app registers on first start.
+	Key string `yaml:"key"`
+	// SetupToken, a ${VAR}, is opened as #token=<value> on the app's own
+	// page until its setup is done. Optional.
+	SetupToken string `yaml:"setup_token"`
+	// ClientURL, a ${VAR}, gets the address fjord is opened at (as the
+	// install request saw it), so the app can offer a way back. Optional.
+	ClientURL string `yaml:"client_url"`
+	// ClientID and ClientName, ${VAR}s, get this fjord's permanent id and
+	// its name ("fjord on netlab"): the app tells several fjords apart by
+	// them. Optional.
+	ClientID   string `yaml:"client_id"`
+	ClientName string `yaml:"client_name"`
 }
 
 // stripContainerNames removes container_name from every service mapping.

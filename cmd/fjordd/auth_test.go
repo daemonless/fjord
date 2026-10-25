@@ -352,3 +352,36 @@ func TestClientAddrBehindProxy(t *testing.T) {
 		t.Errorf("not via the proxy: %s, want the peer (X-Forwarded-For ignored)", got)
 	}
 }
+
+// An account file that cannot be read is not "no account": that would put
+// Set up (with a setup code nobody has) in front of someone who has one.
+func TestStateWhenTheAccountFileCannotBeRead(t *testing.T) {
+	root := t.TempDir()
+	g, h := testGate(t, root, ":3567", "", "")
+	setupAccount(t, g, h)
+	if w := do(h, "GET", "/api/auth/state", "", "", ""); w.Code != 200 || !strings.Contains(w.Body.String(), `"account":true`) {
+		t.Fatalf("state: %d %s", w.Code, w.Body)
+	}
+	// A directory in its place: Stat works, reading does not.
+	if err := os.Rename(filepath.Join(root, "auth.json"), filepath.Join(root, "auth.json.away")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(root, "auth.json"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if w := do(h, "GET", "/api/auth/state", "", "", ""); w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("unreadable: %d %s, want 503", w.Code, w.Body)
+	}
+	if strings.Contains(do(h, "GET", "/api/auth/state", "", "", "").Body.String(), `"account":false`) {
+		t.Fatal("an unreadable file must never read as no account")
+	}
+}
+
+// API answers are never cached: a restored tab must ask again.
+func TestAPIAnswersAreNotCached(t *testing.T) {
+	g, h := testGate(t, t.TempDir(), ":3567", "", "")
+	setupAccount(t, g, h)
+	if cc := do(h, "GET", "/api/auth/state", "", "", "").Header().Get("Cache-Control"); cc != "no-store" {
+		t.Fatalf("Cache-Control %q, want no-store", cc)
+	}
+}

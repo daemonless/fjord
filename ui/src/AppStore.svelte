@@ -201,9 +201,9 @@
 
 <div class="h-full flex flex-col relative">
   <header class="shrink-0 mb-5">
-    <div class="flex justify-between items-end gap-4 mb-4">
+    <div class="flex justify-between items-end gap-4 mb-4 flex-wrap">
       <div>
-        <h2 class="text-3xl font-semibold text-fjord-fg tracking-tight">App Store</h2>
+        <h2 class="text-2xl md:text-3xl font-semibold text-fjord-fg tracking-tight whitespace-nowrap">App Store</h2>
         <p class="text-fjord-fg-muted mt-1">
           {#if catalog}
             {filtered.length} of {catalog.apps.length} apps

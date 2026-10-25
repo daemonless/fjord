@@ -6,6 +6,7 @@
   import * as yaml from 'js-yaml';
   import Icon from './Icon.svelte';
   import Switch from './Switch.svelte';
+  import { names, nameLabel, freeName, nameOwner } from './names';
   import { defaultPath } from './pathDefaults';
   import Spinner from './Spinner.svelte';
   import DirPicker from './DirPicker.svelte';
@@ -175,7 +176,24 @@
 
   let picking: { name: string; i: number } | null = null; // host-path row whose directory is being picked
 
-  let stackName = appId; // editable install name; defaults to the app id
+  // Editable install name. Defaults to the app id, or to the id the server
+  // would give a second copy (zensical-2): two stacks both called zensical,
+  // with the folder and the name saying -2, read as a mistake.
+  let stackName = folderOf(appId, appId || 'app');
+  // A name (radarr.apps.lan): on by default once something installed gives
+  // names, for an app with a page to open. The label follows the install
+  // name until it is edited.
+  let wantName = true;
+  let nameEdited = false;
+  let givenName = '';
+  // The label follows the stack's id (zensical-2 for a second copy), and
+  // never one an app already has: a second zensical was offered zensical.
+  $: if (!nameEdited) givenName = freeName(nameLabel(folderOf(stackName, appId || 'app')), $names);
+  $: offerName = $names.ready && !!webPortHint && !givesNames;
+  // A typed label another app has: said under the field, Install held.
+  $: nameOwnedBy = offerName && wantName ? nameOwner(nameLabel(givenName), $names) : undefined;
+  $: nameTaken = nameOwnedBy ? `${nameLabel(givenName)}.${$names.domain} is ${nameOwnedBy.split('/')[0]}'s already` : '';
+  let givesNames = false;
   // Mirrors the server's ValidDisplayName: a human label, not a path.
   $: validName = /^[\p{L}\p{N}][\p{L}\p{N} ._-]{0,63}$/u.test(stackName);
 
@@ -477,6 +495,8 @@
   // (woodpecker's empty WOODPECKER_HOST read as a dead button).
   $: blockReason = !validName
     ? 'Enter a valid stack name'
+    : nameTaken
+      ? nameTaken
     : !enginesKnown
       ? 'Checking the engines…'
     : noBuild
@@ -876,6 +896,7 @@
       declaredNet = parsed?.['x-fjord']?.networking ?? {};
       choices = parsed?.['x-fjord']?.choices ?? [];
       webPortHint = String(parsed?.['x-fjord']?.info?.web_port ?? '');
+      givesNames = !!parsed?.['x-fjord']?.provides?.names;
       webHttps = parsed?.['x-fjord']?.info?.web_https === true;
       for (const c of choices) picks[c.id] = c.default;
       picks = picks;
@@ -942,6 +963,7 @@
       networks: plan?.networks,
       networkModes: plan?.modes,
       choices: picks,
+      givenName: offerName && wantName && givenName ? givenName : undefined,
       restart: restartPolicies.includes(restartPolicy) ? { policy: restartPolicy, retries: restartPolicy === 'on-failure' ? restartRetries : 0 } : undefined,
     });
   }
@@ -978,9 +1000,41 @@
             {#if stackName && !validName}
               <div class="text-xs text-fjord-danger">Letters, digits, spaces, dots, dashes and underscores; up to 64 characters.</div>
             {:else}
-              <div class="text-xs text-fjord-fg-dim">Change it to run more than one copy, e.g. <span class="font-mono">{appId}-4k</span>.</div>
+              {#if stackIds.includes(appId)}
+                <div class="text-xs text-fjord-fg-dim"><span class="font-mono">{appId}</span> is installed already; this is another copy.</div>
+              {:else}
+                <div class="text-xs text-fjord-fg-dim">Change it to run more than one copy, e.g. <span class="font-mono">{appId}-4k</span>.</div>
+              {/if}
             {/if}
           </div>
+
+          {#if offerName}
+            <div class="flex flex-col gap-1">
+              <div class="flex items-center justify-between gap-3">
+                <label class="text-sm font-semibold text-fjord-fg-secondary" for="appname">Open it at</label>
+                <Switch bind:checked={wantName} label="Give it a name" />
+              </div>
+              {#if wantName}
+                <div class="flex items-center rounded-md border border-fjord-border bg-fjord-inset focus-within:border-fjord-accent">
+                  <span class="pl-3 text-fjord-fg-dim font-mono">https://</span>
+                  <input id="appname" bind:value={givenName} on:input={() => (nameEdited = true)}
+                    class="min-w-0 flex-1 bg-transparent py-2 font-mono text-fjord-fg-body focus:outline-none" />
+                  <span class="pr-3 text-fjord-fg-dim font-mono">.{$names.domain}</span>
+                </div>
+                {#if nameTaken && nameLabel(givenName) !== givenName.trim()}
+                  <div class="text-xs text-fjord-danger">Saved as <span class="font-mono">{nameLabel(givenName)}.{$names.domain}</span>, which is {nameOwnedBy?.split('/')[0]}'s already.</div>
+                {:else if nameTaken}
+                  <div class="text-xs text-fjord-danger">{nameTaken}. Pick another first part.</div>
+                {:else if nameLabel(givenName) && nameLabel(givenName) !== givenName.trim()}
+                  <div class="text-xs text-fjord-fg-dim">Saved as <span class="font-mono">{nameLabel(givenName)}.{$names.domain}</span>.</div>
+                {:else}
+                  <div class="text-xs text-fjord-fg-dim">{$names.provider} gives it this name once it is running, home network only.</div>
+                {/if}
+              {:else}
+                <div class="text-xs text-fjord-fg-dim">Only its address, no name. You can add one later from its page.</div>
+              {/if}
+            </div>
+          {/if}
 
           {#snippet reachedAt()}
             {#if ownPorts.length}
@@ -1501,7 +1555,7 @@
       {/if}
       <button
         on:click={deploy}
-        disabled={busy || loading || !enginesKnown || !!error || !validName || missingRequired.length > 0 || badUrls.length > 0 || (ipRequired && !netIP.trim()) || !!ipProblem || needAddress.length > 0 || !!noBuild}
+        disabled={busy || loading || !enginesKnown || !!error || !validName || !!nameTaken || missingRequired.length > 0 || badUrls.length > 0 || (ipRequired && !netIP.trim()) || !!ipProblem || needAddress.length > 0 || !!noBuild}
         title={blockReason || undefined}
         class="bg-fjord-accent hover:bg-fjord-accent-hover text-white px-6 py-2 rounded-md font-medium shadow-lg transition-all disabled:opacity-50 flex items-center gap-2"
       >

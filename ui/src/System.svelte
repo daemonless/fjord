@@ -16,6 +16,7 @@
     why?: string;
     fix?: string;
     installable?: boolean;
+    action?: string;
   };
   type Report = {
     os: string;
@@ -240,7 +241,7 @@
                   <div class="text-xs text-fjord-fg-dim mt-0.5">{c.why}</div>
                 {/if}
               </div>
-              {#if c.installable}<InstallCheckButton id={c.id} name={c.name} on:installed={load} />{/if}
+              {#if c.installable}<InstallCheckButton id={c.id} name={c.name} label={c.action && !c.action.startsWith('Install') ? c.action : 'Install'} busyLabel={c.action && !c.action.startsWith('Install') ? 'Working…' : 'Installing…'} on:installed={load} />{/if}
               <span class="shrink-0 text-[11px] font-semibold uppercase tracking-wide {STATUS[c.status].cls}">{STATUS[c.status].label}</span>
             </div>
             {#if c.fix}

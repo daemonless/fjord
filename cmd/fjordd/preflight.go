@@ -70,9 +70,13 @@ func (s *server) conflicts(ctx context.Context, st *stack.Stack, where string) [
 	// on its own postgres.
 	own := map[string]bool{}
 	running := map[string]bool{}
+	runningSvc := map[string]bool{}
 	if status, err := s.backendFor(st).Status(ctx, st); err == nil {
 		for _, c := range status.Containers {
 			running[c.Name] = c.State == "running"
+			if c.Service != "" {
+				runningSvc[c.Service] = c.State == "running"
+			}
 			for _, p := range c.Ports {
 				proto := p.Protocol
 				if proto == "" {
@@ -83,7 +87,7 @@ func (s *server) conflicts(ctx context.Context, st *stack.Stack, where string) [
 		}
 	}
 	for _, hp := range hostPorts {
-		if running[hp.container] {
+		if ownsHostPort(hp, running, runningSvc) {
 			own[hp.key] = true
 		}
 	}
@@ -139,6 +143,15 @@ func (s *server) conflicts(ctx context.Context, st *stack.Stack, where string) [
 		}
 	}
 	return problems
+}
+
+// ownsHostPort: the host-network service behind hp is running as part of
+// this stack, so what it holds is the stack's own. By the engine's name
+// for it, or by service: a `container_name:` (pkg-cache) is not
+// <stack>_<service>_1, and the mismatch refused to recreate a running
+// stack over its own port 80 (jupiter, 2026-10-24 and 25).
+func ownsHostPort(hp hostPort, running, runningSvc map[string]bool) bool {
+	return running[hp.container] || runningSvc[hp.service]
 }
 
 // tcpInUse reports whether something answers on addr:port right now.

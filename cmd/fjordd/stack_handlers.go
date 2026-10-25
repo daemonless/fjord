@@ -299,6 +299,7 @@ func (s *server) stackDelete(w http.ResponseWriter, name string, data bool) {
 		http.Error(w, msg, code)
 		return
 	}
+	s.forgetNamesAfterDelete(name)
 	w.Header().Set("Content-Type", "application/json")
 	w.Write([]byte(`{"status":"deleted"}`))
 }
