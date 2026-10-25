@@ -116,6 +116,12 @@ func (g *authGate) wrap(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
+		// Never from a cache: Chrome restoring tabs after a crash serves
+		// what it kept, and a kept "no account" put Set up in front of
+		// someone with an account. A handler with its own rule sets it after.
+		if strings.HasPrefix(p, "/api/") {
+			w.Header().Set("Cache-Control", "no-store")
+		}
 		if g.off {
 			host, _, _ := net.SplitHostPort(r.RemoteAddr)
 			a, err := netip.ParseAddr(host)
@@ -167,7 +173,14 @@ func (g *authGate) handleState(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	f, _ := g.store.read()
+	f, err := g.store.read()
+	if err != nil {
+		// Not "no account": a page told that shows Set up, with a setup code
+		// nobody has. 503 reads as "fjord is not answering", with Try again.
+		log.Printf("auth: cannot read %s: %v", g.store.path, err)
+		http.Error(w, "the account file could not be read", http.StatusServiceUnavailable)
+		return
+	}
 	st := map[string]any{
 		"off":      g.off,
 		"account":  f.Hash != "",

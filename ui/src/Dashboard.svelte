@@ -6,7 +6,8 @@
   import EngineMark from './EngineMark.svelte';
   import EmptyState from './EmptyState.svelte';
   import { expandVars } from './expand';
-  import { appUrl } from './appUrl';
+  import { names, openBy, deviceTrust, openUrl, opensByName, setupUrl } from './names';
+  import TrustMark from './TrustMark.svelte';
   import { serviceLinks } from './serviceLinks';
   import { restartShort, restartTitle, type StackRestart } from './restartPolicy';
 
@@ -32,7 +33,7 @@
   import { appIcons, loadAppIcons, iconFor, tile } from './appIcons';
   // Resolve a stack's catalog icon: by its stored app_id first (stable), then by
   $: iconOf = (s: Stack) => iconFor($appIcons, s);
-  let info: Record<string, { tag?: string; link?: string; more?: string[] }> = {};
+  let info: Record<string, { tag?: string; link?: string; byName?: boolean; more?: string[] }> = {};
 
   const DOT: Record<string, string> = {
     running: 'bg-fjord-success',
@@ -74,7 +75,7 @@
   // The list carries compose + .env, so tags and links come from the data
   // already here -- one request for the whole dashboard, not one per tile.
   $: {
-    const next: Record<string, { tag?: string; link?: string; more?: string[] }> = {};
+    const next: Record<string, { tag?: string; link?: string; byName?: boolean; more?: string[] }> = {};
     for (const s of stacks) {
       // Resolve ${VAR:-default} tags (e.g. immich's ${IMMICH_TAG:-latest})
       // before splitting, or the tag reads back as "-latest}".
@@ -83,7 +84,8 @@
       const all = serviceLinks(s.compose || '', envMap(s.env || ''), s.services || [], location.hostname);
       next[s.name] = {
         tag: img ? imgTag(img) : '',
-        link: appUrl(s),
+        link: openUrl(s, $names, $openBy, $deviceTrust),
+        byName: opensByName(s, $names, $openBy),
         more: all.length > 1 ? all.map((l) => `${l.service}  ${l.url.replace(/^https?:\/\//, '')}`) : [],
       };
     }
@@ -98,7 +100,7 @@
 </script>
 
 <div class="h-full flex flex-col">
-  <div class="flex items-center justify-between mb-4 shrink-0">
+  <div class="flex items-center justify-between mb-4 shrink-0 flex-wrap gap-2">
     <div>
       <h2 class="text-2xl font-bold text-fjord-fg">Stacks</h2>
       <div class="text-sm text-fjord-fg-dim">
@@ -115,7 +117,7 @@
           · <span class="text-fjord-warning">{updateCount} update{updateCount === 1 ? '' : 's'} available</span>{/if}
       </div>
     </div>
-    <div class="flex items-center gap-2">
+    <div class="flex items-center gap-2 flex-wrap">
       <button
         on:click={() => dispatch('adopt')}
         title="Turn containers started outside fjord into stacks"
@@ -215,9 +217,20 @@
                 >
               {/if}
             </div>
-            <!-- open link -->
-            <div class="w-40 shrink-0">
-              {#if info[s.name]?.link}
+            <!-- open link: the name once the app has one; the provider's own
+                 row says Finish setup until it is ready -->
+            <!-- Wide enough for a name like spike-web.apps.lan with its shield. -->
+            <div class="w-52 shrink-0 flex items-center gap-1.5">
+              {#if s.name === $names.provider && !$names.ready && $names.setupToken}
+                <a
+                  href={setupUrl($names, stacks)}
+                  target="_blank"
+                  rel="noreferrer"
+                  on:click|stopPropagation
+                  class="text-xs font-semibold px-2.5 py-1 rounded-lg bg-fjord-accent text-white hover:bg-fjord-accent-hover">Finish setup</a
+                >
+              {:else if info[s.name]?.link}
+                {#if info[s.name]?.byName}<TrustMark {stacks} />{/if}
                 <a
                   href={info[s.name].link}
                   target="_blank"

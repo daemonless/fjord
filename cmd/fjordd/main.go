@@ -254,6 +254,7 @@ func main() {
 	// only bootstraps a first entry on a fresh install. Any source added but
 	// never fetched (e.g. added while offline) is fetched in the background
 	// at startup.
+	instanceID = ensureInstance(fjordRoot).ID
 	settings := loadSettings(fjordRoot)
 	sources := settings.Catalogs
 	if len(sources) == 0 && !settings.CatalogBootstrapped {

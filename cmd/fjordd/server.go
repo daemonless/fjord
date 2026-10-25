@@ -21,15 +21,23 @@ import (
 // closures over main(). Handlers stay runtime-agnostic: everything they know
 // about the container runtime comes through engine.Backend.
 type server struct {
+	// syncing holds the stacks whose names are being re-pointed (syncTargets).
+	syncMu  sync.Mutex
+	syncing map[string]bool
 	// platformsFn answers what a tag is built for; nil = the registry.
 	platformsFn func(ctx context.Context, image, tag string) ([]string, error)
 	manager     *stack.Manager
 	pending     pendingMarks
 	// The engine registry is swapped whole by rebuildBackends (an Extensions
 	// toggle) while other requests read it; mu makes that a clean handoff.
-	mu         sync.RWMutex
-	backends   map[string]engine.Backend // available runtimes, keyed by engine name
-	defEngine  string                    // default engine for new installs
+	mu       sync.RWMutex
+	backends map[string]engine.Backend // available runtimes, keyed by engine name
+	// What this fjord last told a names provider about itself (sayHello),
+	// and the address the browser last reached fjord on, for that.
+	helloMu    sync.Mutex
+	hello      string
+	origin     string
+	defEngine  string // default engine for new installs
 	cat        *catalog.Cache
 	fjordRoot  string       // parent of the stacks dir; provisioned volumes live here
 	stacksDir  string       // reported by /api/about
@@ -253,6 +261,10 @@ func (s *server) routes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/engine/toggle", s.handleEngineToggle)
 	mux.HandleFunc("/api/setup", s.handleSetup)
 	mux.HandleFunc("/api/about", s.handleAbout)
+	mux.HandleFunc("/api/names", s.handleNames)
+	mux.HandleFunc("/api/names/link", s.handleNamesLink)
+	mux.HandleFunc("/api/names/self", s.handleNamesSelf)
+	mux.HandleFunc("/api/names/", s.handleName)
 	mux.HandleFunc("/api/events", s.handleEvents)
 	mux.HandleFunc("/api/browse", s.handleBrowse)
 	mux.HandleFunc("/api/catalogs", s.handleCatalogs)

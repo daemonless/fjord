@@ -3,7 +3,10 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/daemonless/fjord/pkg/engine"
 	"net/http"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 )
@@ -128,9 +131,16 @@ func (s *server) runEventLoop() {
 			// lease lands after "running". Sent with the status, or the page
 			// kept the empty link it saw mid-recreate and opened 10.89.x.
 			link := linkHost(stackServices(full, status), ownAddress)
-			key := fmt.Sprintf("%s|%s|%t", state, link, !status.StaleSince.IsZero())
+			// The published ports are part of the key: a port changed in
+			// .env and applied recreates the container too fast for the
+			// poll to see it stop, and the name kept pointing at the old
+			// port (a 503 behind the name).
+			key := fmt.Sprintf("%s|%s|%t|%s", state, link, !status.StaleSince.IsZero(), publishedPorts(status))
 			if last[full.Name] == key {
 				continue
+			}
+			if last[full.Name] != "" && state == "running" {
+				s.syncTargets(full, status)
 			}
 			last[full.Name] = key
 			if b, err := json.Marshal(map[string]any{
@@ -154,4 +164,17 @@ func (s *server) runEventLoop() {
 			}
 		}
 	}
+}
+
+// publishedPorts is every host port a stack's containers publish, sorted,
+// so a change of port is a change of state for the watchers.
+func publishedPorts(status engine.StackStatus) string {
+	var ports []string
+	for _, c := range status.Containers {
+		for _, p := range c.Ports {
+			ports = append(ports, fmt.Sprintf("%d:%d", p.HostPort, p.ContainerPort))
+		}
+	}
+	sort.Strings(ports)
+	return strings.Join(ports, ",")
 }

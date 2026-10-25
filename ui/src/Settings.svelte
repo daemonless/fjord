@@ -7,6 +7,29 @@
   import DirPicker from './DirPicker.svelte';
   import FolderRows from './FolderRows.svelte';
   import { toast } from './toast';
+  import { names, linkProvider, unlinkProvider, renameSelf } from './names';
+  // Names tab: this fjord's name as a proxy lists it, and a proxy on another
+  // machine linked by the link from its Connected apps page.
+  let selfName = '';
+  let selfEdited = false;
+  $: if (!selfEdited && $names.self) selfName = $names.self.name;
+  let linkText = '';
+  let linkBusy = false;
+  let linkError = '';
+  async function doLink() {
+    linkBusy = true; linkError = '';
+    try { const p = await linkProvider(linkText); linkText = ''; toast(`Linked to ${p.provider}: your apps can get names like radarr.${p.domain}`, { kind: 'success' }); }
+    catch (err: any) { linkError = err?.message || String(err); }
+    finally { linkBusy = false; }
+  }
+  async function doUnlink() {
+    try { await unlinkProvider(); toast('Unlinked. Names it gave stay on the proxy; fjord no longer changes them.'); }
+    catch (err: any) { toast(`Could not unlink: ${err?.message || err}`, { kind: 'error' }); }
+  }
+  async function saveSelf() {
+    try { await renameSelf(selfName); selfEdited = false; toast(`Proxies now list this fjord as "fjord on ${selfName}"`, { kind: 'success' }); }
+    catch (err: any) { toast(`Could not rename: ${err?.message || err}`, { kind: 'error' }); }
+  }
   import RestartChoice from './RestartChoice.svelte';
   import { DEFAULT_RETRIES } from './restartPolicy';
 
@@ -78,11 +101,11 @@
 
   // Settings is organized into tabs; the active one lives in the URL
   // (#/settings/<tab>), owned by App: it arrives as a prop, changes go up.
-  export let tab: 'storage' | 'extensions' | 'catalogs' | 'advanced' | 'account' = 'storage';
+  export let tab: 'storage' | 'extensions' | 'catalogs' | 'names' | 'advanced' | 'account' = 'storage';
   const dispatch = createEventDispatcher();
-  let activeTab: 'storage' | 'extensions' | 'catalogs' | 'advanced' | 'account' = tab;
+  let activeTab: 'storage' | 'extensions' | 'catalogs' | 'names' | 'advanced' | 'account' = tab;
   $: activeTab = tab;
-  function selectTab(t: 'storage' | 'extensions' | 'catalogs' | 'advanced' | 'account') {
+  function selectTab(t: 'storage' | 'extensions' | 'catalogs' | 'names' | 'advanced' | 'account') {
     activeTab = t;
     dispatch('tab', t);
   }
@@ -643,6 +666,12 @@
             : 'border-transparent text-fjord-fg-muted hover:text-fjord-fg-body'}">Catalogs</button
         >
         <button
+          on:click={() => selectTab('names')}
+          class="px-4 py-2 text-sm font-medium -mb-px border-b-2 transition-colors {activeTab === 'names'
+            ? 'border-fjord-accent text-fjord-fg'
+            : 'border-transparent text-fjord-fg-muted hover:text-fjord-fg-body'}">Names</button
+        >
+        <button
           on:click={() => selectTab('advanced')}
           class="px-4 py-2 text-sm font-medium -mb-px border-b-2 transition-colors {activeTab === 'advanced'
             ? 'border-fjord-accent text-fjord-fg'
@@ -1032,10 +1061,55 @@
 
       {/if}
 
+      {#if activeTab !== 'names'}
       <p class="text-xs text-fjord-fg-faint mt-6 max-w-2xl">
         Everything else comes from the daemon's environment (<code>FJORD_*</code> variables — via rc.conf on FreeBSD,
         the systemd unit on Linux, or the container environment). Host readiness checks live on the <b>System</b> page.
       </p>
+      {/if}
+    {/if}
+
+    {#if activeTab === 'names'}
+      <div class="max-w-2xl flex flex-col gap-6">
+        <div>
+          <h3 class="text-sm font-semibold text-fjord-fg-secondary mb-1">Reverse proxy</h3>
+          {#if $names.provider && !$names.linked}
+            <p class="text-xs text-fjord-fg-dim mb-3">
+              <span class="font-mono">{$names.provider}</span>, installed here, gives your apps names{#if $names.domain} like <span class="font-mono">radarr.{$names.domain}</span>{/if}. Nothing to set up here.
+            </p>
+          {:else if $names.linked}
+            <div class="bg-fjord-card border border-fjord-border rounded-lg p-4 flex items-center justify-between gap-3 flex-wrap">
+              <div class="min-w-0">
+                <div class="text-sm text-fjord-fg">Linked to <span class="font-mono">{$names.provider}</span>{#if $names.domain}: names like <span class="font-mono">radarr.{$names.domain}</span>{/if}</div>
+                <div class="text-xs text-fjord-fg-dim mt-0.5">
+                  {#if $names.error}<span class="text-fjord-warning">{$names.error}</span>{:else if $names.ready}Working. Apps get names from the ▾ beside Open, or at install.{:else}Not ready yet; finish its setup on its own page.{/if}
+                </div>
+              </div>
+              <button on:click={doUnlink} class="shrink-0 px-3 py-1.5 rounded-md text-sm font-medium bg-fjord-card border border-fjord-border text-fjord-fg-secondary hover:text-fjord-danger hover:border-fjord-danger/40">Unlink</button>
+            </div>
+          {:else}
+            <p class="text-xs text-fjord-fg-dim mb-3">
+              A reverse proxy gives your apps names and HTTPS, like <span class="font-mono">radarr.apps.lan</span>. Install one from the store and it links by itself. One on another machine: open its Settings, Connected apps, "Connect a fjord…", and paste the link here.
+            </p>
+            <form on:submit|preventDefault={doLink} class="flex gap-2 flex-wrap">
+              <input bind:value={linkText} placeholder="https://proxy.apps.lan/link#code=XXXX-XXXX" spellcheck="false" autocomplete="off"
+                class="flex-1 basis-72 min-w-0 px-3 py-1.5 rounded-md bg-fjord-inset border border-fjord-border text-sm font-mono text-fjord-fg-body focus:outline-none focus:border-fjord-accent" />
+              <button disabled={linkBusy || !linkText.trim()} class="px-4 py-1.5 rounded-md text-sm font-medium text-white bg-fjord-accent hover:bg-fjord-accent-hover disabled:opacity-40">{linkBusy ? 'Linking…' : 'Link'}</button>
+            </form>
+            {#if linkError}<p class="text-xs text-fjord-warning mt-2">{linkError}</p>{/if}
+          {/if}
+        </div>
+        <div>
+          <h3 class="text-sm font-semibold text-fjord-fg-secondary mb-1">This fjord</h3>
+          <p class="text-xs text-fjord-fg-dim mb-3">How a proxy lists it when more than one fjord is connected. Its id{#if $names.self}&nbsp;(<span class="font-mono">{$names.self.id}</span>){/if} never changes.</p>
+          <form on:submit|preventDefault={saveSelf} class="flex gap-2 flex-wrap items-center">
+            <span class="text-sm text-fjord-fg-secondary">fjord on</span>
+            <input bind:value={selfName} on:input={() => (selfEdited = true)} spellcheck="false" autocomplete="off" maxlength="40"
+              class="basis-48 min-w-0 px-3 py-1.5 rounded-md bg-fjord-inset border border-fjord-border text-sm text-fjord-fg-body focus:outline-none focus:border-fjord-accent" />
+            <button disabled={!selfEdited || !selfName.trim()} class="px-4 py-1.5 rounded-md text-sm font-medium bg-fjord-card border border-fjord-border text-fjord-fg-secondary hover:text-fjord-fg disabled:opacity-40">Save</button>
+          </form>
+        </div>
+      </div>
     {/if}
 
     {#if activeTab === 'advanced'}

@@ -497,6 +497,33 @@ func TestSetServiceModes(t *testing.T) {
 	}
 }
 
+// A host-networked app has no ports entry; SeedPublished notes its web
+// port, and a move to the bridge publishes it. On the host it stays as it
+// ships, and an app that publishes already is left alone.
+func TestSeededPortComesBackOnTheBridge(t *testing.T) {
+	const in = `services:
+  actual:
+    image: ghcr.io/daemonless/actual:latest
+    network_mode: host
+`
+	seeded, err := SeedPublished(in, "actual", "5006")
+	if err != nil || !strings.Contains(seeded, "x-fjord-published:\n      - 5006:5006") || strings.Contains(seeded, "ports:") {
+		t.Fatalf("seed: %v\n%s", err, seeded)
+	}
+	bridged, err := SetServiceModes(seeded, map[string]string{"actual": "bridge"})
+	if err != nil || !strings.Contains(bridged, "ports:\n      - 5006:5006") || strings.Contains(bridged, "network_mode") || strings.Contains(bridged, "x-fjord-published") {
+		t.Fatalf("bridge: %v\n%s", err, bridged)
+	}
+	back, err := SetServiceModes(bridged, map[string]string{"actual": "host"})
+	if err != nil || !strings.Contains(back, "network_mode: host") || strings.Contains(back, "ports:") || !strings.Contains(back, "x-fjord-published") {
+		t.Fatalf("host again: %v\n%s", err, back)
+	}
+	same, _ := SeedPublished("services:\n  web:\n    ports:\n      - 8080:80\n", "web", "80")
+	if strings.Contains(same, "x-fjord-published") {
+		t.Errorf("an app that publishes was seeded:\n%s", same)
+	}
+}
+
 // Attaching stashes a service's ports; a private segment is the case where
 // they have to come back, because the address it hands out reaches no browser.
 func TestRepublishPorts(t *testing.T) {

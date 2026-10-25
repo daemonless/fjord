@@ -204,6 +204,10 @@ plugins — lives in Settings and is persisted in `<fjord root>/settings.json`.
   x-fjord:
     web_port: "8080"
   ```
+- An app that gives the other apps names (`radarr.apps.lan`), such as the
+  daemonless reverse proxy, declares `x-fjord.provides.names` in its
+  catalog manifest; fjord pairs with it at install. The contract any such
+  app serves is in [docs/names-provider.md](docs/names-provider.md).
 - FreeBSD's built-in SMB client speaks SMB1 only, which most servers refuse:
   `smb://` folders and volumes work from Linux hosts; use NFS on FreeBSD.
 - On AppJail a jail can sit on a LAN network with its own address (DHCP or

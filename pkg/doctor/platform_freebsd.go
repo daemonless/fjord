@@ -50,9 +50,12 @@ func platform(cfg Config) platformInfo {
 		},
 		{
 			ID: "podman-stale", Name: "podman API service is current", Engine: "podman", HostOnly: true,
-			Probe: podmanServiceStaleProbe,
-			Why:   "`pkg upgrade` replaces podman and its runtime under a service that keeps running, and the old process cannot spawn an exec with binaries that moved. Everything keeps working except the shell, which fails with \"no such file or directory\" -- on a host where the CLI works perfectly, so it reads as a fjord bug. Nothing else notices, because starting and stopping stacks is unaffected.",
-			Fix:   "service podman_service restart",
+			Probe:    podmanServiceStaleProbe,
+			Action:   "Restart podman's API service",
+			Install:  restartService("podman_service"),
+			Commands: []string{"service podman_service restart"},
+			Why:      "`pkg upgrade` replaces podman and its runtime under a service that keeps running, and the old process cannot spawn an exec with binaries that moved. Everything keeps working except the shell, which fails with \"no such file or directory\" -- on a host where the CLI works perfectly, so it reads as a fjord bug. Nothing else notices, because starting and stopping stacks is unaffected.",
+			Fix:      "service podman_service restart",
 		},
 		{
 			ID: "compose", Name: "podman-compose", Engine: "podman",
@@ -856,6 +859,31 @@ func enableService(service, rcvar string) func(context.Context, io.Writer) error
 			return err
 		}
 		return runShown(ctx, w, nil, "service", service, "onerestart")
+	}
+}
+
+// restartService restarts a running rc.d service: the fix for an API
+// service older than the binaries under it. Containers are untouched;
+// podman is daemonless and the service only answers the socket.
+func restartService(service string) func(context.Context, io.Writer) error {
+	return func(ctx context.Context, w io.Writer) error {
+		// "restart" from a daemon has left podman_service stopped on FreeBSD
+		// (jupiter, 2026-10-08; netlab, 2026-10-25): the stop lands, the
+		// start does not. So: restart, then make sure it runs, and say so.
+		_ = runShown(ctx, w, nil, "service", service, "onerestart")
+		for i := 0; i < 10; i++ {
+			if run(ctx, "service", service, "onestatus") != "" && !strings.Contains(run(ctx, "service", service, "onestatus"), "not running") {
+				return nil
+			}
+			time.Sleep(500 * time.Millisecond)
+		}
+		if err := runShown(ctx, w, nil, "service", service, "onestart"); err != nil {
+			return err
+		}
+		if strings.Contains(run(ctx, "service", service, "onestatus"), "not running") {
+			return fmt.Errorf("%s did not come back; start it by hand: service %s onestart", service, service)
+		}
+		return nil
 	}
 }
 

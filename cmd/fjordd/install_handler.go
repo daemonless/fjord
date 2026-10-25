@@ -113,6 +113,38 @@ func (r installRequest) networkAction() string {
 	return netActionNothing
 }
 
+// requestOrigin is the address the browser reached fjord at: scheme from
+// the connection (or the proxy in front), host as sent.
+func requestOrigin(r *http.Request) string {
+	scheme := "http"
+	if r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https") {
+		scheme = "https"
+	}
+	if r.Host == "" {
+		return ""
+	}
+	return scheme + "://" + r.Host
+}
+
+// seedHostPort stashes webPort as what the one host-networked service of a
+// stack publishes once it is off the host's network. Several host-networked
+// services would all claim the same port, so those are left alone.
+func seedHostPort(composeYAML, webPort string, env map[string]string) (string, error) {
+	if webPort == "" {
+		return composeYAML, nil
+	}
+	var hosted []string
+	for _, svc := range composepkg.ParseServices(composeYAML, env) {
+		if svc.NetworkHost {
+			hosted = append(hosted, svc.Name)
+		}
+	}
+	if len(hosted) != 1 {
+		return composeYAML, nil
+	}
+	return composepkg.SeedPublished(composeYAML, hosted[0], webPort)
+}
+
 // installNetworkPlan is the service -> spec map this install should apply, or
 // nil when the request already answered per service.
 //
@@ -303,6 +335,22 @@ func (s *server) handleInstall(w http.ResponseWriter, r *http.Request) {
 	// stack to match. Identity stays the numeric id; this path never moves on a
 	// later rename.
 	res, err := m.Resolve(req.Values, slug, base)
+	if err == nil && m.Names != nil {
+		// The address fjord is opened at, as this request saw it: the
+		// provider shows "Back to fjord" with it. The daemon has no better
+		// idea of its own address than the browser that reached it.
+		if name := varName(m.Names.ClientURL); name != "" {
+			res.Env[name] = requestOrigin(r)
+		}
+		// Who this fjord is, so the provider can tell several apart.
+		self := s.instance()
+		if name := varName(m.Names.ClientID); name != "" {
+			res.Env[name] = self.ID
+		}
+		if name := varName(m.Names.ClientName); name != "" {
+			res.Env[name] = self.Label()
+		}
+	}
 	if err != nil {
 		http.Error(w, "invalid input: "+err.Error(), 400)
 		return
@@ -333,6 +381,14 @@ func (s *server) handleInstall(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), 500)
 			return
 		}
+	}
+	// A host-networked app (actual) publishes nothing: on the host's stack
+	// its port is a host port. Taken off it, by the wizard's row or the
+	// Services editor later, nothing reached it. Its web port is stashed
+	// now, so every move off the host brings it back as ports.
+	if composeYAML, err = seedHostPort(composeYAML, m.WebContainerPort(), res.Env); err != nil {
+		http.Error(w, err.Error(), 500)
+		return
 	}
 	// Built-ins chosen per service, carried to the appjail bundle below:
 	// the compose is not where an appjail stack's networking lives.
@@ -674,21 +730,47 @@ func (s *server) handleInstall(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 500)
 		return
 	}
-	var note string
-	if len(reused) > 0 {
-		note = fmt.Sprintf("[fjord] Existing data in %s: kept the passwords it was set up with (%s).\n",
-			dataDir, strings.Join(reused, ", "))
-	}
-	if len(madeUp) > 0 {
-		note += fmt.Sprintf("[fjord] Made up %s (see the stack's .env).\n", strings.Join(madeUp, ", "))
-	}
-	if note != "" {
+	if note := secretsNote(m, dataDir, reused, madeUp); note != "" {
 		stream = struct {
 			io.Reader
 			io.Closer
 		}{io.MultiReader(strings.NewReader(note), stream), stream}
 	}
 	streamOutput(w, s.recordOutcome(id, "install", s.keepAfter(ctx, st, stream)))
+}
+
+// secretsNote is the first lines of an install's output: which passwords
+// were kept or made up. A names provider's key and setup token are fjord's
+// own, not the person's: they are left out, and the line says what comes
+// next instead. "See the stack's .env" sent people digging for the setup
+// token that the Finish setup row carries.
+func secretsNote(m *manifest.Manifest, dataDir string, reused, madeUp []string) string {
+	own := map[string]bool{}
+	if m.Names != nil {
+		own[varName(m.Names.Key)] = true
+		own[varName(m.Names.SetupToken)] = true
+		own[varName(m.Names.ClientURL)] = true
+		own[varName(m.Names.ClientID)] = true
+		own[varName(m.Names.ClientName)] = true
+	}
+	var theirs []string
+	for _, v := range madeUp {
+		if !own[v] {
+			theirs = append(theirs, v)
+		}
+	}
+	var note string
+	if len(reused) > 0 {
+		note = fmt.Sprintf("[fjord] Existing data in %s: kept the passwords it was set up with (%s).\n",
+			dataDir, strings.Join(reused, ", "))
+	}
+	if len(theirs) > 0 {
+		note += fmt.Sprintf("[fjord] Made up %s (see the stack's .env).\n", strings.Join(theirs, ", "))
+	}
+	if m.Names != nil {
+		note += "[fjord] Paired with fjord. Next: Finish setup, on its page, and your apps get names.\n"
+	}
+	return note
 }
 
 // pathExpansion is a host-path variable whose folder list has more than one

@@ -958,6 +958,38 @@ func attachmentsForService(atts []Attachment, service string) []Attachment {
 	return out
 }
 
+// SeedPublished notes port as what service publishes once it is off the
+// host's network, when nothing says so yet: a host-networked app has no
+// ports entry (its port is a host port already), so a move to the bridge
+// or a LAN segment had nothing to bring back. Stashed, not published:
+// on the host's network it stays as it ships.
+func SeedPublished(composeYAML, service, port string) (string, error) {
+	var doc yaml.Node
+	if err := yaml.Unmarshal([]byte(composeYAML), &doc); err != nil {
+		return "", fmt.Errorf("parse compose: %w", err)
+	}
+	if len(doc.Content) == 0 || doc.Content[0].Kind != yaml.MappingNode {
+		return "", fmt.Errorf("compose is not a YAML mapping")
+	}
+	services := mapGet(doc.Content[0], "services")
+	if services == nil || services.Kind != yaml.MappingNode {
+		return composeYAML, nil
+	}
+	svc := mapGet(services, service)
+	if svc == nil || svc.Kind != yaml.MappingNode || mapGet(svc, "ports") != nil || mapGet(svc, "x-fjord-published") != nil {
+		return composeYAML, nil
+	}
+	mapSet(svc, "x-fjord-published", &yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq", Content: []*yaml.Node{scalar(port + ":" + port)}})
+	var buf bytes.Buffer
+	enc := yaml.NewEncoder(&buf)
+	enc.SetIndent(2)
+	if err := enc.Encode(doc.Content[0]); err != nil {
+		return "", err
+	}
+	enc.Close()
+	return buf.String(), nil
+}
+
 // SetServiceModes puts named services on a built-in mode, one service at a
 // time, leaving every other service exactly as it is.
 //
@@ -991,12 +1023,20 @@ func SetServiceModes(composeYAML string, modes map[string]string) (string, error
 			continue
 		}
 		// A mode and a network are mutually exclusive; the stash lets a trip
-		// through one come back to what it was on.
+		// through one come back to what it was on. Ports mean nothing on
+		// host or none and are stashed with the networks; bridge is reached
+		// through them, so there they come back (a host-networked app moved
+		// to the bridge used to land with nothing published and answer
+		// nowhere).
 		stashNetworks(svc)
 		mapDelete(svc, "networks")
 		clearMode(svc)
 		if mode != Bridge {
+			stashPorts(svc)
 			mapSet(svc, "network_mode", scalar(mode))
+		} else if p := mapGet(svc, "x-fjord-published"); p != nil && mapGet(svc, "ports") == nil {
+			mapSet(svc, "ports", p)
+			mapDelete(svc, "x-fjord-published")
 		}
 	}
 	var buf bytes.Buffer
