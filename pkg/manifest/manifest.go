@@ -108,6 +108,9 @@ type Manifest struct {
 	Variables []Var
 	WebPort   string
 	WebHTTPS  bool
+	// OwnOrigin (info.own_origin): the app checks Origin and Referer against
+	// its own address, so a names provider sends them as that (UniFi).
+	OwnOrigin bool
 	// Networking is the app's own answer to "which service goes where": a map
 	// of service name to a network SPEC, with "*" standing for every service
 	// not named. The specs are Default (whatever the install was told to use)
@@ -271,8 +274,9 @@ func Parse(manifestYAML string) (*Manifest, error) {
 
 	var xf struct {
 		Info struct {
-			WebPort  string `yaml:"web_port"`
-			WebHTTPS bool   `yaml:"web_https"`
+			WebPort   string `yaml:"web_port"`
+			WebHTTPS  bool   `yaml:"web_https"`
+			OwnOrigin bool   `yaml:"own_origin"`
 		} `yaml:"info"`
 		Variables  []xfVar           `yaml:"variables"`
 		Appjail    *AppjailBundle    `yaml:"appjail"`
@@ -353,7 +357,7 @@ func Parse(manifestYAML string) (*Manifest, error) {
 	}
 
 	m := &Manifest{compose: buf.String(), appjail: xf.Appjail, Variables: vars,
-		WebPort: xf.Info.WebPort, WebHTTPS: xf.Info.WebHTTPS,
+		WebPort: xf.Info.WebPort, WebHTTPS: xf.Info.WebHTTPS, OwnOrigin: xf.Info.OwnOrigin,
 		Networking: xf.Networking, Hostnames: xf.Hostnames, Choices: choices, Login: xf.Login,
 	}
 	if xf.Provides != nil {

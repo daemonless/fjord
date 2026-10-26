@@ -596,6 +596,9 @@ func (s *server) handleInstall(w http.ResponseWriter, r *http.Request) {
 		if m.WebHTTPS {
 			composeYAML += "  web_https: true\n"
 		}
+		if m.OwnOrigin {
+			composeYAML += "  own_origin: true\n"
+		}
 	}
 	// So the stack's parts can find each other: each service's consumers get
 	// its NAME, which container DNS resolves on any network they share.

@@ -80,6 +80,10 @@ type providerHost struct {
 		HTTPS           bool   `json:"https"`
 		AcceptUntrusted bool   `json:"acceptUntrusted"`
 	} `json:"target"`
+	// OwnOrigin: the app wants requests from its own address (the stack's
+	// x-fjord own_origin). Sent only when true, so a provider that predates
+	// it is never handed a field it refuses.
+	OwnOrigin bool `json:"ownOrigin,omitempty"`
 }
 
 // input is the host as the provider's PUT takes it: the editable fields
@@ -95,10 +99,14 @@ func (h providerHost) input() map[string]any {
 	if nets == nil {
 		nets = []string{}
 	}
-	return map[string]any{
+	in := map[string]any{
 		"name": h.Name, "extraNames": extra, "target": h.Target, "access": h.Access,
 		"trustedNetworks": nets, "ref": h.Ref,
 	}
+	if h.OwnOrigin {
+		in["ownOrigin"] = true // absent keeps the provider's value
+	}
+	return in
 }
 
 // namesManifests caches which apps give names, by app id, for a minute:
@@ -617,6 +625,9 @@ type nameRequest struct {
 	Address string `json:"address"`
 	Port    int    `json:"port"`
 	HTTPS   bool   `json:"https"`
+	// ownOrigin is the stack's x-fjord own_origin, read here, not taken
+	// from the page.
+	ownOrigin bool
 }
 
 type nameResult struct {
@@ -645,6 +656,10 @@ func (s *server) addNames(w http.ResponseWriter, r *http.Request) {
 	}
 	out := make([]nameResult, 0, len(req.Names))
 	for _, n := range req.Names {
+		stackName, _, _ := strings.Cut(n.Stack, "/")
+		if st, err := s.manager.Get(stackName); err == nil {
+			n.ownOrigin = wantsOwnOrigin(st)
+		}
 		out = append(out, p.name(ctx, n))
 	}
 	writeJSONValue(w, map[string]any{"results": out})
@@ -695,6 +710,9 @@ func (p *provider) name(ctx context.Context, n nameRequest) nameResult {
 		"target": map[string]any{"address": address, "port": n.Port, "https": pr.HTTPS, "acceptUntrusted": pr.UntrustedCert},
 		"access": "home",
 		"ref":    nameRef(n.Stack),
+	}
+	if n.ownOrigin {
+		body["ownOrigin"] = true
 	}
 	var h providerHost
 	if _, err := p.call(ctx, "POST", "/api/v1/hosts", body, &h); err != nil {
@@ -1000,6 +1018,18 @@ func currentTarget(st *stack.Stack, views []serviceView, svc string, port int, r
 		return addr, port
 	}
 	return "", webPortHint(st)
+}
+
+// wantsOwnOrigin is the stack's x-fjord own_origin: its app checks Origin
+// and Referer against its own address (UniFi), so a names provider should
+// send them as that. See docs/names-provider.md.
+func wantsOwnOrigin(st *stack.Stack) bool {
+	var x struct {
+		XFjord struct {
+			OwnOrigin bool `yaml:"own_origin"`
+		} `yaml:"x-fjord"`
+	}
+	return yaml.Unmarshal([]byte(st.Compose), &x) == nil && x.XFjord.OwnOrigin
 }
 
 // webPortHint is the port the stack's page is published on, from

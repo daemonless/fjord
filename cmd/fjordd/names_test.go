@@ -148,6 +148,7 @@ func newFakeProxy(t *testing.T, key string, certs ...tls.Certificate) *fakeProxy
 			Access          string   `json:"access"`
 			TrustedNetworks []string `json:"trustedNetworks"`
 			Ref             string   `json:"ref"`
+			OwnOrigin       *bool    `json:"ownOrigin"`
 		}
 		dec := json.NewDecoder(r.Body)
 		dec.DisallowUnknownFields()
@@ -409,5 +410,24 @@ func TestForgetNameMatchesBothRefForms(t *testing.T) {
 	}
 	if got := strings.Join(f.deleted, " "); got != "old new app" {
 		t.Fatalf("deleted %q, want old new app", got)
+	}
+}
+
+// own_origin in a stack's x-fjord is read for the provider; a host that has
+// it goes back on a PUT with it, one that has not goes back without the
+// field at all (an older provider refuses fields it does not know).
+func TestOwnOriginHint(t *testing.T) {
+	if !wantsOwnOrigin(&stack.Stack{Compose: "services:\n  unifi:\n    image: u\nx-fjord:\n  web_port: \"8443\"\n  own_origin: true\n"}) {
+		t.Fatal("own_origin: true not read")
+	}
+	if wantsOwnOrigin(&stack.Stack{Compose: "services:\n  web:\n    image: w\nx-fjord:\n  web_port: \"80\"\n"}) {
+		t.Fatal("a stack without the hint wants its own origin")
+	}
+	on := providerHost{Name: "unifi", OwnOrigin: true}
+	if on.input()["ownOrigin"] != true {
+		t.Fatalf("on: %v", on.input())
+	}
+	if _, sent := (providerHost{Name: "web"}).input()["ownOrigin"]; sent {
+		t.Fatal("off is sent; it must be left out")
 	}
 }

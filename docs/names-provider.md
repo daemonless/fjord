@@ -110,7 +110,18 @@ opens) and `names`. `ref` is fjord's handle: `fjord:<fjord host>:<stack>`,
 or `fjord:<host>:<stack>/<service>` for one app of a stack of several.
 Keep it and give it back as sent.
 
-`PUT /api/v1/hosts/{id}` with the same body replaces the host. fjord uses
+`ownOrigin: true` may come with it: the app checks a request's `Origin`
+and `Referer` against its own address, and refuses one that names the
+proxy (UniFi does: its login answers 403, then every call 401). The
+provider then rewrites those two headers, for requests from that name's
+own pages only, to the app's address. fjord sends it for an app whose
+`x-fjord` says `own_origin: true`, and leaves the field out otherwise, so
+a provider that has no such option is never sent it. Most apps compare
+`Origin` with the `Host` they are given instead, which the rewrite would
+break: it is never a default.
+
+`PUT /api/v1/hosts/{id}` with the same body replaces the host, keeping
+`ownOrigin` as it was when the body leaves it out. fjord uses
 it when an app's address or port changed, so the name follows, and when a
 person changes the name from the app's page (Change name beside Open):
 the same host with a new `name`. Refuse a taken name with a 4xx and say
