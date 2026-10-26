@@ -80,7 +80,7 @@ IMAGE=ghcr.io/daemonless/playwright:latest
 OUT=test/ui/out
 
 # The default order: cheap and read-only first, the long installs last.
-SUITE="open-link keys default-install update wording busy output-elsewhere shell-light folders outcome arch retag-var leftover appjail-dns appjail-update update-stopped privdel apply wire type matrix multi extra restart linux"
+SUITE="open-link keys default-install update wording busy output-elsewhere shell-light folders outcome arch retag-var leftover appjail-dns appjail-update update-stopped privdel apply wire type matrix multi extra restart store-off linux"
 # Opt-in: image-specific, or needing something the default host lacks.
 OPT_IN="lnms-admin choice"
 

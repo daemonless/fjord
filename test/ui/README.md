@@ -61,6 +61,7 @@ wire.
 | busy | installing reads as busy, not a problem; a second up is refused | t-busy |
 | output-elsewhere | an update started over the API shows its output on a page opened mid-action, running until it is done | t-out |
 | choice | a stack's choices in the wizard: the rows, "Your own" holding Install until its fields are filled, an install on PostgreSQL that runs with the database it brought, the answer recorded; needs a catalog carrying x-fjord.choices (`CHOICE_CATALOG`, default `proof`) | t-choice |
+| store-off | the store with every catalog switched off says so, with one button to Settings, Catalogs; the wrapper turns the catalogs off before and back on after | (none) |
 | folders | a second copy of an app gets folders of its own; one inside another stack's is refused | |
 | outcome | a failed install is said on the page and in the log; rows with no container say so | t-fail |
 | arch | a tag with no build for this host is refused before and after | t-arch |

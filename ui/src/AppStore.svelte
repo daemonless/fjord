@@ -132,6 +132,9 @@
   // so the empty state can tell "none configured" apart from "not fetched
   // yet". sourceCount counts refreshable sources (the local seed needs none).
   let sourceCount = 0;
+  // Catalogs that are turned on. Every one off is its own case: Refresh
+  // fetches nothing, so the way out is Settings, not a Fetch button.
+  let enabledCount = -1;
   // Host CPU architecture (OCI spelling). Apps whose images aren't built for
   // it are hidden by default: an arm64 host showing 75 amd64-only apps is a
   // store full of things that can't run.
@@ -146,6 +149,8 @@
         sourceCount = about.catalogs || 0;
         hostArch = about.arch || '';
       }
+      const cr = await fetch('/api/catalogs');
+      if (cr.ok) enabledCount = ((await cr.json()) as { enabled?: boolean; builtin?: boolean }[]).filter((c) => c.enabled !== false && !c.builtin).length;
     } catch {
       // about unavailable -> leave the button enabled; refresh reports errors
     }
@@ -261,6 +266,16 @@
         icon="store"
         title="No Catalogs"
         description="No app catalogs are configured. Add one under Settings — any base URL publishing catalog.json (another fjord instance's /catalog works)."
+      />
+    </div>
+  {:else if missing && enabledCount === 0}
+    <div class="flex-1">
+      <EmptyState
+        icon="store"
+        title="No catalogs are turned on"
+        description="Every catalog is switched off, so the store has nothing to show. Turn one on in Settings."
+        actionLabel="Open Catalogs settings"
+        on:action={() => (location.hash = '#/settings/catalogs')}
       />
     </div>
   {:else if missing}
