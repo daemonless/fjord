@@ -186,15 +186,24 @@ type imageExposer interface {
 // postgres collide on 5432 and the second one crash-loops with nothing but a
 // generic "Address already in use" in the sidecar's log -- pre-flight is the
 // only place that can say so plainly. Best-effort: an image not pulled yet
-// contributes nothing.
+// contributes nothing from EXPOSE. The stack's own web port
+// (x-fjord.web_port) is known whatever the image state, so a host-network
+// app whose page port another stack publishes is refused at install, not
+// found crash-looping (plausible over zensical's 8000, netlab 2026-10-25).
 func (s *server) hostNetworkPorts(ctx context.Context, st *stack.Stack, env map[string]string) []hostPort {
-	be, ok := s.backendFor(st).(imageExposer)
-	if !ok {
-		return nil
-	}
+	be, exposes := s.backendFor(st).(imageExposer)
 	var out []hostPort
+	hint := webPortHint(st)
 	for _, svc := range composepkg.ParseServices(st.Compose, env) {
 		if !svc.NetworkHost || svc.Image == "" {
+			continue
+		}
+		container := strings.ToLower(st.Name) + "_" + svc.Name + "_1"
+		if hint > 0 {
+			out = append(out, hostPort{key: fmt.Sprintf("%d/tcp", hint), port: hint, proto: "tcp", service: svc.Name, container: container})
+			hint = 0 // one page, held by the first host-network service
+		}
+		if !exposes {
 			continue
 		}
 		keys, err := be.ImageExposedPorts(ctx, svc.Image)
@@ -212,7 +221,7 @@ func (s *server) hostNetworkPorts(ctx context.Context, st *stack.Stack, env map[
 			}
 			out = append(out, hostPort{
 				key: fmt.Sprintf("%d/%s", port, proto), port: port, proto: proto,
-				service: svc.Name, container: strings.ToLower(st.Name) + "_" + svc.Name + "_1",
+				service: svc.Name, container: container,
 			})
 		}
 	}

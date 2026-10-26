@@ -968,17 +968,23 @@ func currentTarget(st *stack.Stack, views []serviceView, svc string, port int, r
 	if addr := linkHost(views, reachable); addr != "" {
 		return addr, port
 	}
+	return "", webPortHint(st)
+}
+
+// webPortHint is the port the stack's page is published on, from
+// x-fjord.web_port resolved through .env; 0 when the stack says nothing.
+func webPortHint(st *stack.Stack) int {
 	var x struct {
 		XFjord struct {
 			WebPort string `yaml:"web_port"`
 		} `yaml:"x-fjord"`
 	}
 	if yaml.Unmarshal([]byte(st.Compose), &x) != nil {
-		return "", 0
+		return 0
 	}
 	n, err := strconv.Atoi(fillVar(x.XFjord.WebPort, st.EnvMap()))
 	if err != nil || n <= 0 || n > 65535 {
-		return "", 0
+		return 0
 	}
-	return "", n
+	return n
 }
