@@ -220,6 +220,7 @@
       {#if catalog}
         <div class="flex items-center gap-2">
           <input
+            id="app-search"
             bind:value={search}
             placeholder="Search apps…"
             class="w-64 bg-fjord-card border border-fjord-border rounded-md px-3 py-2 text-sm text-fjord-fg-body focus:outline-none focus:border-fjord-accent"
