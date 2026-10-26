@@ -28,16 +28,16 @@ const note = (id, ok, msg) => console.log(`${ok ? 'PASS' : 'FAIL'} ${id}: ${msg}
     const db = page.locator('#DB_DATA_LOCATION');
     await cfg.waitFor();
     note('first copy: the catalog folders as they are', (await cfg.inputValue()) === R + '/librenms/config' && (await db.inputValue()) === R + '/librenms/mariadb', `${await cfg.inputValue()}, ${await db.inputValue()}`);
-    await page.getByLabel('Name').fill('t-lnms');
+    await page.getByLabel('Name', { exact: true }).fill('t-lnms');
     await sleep(500);
     note('renamed to t-lnms: folders follow', (await cfg.inputValue()) === R + '/t-lnms/config' && (await db.inputValue()) === R + '/t-lnms/mariadb', `${await cfg.inputValue()}, ${await db.inputValue()}`);
-    await page.getByLabel('Name').fill('Photo Box 2');
+    await page.getByLabel('Name', { exact: true }).fill('Photo Box 2');
     await sleep(500);
     note('a name with spaces: slugged', (await cfg.inputValue()) === R + '/photo-box-2/config', await cfg.inputValue());
     await page.screenshot({ path: '/out/folders-wizard.png', fullPage: true });
     // A folder typed by hand stays put through a rename.
     await cfg.fill('/mnt/lnms-config');
-    await page.getByLabel('Name').fill('t-lnms');
+    await page.getByLabel('Name', { exact: true }).fill('t-lnms');
     await sleep(500);
     note('a folder typed by hand is kept through a rename', (await cfg.inputValue()) === '/mnt/lnms-config' && (await db.inputValue()) === R + '/t-lnms/mariadb', `${await cfg.inputValue()}, ${await db.inputValue()}`);
     // fjordd's own guard: point it into t-own's folder and try to install.

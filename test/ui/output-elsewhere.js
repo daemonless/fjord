@@ -21,7 +21,7 @@ const detail = async (page) => (await page.request.get(BASE + '/api/stacks/' + N
       await page.getByRole('button', { name: /^Install/ }).first().click();
       const install = page.getByRole('button', { name: 'Install', exact: true });
       await install.waitFor();
-      await page.getByLabel('Name').fill(NAME);
+      await page.getByLabel('Name', { exact: true }).fill(NAME);
       if (!(await page.locator('#WEB_PORT').isVisible().catch(() => false))) await page.getByRole('button', { name: /^Options/ }).first().click();
       await page.locator('#WEB_PORT').fill('3123');
       const netSel = page.locator('table select').filter({ has: page.locator('option[value="bridge"]') });

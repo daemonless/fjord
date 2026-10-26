@@ -27,7 +27,7 @@ const lum = (c) => {
       await page.getByRole('button', { name: /^Install/ }).first().click();
       const install = page.getByRole('button', { name: 'Install', exact: true });
       await install.waitFor();
-      await page.getByLabel('Name').fill(NAME);
+      await page.getByLabel('Name', { exact: true }).fill(NAME);
       // Options open, then bridge, then the port: on a LAN network the form
       // has no port field to fill.
       if (!(await page.getByText('Networking', { exact: true }).first().isVisible().catch(() => false))) await page.getByRole('button', { name: /^Options/ }).first().click();

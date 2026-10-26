@@ -45,7 +45,7 @@ const note = (id, ok, msg) => console.log(`${ok ? 'PASS' : 'FAIL'} ${id}: ${msg}
     const summary = (await page.locator('[data-install-summary]').innerText().catch(() => '')).replace(/\s+/g, ' ');
     note('summary', /postgresql/i.test(summary), summary || 'no summary');
 
-    await page.getByLabel('Name').fill(NAME);
+    await page.getByLabel('Name', { exact: true }).fill(NAME);
     if (!(await page.locator('#WEB_PORT').isVisible().catch(() => false))) await page.getByRole('button', { name: /^Options/ }).first().click();
     await page.locator('#WEB_PORT').fill('3461');
     const netSel = page.locator('table select').filter({ has: page.locator('option[value="bridge"]') });

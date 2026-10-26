@@ -25,7 +25,7 @@ const shot = (page, n) => page.screenshot({ path: `/out/names-${n}.png`, fullPag
     await page.getByRole('button', { name: /^Install/ }).first().click();
     const install = page.getByRole('button', { name: 'Install', exact: true });
     await install.waitFor();
-    await page.getByLabel('Name').fill(STACK);
+    await page.getByLabel('Name', { exact: true }).fill(STACK);
     note('wizard: no name row for the proxy itself', !(await page.getByText('Open it at').isVisible().catch(() => false)), 'checked');
     await shot(page, '1-wizard');
     await install.click();

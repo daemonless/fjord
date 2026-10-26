@@ -17,7 +17,7 @@ const note = (id, ok, msg) => console.log(`${ok ? 'PASS' : 'FAIL'} ${id}: ${msg}
     await page.waitForTimeout(800); // let the search filter, or Install opens another app
     await page.getByRole('button', { name: /^Install/ }).first().click();
     await page.getByRole('button', { name: 'Install', exact: true }).waitFor();
-    await page.getByLabel('Name').fill('t-word');
+    await page.getByLabel('Name', { exact: true }).fill('t-word');
     if (!(await page.locator('#type-openspeedtest').isVisible().catch(() => false))) await page.getByRole('button', { name: /^Options/ }).first().click();
     await page.locator('#WEB_PORT').fill('3109');
     // A one-service app starts with no interface row; add one to see the picker.
