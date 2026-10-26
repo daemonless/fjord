@@ -55,7 +55,7 @@ async function install(page, name, engine, nets) {
   await page.getByPlaceholder(/Search apps/).fill('openspeedtest');
   await page.getByRole('button', { name: /^Install/ }).first().click();
   await page.getByRole('button', { name: 'Install', exact: true }).waitFor();
-  await page.getByLabel('Name').fill(name);
+  await page.getByLabel('Name', { exact: true }).fill(name);
   if (!(await rowPickers(page).count()) || !(await rowPickers(page).first().isVisible())) {
     await page.getByRole('button', { name: /^Options/ }).first().click();
     await sleep(500);

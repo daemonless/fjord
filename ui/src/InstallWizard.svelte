@@ -208,6 +208,7 @@
   let error: string | null = null;
   let manifestText = '';
   let variables: any[] = [];
+  let fjordFills = new Set<string>(); // variables fjord fills itself (a names provider's pairing)
   let formData: Record<string, string> = {};
   // Deploy target = train (build/channel, from the catalog) + version (rolling
   // or a pin, from the registry). trains[trainId] = published pins for it.
@@ -389,7 +390,7 @@
   // A variable a choice sets is the choice's to show (see choiceVars): the
   // row above Options, and its asks when an option has them.
   $: byChoice = choiceVars(choices);
-  $: listedVars = variables.filter((v) => !byChoice.has(v.name));
+  $: listedVars = variables.filter((v) => !byChoice.has(v.name) && !fjordFills.has(v.name));
   // A required address nothing can fill in (the app's own address on a DHCP
   // network is known once it starts) is up front: woodpecker's
   // WOODPECKER_HOST held Install from inside the folded Advanced section.
@@ -897,6 +898,15 @@
       choices = parsed?.['x-fjord']?.choices ?? [];
       webPortHint = String(parsed?.['x-fjord']?.info?.web_port ?? '');
       givesNames = !!parsed?.['x-fjord']?.provides?.names;
+      // A names provider's key, setup token, fjord's address, id and name are
+      // fjord's to fill at install (install_handler), not the person's: never
+      // asked. RP_PAIRING_URL showed as a required field on jupiter.
+      const pn = parsed?.['x-fjord']?.provides?.names ?? {};
+      fjordFills = new Set(
+        [pn.key, pn.setup_token, pn.client_url, pn.client_id, pn.client_name]
+          .map((v: unknown) => /^\$\{(\w+)\}$/.exec(String(v ?? ''))?.[1])
+          .filter((v): v is string => !!v),
+      );
       webHttps = parsed?.['x-fjord']?.info?.web_https === true;
       for (const c of choices) picks[c.id] = c.default;
       picks = picks;

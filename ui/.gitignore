@@ -10,6 +10,8 @@ lerna-debug.log*
 node_modules
 dist
 dist-ssr
+# wuchale's compiled catalogs, rebuilt from the .po files
+src/locales/.wuchale
 *.local
 
 # Editor directories and files

@@ -20,7 +20,7 @@ const shot = (page, n) => page.screenshot({ path: `/out/${n}.png`, fullPage: tru
     await page.getByRole('button', { name: /^Install/ }).first().click();
     const install = page.getByRole('button', { name: 'Install', exact: true });
     await install.waitFor();
-    await page.getByLabel('Name').fill(NAME);
+    await page.getByLabel('Name', { exact: true }).fill(NAME);
     await page.locator('#DB_PASSWORD').fill('lnms-db-t3st');
     await page.locator('#ADMIN_PASSWORD').fill(ADMIN_PASSWORD);
     // The folders wait under Options. Their defaults are the app's, not this

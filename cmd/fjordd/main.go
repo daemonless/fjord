@@ -112,17 +112,21 @@ func buildBackends(fjordRoot string) (map[string]engine.Backend, string) {
 	return backends, def
 }
 
-// cacheControl makes the SPA shell always revalidate so a redeployed binary's
-// new content-hashed bundle is picked up on the next load, while letting the
-// hashed assets themselves cache forever. The embedded FS sends no ETag or
-// Last-Modified (embed files have zero modtime), so without this a browser will
-// keep serving a stale index.html that points at a bundle no longer present.
+// cacheControl keeps the SPA shell out of the browser's cache altogether,
+// while letting the content-hashed assets cache forever. The embedded FS
+// sends no ETag or Last-Modified (embed files have zero modtime), so a
+// cached index.html would point at a bundle no longer present after a
+// redeploy. "no-cache" (revalidate) was not enough: Chrome restores a tab
+// after a restart without validating, ran the old bundle from before the
+// sign-in work, and that bundle's cached "no account" answer put Set up in
+// front of someone with an account (netlab, 2026-10-26). "no-store" leaves
+// nothing to restore from; the page is a few KB.
 func cacheControl(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(r.URL.Path, "/assets/") {
 			w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
 		} else {
-			w.Header().Set("Cache-Control", "no-cache")
+			w.Header().Set("Cache-Control", "no-store")
 		}
 		next.ServeHTTP(w, r)
 	})

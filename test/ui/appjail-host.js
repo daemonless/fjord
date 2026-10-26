@@ -62,7 +62,7 @@ async function setType(page, type) {
     await page.getByRole('button', { name: /^Install/ }).first().click();
     const install = page.getByRole('button', { name: 'Install', exact: true });
     await install.waitFor();
-    await page.getByLabel('Name').fill('t-ajhost');
+    await page.getByLabel('Name', { exact: true }).fill('t-ajhost');
     await page.getByRole('button', { name: /^Options/ }).first().click();
     const eng = page.locator('select').filter({ hasText: 'appjail' }).first();
     if (!(await eng.isVisible().catch(() => false))) await page.getByText('Advanced', { exact: true }).click();

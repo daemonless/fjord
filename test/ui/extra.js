@@ -37,7 +37,7 @@ async function openWizard(page, search, name) {
   await page.getByPlaceholder(/Search apps/).fill(search);
   await page.getByRole('button', { name: /^Install/ }).first().click();
   await page.getByRole('button', { name: 'Install', exact: true }).waitFor();
-  await page.getByLabel('Name').fill(name);
+  await page.getByLabel('Name', { exact: true }).fill(name);
 }
 async function openOptions(page) {
   const net = page.getByText('Networking', { exact: true });

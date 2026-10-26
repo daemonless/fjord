@@ -17,7 +17,9 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -64,6 +66,7 @@ type fakeProxy struct {
 	hosts     int
 	list      []providerHost
 	updated   []providerHost
+	deleted   []string
 }
 
 // selfSigned is a fresh certificate for example.com (or the names given)
@@ -126,8 +129,13 @@ func newFakeProxy(t *testing.T, key string, certs ...tls.Certificate) *fakeProxy
 		f.hosts++
 		json.NewEncoder(w).Encode(map[string]any{"hosts": f.list})
 	})
-	// PUT: the whole host back, as the real API wants it.
+	// PUT: the whole host back, as the real API wants it. DELETE: noted.
 	mux.HandleFunc("/api/v1/hosts/", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "DELETE" {
+			f.deleted = append(f.deleted, strings.TrimPrefix(r.URL.Path, "/api/v1/hosts/"))
+			w.WriteHeader(204)
+			return
+		}
 		if r.Method != "PUT" {
 			w.WriteHeader(405)
 			return
@@ -140,6 +148,7 @@ func newFakeProxy(t *testing.T, key string, certs ...tls.Certificate) *fakeProxy
 			Access          string   `json:"access"`
 			TrustedNetworks []string `json:"trustedNetworks"`
 			Ref             string   `json:"ref"`
+			OwnOrigin       *bool    `json:"ownOrigin"`
 		}
 		dec := json.NewDecoder(r.Body)
 		dec.DisallowUnknownFields()
@@ -356,5 +365,89 @@ func TestOtherHostAddresses(t *testing.T) {
 	}
 	if got := otherHostAddresses("192.168.4.50", own); got != nil {
 		t.Fatalf("an app's own address: %v", got)
+	}
+}
+
+// The browser's address is what the provider is asked to reach; from the
+// host itself that is 127.0.0.1, which nothing elsewhere reaches, so the
+// host's own addresses stand in (a Linux desktop opening localhost:3567
+// got "proxy cannot reach 127.0.0.1:8000", netlab-linux 2026-10-26).
+func TestAddressCandidatesLoopbackMeansTheHost(t *testing.T) {
+	own := []string{"192.168.86.194", "192.168.4.180"}
+	if got := addressCandidates("127.0.0.1", own); !reflect.DeepEqual(got, own) {
+		t.Fatalf("loopback: %v", got)
+	}
+	if got := addressCandidates("192.168.4.180", own); !reflect.DeepEqual(got, []string{"192.168.4.180", "192.168.86.194"}) {
+		t.Fatalf("own address first, the other after: %v", got)
+	}
+	if got := addressCandidates("192.168.4.50", own); !reflect.DeepEqual(got, []string{"192.168.4.50"}) {
+		t.Fatalf("an app's own address is tried alone: %v", got)
+	}
+	if got := addressCandidates("127.0.0.1", nil); !reflect.DeepEqual(got, []string{"127.0.0.1"}) {
+		t.Fatalf("no own addresses: %v", got)
+	}
+}
+
+// A deleted stack's name goes whatever form its ref has: the id form, or
+// the host-name form of records written before this fjord had an id
+// (zensical's name outlived its stack on netlab, 2026-10-26).
+func TestForgetNameMatchesBothRefForms(t *testing.T) {
+	f := newFakeProxy(t, "k")
+	f.complete = true
+	host, _ := os.Hostname()
+	short := strings.SplitN(host, ".", 2)[0]
+	f.list = []providerHost{
+		{ID: "old", Name: "zensical", Ref: "fjord:" + short + ":zensical"},
+		{ID: "new", Name: "radarr", Ref: nameRef("radarr")},
+		{ID: "app", Name: "photocraft", Ref: nameRef("crafting-apps") + "/photocraft"},
+		{ID: "other", Name: "zensical-2", Ref: "fjord:someone-else:zensical"},
+	}
+	p := &provider{Stack: "rp", base: f.srv.URL, key: "k", pinPath: filepath.Join(t.TempDir(), "secrets", "names-rp.json")}
+	for _, key := range []string{"zensical", "radarr", "crafting-apps"} {
+		if err := p.forget(context.Background(), key); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := strings.Join(f.deleted, " "); got != "old new app" {
+		t.Fatalf("deleted %q, want old new app", got)
+	}
+}
+
+// own_origin in a stack's x-fjord is read for the provider; a host that has
+// it goes back on a PUT with it, one that has not goes back without the
+// field at all (an older provider refuses fields it does not know).
+func TestOwnOriginHint(t *testing.T) {
+	if !wantsOwnOrigin(&stack.Stack{Compose: "services:\n  unifi:\n    image: u\nx-fjord:\n  web_port: \"8443\"\n  own_origin: true\n"}) {
+		t.Fatal("own_origin: true not read")
+	}
+	if wantsOwnOrigin(&stack.Stack{Compose: "services:\n  web:\n    image: w\nx-fjord:\n  web_port: \"80\"\n"}) {
+		t.Fatal("a stack without the hint wants its own origin")
+	}
+	on := providerHost{Name: "unifi", OwnOrigin: true}
+	if on.input()["ownOrigin"] != true {
+		t.Fatalf("on: %v", on.input())
+	}
+	if _, sent := (providerHost{Name: "web"}).input()["ownOrigin"]; sent {
+		t.Fatal("off is sent; it must be left out")
+	}
+}
+
+// Deleting a provider's stack drops the root fjord pinned for it, so the
+// same app reinstalled (a new root) is trusted again; other pins stay.
+func TestDeletedProviderForgetsItsPin(t *testing.T) {
+	root := t.TempDir()
+	os.MkdirAll(filepath.Join(root, "secrets"), 0o700)
+	for _, n := range []string{"names-reverse-proxy.json", "names-other.json", "names-linked.json"} {
+		os.WriteFile(filepath.Join(root, "secrets", n), []byte("{}"), 0o600)
+	}
+	forgetProviderPin(root, "reverse-proxy")
+	forgetProviderPin(root, "../other")
+	if _, err := os.Stat(filepath.Join(root, "secrets", "names-reverse-proxy.json")); !os.IsNotExist(err) {
+		t.Fatal("the deleted provider's pin is still there")
+	}
+	for _, n := range []string{"names-other.json", "names-linked.json"} {
+		if _, err := os.Stat(filepath.Join(root, "secrets", n)); err != nil {
+			t.Fatalf("%s went too: %v", n, err)
+		}
 	}
 }

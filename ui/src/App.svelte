@@ -27,6 +27,8 @@
   import TrustMark from './TrustMark.svelte';
   import NamesPrompt from './NamesPrompt.svelte';
   import Icon from './Icon.svelte';
+  import Shortcuts from './Shortcuts.svelte';
+  import { match as matchShortcut, typing } from './shortcuts';
   import ServiceResources from './ServiceResources.svelte';
   import { splitPlan } from './planSeed';
   import EngineMark from './EngineMark.svelte';
@@ -1281,6 +1283,7 @@
   // Pages that load their own data (Settings, System, ...) are made anew;
   // the stack view's edits live here and the App store keeps an open wizard.
   let viewEpoch = 0;
+  let showShortcuts = false; // the ? overlay
   function signedInAgain() {
     viewEpoch++;
     loadStacks();
@@ -1947,6 +1950,10 @@
         return;
       }
       e.detail.accepted?.();
+      // The stack is on disk now: a names provider's row and Open learn its
+      // setup link at once (loadNames keeps looking while it comes up),
+      // not after the install's stay-up check a minute later.
+      loadNames();
       handed = true;
       // A 200 always carries the id. Keyed by a handle if one ever doesn't,
       // so the terminal still has somewhere to write.
@@ -2033,8 +2040,26 @@
   }
 </script>
 
-<!-- The app menu beside Open closes on a click anywhere else. -->
-<svelte:window on:click={(e) => linksOpen && !(e.target as HTMLElement)?.closest?.('.svc-links') && (linksOpen = false)} />
+<!-- The app menu beside Open closes on a click anywhere else. Keys: the
+     table in shortcuts.ts; never while typing in a field. -->
+<svelte:window
+  on:click={(e) => linksOpen && !(e.target as HTMLElement)?.closest?.('.svc-links') && (linksOpen = false)}
+  on:keydown={(e) => {
+    if (typing(e)) return;
+    const s = matchShortcut(e);
+    if (!s) return;
+    if (s.action === 'close') {
+      if (showShortcuts) { showShortcuts = false; e.preventDefault(); }
+      return;
+    }
+    e.preventDefault();
+    if (s.action === 'help') showShortcuts = !showShortcuts;
+    else if (s.action === 'search') (document.getElementById(currentView === 'store' ? 'app-search' : 'stack-search') as HTMLInputElement | null)?.focus();
+    else if (s.action === 'refresh') { loadStacks(); loadNetworks(); loadVolumes(); loadFleetUpdates(); toast('Refreshed'); }
+    else if (s.go) location.hash = s.go;
+  }}
+/>
+{#if showShortcuts}<Shortcuts version={daemonVersion} on:close={() => (showShortcuts = false)} />{/if}
 
 {#if setupOpen}
   <SetupWizard on:done={setupDone} />
@@ -2062,6 +2087,7 @@
 
     <div class="p-3 flex gap-2 border-b border-fjord-border">
       <input
+        id="stack-search"
         bind:value={search}
         placeholder="Search stacks…"
         class="flex-1 min-w-0 bg-fjord-card border border-fjord-border rounded-md px-3 py-1.5 text-sm text-fjord-fg-body focus:outline-none focus:border-fjord-accent"

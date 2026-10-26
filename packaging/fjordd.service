@@ -15,9 +15,12 @@ After=network-online.target podman.socket
 EnvironmentFile=-/etc/default/fjordd
 ExecStart=/usr/local/sbin/fjordd
 Restart=on-failure
-# A stop waits up to 60s for an install or up in flight (fjordd's own
-# deadline): signal fjordd alone, so podman-compose is not killed beside it.
-KillMode=mixed
+# A stop signals fjordd alone. Every container's conmon sits in this
+# unit's cgroup (podman is run from here), so "mixed" or the default
+# killed every running app at each restart of fjordd (Fedora, 2026-10-26).
+# "process" leaves conmon, the containers and a podman-compose in flight
+# alone; fjordd itself waits up to 60s for an install or up to finish.
+KillMode=process
 TimeoutStopSec=90
 
 [Install]

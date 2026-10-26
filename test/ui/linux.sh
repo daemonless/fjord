@@ -4,6 +4,9 @@
 UI_ENV="-e PARENT=${PARENT:-enp0s6f1}"
 before() {
   [ "$(on uname -s)" = Linux ] || { echo "SKIP linux: $HOST is not a Linux host"; return 1; }
+  # Only an SELinux host (Fedora) refuses a folder fjord did not label;
+  # Debian runs it. The script is told which it is on.
+  UI_ENV="$UI_ENV -e SELINUX=$(on 'test -e /sys/fs/selinux/enforce && cat /sys/fs/selinux/enforce || echo 0')"
   on "rm -rf /srv/t-lx-foreign; mkdir -p /srv/t-lx-foreign"
 }
 after() {

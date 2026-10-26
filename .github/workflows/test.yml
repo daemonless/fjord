@@ -50,6 +50,16 @@ jobs:
         working-directory: ui
         run: npm ci
 
+      # Extract and compile the catalogs (svelte-check needs the compiled
+      # ones, which are gitignored), fail if the committed .po files missed
+      # text the code now has, then check every placeholder.
+      - name: Translations
+        working-directory: ui
+        run: |
+          npx wuchale
+          git diff --exit-code -- src/locales
+          npx wuchale check --full
+
       - name: svelte-check / tsc
         working-directory: ui
         run: npm run check

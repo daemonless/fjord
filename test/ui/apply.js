@@ -20,7 +20,7 @@ const banner = (page) => page.getByText(/still use the old configuration/);
       await page.getByPlaceholder(/Search apps/).fill('openspeedtest');
       await page.getByRole('button', { name: /^Install/ }).first().click();
       await page.getByRole('button', { name: 'Install', exact: true }).waitFor();
-      await page.getByLabel('Name').fill('t-apply');
+      await page.getByLabel('Name', { exact: true }).fill('t-apply');
       if (!(await page.locator('#type-openspeedtest').isVisible().catch(() => false))) await page.getByRole('button', { name: /^Options/ }).first().click();
       await page.locator('#WEB_PORT').fill('3110');
       await page.locator('table select').first().selectOption('bridge');

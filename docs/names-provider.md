@@ -110,7 +110,18 @@ opens) and `names`. `ref` is fjord's handle: `fjord:<fjord host>:<stack>`,
 or `fjord:<host>:<stack>/<service>` for one app of a stack of several.
 Keep it and give it back as sent.
 
-`PUT /api/v1/hosts/{id}` with the same body replaces the host. fjord uses
+`ownOrigin: true` may come with it: the app checks a request's `Origin`
+and `Referer` against its own address, and refuses one that names the
+proxy (UniFi does: its login answers 403, then every call 401). The
+provider then rewrites those two headers, for requests from that name's
+own pages only, to the app's address. fjord sends it for an app whose
+`x-fjord` says `own_origin: true`, and leaves the field out otherwise, so
+a provider that has no such option is never sent it. Most apps compare
+`Origin` with the `Host` they are given instead, which the rewrite would
+break: it is never a default.
+
+`PUT /api/v1/hosts/{id}` with the same body replaces the host, keeping
+`ownOrigin` as it was when the body leaves it out. fjord uses
 it when an app's address or port changed, so the name follows, and when a
 person changes the name from the app's page (Change name beside Open):
 the same host with a new `name`. Refuse a taken name with a 4xx and say
@@ -118,6 +129,27 @@ whose it is; fjord shows your words.
 
 `DELETE /api/v1/hosts/{id}` removes the name. Keeping it restorable for a
 while is the app's choice; fjord's Undo re-creates it with `POST`.
+
+## Telling an app its names
+
+Some apps refuse a name they were not told about (SABnzbd answers
+"Hostname verification failed") or need their own address in a
+variable (a base URL). An app says so in its `x-fjord` info:
+
+```yaml
+x-fjord:
+  info:
+    name_env:
+      HOST_ALLOWLIST: "{names}"
+```
+
+`{name}` is the app's main name (`sabnzbd.home.example.com`) and
+`{names}` every name it has, comma-separated. Whenever fjord gives the
+app a name, changes it or takes it away, it sets these variables in the
+stack's `.env`, passes them to the app's service, and recreates the app
+if it is running. A stack busy with something else keeps the change
+pending until its next start or Apply. With no name the variables are
+empty. What a variable does is the app's business; fjord only fills it.
 
 `GET /api/v1/probe?address=...&port=...`
 

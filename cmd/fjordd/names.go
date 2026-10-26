@@ -80,6 +80,10 @@ type providerHost struct {
 		HTTPS           bool   `json:"https"`
 		AcceptUntrusted bool   `json:"acceptUntrusted"`
 	} `json:"target"`
+	// OwnOrigin: the app wants requests from its own address (the stack's
+	// x-fjord own_origin). Sent only when true, so a provider that predates
+	// it is never handed a field it refuses.
+	OwnOrigin bool `json:"ownOrigin,omitempty"`
 }
 
 // input is the host as the provider's PUT takes it: the editable fields
@@ -95,10 +99,14 @@ func (h providerHost) input() map[string]any {
 	if nets == nil {
 		nets = []string{}
 	}
-	return map[string]any{
+	in := map[string]any{
 		"name": h.Name, "extraNames": extra, "target": h.Target, "access": h.Access,
 		"trustedNetworks": nets, "ref": h.Ref,
 	}
+	if h.OwnOrigin {
+		in["ownOrigin"] = true // absent keeps the provider's value
+	}
+	return in
 }
 
 // namesManifests caches which apps give names, by app id, for a minute:
@@ -500,6 +508,11 @@ func (s *server) namesState(ctx context.Context) namesView {
 		if p != nil {
 			v.Provider = p.Stack
 			v.Linked = p.linked
+			// The token is in the stack's .env from the moment it is
+			// saved: Open carries it while the provider is still coming
+			// up, so the first click lands on its setup verified, not on
+			// a page asking for a token from the log (jupiter, 2026-10-26).
+			v.SetupToken = p.setupToken
 		}
 		if err != nil {
 			v.Error = err.Error()
@@ -511,6 +524,9 @@ func (s *server) namesState(ctx context.Context) namesView {
 	if err != nil {
 		v.Disconnected = code == http.StatusUnauthorized
 		v.Error = err.Error()
+		if !v.Disconnected {
+			v.SetupToken = p.setupToken // not answering yet: see above
+		}
 		return v
 	}
 	if !st.Setup.Complete {
@@ -609,6 +625,9 @@ type nameRequest struct {
 	Address string `json:"address"`
 	Port    int    `json:"port"`
 	HTTPS   bool   `json:"https"`
+	// ownOrigin is the stack's x-fjord own_origin, read here, not taken
+	// from the page.
+	ownOrigin bool
 }
 
 type nameResult struct {
@@ -637,7 +656,15 @@ func (s *server) addNames(w http.ResponseWriter, r *http.Request) {
 	}
 	out := make([]nameResult, 0, len(req.Names))
 	for _, n := range req.Names {
-		out = append(out, p.name(ctx, n))
+		stackName, _, _ := strings.Cut(n.Stack, "/")
+		if st, err := s.manager.Get(stackName); err == nil {
+			n.ownOrigin = wantsOwnOrigin(st)
+		}
+		res := p.name(ctx, n)
+		if res.Host != nil {
+			s.applyNameEnvLater(n.Stack)
+		}
+		out = append(out, res)
 	}
 	writeJSONValue(w, map[string]any{"results": out})
 }
@@ -666,7 +693,7 @@ func (p *provider) name(ctx context.Context, n nameRequest) nameResult {
 	// before giving up, and name every address tried when none works.
 	address := n.Address
 	tried := []string{}
-	for _, addr := range append([]string{n.Address}, otherHostAddresses(n.Address, hostIPv4s())...) {
+	for _, addr := range addressCandidates(n.Address, hostIPv4s()) {
 		q := url.Values{"address": {addr}, "port": {strconv.Itoa(n.Port)}}
 		if _, err := p.call(ctx, "GET", "/api/v1/probe?"+q.Encode(), nil, &pr); err != nil {
 			res.Error = err.Error()
@@ -687,6 +714,9 @@ func (p *provider) name(ctx context.Context, n nameRequest) nameResult {
 		"target": map[string]any{"address": address, "port": n.Port, "https": pr.HTTPS, "acceptUntrusted": pr.UntrustedCert},
 		"access": "home",
 		"ref":    nameRef(n.Stack),
+	}
+	if n.ownOrigin {
+		body["ownOrigin"] = true
 	}
 	var h providerHost
 	if _, err := p.call(ctx, "POST", "/api/v1/hosts", body, &h); err != nil {
@@ -710,6 +740,21 @@ func hostIPv4s() []string {
 		}
 	}
 	return out
+}
+
+// addressCandidates is where the provider is asked to reach the app, in
+// order: the address the browser used, then this host's others when that
+// was one of them. A loopback address is the browser sitting on the host
+// itself (http://localhost:3567): no provider elsewhere can reach that, so
+// the host's own addresses stand in for it from the start.
+func addressCandidates(addr string, own []string) []string {
+	if ip := net.ParseIP(addr); ip != nil && ip.IsLoopback() {
+		if len(own) > 0 {
+			return own
+		}
+		return []string{addr}
+	}
+	return append([]string{addr}, otherHostAddresses(addr, own)...)
 }
 
 // otherHostAddresses is the host's addresses worth trying after failed, in
@@ -773,6 +818,7 @@ func (s *server) handleName(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusBadGateway)
 			return
 		}
+		s.applyNameEnvLater(key)
 		w.WriteHeader(http.StatusNoContent)
 	case http.MethodPut:
 		var req struct {
@@ -800,6 +846,7 @@ func (s *server) handleName(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusBadGateway)
 			return
 		}
+		s.applyNameEnvLater(key)
 		writeJSONValue(w, h)
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -837,13 +884,21 @@ func (s *server) forgetName(ctx context.Context, key string) error {
 	if err != nil || p == nil {
 		return err
 	}
+	return p.forget(ctx, key)
+}
+
+// forget removes every name of one stack (or stack/app) from the provider.
+func (p *provider) forget(ctx context.Context, key string) error {
 	hosts, err := p.hosts(ctx)
 	if err != nil {
 		return err
 	}
-	ref := nameRef(key)
+	// By ownKey, not the id form alone: a record written before this fjord
+	// had an id carries its host name, and zensical's name outlived its
+	// stack on netlab (2026-10-26) because only the id form was matched.
 	for _, h := range hosts {
-		if h.Ref == ref || strings.HasPrefix(h.Ref, ref+"/") {
+		k, own := ownKey(h.Ref)
+		if own && (k == key || strings.HasPrefix(k, key+"/")) {
 			if _, err := p.call(ctx, "DELETE", "/api/v1/hosts/"+url.PathEscape(h.ID), nil, nil); err != nil {
 				return err
 			}
@@ -855,6 +910,7 @@ func (s *server) forgetName(ctx context.Context, key string) error {
 // forgetNamesAfterDelete is the delete hook: a deleted app's name goes too.
 // Best effort and in the background; the delete has already succeeded.
 func (s *server) forgetNamesAfterDelete(stackName string) {
+	forgetProviderPin(s.fjordRoot, stackName)
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
@@ -862,6 +918,17 @@ func (s *server) forgetNamesAfterDelete(stackName string) {
 			log.Printf("[names] %s deleted, but its name stays: %v", stackName, err)
 		}
 	}()
+}
+
+// forgetProviderPin drops the certificate fjord pinned for a names
+// provider installed as this stack. A reinstalled provider makes a new
+// root; the old pin then refused it for good ("its certificate is not the
+// one fjord trusts", netlab 2026-10-26). Not a provider: there is no file.
+func forgetProviderPin(fjordRoot, stackName string) {
+	if stackName == "" || strings.ContainsAny(stackName, `/\`) {
+		return
+	}
+	os.Remove(filepath.Join(fjordRoot, "secrets", "names-"+stackName+".json"))
 }
 
 func writeJSONValue(w http.ResponseWriter, v any) {
@@ -968,17 +1035,35 @@ func currentTarget(st *stack.Stack, views []serviceView, svc string, port int, r
 	if addr := linkHost(views, reachable); addr != "" {
 		return addr, port
 	}
+	return "", webPortHint(st)
+}
+
+// wantsOwnOrigin is the stack's x-fjord own_origin: its app checks Origin
+// and Referer against its own address (UniFi), so a names provider should
+// send them as that. See docs/names-provider.md.
+func wantsOwnOrigin(st *stack.Stack) bool {
+	var x struct {
+		XFjord struct {
+			OwnOrigin bool `yaml:"own_origin"`
+		} `yaml:"x-fjord"`
+	}
+	return yaml.Unmarshal([]byte(st.Compose), &x) == nil && x.XFjord.OwnOrigin
+}
+
+// webPortHint is the port the stack's page is published on, from
+// x-fjord.web_port resolved through .env; 0 when the stack says nothing.
+func webPortHint(st *stack.Stack) int {
 	var x struct {
 		XFjord struct {
 			WebPort string `yaml:"web_port"`
 		} `yaml:"x-fjord"`
 	}
 	if yaml.Unmarshal([]byte(st.Compose), &x) != nil {
-		return "", 0
+		return 0
 	}
 	n, err := strconv.Atoi(fillVar(x.XFjord.WebPort, st.EnvMap()))
 	if err != nil || n <= 0 || n > 65535 {
-		return "", 0
+		return 0
 	}
-	return "", n
+	return n
 }

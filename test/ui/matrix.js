@@ -77,7 +77,7 @@ async function openWizard(page, app, name) {
   await page.getByRole('button', { name: /^Install/ }).first().click();
   await page.getByRole('button', { name: 'Install', exact: true }).waitFor();
   const nameBox = page.locator('input').filter({ has: page.locator('xpath=.') }).nth(0);
-  await page.getByLabel('Name').fill(name).catch(async () => { await nameBox.fill(name); });
+  await page.getByLabel('Name', { exact: true }).fill(name).catch(async () => { await nameBox.fill(name); });
 }
 // Options may start folded (the wizard remembers); the network editor and
 // Advanced live inside it.

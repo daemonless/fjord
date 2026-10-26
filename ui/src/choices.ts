@@ -65,13 +65,19 @@ export function isToggle(c: { kind?: string; options: { id: string }[] }): boole
   return c.kind === 'part' && ids.length === 2 && ids[0] === 'off' && ids[1] === 'on';
 }
 
+// A block body, at module level: wuchale's transform left an expression-bodied
+// arrow inside pickedPhrase calling a runtime it never declared.
+function and(xs: string[]): string {
+  if (xs.length < 2) return xs.join('');
+  return `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}`;
+}
+
 /** pickedPhrase: the non-default answers for the summary line, in words:
  *  "without EffectCraft and DesignCraft", "with Public sharing", "MariaDB". */
 export function pickedPhrase(
   choices: { id: string; kind?: string; label: string; default: string; options: { id: string; label: string }[] }[],
   picks: Record<string, string>,
 ): string {
-  const and = (xs: string[]) => (xs.length < 2 ? xs.join('') : `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}`);
   const changed = choices.filter((c) => picks[c.id] && picks[c.id] !== c.default);
   const off = changed.filter((c) => isToggle(c) && picks[c.id] === 'off').map((c) => c.label);
   const on = changed.filter((c) => isToggle(c) && picks[c.id] === 'on').map((c) => c.label);

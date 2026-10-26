@@ -24,7 +24,7 @@ async function install(page, name, engine, port) {
   await page.getByRole('button', { name: /^Install/ }).first().click();
   const install = page.getByRole('button', { name: 'Install', exact: true });
   await install.waitFor();
-  await page.getByLabel('Name').fill(name);
+  await page.getByLabel('Name', { exact: true }).fill(name);
   if (!(await page.locator('#WEB_PORT').isVisible().catch(() => false))) await page.getByRole('button', { name: /^Options/ }).first().click();
   await page.locator('#WEB_PORT').fill(port);
   if (engine === 'appjail') {

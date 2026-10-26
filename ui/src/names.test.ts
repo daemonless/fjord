@@ -65,7 +65,8 @@ describe('freeName', () => {
     const p: NamesState = { ...ready, names: {}, taken: ['radarr', 'sonarr-2'] };
     expect(freeName('radarr', p)).toBe('radarr-2');
     expect(freeName('sonarr', p)).toBe('sonarr');
-    expect(nameOwner('radarr', p)).toBeUndefined();
+    expect(nameOwner('radarr', p)).toBe('another fjord');
+    expect(nameOwner('sonarr', p)).toBeUndefined();
   });
   it('gives two copies named together different names', () => {
     const p: NamesState = { ...ready, names: {}, taken: ['radarr'] };

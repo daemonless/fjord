@@ -42,7 +42,18 @@
     checking: 'bg-fjord-neutral animate-pulse', // not known yet is not broken
     unknown: 'bg-fjord-warning',
   };
-  const label = (s?: StackStatus) => statusKey(s);
+  // The state as a word; inside a function so the catalog carries it.
+  function stateWord(k: string): string {
+    switch (k) {
+      case 'running': return 'Running';
+      case 'stopped': return 'Stopped';
+      case 'partial': return 'Partial';
+      case 'checking': return 'Checking';
+      case 'unknown': return 'Unknown';
+      default: return k;
+    }
+  }
+  const label = (s?: StackStatus) => stateWord(statusKey(s));
   const running = (s?: StackStatus) => s?.state === 'running' || s?.state === 'partial';
 
   $: runningCount = stacks.filter((s) => running(s.status)).length;

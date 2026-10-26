@@ -25,7 +25,7 @@ const shot = (page, n) => page.screenshot({ path: `/out/names-${n}.png`, fullPag
     await page.getByRole('button', { name: /^Install/ }).first().click();
     const install = page.getByRole('button', { name: 'Install', exact: true });
     await install.waitFor();
-    await page.getByLabel('Name').fill(STACK);
+    await page.getByLabel('Name', { exact: true }).fill(STACK);
     note('wizard: no name row for the proxy itself', !(await page.getByText('Open it at').isVisible().catch(() => false)), 'checked');
     await shot(page, '1-wizard');
     await install.click();
@@ -77,13 +77,16 @@ const shot = (page, n) => page.screenshot({ path: `/out/names-${n}.png`, fullPag
     for (let i = 0; i < 10 && !ask; i++) {
       await page.goto(BASE + '/?t=' + Date.now() + '#/stacks/' + STACK, { waitUntil: 'domcontentloaded' });
       await sleep(2000);
-      ask = await page.getByRole('button', { name: /^Add (name|\d+ names)$/ }).isVisible().catch(() => false);
+      ask = await page.getByRole('button', { name: /^Add names?…$/ }).isVisible().catch(() => false);
     }
     await shot(page, '4-give-names');
     const line = await page.getByText(/no name yet\. Like .*\.apps\.lan, home network only/).innerText().catch(() => '');
     note('the provider page offers names', ask, line || 'no Add names');
     if (!ask) throw new Error('no Add names');
-    await page.getByRole('button', { name: /^Add (name|\d+ names)$/ }).click();
+    await page.getByRole('button', { name: /^Add names?…$/ }).click();
+    const picker = page.getByRole('group', { name: 'Choose names' });
+    note('Add names opens a list to pick from', await picker.isVisible().catch(() => false), `${await picker.getByRole('checkbox').count()} apps listed`);
+    await picker.getByRole('button', { name: /^Add (name|\d+ names)$/ }).click();
     const t = page.getByRole('status').filter({ hasText: /apps have names|is ready/ });
     await t.waitFor({ timeout: 60000 }).catch(() => {});
     const toastText = await t.innerText().catch(() => '');
@@ -115,7 +118,7 @@ const shot = (page, n) => page.screenshot({ path: `/out/names-${n}.png`, fullPag
     await sleep(2500);
     const byName = await openHref();
     note('Open goes to the name', byName === px.names[first].url, byName || 'no Open');
-    await page.getByTitle('Open by name or by address').click();
+    await page.getByTitle(/^Open by name/).click();
     await shot(page, '6-open-menu');
     const byNameItem = await page.getByRole('button', { name: /^By name/ }).isVisible().catch(() => false);
     const byAddrItem = await page.getByRole('button', { name: /^By address/ }).isVisible().catch(() => false);
@@ -134,7 +137,7 @@ const shot = (page, n) => page.screenshot({ path: `/out/names-${n}.png`, fullPag
     // Change the name from the menu (inline editor, Save), then Undo from the toast.
     await page.goto(BASE + '/?t=' + Date.now() + '#/stacks/' + first, { waitUntil: 'domcontentloaded' });
     await sleep(2500);
-    await page.getByTitle('Open by name or by address').click();
+    await page.getByTitle(/^Open by name/).click();
     await page.getByRole('button', { name: /^Change name/ }).click();
     const nameBox = page.getByLabel('Open it at');
     const oldLabel = await nameBox.inputValue();
@@ -154,7 +157,7 @@ const shot = (page, n) => page.screenshot({ path: `/out/names-${n}.png`, fullPag
     // Remove from the menu, then Undo from the toast.
     await page.goto(BASE + '/?t=' + Date.now() + '#/stacks/' + first, { waitUntil: 'domcontentloaded' });
     await sleep(2500);
-    await page.getByTitle('Open by name or by address').click();
+    await page.getByTitle(/^Open by name/).click();
     await page.getByRole('button', { name: /^Remove (name|\d+ names)$/ }).click();
     await page.getByRole('status').filter({ hasText: /has no names? now/ }).waitFor();
     let gone = !(await (await page.request.get(BASE + '/api/names')).json()).names?.[first];
