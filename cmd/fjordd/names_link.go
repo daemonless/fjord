@@ -132,6 +132,17 @@ func (s *server) handleNamesLink(w http.ResponseWriter, r *http.Request) {
 }
 
 // findStackProvider reports whether one of this fjord's stacks provides names.
+// namesInPlay: a provider is linked or installed here, so names exist to
+// keep in step. Settings and the stack list, no engine calls.
+func (s *server) namesInPlay() bool {
+	if s.linkedProvider() != nil {
+		return true
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	return s.findStackProvider(ctx)
+}
+
 func (s *server) findStackProvider(ctx context.Context) bool {
 	stacks, err := s.manager.List()
 	if err != nil {

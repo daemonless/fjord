@@ -106,11 +106,22 @@ func (s *server) handleEvents(w http.ResponseWriter, r *http.Request) {
 // when nobody is watching. Runs for the life of the process.
 func (s *server) runEventLoop() {
 	last := map[string]string{} // stack name -> last published state
+	idle := 0                   // polls skipped while nobody watches
 	for {
 		time.Sleep(1500 * time.Millisecond)
-		if s.events.count() == 0 {
-			continue // nobody watching: skip the (shell-out) status calls
+		watched := s.events.count() > 0
+		if !watched {
+			// Nobody watching: skip the (shell-out) status calls, unless
+			// names are in play. A port changed by Apply from the API, or a
+			// lease that moved at night, left a name pointing at nothing
+			// until someone opened fjord (and then only on the next change).
+			// So with a provider the loop still looks, every 30 s.
+			idle++
+			if idle < 20 || !s.namesInPlay() {
+				continue
+			}
 		}
+		idle = 0
 		stacks, err := s.manager.List()
 		if err != nil {
 			continue
@@ -139,8 +150,15 @@ func (s *server) runEventLoop() {
 			if last[full.Name] == key {
 				continue
 			}
-			if last[full.Name] != "" && state == "running" {
+			// On the first look too: fjordd was down, or nobody watched,
+			// while the app moved. syncStack writes only when a name no
+			// longer matches, so a quiet start costs one read.
+			if state == "running" {
 				s.syncTargets(full, status)
+			}
+			if !watched {
+				last[full.Name] = key
+				continue // nothing to publish to
 			}
 			last[full.Name] = key
 			if b, err := json.Marshal(map[string]any{
