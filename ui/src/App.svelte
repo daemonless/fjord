@@ -1950,6 +1950,10 @@
         return;
       }
       e.detail.accepted?.();
+      // The stack is on disk now: a names provider's row and Open learn its
+      // setup link at once (loadNames keeps looking while it comes up),
+      // not after the install's stay-up check a minute later.
+      loadNames();
       handed = true;
       // A 200 always carries the id. Keyed by a handle if one ever doesn't,
       // so the terminal still has somewhere to write.

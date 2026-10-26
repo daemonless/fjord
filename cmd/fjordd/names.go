@@ -500,6 +500,11 @@ func (s *server) namesState(ctx context.Context) namesView {
 		if p != nil {
 			v.Provider = p.Stack
 			v.Linked = p.linked
+			// The token is in the stack's .env from the moment it is
+			// saved: Open carries it while the provider is still coming
+			// up, so the first click lands on its setup verified, not on
+			// a page asking for a token from the log (jupiter, 2026-10-26).
+			v.SetupToken = p.setupToken
 		}
 		if err != nil {
 			v.Error = err.Error()
@@ -511,6 +516,9 @@ func (s *server) namesState(ctx context.Context) namesView {
 	if err != nil {
 		v.Disconnected = code == http.StatusUnauthorized
 		v.Error = err.Error()
+		if !v.Disconnected {
+			v.SetupToken = p.setupToken // not answering yet: see above
+		}
 		return v
 	}
 	if !st.Setup.Complete {
