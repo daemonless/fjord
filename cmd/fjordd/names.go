@@ -666,7 +666,7 @@ func (p *provider) name(ctx context.Context, n nameRequest) nameResult {
 	// before giving up, and name every address tried when none works.
 	address := n.Address
 	tried := []string{}
-	for _, addr := range append([]string{n.Address}, otherHostAddresses(n.Address, hostIPv4s())...) {
+	for _, addr := range addressCandidates(n.Address, hostIPv4s()) {
 		q := url.Values{"address": {addr}, "port": {strconv.Itoa(n.Port)}}
 		if _, err := p.call(ctx, "GET", "/api/v1/probe?"+q.Encode(), nil, &pr); err != nil {
 			res.Error = err.Error()
@@ -710,6 +710,21 @@ func hostIPv4s() []string {
 		}
 	}
 	return out
+}
+
+// addressCandidates is where the provider is asked to reach the app, in
+// order: the address the browser used, then this host's others when that
+// was one of them. A loopback address is the browser sitting on the host
+// itself (http://localhost:3567): no provider elsewhere can reach that, so
+// the host's own addresses stand in for it from the start.
+func addressCandidates(addr string, own []string) []string {
+	if ip := net.ParseIP(addr); ip != nil && ip.IsLoopback() {
+		if len(own) > 0 {
+			return own
+		}
+		return []string{addr}
+	}
+	return append([]string{addr}, otherHostAddresses(addr, own)...)
 }
 
 // otherHostAddresses is the host's addresses worth trying after failed, in

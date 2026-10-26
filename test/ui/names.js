@@ -115,7 +115,7 @@ const shot = (page, n) => page.screenshot({ path: `/out/names-${n}.png`, fullPag
     await sleep(2500);
     const byName = await openHref();
     note('Open goes to the name', byName === px.names[first].url, byName || 'no Open');
-    await page.getByTitle('Open by name or by address').click();
+    await page.getByTitle(/^Open by name/).click();
     await shot(page, '6-open-menu');
     const byNameItem = await page.getByRole('button', { name: /^By name/ }).isVisible().catch(() => false);
     const byAddrItem = await page.getByRole('button', { name: /^By address/ }).isVisible().catch(() => false);
@@ -134,7 +134,7 @@ const shot = (page, n) => page.screenshot({ path: `/out/names-${n}.png`, fullPag
     // Change the name from the menu (inline editor, Save), then Undo from the toast.
     await page.goto(BASE + '/?t=' + Date.now() + '#/stacks/' + first, { waitUntil: 'domcontentloaded' });
     await sleep(2500);
-    await page.getByTitle('Open by name or by address').click();
+    await page.getByTitle(/^Open by name/).click();
     await page.getByRole('button', { name: /^Change name/ }).click();
     const nameBox = page.getByLabel('Open it at');
     const oldLabel = await nameBox.inputValue();
@@ -154,7 +154,7 @@ const shot = (page, n) => page.screenshot({ path: `/out/names-${n}.png`, fullPag
     // Remove from the menu, then Undo from the toast.
     await page.goto(BASE + '/?t=' + Date.now() + '#/stacks/' + first, { waitUntil: 'domcontentloaded' });
     await sleep(2500);
-    await page.getByTitle('Open by name or by address').click();
+    await page.getByTitle(/^Open by name/).click();
     await page.getByRole('button', { name: /^Remove (name|\d+ names)$/ }).click();
     await page.getByRole('status').filter({ hasText: /has no names? now/ }).waitFor();
     let gone = !(await (await page.request.get(BASE + '/api/names')).json()).names?.[first];

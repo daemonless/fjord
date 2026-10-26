@@ -209,10 +209,11 @@ export function trustPage(p: NamesState, stacks: (AppUrlStack & { name: string }
   return `http://${u.hostname}/trust`;
 }
 
-/** A name label from a stack name: what a provider will accept. */
-/** The stack (or stack/app) that has this label, if any fjord gave does. */
+/** The stack (or stack/app) that has this label, or "another fjord" when
+ *  one linked to the same provider holds it (p.taken): the wizard says so
+ *  and holds Install, instead of the provider refusing after the install. */
 export function nameOwner(label: string, p: NamesState): string | undefined {
-  return Object.entries(p.names || {}).find(([, n]) => n.name === label)?.[0];
+  return Object.entries(p.names || {}).find(([, n]) => n.name === label)?.[0] ?? (p.taken?.includes(label) ? 'another fjord' : undefined);
 }
 
 /** base, or base-2, base-3 ... until one nothing on the provider has: no
@@ -220,7 +221,7 @@ export function nameOwner(label: string, p: NamesState): string | undefined {
  *  an app must not be offered the first one's name. */
 export function freeName(base: string, p: NamesState, also: Set<string> = new Set()): string {
   let l = base;
-  for (let n = 2; nameOwner(l, p) || p.taken?.includes(l) || also.has(l); n++) l = `${base}-${n}`;
+  for (let n = 2; nameOwner(l, p) || also.has(l); n++) l = `${base}-${n}`;
   return l;
 }
 

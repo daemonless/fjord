@@ -18,6 +18,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -356,5 +357,25 @@ func TestOtherHostAddresses(t *testing.T) {
 	}
 	if got := otherHostAddresses("192.168.4.50", own); got != nil {
 		t.Fatalf("an app's own address: %v", got)
+	}
+}
+
+// The browser's address is what the provider is asked to reach; from the
+// host itself that is 127.0.0.1, which nothing elsewhere reaches, so the
+// host's own addresses stand in (a Linux desktop opening localhost:3567
+// got "proxy cannot reach 127.0.0.1:8000", netlab-linux 2026-10-26).
+func TestAddressCandidatesLoopbackMeansTheHost(t *testing.T) {
+	own := []string{"192.168.86.194", "192.168.4.180"}
+	if got := addressCandidates("127.0.0.1", own); !reflect.DeepEqual(got, own) {
+		t.Fatalf("loopback: %v", got)
+	}
+	if got := addressCandidates("192.168.4.180", own); !reflect.DeepEqual(got, []string{"192.168.4.180", "192.168.86.194"}) {
+		t.Fatalf("own address first, the other after: %v", got)
+	}
+	if got := addressCandidates("192.168.4.50", own); !reflect.DeepEqual(got, []string{"192.168.4.50"}) {
+		t.Fatalf("an app's own address is tried alone: %v", got)
+	}
+	if got := addressCandidates("127.0.0.1", nil); !reflect.DeepEqual(got, []string{"127.0.0.1"}) {
+		t.Fatalf("no own addresses: %v", got)
 	}
 }
