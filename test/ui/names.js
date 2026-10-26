@@ -77,13 +77,16 @@ const shot = (page, n) => page.screenshot({ path: `/out/names-${n}.png`, fullPag
     for (let i = 0; i < 10 && !ask; i++) {
       await page.goto(BASE + '/?t=' + Date.now() + '#/stacks/' + STACK, { waitUntil: 'domcontentloaded' });
       await sleep(2000);
-      ask = await page.getByRole('button', { name: /^Add (name|\d+ names)$/ }).isVisible().catch(() => false);
+      ask = await page.getByRole('button', { name: /^Add names?…$/ }).isVisible().catch(() => false);
     }
     await shot(page, '4-give-names');
     const line = await page.getByText(/no name yet\. Like .*\.apps\.lan, home network only/).innerText().catch(() => '');
     note('the provider page offers names', ask, line || 'no Add names');
     if (!ask) throw new Error('no Add names');
-    await page.getByRole('button', { name: /^Add (name|\d+ names)$/ }).click();
+    await page.getByRole('button', { name: /^Add names?…$/ }).click();
+    const picker = page.getByRole('group', { name: 'Choose names' });
+    note('Add names opens a list to pick from', await picker.isVisible().catch(() => false), `${await picker.getByRole('checkbox').count()} apps listed`);
+    await picker.getByRole('button', { name: /^Add (name|\d+ names)$/ }).click();
     const t = page.getByRole('status').filter({ hasText: /apps have names|is ready/ });
     await t.waitFor({ timeout: 60000 }).catch(() => {});
     const toastText = await t.innerText().catch(() => '');
