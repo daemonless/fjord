@@ -121,6 +121,12 @@ func (m *Manifest) Resolve(values map[string]string, slug, storageBase string) (
 			res.Env[v.Name] = val
 
 		default: // port, string, secret
+			// A names provider's pairing values are fjord's to fill after
+			// Resolve (install_handler): empty here is expected, not missing.
+			if val == "" && m.fjordFills(v.Name) {
+				res.Env[v.Name] = ""
+				continue
+			}
 			if val == "" && !v.Optional && v.Given {
 				return nil, fmt.Errorf("%s is empty: it is yours to enter (fjord does not make it up)", v.Name)
 			}
@@ -151,4 +157,19 @@ func Provision(dirs []ProvisionDir) error {
 		}
 	}
 	return nil
+}
+
+// fjordFills reports whether name is one of the ${VAR}s a names provider
+// declares for fjord to fill: its address, id and name (the key and setup
+// token are secrets fjord makes up anyway).
+func (m *Manifest) fjordFills(name string) bool {
+	if m.Names == nil {
+		return false
+	}
+	for _, ref := range []string{m.Names.ClientURL, m.Names.ClientID, m.Names.ClientName, m.Names.Key, m.Names.SetupToken} {
+		if strings.TrimSuffix(strings.TrimPrefix(ref, "${"), "}") == name && strings.HasPrefix(ref, "${") {
+			return true
+		}
+	}
+	return false
 }
