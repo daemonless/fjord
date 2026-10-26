@@ -3,6 +3,75 @@
 Releases are tagged on GitHub; each rc is a pre-release with the pull
 requests it carries. This file is the story per release.
 
+## 0.4.0 — unreleased
+
+Linux, a sign-in, names and HTTPS for your apps, and a Linux app store.
+Proven through the real pages on a FreeBSD host and a Fedora host
+(`test/ui`), and by hand on a Debian one.
+
+### Linux
+- fjord runs on Linux: Fedora and Debian with rootful podman. Each release
+  carries `fjordd-linux-amd64` and `-arm64`, a systemd unit and
+  `install-linux.sh`, which checks podman, enables its socket and says how
+  to open the firewall. (#149)
+- LAN networks on Linux: macvlan with DHCP through netavark's proxy or a
+  static pool, the wire probe, and the Open link on the container's own
+  address. The host firewall and SELinux are checked at Setup; a folder
+  SELinux refuses gets `:z`, and mount options can be set from the page.
+  (#149, #155)
+- Networks and addresses are read through podman, engines another OS does
+  not run are left out, and the store offers only what this OS can run.
+  (#149)
+- Import a compose project started outside fjord. (#149)
+
+### Sign in
+- fjord has an account. The first visit asks for a setup code printed on
+  the host; after that every page and the API need a session, which ends
+  after 30 days unused. `fjordd passwd` resets it; `FJORD_AUTH=none` keeps
+  the old behaviour behind a reverse proxy of your own.
+- The password a person signs in to an app with is one they can type, and
+  the app's own login shows beside Open ("Sign in"), made up by fjord at
+  install or stated as the app's default. (#155)
+
+### Names and HTTPS
+- An app that declares it provides names (the reverse proxy from the
+  store) gives the others names like `radarr.apps.lan` over HTTPS. Names
+  are given, changed and removed from the ▾ beside Open and at install;
+  a shield says whether this device trusts the proxy or can resolve the
+  names; names follow an app's port and address. Every fjord has an id and
+  a name, and a second fjord links to the same proxy by pasting one link.
+  The contract is `docs/names-provider.md`.
+
+### A Linux app store
+- 183 linuxserver.io apps, each one installed and checked on a Linux host
+  before it is offered; a fresh Linux install starts with that catalog,
+  FreeBSD with daemonless's. Optional settings are offered under Advanced
+  and left out when empty; an app whose default port is taken starts on a
+  free one; a value typed in .env reaches the app in one click. (#149,
+  #155)
+
+### AppJail
+- Roll back, pin and change one service's version; updated jails are
+  watched to stay up as containers are; jail name resolution is set up in
+  one click without an open resolver; a stale director lock no longer
+  wedges a stack. (#139, #140, #149)
+
+### Fixes and small things
+- Apply recreates only what changed, and a second Apply during the first
+  one's check takes over. A save during an install or an update is kept.
+  Two installs at once get different names. (#142, #146, #147, #148, #149)
+- A restart policy per stack, chosen on the page; a stack it leaves down
+  at boot reads as stopped. (#134)
+- The doctor checks that crash restarts can work (fdescfs) and that
+  podman's API service is not older than podman; the Shell tab explains a
+  missing shell or a stale service and offers the restart. (#136, #150)
+- Install says what it downloads before Install; optional fields are
+  marked. (#137, #138)
+- Folders are never a system folder, never follow a planted symlink, and
+  an app's secrets are kept where its container cannot reach. (#149)
+- The sidebar is a drawer on phones; the Shell tab is readable in light
+  mode; a long status line no longer runs under the buttons. (#133, #149)
+
 ## 0.3.2 — 2026-10-21
 
 Fixes only, for 0.3.1. New work goes into 0.4.0 (Linux).
