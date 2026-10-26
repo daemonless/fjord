@@ -660,7 +660,11 @@ func (s *server) addNames(w http.ResponseWriter, r *http.Request) {
 		if st, err := s.manager.Get(stackName); err == nil {
 			n.ownOrigin = wantsOwnOrigin(st)
 		}
-		out = append(out, p.name(ctx, n))
+		res := p.name(ctx, n)
+		if res.Host != nil {
+			s.applyNameEnvLater(n.Stack)
+		}
+		out = append(out, res)
 	}
 	writeJSONValue(w, map[string]any{"results": out})
 }
@@ -814,6 +818,7 @@ func (s *server) handleName(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusBadGateway)
 			return
 		}
+		s.applyNameEnvLater(key)
 		w.WriteHeader(http.StatusNoContent)
 	case http.MethodPut:
 		var req struct {
@@ -841,6 +846,7 @@ func (s *server) handleName(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusBadGateway)
 			return
 		}
+		s.applyNameEnvLater(key)
 		writeJSONValue(w, h)
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)

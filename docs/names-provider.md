@@ -130,6 +130,27 @@ whose it is; fjord shows your words.
 `DELETE /api/v1/hosts/{id}` removes the name. Keeping it restorable for a
 while is the app's choice; fjord's Undo re-creates it with `POST`.
 
+## Telling an app its names
+
+Some apps refuse a name they were not told about (SABnzbd answers
+"Hostname verification failed") or need their own address in a
+variable (a base URL). An app says so in its `x-fjord` info:
+
+```yaml
+x-fjord:
+  info:
+    name_env:
+      HOST_ALLOWLIST: "{names}"
+```
+
+`{name}` is the app's main name (`sabnzbd.home.example.com`) and
+`{names}` every name it has, comma-separated. Whenever fjord gives the
+app a name, changes it or takes it away, it sets these variables in the
+stack's `.env`, passes them to the app's service, and recreates the app
+if it is running. A stack busy with something else keeps the change
+pending until its next start or Apply. With no name the variables are
+empty. What a variable does is the app's business; fjord only fills it.
+
 `GET /api/v1/probe?address=...&port=...`
 
 ```json

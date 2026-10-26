@@ -111,6 +111,12 @@ type Manifest struct {
 	// OwnOrigin (info.own_origin): the app checks Origin and Referer against
 	// its own address, so a names provider sends them as that (UniFi).
 	OwnOrigin bool
+	// NameEnv (info.name_env): variables fjord fills with the names a
+	// names provider gives the app, by template: {name} is the main name
+	// (sabnzbd.home.example.com), {names} every name, comma-separated. For
+	// apps that refuse a name they were not told (SABnzbd's host_whitelist)
+	// or need their own address (a base URL).
+	NameEnv map[string]string
 	// Networking is the app's own answer to "which service goes where": a map
 	// of service name to a network SPEC, with "*" standing for every service
 	// not named. The specs are Default (whatever the install was told to use)
@@ -274,9 +280,10 @@ func Parse(manifestYAML string) (*Manifest, error) {
 
 	var xf struct {
 		Info struct {
-			WebPort   string `yaml:"web_port"`
-			WebHTTPS  bool   `yaml:"web_https"`
-			OwnOrigin bool   `yaml:"own_origin"`
+			WebPort   string            `yaml:"web_port"`
+			WebHTTPS  bool              `yaml:"web_https"`
+			OwnOrigin bool              `yaml:"own_origin"`
+			NameEnv   map[string]string `yaml:"name_env"`
 		} `yaml:"info"`
 		Variables  []xfVar           `yaml:"variables"`
 		Appjail    *AppjailBundle    `yaml:"appjail"`
@@ -358,13 +365,24 @@ func Parse(manifestYAML string) (*Manifest, error) {
 
 	m := &Manifest{compose: buf.String(), appjail: xf.Appjail, Variables: vars,
 		WebPort: xf.Info.WebPort, WebHTTPS: xf.Info.WebHTTPS, OwnOrigin: xf.Info.OwnOrigin,
+		NameEnv:    xf.Info.NameEnv,
 		Networking: xf.Networking, Hostnames: xf.Hostnames, Choices: choices, Login: xf.Login,
 	}
 	if xf.Provides != nil {
 		m.Names = xf.Provides.Names
 	}
+	for k := range m.NameEnv {
+		if !EnvName(k) {
+			return nil, fmt.Errorf("info.name_env: %q is not a variable name", k)
+		}
+	}
 	return m, nil
 }
+
+var envNameRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
+// EnvName reports whether s can name an environment variable.
+func EnvName(s string) bool { return envNameRe.MatchString(s) }
 
 // Login is x-fjord.login. User and Password are each a ${VAR}, filled from
 // the stack's .env (a password fjord made up at install), or a literal: the

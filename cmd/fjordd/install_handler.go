@@ -7,10 +7,12 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"maps"
 	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -591,13 +593,24 @@ func (s *server) handleInstall(w http.ResponseWriter, r *http.Request) {
 	// Persist the catalog's web-endpoint hint in the saved compose (compose on
 	// disk is the source of truth; podman-compose ignores x-* keys). Without it
 	// host-net stacks have no discoverable web link -- nothing is published.
-	if m.WebPort != "" {
-		composeYAML += fmt.Sprintf("\nx-fjord:\n  web_port: %q\n", m.WebPort)
+	if m.WebPort != "" || len(m.NameEnv) > 0 {
+		composeYAML += "\nx-fjord:\n"
+		if m.WebPort != "" {
+			composeYAML += fmt.Sprintf("  web_port: %q\n", m.WebPort)
+		}
 		if m.WebHTTPS {
 			composeYAML += "  web_https: true\n"
 		}
 		if m.OwnOrigin {
 			composeYAML += "  own_origin: true\n"
+		}
+		// Kept with the stack, like own_origin: the names it gets later are
+		// filled into these (see applyNameEnv).
+		if len(m.NameEnv) > 0 {
+			composeYAML += "  name_env:\n"
+			for _, k := range slices.Sorted(maps.Keys(m.NameEnv)) {
+				composeYAML += fmt.Sprintf("    %s: %q\n", k, m.NameEnv[k])
+			}
 		}
 	}
 	// So the stack's parts can find each other: each service's consumers get
