@@ -16,12 +16,14 @@
     "@tsconfig/svelte": "^5.0.8",
     "@types/js-yaml": "^4.0.9",
     "@types/node": "^24.13.3",
+    "@wuchale/svelte": "^0.21.4",
     "svelte": "^5.56.8",
     "svelte-check": "^4.7.3",
     "tailwindcss": "^4.3.3",
     "typescript": "~6.0.2",
     "vite": "^8.2.0",
-    "vitest": "^5.0.1"
+    "vitest": "^5.0.1",
+    "wuchale": "^0.26.7"
   },
   "dependencies": {
     "@codemirror/lang-yaml": "^6.1.3",

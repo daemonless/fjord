@@ -3,7 +3,9 @@
 // single characters; "g" starts a two-key chord ("g s").
 export type Shortcut = { keys: string; does: string; go?: string; action?: 'search' | 'refresh' | 'help' | 'close' };
 
-export const shortcuts: Shortcut[] = [
+// Built on each call, not at module load: the strings come from the
+// language catalog, which main.ts loads after this module is evaluated.
+export const shortcuts = (): Shortcut[] => [
   { keys: '?', does: 'Show these shortcuts', action: 'help' },
   { keys: '/', does: 'Search stacks, or apps in the store', action: 'search' },
   { keys: 'g s', does: 'Go to Stacks', go: '#/stacks' },
@@ -17,7 +19,7 @@ export const shortcuts: Shortcut[] = [
 ];
 
 // Elsewhere already, listed so the overlay tells the whole story.
-export const alsoShortcuts: Shortcut[] = [
+export const alsoShortcuts = (): Shortcut[] => [
   { keys: 'Ctrl F', does: 'Find in the log view' },
   { keys: '← → ↑ ↓', does: 'Resize the sidebar and the output drawer (when focused)' },
 ];
@@ -42,7 +44,7 @@ export function match(e: KeyboardEvent): Shortcut | null {
     const want = `${chord} ${key}`;
     chord = '';
     clearTimeout(chordTimer);
-    return shortcuts.find((s) => s.keys === want) || null;
+    return shortcuts().find((s) => s.keys === want) || null;
   }
   if (key === 'g') {
     chord = 'g';
@@ -50,5 +52,5 @@ export function match(e: KeyboardEvent): Shortcut | null {
     chordTimer = setTimeout(() => (chord = ''), 1500);
     return null;
   }
-  return shortcuts.find((s) => s.keys === key) || null;
+  return shortcuts().find((s) => s.keys === key) || null;
 }

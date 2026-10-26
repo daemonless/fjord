@@ -20,7 +20,7 @@
       <button on:click={() => dispatch('close')} class="text-fjord-fg-muted hover:text-fjord-fg text-xl leading-none" aria-label="Close">×</button>
     </div>
     <dl class="grid grid-cols-[auto_1fr] gap-x-6 gap-y-2 text-sm">
-      {#each [...shortcuts, ...alsoShortcuts] as s}
+      {#each [...shortcuts(), ...alsoShortcuts()] as s}
         <dt class="flex gap-1 whitespace-nowrap">
           {#each keys(s.keys) as k}<kbd class="px-1.5 py-0.5 rounded border border-fjord-border bg-fjord-inset font-mono text-xs text-fjord-fg-body">{k}</kbd>{/each}
         </dt>

@@ -18,7 +18,9 @@ export type Changes = {
 const day = (iso?: string) =>
   iso ? new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric', timeZone: 'UTC' }) : '';
 
-const plural = (n: number, one: string, many = one + 's') => `${n} ${n === 1 ? one : many}`;
+// Not `plural`: wuchale rewrites any plural(n, ...) call as its own, which
+// passed the locale in as the plural ("3 en changed").
+const count = (n: number, one: string, many = one + 's') => `${n} ${n === 1 ? one : many}`;
 
 /** packagesPhrase: "no package changes", "1 package changed, 2 added", or "". */
 export function packagesPhrase(c: Changes): string {
@@ -28,9 +30,9 @@ export function packagesPhrase(c: Changes): string {
   const removed = c.removed?.length ?? 0;
   if (!changed && !added && !removed) return 'no package changes';
   const bits: string[] = [];
-  if (changed) bits.push(`${plural(changed, 'package')} changed`);
-  if (added) bits.push(`${changed ? added : plural(added, 'package')} added`);
-  if (removed) bits.push(`${changed || added ? removed : plural(removed, 'package')} removed`);
+  if (changed) bits.push(`${count(changed, 'package')} changed`);
+  if (added) bits.push(`${changed ? added : count(added, 'package')} added`);
+  if (removed) bits.push(`${changed || added ? removed : count(removed, 'package')} removed`);
   return bits.join(', ');
 }
 

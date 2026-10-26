@@ -2,6 +2,7 @@
   import Account from './Account.svelte';
   import { onMount, createEventDispatcher, tick } from 'svelte';
   import Icon from './Icon.svelte';
+  import { LOCALES, currentLocale, setLocale, type Locale } from './locale';
   import Spinner from './Spinner.svelte';
   import EmptyState from './EmptyState.svelte';
   import DirPicker from './DirPicker.svelte';
@@ -103,6 +104,7 @@
   // (#/settings/<tab>), owned by App: it arrives as a prop, changes go up.
   export let tab: 'storage' | 'extensions' | 'catalogs' | 'names' | 'advanced' | 'account' = 'storage';
   const dispatch = createEventDispatcher();
+  const locale = currentLocale();
   let activeTab: 'storage' | 'extensions' | 'catalogs' | 'names' | 'advanced' | 'account' = tab;
   $: activeTab = tab;
   function selectTab(t: 'storage' | 'extensions' | 'catalogs' | 'names' | 'advanced' | 'account') {
@@ -644,6 +646,18 @@
         {/each}
       </div>
 
+
+      <div class="flex items-center gap-4 px-4 py-3 mt-3 border border-fjord-border rounded-xl max-w-2xl">
+        <label for="fjord-locale" class="w-40 shrink-0 text-sm text-fjord-fg-muted">Language</label>
+        <select
+          id="fjord-locale"
+          value={locale}
+          on:change={(e) => setLocale(e.currentTarget.value as Locale)}
+          class="bg-fjord-inset border border-fjord-border rounded-lg px-2 py-1 text-sm text-fjord-fg-body focus:border-fjord-accent outline-none"
+        >
+          {#each LOCALES as l (l.id)}<option value={l.id}>{l.name}</option>{/each}
+        </select>
+      </div>
 
       <!-- Storage / Extensions / Catalogs / Advanced tabs -->
       <div class="flex gap-1 mt-6 mb-4 border-b border-fjord-border max-w-2xl">
