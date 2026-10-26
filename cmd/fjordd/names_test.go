@@ -17,6 +17,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -65,6 +66,7 @@ type fakeProxy struct {
 	hosts     int
 	list      []providerHost
 	updated   []providerHost
+	deleted   []string
 }
 
 // selfSigned is a fresh certificate for example.com (or the names given)
@@ -127,8 +129,13 @@ func newFakeProxy(t *testing.T, key string, certs ...tls.Certificate) *fakeProxy
 		f.hosts++
 		json.NewEncoder(w).Encode(map[string]any{"hosts": f.list})
 	})
-	// PUT: the whole host back, as the real API wants it.
+	// PUT: the whole host back, as the real API wants it. DELETE: noted.
 	mux.HandleFunc("/api/v1/hosts/", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "DELETE" {
+			f.deleted = append(f.deleted, strings.TrimPrefix(r.URL.Path, "/api/v1/hosts/"))
+			w.WriteHeader(204)
+			return
+		}
 		if r.Method != "PUT" {
 			w.WriteHeader(405)
 			return
@@ -377,5 +384,30 @@ func TestAddressCandidatesLoopbackMeansTheHost(t *testing.T) {
 	}
 	if got := addressCandidates("127.0.0.1", nil); !reflect.DeepEqual(got, []string{"127.0.0.1"}) {
 		t.Fatalf("no own addresses: %v", got)
+	}
+}
+
+// A deleted stack's name goes whatever form its ref has: the id form, or
+// the host-name form of records written before this fjord had an id
+// (zensical's name outlived its stack on netlab, 2026-10-26).
+func TestForgetNameMatchesBothRefForms(t *testing.T) {
+	f := newFakeProxy(t, "k")
+	f.complete = true
+	host, _ := os.Hostname()
+	short := strings.SplitN(host, ".", 2)[0]
+	f.list = []providerHost{
+		{ID: "old", Name: "zensical", Ref: "fjord:" + short + ":zensical"},
+		{ID: "new", Name: "radarr", Ref: nameRef("radarr")},
+		{ID: "app", Name: "photocraft", Ref: nameRef("crafting-apps") + "/photocraft"},
+		{ID: "other", Name: "zensical-2", Ref: "fjord:someone-else:zensical"},
+	}
+	p := &provider{Stack: "rp", base: f.srv.URL, key: "k", pinPath: filepath.Join(t.TempDir(), "secrets", "names-rp.json")}
+	for _, key := range []string{"zensical", "radarr", "crafting-apps"} {
+		if err := p.forget(context.Background(), key); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := strings.Join(f.deleted, " "); got != "old new app" {
+		t.Fatalf("deleted %q, want old new app", got)
 	}
 }

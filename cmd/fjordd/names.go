@@ -852,13 +852,21 @@ func (s *server) forgetName(ctx context.Context, key string) error {
 	if err != nil || p == nil {
 		return err
 	}
+	return p.forget(ctx, key)
+}
+
+// forget removes every name of one stack (or stack/app) from the provider.
+func (p *provider) forget(ctx context.Context, key string) error {
 	hosts, err := p.hosts(ctx)
 	if err != nil {
 		return err
 	}
-	ref := nameRef(key)
+	// By ownKey, not the id form alone: a record written before this fjord
+	// had an id carries its host name, and zensical's name outlived its
+	// stack on netlab (2026-10-26) because only the id form was matched.
 	for _, h := range hosts {
-		if h.Ref == ref || strings.HasPrefix(h.Ref, ref+"/") {
+		k, own := ownKey(h.Ref)
+		if own && (k == key || strings.HasPrefix(k, key+"/")) {
 			if _, err := p.call(ctx, "DELETE", "/api/v1/hosts/"+url.PathEscape(h.ID), nil, nil); err != nil {
 				return err
 			}
