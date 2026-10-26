@@ -904,6 +904,7 @@ func (p *provider) forget(ctx context.Context, key string) error {
 // forgetNamesAfterDelete is the delete hook: a deleted app's name goes too.
 // Best effort and in the background; the delete has already succeeded.
 func (s *server) forgetNamesAfterDelete(stackName string) {
+	forgetProviderPin(s.fjordRoot, stackName)
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
@@ -911,6 +912,17 @@ func (s *server) forgetNamesAfterDelete(stackName string) {
 			log.Printf("[names] %s deleted, but its name stays: %v", stackName, err)
 		}
 	}()
+}
+
+// forgetProviderPin drops the certificate fjord pinned for a names
+// provider installed as this stack. A reinstalled provider makes a new
+// root; the old pin then refused it for good ("its certificate is not the
+// one fjord trusts", netlab 2026-10-26). Not a provider: there is no file.
+func forgetProviderPin(fjordRoot, stackName string) {
+	if stackName == "" || strings.ContainsAny(stackName, `/\`) {
+		return
+	}
+	os.Remove(filepath.Join(fjordRoot, "secrets", "names-"+stackName+".json"))
 }
 
 func writeJSONValue(w http.ResponseWriter, v any) {

@@ -431,3 +431,23 @@ func TestOwnOriginHint(t *testing.T) {
 		t.Fatal("off is sent; it must be left out")
 	}
 }
+
+// Deleting a provider's stack drops the root fjord pinned for it, so the
+// same app reinstalled (a new root) is trusted again; other pins stay.
+func TestDeletedProviderForgetsItsPin(t *testing.T) {
+	root := t.TempDir()
+	os.MkdirAll(filepath.Join(root, "secrets"), 0o700)
+	for _, n := range []string{"names-reverse-proxy.json", "names-other.json", "names-linked.json"} {
+		os.WriteFile(filepath.Join(root, "secrets", n), []byte("{}"), 0o600)
+	}
+	forgetProviderPin(root, "reverse-proxy")
+	forgetProviderPin(root, "../other")
+	if _, err := os.Stat(filepath.Join(root, "secrets", "names-reverse-proxy.json")); !os.IsNotExist(err) {
+		t.Fatal("the deleted provider's pin is still there")
+	}
+	for _, n := range []string{"names-other.json", "names-linked.json"} {
+		if _, err := os.Stat(filepath.Join(root, "secrets", n)); err != nil {
+			t.Fatalf("%s went too: %v", n, err)
+		}
+	}
+}
