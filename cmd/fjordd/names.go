@@ -49,6 +49,9 @@ type provider struct {
 	pinPath    string
 	pin        *providerPin // nil until the provider is set up and its root is known
 	linked     bool         // linked by hand (Settings, Names), not a stack here
+	// publicRoots verify a provider with public certificates: nil is the
+	// system's. Tests set their own.
+	publicRoots *x509.CertPool
 }
 
 // providerPin is what fjord trusts about a provider, kept in fjord's
@@ -298,6 +301,8 @@ func (p *provider) client() *http.Client {
 			pool := x509.NewCertPool()
 			pool.AppendCertsFromPEM([]byte(p.pin.Root))
 			cfg.RootCAs = pool
+		} else {
+			cfg.RootCAs = p.publicRoots
 		}
 	}
 	return &http.Client{Timeout: 10 * time.Second, Transport: &http.Transport{TLSClientConfig: cfg}}
@@ -340,6 +345,19 @@ func (p *provider) status(ctx context.Context) (providerStatus, int, error) {
 				return again, code2, fmt.Errorf("cannot take its root certificate: %v", err)
 			}
 			return again, code2, nil
+		case err2 == nil && again.Setup.Complete && again.ProxyName == was.TrustName && was.Root != "":
+			// Its own root when setup finished, public certificates now
+			// (they arrive after: a free name, a DNS token). Trusted only
+			// if it verifies against the public roots, which nobody can
+			// fake for this name (netlab, 2026-10-27).
+			p.pin = &providerPin{TrustName: was.TrustName}
+			var pub providerStatus
+			if code3, err3 := p.call(ctx, "GET", "/api/v1/status", nil, &pub); err3 == nil {
+				if err := p.savePin(p.pin); err != nil {
+					return pub, code3, err
+				}
+				return pub, code3, nil
+			}
 		}
 		p.pin = was
 		return st, code, err
