@@ -216,3 +216,37 @@ msgstr "Find in the log view"
 #: src/shortcuts.ts
 msgid "Resize the sidebar and the output drawer (when focused)"
 msgstr "Resize the sidebar and the output drawer (when focused)"
+
+#: src/password.ts
+#: src/password.ts
+#: src/password.ts
+msgid "Weak"
+msgstr "Weak"
+
+#: src/password.ts
+msgid "It is one of the most common passwords."
+msgstr "It is one of the most common passwords."
+
+#: src/password.ts
+msgid "Runs and repeats are guessed first."
+msgstr "Runs and repeats are guessed first."
+
+#: src/password.ts
+msgid "Short passwords are guessed quickly."
+msgstr "Short passwords are guessed quickly."
+
+#: src/password.ts
+msgid "Strong"
+msgstr "Strong"
+
+#: src/password.ts
+msgid "Good"
+msgstr "Good"
+
+#: src/password.ts
+msgid "Fair"
+msgstr "Fair"
+
+#: src/password.ts
+msgid "Longer is stronger: a short sentence is easy to remember."
+msgstr "Longer is stronger: a short sentence is easy to remember."

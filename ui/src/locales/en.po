@@ -3894,9 +3894,8 @@ msgstr "Sign out everywhere else"
 msgid "Sign out everywhere else…"
 msgstr "Sign out everywhere else…"
 
-#: src/Account.svelte
-msgid "At least 12 characters"
-msgstr "At least 12 characters"
+#~ msgid "At least 12 characters"
+#~ msgstr "At least 12 characters"
 
 #: src/Account.svelte
 msgid "Changing…"
@@ -4648,9 +4647,8 @@ msgstr "On the host, as root:"
 #~ msgid "{0} mb-1"
 #~ msgstr "{0} mb-1"
 
-#: src/SignIn.svelte
-msgid "At least 12 characters."
-msgstr "At least 12 characters."
+#~ msgid "At least 12 characters."
+#~ msgstr "At least 12 characters."
 
 #: src/SignIn.svelte
 msgid "Password again"
@@ -4744,3 +4742,18 @@ msgstr "Choose names"
 #: src/NamesPrompt.svelte
 msgid "Pick the apps to give a name. Each is reachable at its name on your home network only."
 msgstr "Pick the apps to give a name. Each is reachable at its name on your home network only."
+
+#: src/Account.svelte
+#: src/SignIn.svelte
+msgid "Use it anyway"
+msgstr "Use it anyway"
+
+#. 0: strength(password).why.toLowerCase().replace(/\\\\.$/, '')
+#: src/Account.svelte
+msgid "This password is weak: {0}. Anyone who can open this page could guess it."
+msgstr "This password is weak: {0}. Anyone who can open this page could guess it."
+
+#. 0: strength(password).why.toLowerCase().replace(/\\\\.$/, '')
+#: src/SignIn.svelte
+msgid "This password is weak: {0}. Anyone who can open this page could guess it. Choose another, or use it anyway."
+msgstr "This password is weak: {0}. Anyone who can open this page could guess it. Choose another, or use it anyway."

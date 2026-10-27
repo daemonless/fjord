@@ -3885,9 +3885,8 @@ msgstr "Déconnecter partout ailleurs"
 msgid "Sign out everywhere else…"
 msgstr "Déconnecter partout ailleurs…"
 
-#: src/Account.svelte
-msgid "At least 12 characters"
-msgstr "Au moins 12 caractères"
+#~ msgid "At least 12 characters"
+#~ msgstr "Au moins 12 caractères"
 
 #: src/Account.svelte
 msgid "Changing…"
@@ -4637,9 +4636,8 @@ msgstr "Sur l'hôte, en root :"
 #~ msgid "{0} mb-1"
 #~ msgstr ""
 
-#: src/SignIn.svelte
-msgid "At least 12 characters."
-msgstr "Au moins 12 caractères."
+#~ msgid "At least 12 characters."
+#~ msgstr "Au moins 12 caractères."
 
 #: src/SignIn.svelte
 msgid "Password again"
@@ -4733,3 +4731,18 @@ msgstr "Choisir les noms"
 #: src/NamesPrompt.svelte
 msgid "Pick the apps to give a name. Each is reachable at its name on your home network only."
 msgstr "Choisissez les applications à nommer. Chacune est joignable à son nom, réseau domestique seulement."
+
+#: src/Account.svelte
+#: src/SignIn.svelte
+msgid "Use it anyway"
+msgstr "L'utiliser quand même"
+
+#. 0: strength(password).why.toLowerCase().replace(/\\\\.$/, '')
+#: src/Account.svelte
+msgid "This password is weak: {0}. Anyone who can open this page could guess it."
+msgstr "Ce mot de passe est faible : {0}. Quiconque peut ouvrir cette page pourrait le deviner."
+
+#. 0: strength(password).why.toLowerCase().replace(/\\\\.$/, '')
+#: src/SignIn.svelte
+msgid "This password is weak: {0}. Anyone who can open this page could guess it. Choose another, or use it anyway."
+msgstr "Ce mot de passe est faible : {0}. Quiconque peut ouvrir cette page pourrait le deviner. Choisissez-en un autre, ou utilisez-le quand même."

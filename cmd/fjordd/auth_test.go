@@ -118,7 +118,7 @@ func TestSetupCodeWorksOnce(t *testing.T) {
 	if w := do(h, "POST", "/api/auth/setup", `{"code":"AAAA-BBBB-CCCC","user":"admin","password":"correct horse battery"}`, "", ""); w.Code != 403 {
 		t.Errorf("wrong code: %d, want 403", w.Code)
 	}
-	if w := do(h, "POST", "/api/auth/setup", `{"code":"`+code+`","user":"admin","password":"short"}`, "", ""); w.Code != 400 {
+	if w := do(h, "POST", "/api/auth/setup", `{"code":"`+code+`","user":"admin","password":""}`, "", ""); w.Code != 400 {
 		t.Errorf("short password: %d, want 400", w.Code)
 	}
 	// Typed in lower case without dashes still counts.
@@ -158,8 +158,8 @@ func TestPasswdBeforeFirstStart(t *testing.T) {
 	if w.Code != 200 {
 		t.Fatalf("sign in as admin: %d %s", w.Code, w.Body)
 	}
-	if err := runPasswd([]string{"--stacks-dir", filepath.Join(root, "stacks"), "--password-stdin"}, strings.NewReader("short\n"), &out); err == nil {
-		t.Error("a short password was accepted")
+	if err := runPasswd([]string{"--stacks-dir", filepath.Join(root, "stacks"), "--password-stdin"}, strings.NewReader("\n"), &out); err == nil {
+		t.Error("an empty password was accepted")
 	}
 }
 
