@@ -2,6 +2,7 @@ package podman
 
 import (
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -22,5 +23,17 @@ func TestCommandError(t *testing.T) {
 	// Podman said nothing: the exit status is all there is.
 	if got := commandError("pulling...\n", exit); got != "exit status 125" {
 		t.Errorf("got %q", got)
+	}
+}
+
+func TestPullError(t *testing.T) {
+	forgejo := "$ podman pull ghcr.io/daemonless/forgejo:latest\nTrying to pull ghcr.io/daemonless/forgejo:latest...\n" +
+		"Error: unable to copy from source docker://ghcr.io/daemonless/forgejo:latest: initializing source docker://ghcr.io/daemonless/forgejo:latest: reading manifest latest in ghcr.io/daemonless/forgejo: manifest unknown\n" +
+		"Error: no container with name or ID \"sw-forgejo_forgejo_1\" found: no such container\n"
+	if got := pullError(forgejo); !strings.Contains(got, "ghcr.io/daemonless/forgejo:latest") || !strings.Contains(got, "no such version") {
+		t.Errorf("manifest unknown: %q", got)
+	}
+	if got := pullError("Error: no container with name or ID \"x\" found\n"); got != "" {
+		t.Errorf("no pull in it: %q", got)
 	}
 }
