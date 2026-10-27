@@ -171,14 +171,31 @@ func (b *Backend) bringUp(ctx context.Context, pw *io.PipeWriter, s *stack.Stack
 	}
 	names := containerNames(ofServices(cs, only))
 	if len(names) == 0 {
-		fmt.Fprintf(pw, "\n[error] compose created no containers to start\n")
+		if why := pullError(seen.String()); why != "" {
+			fmt.Fprintf(pw, "\n[error] %s\n", why)
+		} else {
+			fmt.Fprintf(pw, "\n[error] compose created no containers to start\n")
+		}
 		return
 	}
 	seen.reset()
 	if err := b.runStreaming(ctx, out, s.Dir, "podman", append([]string{"start"}, names...)...); err != nil {
 		if !b.explainNoDHCP(ctx, pw, seen.String()) {
 			fmt.Fprintf(pw, "\n[error] start: %s\n", commandError(seen.String(), err))
+			// podman's reason is often a symptom: an app that exits at once
+			// (cloudflared with a wrong token) is restarted before its address
+			// is freed, and start reports a duplicate CNI allocation. The
+			// app's own last words are the cause.
+			b.lastLogs(ctx, pw, s.Dir, names)
 		}
+	}
+}
+
+// lastLogs prints the last lines each container logged.
+func (b *Backend) lastLogs(ctx context.Context, w io.Writer, dir string, names []string) {
+	for _, n := range names {
+		fmt.Fprintf(w, "\n%s's last log lines:\n", n)
+		b.runStreaming(ctx, w, dir, "podman", "logs", "--tail", "15", n)
 	}
 }
 

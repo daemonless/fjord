@@ -144,7 +144,11 @@ x-fjord:
 ```
 
 `{name}` is the app's main name (`sabnzbd.home.example.com`) and
-`{names}` every name it has, comma-separated. Whenever fjord gives the
+`{names}` every name it has, comma-separated. `{proxy}` is where the
+provider's requests come from, for an app that trusts only its proxy
+(Home Assistant's `trusted_proxies`): the subnets of the provider's
+networks when it runs on this host, or its host's address when it is
+linked. Whenever fjord gives the
 app a name, changes it or takes it away, it sets these variables in the
 stack's `.env`, passes them to the app's service, and recreates the app
 if it is running. A stack busy with something else keeps the change

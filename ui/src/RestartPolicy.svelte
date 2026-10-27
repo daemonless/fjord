@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { fitMenu } from './fitMenu';
   // The stack's restart policy, a chip among the header chips: what happens
   // when it exits, and at boot -- or, on an engine that does not restart what
   // exits, only what starts at boot. fjordd keeps it (the compose's
@@ -78,7 +79,7 @@
     {#if open}
       <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
       <div class="fixed inset-0 z-20" on:click={() => (open = false)}></div>
-      <div role="menu" class="absolute z-30 left-0 mt-1 w-96 bg-fjord-card border border-fjord-border rounded-lg shadow-xl py-1">
+      <div role="menu" use:fitMenu class="absolute z-30 left-0 mt-1 w-96 bg-fjord-card border border-fjord-border rounded-lg shadow-xl py-1">
         {#if restart.mixed}
           <p class="px-3 py-1.5 text-xs text-fjord-fg-dim">{restartTitle(restart)}</p>
         {/if}

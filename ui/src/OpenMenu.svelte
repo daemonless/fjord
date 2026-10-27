@@ -9,6 +9,7 @@
   import { toast } from './toast';
   import Icon from './Icon.svelte';
   import Spinner from './Spinner.svelte';
+  import { fitMenu } from './fitMenu';
 
   export let stack: any;
   export let disabled = false;
@@ -142,15 +143,15 @@
       >{#if busy}<Spinner size={12} />{:else}▾{/if}</button
     >
     {#if open}
-      <div class="absolute z-30 left-0 mt-1 min-w-80 bg-fjord-card border border-fjord-border rounded-lg shadow-xl py-1 text-sm">
+      <div use:fitMenu class="absolute z-30 left-0 mt-1 {editing ? 'w-[28rem]' : 'min-w-80'} bg-fjord-card border border-fjord-border rounded-lg shadow-xl py-1 text-sm">
         {#if editing && first && firstName}
           <form on:submit|preventDefault={save} class="flex flex-col gap-2 px-3 py-2">
             <label class="text-fjord-fg-secondary" for="rename-{first.key}">Open it at</label>
             <div class="flex items-center rounded-md border border-fjord-border bg-fjord-inset focus-within:border-fjord-accent">
-              <span class="pl-3 text-fjord-fg-dim font-mono">https://</span>
+              <span class="pl-3 shrink-0 text-fjord-fg-dim font-mono">https://</span>
               <input id="rename-{first.key}" bind:value={draft} use:focus spellcheck="false" autocomplete="off"
                 class="min-w-0 flex-1 bg-transparent py-1.5 font-mono text-fjord-fg-body focus:outline-none" />
-              <span class="pr-3 text-fjord-fg-dim font-mono">.{$names.domain}</span>
+              <span class="pr-3 shrink-0 text-fjord-fg-dim font-mono">.{$names.domain}</span>
             </div>
             <div class="text-xs text-fjord-fg-dim">
               {#if clean === ''}Letters, digits and dashes.

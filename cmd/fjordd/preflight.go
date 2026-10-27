@@ -255,13 +255,18 @@ func (s *server) provisionBindDirs(st *stack.Stack, env map[string]string) []str
 		if !anywhere && !strings.HasPrefix(clean, root) {
 			continue // jailed fjordd: outside the managed root is not ours to create
 		}
-		// Never through a link a container could have planted (review 1.3):
-		// a dangling one in its data folder made fjord create and chown
-		// the folder it named, wherever that was.
-		created, err := manifest.MkdirOwned(clean, 0o755, uid, gid)
-		if err != nil {
-			problems = append(problems, fmt.Sprintf("bind mount %s: cannot create: %v", clean, err))
-			continue
+		// A file mounted on its own (one config file) is there already:
+		// only missing folders are made.
+		created := false
+		if fi, err := os.Stat(clean); err != nil || fi.IsDir() {
+			// Never through a link a container could have planted (review
+			// 1.3): a dangling one in its data folder made fjord create and
+			// chown the folder it named, wherever that was.
+			created, err = manifest.MkdirOwned(clean, 0o755, uid, gid)
+			if err != nil {
+				problems = append(problems, fmt.Sprintf("bind mount %s: cannot create: %v", clean, err))
+				continue
+			}
 		}
 		if created {
 			log.Printf("preflight %s: provisioned %s (uid %d)", st.Name, clean, uid)

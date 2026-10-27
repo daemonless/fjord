@@ -13,6 +13,45 @@ msgstr ""
 msgid "{0} and {1}"
 msgstr "{0} et {1}"
 
+#~ msgid "Start with http:// or https://"
+#~ msgstr ""
+
+#~ msgid "Needs a host name or address"
+#~ msgstr ""
+
+#~ msgid "Not a valid address"
+#~ msgstr ""
+
+#~ msgid "package"
+#~ msgstr ""
+
+#~ msgid "{0} changed"
+#~ msgstr ""
+
+#~ msgid "{0} added"
+#~ msgstr ""
+
+#~ msgid "{0} removed"
+#~ msgstr ""
+
+#~ msgid "New build of the same version ({0})"
+#~ msgstr ""
+
+#~ msgid "New build of the same version"
+#~ msgstr ""
+
+#~ msgid "New {0} version"
+#~ msgstr ""
+
+#~ msgid "Newer image, {0} → {1}"
+#~ msgstr ""
+
+#~ msgid "Newer image ({0})"
+#~ msgstr ""
+
+#~ msgid "Newer image"
+#~ msgstr ""
+
 #: src/AddMount.svelte
 msgid "Mount into <0/> — edits the compose, <1>Save</1> to apply."
 msgstr "Monter dans <0/> — modifie le compose, <1>Enregistrer</1> pour appliquer."
@@ -28,6 +67,7 @@ msgstr "Monter dans <0/> — modifie le compose, <1>Enregistrer</1> pour appliqu
 #: src/ConfirmDialog.svelte
 #: src/DirPicker.svelte
 #: src/InstallWizard.svelte
+#: src/NamesPrompt.svelte
 #: src/Networks.svelte
 #: src/Networks.svelte
 #: src/Networks.svelte
@@ -106,6 +146,9 @@ msgstr "Parcourir…"
 msgid "Add"
 msgstr "Ajouter"
 
+#~ msgid "<0/> RO"
+#~ msgstr ""
+
 #: src/AddMount.svelte
 msgid "No named volumes yet — create one on the Volumes page."
 msgstr "Aucun volume nommé pour l'instant — créez-en un sur la page Volumes."
@@ -163,6 +206,9 @@ msgstr "Rien à faire maintenant ; la page Piles pourra les adopter plus tard."
 msgid "Containers and jails on this host that no stack owns — started by hand, a script, or another tool. Adopting one turns what the engine recorded into a stack: same image, mounts, network address and name. <0/>"
 msgstr "Les conteneurs et jails de cet hôte qu'aucune pile ne possède — lancés à la main, par un script ou un autre outil. En adopter un transforme ce que le moteur a enregistré en une pile : même image, montages, adresse réseau et nom. <0/>"
 
+#~ msgid "Removes {0} containers and starts each as a stack with the same mounts, network address and name. Data stays where it is."
+#~ msgstr ""
+
 #: src/Adopt.svelte
 msgid "Replace all"
 msgstr "Tout remplacer"
@@ -202,6 +248,9 @@ msgstr "Créer la pile (arrêtée) ; le conteneur continue de tourner"
 msgid "Replace"
 msgstr "Remplacer"
 
+#~ msgid "Remove the container and start it as a stack"
+#~ msgstr ""
+
 #: src/Adopt.svelte
 msgid "<0/>Adopt & replace"
 msgstr "<0/>Adopter et remplacer"
@@ -210,6 +259,9 @@ msgstr "<0/>Adopter et remplacer"
 msgid "Adopt"
 msgstr "Adopter"
 
+#~ msgid "Removes the container <0/> and starts it as a stack with the same mounts, network address and name. Data stays where it is."
+#~ msgstr ""
+
 #: src/App.svelte
 #: src/App.svelte
 #: src/AppStore.svelte
@@ -217,6 +269,7 @@ msgstr "Adopter"
 #: src/AppStore.svelte
 #: src/AppStore.svelte
 #: src/AppStore.svelte
+#: src/NamesPrompt.svelte
 msgid "All"
 msgstr "Tout"
 
@@ -711,7 +764,7 @@ msgstr "Mise à jour disponible"
 #. 0: fleetBehindCount; 1: fleetBehindCount === 1 ? '' \\: 's'
 #: src/App.svelte
 msgid "<0/> {0} update{1} available"
-msgstr "<0/> {0} mise{1} à jour disponible{1}"
+msgstr "<0/> {0} mise{1} à jour en attente"
 
 #. 0: search || stackFilter !== 'all' ? ' match' \\: ' yet'
 #: src/App.svelte
@@ -787,6 +840,9 @@ msgstr "Le moteur n'a pas répondu à temps — généralement un pull qui écri
 #: src/App.svelte
 msgid "Runtime engine"
 msgstr "Moteur d'exécution"
+
+#~ msgid "A stack on its own IP publishes nothing on the host, so there is no link to open until the network gives it an address."
+#~ msgstr ""
 
 #. 0: openUrl
 #: src/App.svelte
@@ -1251,6 +1307,7 @@ msgid "{0}/{1} services"
 msgstr "{0}/{1} services"
 
 #: src/App.svelte
+#: src/NamesPrompt.svelte
 msgid "None"
 msgstr "Aucun"
 
@@ -1351,7 +1408,7 @@ msgstr "Les {0} en marche"
 #. 0: updateCount; 1: updateCount === 1 ? '' \\: 's'
 #: src/Dashboard.svelte
 msgid "{0} update{1} available"
-msgstr "{0} mise{1} à jour disponible{1}"
+msgstr "{0} mise{1} à jour en attente"
 
 #: src/Dashboard.svelte
 #: src/SetupWizard.svelte
@@ -1502,6 +1559,12 @@ msgstr "<0/> Ajouter un NFS…"
 msgid "<0/> Add SMB…"
 msgstr "<0/> Ajouter un SMB…"
 
+#~ msgid "Installed: {0}"
+#~ msgstr ""
+
+#~ msgid "Could not install {0}: {1}"
+#~ msgstr ""
+
 #: src/Settings.svelte
 msgid "<0/> Installing…"
 msgstr "<0/> Installation…"
@@ -1607,6 +1670,12 @@ msgstr "Changez-le pour en faire tourner plusieurs copies, p. ex. <0>{0}-4k</0>.
 msgid "Name"
 msgstr "Nom"
 
+#~ msgid "Port <0/>, the app's own, at its address on {0}."
+#~ msgstr ""
+
+#~ msgid "With an address of its own nothing is published on this host, so there is no port to choose here."
+#~ msgstr ""
+
 #: src/InstallWizard.svelte
 msgid "Required"
 msgstr "Requis"
@@ -1661,6 +1730,9 @@ msgstr "Pas sur AppJail avec ce catalogue : il n'a pas de forme AppJail pour cet
 #: src/InstallWizard.svelte
 msgid "Not on AppJail with this catalog: it has no AppJail form for this option. Install on podman, or refresh the catalog."
 msgstr "Pas sur AppJail avec ce catalogue : il n'a pas de forme AppJail pour cette option. Installez sur podman, ou actualisez le catalogue."
+
+#~ msgid "Installs <0/><1/> on <2/><3/> · data in <4/>"
+#~ msgstr ""
 
 #: src/InstallWizard.svelte
 msgid "Options <0/>"
@@ -2026,6 +2098,9 @@ msgstr "Pas encore de {0} sur cet hôte. Un {1} est une configuration persistant
 msgid "No {0} on this host yet. A {1} is persistent host configuration, so fjord does not create one — make one on the host, then reopen this dialog."
 msgstr "Pas encore de {0} sur cet hôte. Un {1} est une configuration persistante de l'hôte, fjord n'en crée donc pas — créez-en un sur l'hôte, puis rouvrez ce dialogue."
 
+#~ msgid "{0} flex-1"
+#~ msgstr ""
+
 #: src/Networks.svelte
 msgid "Clear the field first"
 msgstr "Videz d'abord le champ"
@@ -2055,6 +2130,9 @@ msgstr "Préparer un autre {0}"
 #: src/Networks.svelte
 msgid "+ Set up a new {0}…"
 msgstr "+ Préparer un nouveau {0}…"
+
+#~ msgid "Select a {0}…"
+#~ msgstr ""
 
 #. 0: chosenParent.gateway
 #. 0: wire[chosenParent.name].gateway
@@ -2103,6 +2181,9 @@ msgstr "Plage"
 #: src/Networks.svelte
 msgid "Static"
 msgstr "Statique"
+
+#~ msgid "The DHCP server on this segment leases one to each stack, keyed on its MAC, so reservations you already have apply. A stack can still be given a fixed address instead."
+#~ msgstr ""
 
 #: src/Networks.svelte
 msgid "The subnet"
@@ -2160,6 +2241,9 @@ msgstr "Les conteneurs reçoivent une adresse de cette plage — l'IPAM de podma
 #: src/Networks.svelte
 msgid "MTU"
 msgstr "MTU"
+
+#~ msgid "{0} {1} on this host"
+#~ msgstr ""
 
 #: src/Networks.svelte
 msgid "No bridge on this host yet -- make one first (commands above)"
@@ -2353,6 +2437,9 @@ msgstr "Sur ce moteur, bridge va seul — choisissez un réseau à la place pour
 #: src/ServiceResources.svelte
 msgid "+ interface"
 msgstr "+ interface"
+
+#~ msgid "RO"
+#~ msgstr ""
 
 #: src/ServiceResources.svelte
 msgid "Unmount"
@@ -2802,9 +2889,15 @@ msgstr "Aucun catalogue configuré — la boutique est vide."
 msgid "Adding…"
 msgstr "Ajout…"
 
+#~ msgid "<0/> Re-add the daemonless catalog"
+#~ msgstr ""
+
 #: src/Settings.svelte
 msgid "App sources for the store. Each is a base URL publishing <0/>, icons and manifests — another fjord instance's <1/> URL also works. Apps from every catalog appear together; order sets <2>priority</2> (top wins) — the highest-priority catalog provides an app's icon and is the default repository when installing."
 msgstr "Les sources d'applications de la boutique. Chacune est une URL de base publiant <0/>, des icônes et des manifestes — l'URL <1/> d'une autre instance fjord convient aussi. Les applications de tous les catalogues apparaissent ensemble ; l'ordre fixe la <2>priorité</2> (le premier gagne) — le catalogue le plus prioritaire fournit l'icône d'une application et est le dépôt par défaut à l'installation."
+
+#~ msgid "Everything else comes from the daemon's environment (<0/> variables — via rc.conf on FreeBSD or the container environment). Host readiness checks live on the <1>System</1> page."
+#~ msgstr ""
 
 #: src/Settings.svelte
 msgid "Essentials only"
@@ -3417,7 +3510,7 @@ msgstr "<0/> Nouveau volume…"
 #. 0: anonCount; 1: anonCount === 1 ? '' \\: 's'
 #: src/Volumes.svelte
 msgid "<0/> Show {0} anonymous volume{1} (container-managed)"
-msgstr "<0/> Afficher {0} volume{1} anonyme{1} (gérés par les conteneurs)"
+msgstr "<0/> Afficher {0} volume{1} sans nom (gestion par le conteneur)"
 
 #: src/Volumes.svelte
 msgid "Volumes Unavailable"
@@ -3780,6 +3873,9 @@ msgstr "Se déconnecter"
 #: src/Account.svelte
 msgid "Your password"
 msgstr "Votre mot de passe"
+
+#~ msgid "{0} max-w-60"
+#~ msgstr ""
 
 #: src/Account.svelte
 msgid "Sign out everywhere else"
@@ -4183,7 +4279,7 @@ msgstr "Une application n'a"
 msgid "{0} apps have"
 msgstr "{0} applications n'ont"
 
-#. 0: todo.length
+#. 0: chosen.length
 #. 0: named.length
 #: src/NamesPrompt.svelte
 #: src/OpenMenu.svelte
@@ -4195,7 +4291,7 @@ msgstr "{0} noms"
 msgid "{0} no name yet. Like <0/>, home network only."
 msgstr "{0} pas encore de nom. Comme <0/>, réseau domestique seulement."
 
-#. 0: todo.length === 1 ? 'name' \\: `${todo.length} names`
+#. 0: chosen.length === 1 ? 'name' \\: `${chosen.length} names`
 #: src/NamesPrompt.svelte
 msgid "<0/> Add {0}"
 msgstr "<0/> Ajouter {0}"
@@ -4501,6 +4597,9 @@ msgstr "podman a été mis à jour sous un service resté en marche, et ce servi
 msgid "The two passwords differ."
 msgstr "Les deux mots de passe diffèrent."
 
+#~ msgid "{0} flex items-center justify-center px-4"
+#~ msgstr ""
+
 #: src/SignIn.svelte
 msgid "Set up fjord"
 msgstr "Configurer fjord"
@@ -4521,6 +4620,9 @@ msgstr "Choisissez le compte qui gère cet hôte."
 msgid "Your session ended. What you had open is kept."
 msgstr "Votre session a pris fin. Ce que vous aviez ouvert est conservé."
 
+#~ msgid "{0} font-mono uppercase"
+#~ msgstr ""
+
 #: src/SignIn.svelte
 msgid "Setup code"
 msgstr "Code de configuration"
@@ -4528,6 +4630,12 @@ msgstr "Code de configuration"
 #: src/SignIn.svelte
 msgid "On the host, as root:"
 msgstr "Sur l'hôte, en root :"
+
+#~ msgid "{0} mb-4"
+#~ msgstr ""
+
+#~ msgid "{0} mb-1"
+#~ msgstr ""
 
 #: src/SignIn.svelte
 msgid "At least 12 characters."
@@ -4609,3 +4717,19 @@ msgstr "Vérification"
 #: src/Dashboard.svelte
 msgid "Unknown"
 msgstr "Inconnue"
+
+#: src/NamesPrompt.svelte
+msgid "Add name…"
+msgstr "Ajouter un nom…"
+
+#: src/NamesPrompt.svelte
+msgid "Add names…"
+msgstr "Ajouter des noms…"
+
+#: src/NamesPrompt.svelte
+msgid "Choose names"
+msgstr "Choisir les noms"
+
+#: src/NamesPrompt.svelte
+msgid "Pick the apps to give a name. Each is reachable at its name on your home network only."
+msgstr "Choisissez les applications à nommer. Chacune est joignable à son nom, réseau domestique seulement."
