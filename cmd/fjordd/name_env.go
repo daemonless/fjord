@@ -179,7 +179,6 @@ func (s *server) applyNameEnv(ctx context.Context, stackName string) error {
 		unlock = func() {}
 	}
 	defer unlock()
-	read := s.pending.now()
 	st, err = s.manager.Get(stackName)
 	if err != nil {
 		return err
@@ -201,6 +200,11 @@ func (s *server) applyNameEnv(ctx context.Context, stackName string) error {
 	log.Printf("[names] %s: set %s", stackName, strings.Join(keys, ", "))
 	pending := composepkg.ChangedServices(oldCompose, envMap(oldEnv), st.Compose, st.EnvMap())
 	s.recordPending(stackName, pending)
+	// The mark after the record: the recreate below applies this change,
+	// and only what was recorded before the mark leaves the pending list.
+	// Taken first, the change stayed "pending" and the stack page asked to
+	// apply what the recreate had just applied.
+	read := s.pending.now()
 	if !ok || len(pending) == 0 || st.State == nil || st.State.DesiredState != "running" {
 		return nil
 	}
