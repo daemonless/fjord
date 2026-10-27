@@ -764,7 +764,7 @@ msgstr "Mise à jour disponible"
 #. 0: fleetBehindCount; 1: fleetBehindCount === 1 ? '' \\: 's'
 #: src/App.svelte
 msgid "<0/> {0} update{1} available"
-msgstr "<0/> {0} mise{1} à jour disponible{1}"
+msgstr "<0/> {0} mise{1} à jour en attente"
 
 #. 0: search || stackFilter !== 'all' ? ' match' \\: ' yet'
 #: src/App.svelte
@@ -1408,7 +1408,7 @@ msgstr "Les {0} en marche"
 #. 0: updateCount; 1: updateCount === 1 ? '' \\: 's'
 #: src/Dashboard.svelte
 msgid "{0} update{1} available"
-msgstr "{0} mise{1} à jour disponible{1}"
+msgstr "{0} mise{1} à jour en attente"
 
 #: src/Dashboard.svelte
 #: src/SetupWizard.svelte
@@ -3510,7 +3510,7 @@ msgstr "<0/> Nouveau volume…"
 #. 0: anonCount; 1: anonCount === 1 ? '' \\: 's'
 #: src/Volumes.svelte
 msgid "<0/> Show {0} anonymous volume{1} (container-managed)"
-msgstr "<0/> Afficher {0} volume{1} anonyme{1} (gérés par les conteneurs)"
+msgstr "<0/> Afficher {0} volume{1} sans nom (gestion par le conteneur)"
 
 #: src/Volumes.svelte
 msgid "Volumes Unavailable"
