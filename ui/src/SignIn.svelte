@@ -2,6 +2,8 @@
   import { onMount, tick } from 'svelte';
   import Icon from './Icon.svelte';
   import { loadAuth, postJSON, type AuthState } from './auth';
+  import PasswordStrength from './PasswordStrength.svelte';
+  import { strength } from './password';
 
   // Set up (no account yet: the setup code from the host) or Sign in. As an
   // overlay it sits over an open page whose session ended.
@@ -14,6 +16,10 @@
   let user = state.user || 'admin';
   let password = '';
   let again = '';
+  // A weak password is warned about once and then allowed, as Fedora does:
+  // weakOk is the second click, for the password it was given on.
+  let weakOk = '';
+  $: weak = setup && strength(password).level === 1;
   let busy = false;
   let error = '';
   let first: HTMLInputElement;
@@ -27,6 +33,10 @@
     error = '';
     if (setup && password !== again) {
       error = 'The two passwords differ.';
+      return;
+    }
+    if (weak && weakOk !== password) {
+      weakOk = password;
       return;
     }
     busy = true;
@@ -82,8 +92,8 @@
 
     <label class="block text-sm text-fjord-fg-secondary mb-1" for="signin-password">Password</label>
     {#if setup}
-      <input id="signin-password" type="password" bind:value={password} class="{input} mb-1" autocomplete="new-password" minlength="12" required />
-      <p class="text-xs text-fjord-fg-dim mb-4">At least 12 characters.</p>
+      <input id="signin-password" type="password" bind:value={password} class={input} autocomplete="new-password" required />
+      <div class="mb-4"><PasswordStrength {password} /></div>
       <label class="block text-sm text-fjord-fg-secondary mb-1" for="signin-again">Password again</label>
       <input id="signin-again" type="password" bind:value={again} class="{input} mb-4" autocomplete="new-password" required />
     {:else}
@@ -92,13 +102,15 @@
 
     {#if error}
       <p class="text-sm text-fjord-danger mb-4" role="alert">{error}</p>
+    {:else if weak && weakOk === password}
+      <p class="text-sm text-fjord-warning mb-4" role="alert">This password is weak: {strength(password).why.toLowerCase().replace(/\.$/, '')}. Anyone who can open this page could guess it. Choose another, or use it anyway.</p>
     {/if}
 
     <button
       type="submit"
       disabled={busy}
       class="w-full bg-fjord-accent hover:bg-fjord-accent-hover text-white text-sm font-medium py-2 px-4 rounded-lg disabled:opacity-50"
-      >{busy ? (setup ? 'Setting up…' : 'Signing in…') : setup ? 'Set up' : 'Sign in'}</button
+      >{busy ? (setup ? 'Setting up…' : 'Signing in…') : setup ? (weak && weakOk === password ? 'Use it anyway' : 'Set up') : 'Sign in'}</button
     >
     {#if !setup}
       <p class="text-xs text-fjord-fg-dim mt-4">Forgot it? On the host, as root: <code class="font-mono">fjordd passwd</code></p>

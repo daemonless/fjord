@@ -26,8 +26,7 @@ import (
 const (
 	sessionTTL     = 30 * 24 * time.Hour
 	sessionTouch   = time.Hour // last-used is written at most this often
-	minPasswordLen = 12
-	maxPasswordLen = 72 // bcrypt reads no further
+	maxPasswordLen = 72        // bcrypt reads no further
 	activityKeep   = 50
 	seenAddrsKeep  = 100
 )
@@ -175,8 +174,11 @@ func checkNewPassword(user, password string) error {
 	switch {
 	case strings.TrimSpace(user) == "" || hasControlChars(user) || len(user) > 64:
 		return errors.New("choose a user name (up to 64 characters)")
-	case len(password) < minPasswordLen:
-		return fmt.Errorf("the password needs at least %d characters", minPasswordLen)
+	case password == "":
+		// No length rule: the page warns about a weak password and the
+		// person decides, as Fedora's installer does. Sign-in is
+		// rate-limited, which is what stops guessing.
+		return errors.New("enter a password")
 	case len(password) > maxPasswordLen:
 		return fmt.Errorf("the password can have at most %d bytes", maxPasswordLen)
 	}

@@ -3,6 +3,8 @@
   import Spinner from './Spinner.svelte';
   import { auth, loadAuth, postJSON } from './auth';
   import { toast } from './toast';
+  import PasswordStrength from './PasswordStrength.svelte';
+  import { strength } from './password';
 
   // Settings > Account: the user name and password, where this account is
   // signed in, and recent sign-in activity.
@@ -37,12 +39,17 @@
   let newUser = '';
   let password = '';
   let again = '';
+  let weakOk = ''; // the second click on a weak password
   let changing = false;
   let changeError = '';
   async function changePassword() {
     changeError = '';
     if (password !== again) {
       changeError = 'The two new passwords differ.';
+      return;
+    }
+    if (strength(password).level === 1 && weakOk !== password) {
+      weakOk = password;
       return;
     }
     changing = true;
@@ -153,13 +160,14 @@
       <label class="text-sm text-fjord-fg-muted" for="acct-user">User name</label>
       <input id="acct-user" bind:value={newUser} autocomplete="username" class={input} required />
       <label class="text-sm text-fjord-fg-muted" for="acct-new">New password</label>
-      <input id="acct-new" type="password" bind:value={password} autocomplete="new-password" minlength="12" placeholder="At least 12 characters" class={input} required />
+      <div><input id="acct-new" type="password" bind:value={password} autocomplete="new-password" class={input} required /><PasswordStrength {password} /></div>
       <label class="text-sm text-fjord-fg-muted" for="acct-again">New password again</label>
       <input id="acct-again" type="password" bind:value={again} autocomplete="new-password" class={input} required />
       <div></div>
       <div class="flex items-center gap-3">
-        <button type="submit" disabled={changing} class="bg-fjord-accent hover:bg-fjord-accent-hover text-white text-sm font-medium py-1.5 px-4 rounded-lg disabled:opacity-50">{changing ? 'Changing…' : 'Change password'}</button>
-        {#if changeError}<span class="text-sm text-fjord-danger" role="alert">{changeError}</span>{/if}
+        <button type="submit" disabled={changing} class="bg-fjord-accent hover:bg-fjord-accent-hover text-white text-sm font-medium py-1.5 px-4 rounded-lg disabled:opacity-50">{changing ? 'Changing…' : strength(password).level === 1 && weakOk === password ? 'Use it anyway' : 'Change password'}</button>
+        {#if changeError}<span class="text-sm text-fjord-danger" role="alert">{changeError}</span>
+        {:else if strength(password).level === 1 && weakOk === password}<span class="text-sm text-fjord-warning" role="alert">This password is weak: {strength(password).why.toLowerCase().replace(/\.$/, '')}. Anyone who can open this page could guess it.</span>{/if}
       </div>
     </form>
 
