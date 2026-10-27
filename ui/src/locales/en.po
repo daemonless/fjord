@@ -67,6 +67,7 @@ msgstr "Mount into <0/> — edits the compose, <1>Save</1> to apply."
 #: src/ConfirmDialog.svelte
 #: src/DirPicker.svelte
 #: src/InstallWizard.svelte
+#: src/NamesPrompt.svelte
 #: src/Networks.svelte
 #: src/Networks.svelte
 #: src/Networks.svelte
@@ -268,6 +269,7 @@ msgstr "Adopt"
 #: src/AppStore.svelte
 #: src/AppStore.svelte
 #: src/AppStore.svelte
+#: src/NamesPrompt.svelte
 msgid "All"
 msgstr "All"
 
@@ -1307,6 +1309,7 @@ msgid "{0}/{1} services"
 msgstr "{0}/{1} services"
 
 #: src/App.svelte
+#: src/NamesPrompt.svelte
 msgid "None"
 msgstr "None"
 
@@ -4285,7 +4288,7 @@ msgstr "One app has"
 msgid "{0} apps have"
 msgstr "{0} apps have"
 
-#. 0: todo.length
+#. 0: chosen.length
 #. 0: named.length
 #: src/NamesPrompt.svelte
 #: src/OpenMenu.svelte
@@ -4297,7 +4300,7 @@ msgstr "{0} names"
 msgid "{0} no name yet. Like <0/>, home network only."
 msgstr "{0} no name yet. Like <0/>, home network only."
 
-#. 0: todo.length === 1 ? 'name' \\: `${todo.length} names`
+#. 0: chosen.length === 1 ? 'name' \\: `${chosen.length} names`
 #: src/NamesPrompt.svelte
 msgid "<0/> Add {0}"
 msgstr "<0/> Add {0}"
@@ -4725,3 +4728,19 @@ msgstr "Checking"
 #: src/Dashboard.svelte
 msgid "Unknown"
 msgstr "Unknown"
+
+#: src/NamesPrompt.svelte
+msgid "Add name…"
+msgstr "Add name…"
+
+#: src/NamesPrompt.svelte
+msgid "Add names…"
+msgstr "Add names…"
+
+#: src/NamesPrompt.svelte
+msgid "Choose names"
+msgstr "Choose names"
+
+#: src/NamesPrompt.svelte
+msgid "Pick the apps to give a name. Each is reachable at its name on your home network only."
+msgstr "Pick the apps to give a name. Each is reachable at its name on your home network only."

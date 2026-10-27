@@ -27,6 +27,7 @@
   import TrustMark from './TrustMark.svelte';
   import NamesPrompt from './NamesPrompt.svelte';
   import Icon from './Icon.svelte';
+  import { fitMenu } from './fitMenu';
   import Shortcuts from './Shortcuts.svelte';
   import { match as matchShortcut, typing } from './shortcuts';
   import ServiceResources from './ServiceResources.svelte';
@@ -2443,7 +2444,7 @@
                   class="list-none cursor-pointer text-sm font-medium text-fjord-accent hover:text-fjord-accent-hover"
                   title="Open another of this stack's {links.length} apps">▾ {links.length}</summary
                 >
-                <div class="absolute z-30 left-0 mt-1 min-w-72 bg-fjord-card border border-fjord-border rounded-lg shadow-xl py-1">
+                <div use:fitMenu class="absolute z-30 left-0 mt-1 min-w-72 bg-fjord-card border border-fjord-border rounded-lg shadow-xl py-1">
                   {#each links as l}
                     <a
                       href={l.url}

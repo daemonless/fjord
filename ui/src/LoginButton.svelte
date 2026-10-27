@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { fitMenu } from './fitMenu';
   // How to sign in to the stack's app, beside Open: the login its catalog
   // app declares, with the password fjord made up at install, or the app's
   // own default and a word to change it. Nothing when the app declares none.
@@ -36,7 +37,7 @@
       class="list-none cursor-pointer flex items-center gap-1 text-sm font-medium text-fjord-accent hover:text-fjord-accent-hover"
       title="How to sign in to this app">Sign in</summary
     >
-    <div class="absolute z-30 left-0 mt-1 w-80 bg-fjord-card border border-fjord-border rounded-lg shadow-xl p-3 text-sm">
+    <div use:fitMenu class="absolute z-30 left-0 mt-1 w-80 bg-fjord-card border border-fjord-border rounded-lg shadow-xl p-3 text-sm">
       {#if login.user}
         <div class="flex items-center gap-2">
           <span class="w-20 text-fjord-fg-muted">User</span>
