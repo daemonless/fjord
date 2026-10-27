@@ -235,6 +235,50 @@ func TestPinFlow(t *testing.T) {
 	}
 }
 
+// Public certificates arriving after setup (a free name, a DNS token) are
+// taken under the same name, but only when they verify against the public
+// roots: the pinned own root no longer matches, and anything else that
+// does not stays refused.
+func TestPinMovesToPublicCertificates(t *testing.T) {
+	ctx := context.Background()
+	own := newFakeProxy(t, "k")
+	own.complete = true
+	path := filepath.Join(t.TempDir(), "secrets", "names-rp.json")
+	p := &provider{Stack: "rp", base: own.srv.URL, key: "k", pinPath: path}
+	if _, _, err := p.status(ctx); err != nil || p.pin == nil || p.pin.Root == "" {
+		t.Fatalf("own root pinned: %v %+v", err, p.pin)
+	}
+
+	public := selfSigned(t)
+	leaf, _ := x509.ParseCertificate(public.Certificate[0])
+	roots := x509.NewCertPool()
+	roots.AddCert(leaf)
+	pub := newFakeProxy(t, "k", public)
+	pub.complete = true
+	q := &provider{Stack: "rp", base: pub.srv.URL, key: "k", pinPath: path, pin: loadPin(path), publicRoots: roots}
+	if st, _, err := q.status(ctx); err != nil || !st.Setup.Complete || q.pin == nil || q.pin.Root != "" || q.pin.TrustName != "example.com" {
+		t.Fatalf("public: %v pin=%+v", err, q.pin)
+	}
+	if saved := loadPin(path); saved == nil || saved.Root != "" {
+		t.Fatalf("public pin not saved: %+v", saved)
+	}
+	if _, err := q.hosts(ctx); err != nil {
+		t.Fatalf("verified call after the move: %v", err)
+	}
+
+	// Not publicly trusted: still refused, the own root kept.
+	r := &provider{Stack: "rp", base: newFakeProxyComplete(t, selfSigned(t)).srv.URL, key: "k", pinPath: path, pin: p.pin, publicRoots: roots}
+	if _, _, err := r.status(ctx); err == nil || !strings.Contains(err.Error(), "not the one fjord trusts") || r.pin != p.pin {
+		t.Fatalf("untrusted: %v pin=%+v", err, r.pin)
+	}
+}
+
+func newFakeProxyComplete(t *testing.T, cert tls.Certificate) *fakeProxy {
+	f := newFakeProxy(t, "k", cert)
+	f.complete = true
+	return f
+}
+
 // A refused key is reported as such, not as an unreachable proxy.
 func TestProxyKeyRefused(t *testing.T) {
 	f := newFakeProxy(t, "right")
