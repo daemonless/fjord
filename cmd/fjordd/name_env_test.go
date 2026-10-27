@@ -26,13 +26,43 @@ func TestStackNames(t *testing.T) {
 
 func TestFillNameEnv(t *testing.T) {
 	hints := map[string]string{"HOST_ALLOWLIST": "{names}", "BASE_URL": "https://{name}"}
-	got := fillNameEnv(hints, []string{"a.home.lan", "b.home.lan"})
+	got := fillNameEnv(hints, []string{"a.home.lan", "b.home.lan"}, nil)
 	if got["HOST_ALLOWLIST"] != "a.home.lan,b.home.lan" || got["BASE_URL"] != "https://a.home.lan" {
 		t.Fatalf("got %v", got)
 	}
 	// Names taken away: the variables empty, not left at the old names.
-	if got := fillNameEnv(hints, nil); got["HOST_ALLOWLIST"] != "" || got["BASE_URL"] != "https://" {
+	if got := fillNameEnv(hints, nil, nil); got["HOST_ALLOWLIST"] != "" || got["BASE_URL"] != "https://" {
 		t.Fatalf("no names: got %v", got)
+	}
+}
+
+func TestFillNameEnvProxy(t *testing.T) {
+	hints := map[string]string{"TRUSTED_PROXIES": "{proxy}"}
+	if !wantsProxy(hints) || wantsProxy(map[string]string{"HOST_ALLOWLIST": "{names}"}) {
+		t.Fatal("wantsProxy")
+	}
+	got := fillNameEnv(hints, []string{"ha.home.lan"}, []string{"10.89.0.0/24", "10.89.1.0/24"})
+	if got["TRUSTED_PROXIES"] != "10.89.0.0/24,10.89.1.0/24" {
+		t.Fatalf("got %v", got)
+	}
+}
+
+// A linked provider's requests come from its host.
+func TestProxySourcesLinked(t *testing.T) {
+	s := &server{}
+	got := s.proxySources(context.Background(), &provider{linked: true, base: "https://192.168.4.20:8443"})
+	if !reflect.DeepEqual(got, []string{"192.168.4.20"}) {
+		t.Fatalf("got %v", got)
+	}
+}
+
+func TestSubnetOf(t *testing.T) {
+	subs := []string{"", "192.168.86.0/24", "10.89.0.0/24"}
+	if got := subnetOf("10.89.0.6", subs); got != "10.89.0.0/24" {
+		t.Errorf("bridge address: %q", got)
+	}
+	if got := subnetOf("192.168.5.16", subs); got != "192.168.5.16" {
+		t.Errorf("no subnet known: %q", got)
 	}
 }
 

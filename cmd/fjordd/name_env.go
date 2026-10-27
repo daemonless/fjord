@@ -5,6 +5,7 @@ import (
 	"io"
 	"log"
 	"maps"
+	"net"
 	"net/url"
 	"slices"
 	"strings"
@@ -14,6 +15,7 @@ import (
 
 	composepkg "github.com/daemonless/fjord/pkg/compose"
 	"github.com/daemonless/fjord/pkg/engine"
+	"github.com/daemonless/fjord/pkg/hostnet"
 	"github.com/daemonless/fjord/pkg/manifest"
 	"github.com/daemonless/fjord/pkg/stack"
 )
@@ -23,8 +25,10 @@ import (
 // behind the proxy) or need their own address (a base URL). When a names
 // provider gives a stack a name, or changes or takes it away, fjord fills
 // these from templates -- {name} is the main name, {names} every name,
-// comma-separated -- and recreates the app so it reads them. fjord knows
-// nothing about the apps: the hint and what the variable means are theirs.
+// comma-separated, {proxy} where the provider connects from (an app that
+// trusts only its proxy: Home Assistant's trusted_proxies) -- and recreates
+// the app so it reads them. fjord knows nothing about the apps: the hint and
+// what the variable means are theirs.
 
 // nameEnvHints is the stack's x-fjord.name_env; for a stack whose compose
 // predates the hint (installed or adopted earlier), its catalog app's.
@@ -94,8 +98,9 @@ func stackNames(hosts []providerHost, stackName string) []string {
 	return slices.Compact(append(main, extra...))
 }
 
-// fillNameEnv turns the templates into values for these names.
-func fillNameEnv(hints map[string]string, names []string) map[string]string {
+// fillNameEnv turns the templates into values for these names and the
+// provider's sources.
+func fillNameEnv(hints map[string]string, names, proxies []string) map[string]string {
 	first := ""
 	if len(names) > 0 {
 		first = names[0]
@@ -103,9 +108,83 @@ func fillNameEnv(hints map[string]string, names []string) map[string]string {
 	out := map[string]string{}
 	for k, tmpl := range hints {
 		v := strings.ReplaceAll(tmpl, "{names}", strings.Join(names, ","))
+		v = strings.ReplaceAll(v, "{proxy}", strings.Join(proxies, ","))
 		out[k] = strings.ReplaceAll(v, "{name}", first)
 	}
 	return out
+}
+
+func wantsProxy(hints map[string]string) bool {
+	for _, t := range hints {
+		if strings.Contains(t, "{proxy}") {
+			return true
+		}
+	}
+	return false
+}
+
+// proxySources are where the provider's requests come from, as an app sees
+// them. One on this host: the subnet holding each of its addresses, since its
+// address changes when it is recreated and its network does not (the engine's
+// networks, and every defined one: a stack's default bridge is only among
+// the latter); an address in no known subnet is itself. A linked one: its
+// host, which is what its traffic leaves from.
+func (s *server) proxySources(ctx context.Context, p *provider) []string {
+	if p.linked {
+		u, err := url.Parse(p.base)
+		if err != nil || u.Hostname() == "" {
+			return nil
+		}
+		if ip := net.ParseIP(u.Hostname()); ip != nil {
+			return []string{ip.String()}
+		}
+		addrs, _ := net.DefaultResolver.LookupHost(ctx, u.Hostname())
+		slices.Sort(addrs)
+		return addrs
+	}
+	st, err := s.manager.Get(p.Stack)
+	if err != nil {
+		return nil
+	}
+	be := s.backendFor(st)
+	status, err := be.Status(ctx, st)
+	if err != nil {
+		return nil
+	}
+	var subnets []string
+	if nets, err := be.Networks(ctx); err == nil {
+		for _, n := range nets {
+			subnets = append(subnets, n.Subnet)
+		}
+	}
+	for _, n := range hostnet.List() {
+		subnets = append(subnets, n.Subnet)
+	}
+	var out []string
+	for _, v := range stackServices(st, status) {
+		addrs := slices.Collect(maps.Values(v.Live))
+		if len(addrs) == 0 {
+			addrs = []string{v.Address}
+		}
+		for _, a := range addrs {
+			if a != "" {
+				out = append(out, subnetOf(a, subnets))
+			}
+		}
+	}
+	slices.Sort(out)
+	return slices.Compact(out)
+}
+
+// subnetOf is the first of subnets holding addr, or addr when none does.
+func subnetOf(addr string, subnets []string) string {
+	ip := net.ParseIP(addr)
+	for _, sub := range subnets {
+		if _, n, err := net.ParseCIDR(sub); err == nil && ip != nil && n.Contains(ip) {
+			return n.String()
+		}
+	}
+	return addr
 }
 
 // setEnvValues sets KEY=VALUE lines in .env text, replacing a key's line
@@ -172,7 +251,11 @@ func (s *server) applyNameEnv(ctx context.Context, stackName string) error {
 	if err != nil {
 		return err
 	}
-	vals := fillNameEnv(hints, stackNames(hosts, stackName))
+	var proxies []string
+	if wantsProxy(hints) {
+		proxies = s.proxySources(ctx, p)
+	}
+	vals := fillNameEnv(hints, stackNames(hosts, stackName), proxies)
 
 	unlock, ok := lockStackAs(stackName, "up")
 	if !ok {
