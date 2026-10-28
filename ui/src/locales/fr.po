@@ -4261,9 +4261,8 @@ msgstr "Il a déconnecté fjord. Les noms que vous avez fonctionnent toujours ; 
 msgid "Open its Settings"
 msgstr "Ouvrir ses Réglages"
 
-#: src/NamesPrompt.svelte
-msgid "Waiting for it to answer. Then one step: finish its setup, and your apps get names."
-msgstr "En attente de sa réponse. Ensuite une étape : terminez sa configuration, et vos applications reçoivent des noms."
+#~ msgid "Waiting for it to answer. Then one step: finish its setup, and your apps get names."
+#~ msgstr "En attente de sa réponse. Ensuite une étape : terminez sa configuration, et vos applications reçoivent des noms."
 
 #: src/NamesPrompt.svelte
 msgid "Finish setting it up and your apps get names like <0>radarr.apps.lan</0>. The link opens its setup verified; you pick a password and the ending."
@@ -4746,3 +4745,8 @@ msgstr "Ce mot de passe est faible : {0}. Quiconque peut ouvrir cette page pourr
 #: src/SignIn.svelte
 msgid "This password is weak: {0}. Anyone who can open this page could guess it. Choose another, or use it anyway."
 msgstr "Ce mot de passe est faible : {0}. Quiconque peut ouvrir cette page pourrait le deviner. Choisissez-en un autre, ou utilisez-le quand même."
+
+#. 0: $names.error
+#: src/NamesPrompt.svelte
+msgid "fjord can't reach it right now: {0}. Names you have still work; fjord keeps trying."
+msgstr "fjord ne peut pas le joindre pour le moment : {0}. Les noms existants fonctionnent toujours ; fjord continue d'essayer."

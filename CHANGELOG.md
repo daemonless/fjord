@@ -64,6 +64,10 @@ Proven through the real pages on a FreeBSD host and a Fedora host
   wedges a stack. (#139, #140, #149)
 
 ### Fixes and small things
+- The names provider's row says Finish setup only before its setup is
+  done. One set up before that fjord cannot reach (a certificate, a
+  timeout) says so in words, and the page keeps checking after fjord
+  itself did not answer instead of staying stuck until a reload.
 - Apply recreates only what changed, and a second Apply during the first
   one's check takes over. A save during an install or an update is kept.
   Two installs at once get different names. (#142, #146, #147, #148, #149)

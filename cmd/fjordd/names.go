@@ -538,7 +538,7 @@ func (s *server) namesState(ctx context.Context) namesView {
 			// saved: Open carries it while the provider is still coming
 			// up, so the first click lands on its setup verified, not on
 			// a page asking for a token from the log (jupiter, 2026-10-26).
-			v.SetupToken = p.setupToken
+			v.SetupToken = stillSettingUp(p)
 		}
 		if err != nil {
 			v.Error = err.Error()
@@ -551,7 +551,7 @@ func (s *server) namesState(ctx context.Context) namesView {
 		v.Disconnected = code == http.StatusUnauthorized
 		v.Error = err.Error()
 		if !v.Disconnected {
-			v.SetupToken = p.setupToken // not answering yet: see above
+			v.SetupToken = stillSettingUp(p) // not answering yet: see above
 		}
 		return v
 	}
@@ -577,6 +577,18 @@ func (s *server) namesState(ctx context.Context) namesView {
 	}
 	v.Taken = takenNames(hosts)
 	return v
+}
+
+// stillSettingUp is the setup token for a provider fjord has never seen
+// set up (no pin yet): one still coming up. A provider that was set up and
+// cannot be asked now (a certificate, a timeout) has a problem to show, not
+// a setup to finish: jupiter's page said Finish setup for a certificate it
+// did not trust yet (2026-10-28).
+func stillSettingUp(p *provider) string {
+	if p.pin != nil {
+		return ""
+	}
+	return p.setupToken
 }
 
 // sayHello tells the provider who this fjord is (id, name, the address it
