@@ -41,6 +41,9 @@ Proven through the real pages on a FreeBSD host and a Fedora host
   names; names follow an app's port and address. Every fjord has an id and
   a name, and a second fjord links to the same proxy by pasting one link.
   The contract is `docs/names-provider.md`.
+- A provider that takes icons (the reverse proxy) is sent each app's icon
+  with its name, so its list of names shows the same logos as fjord. Names
+  made before get theirs when fjordd starts.
 
 ### A Linux app store
 - 183 linuxserver.io apps, each one installed and checked on a Linux host

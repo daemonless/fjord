@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"errors"
+	"io"
 	"math/big"
 	"net"
 	"net/http"
@@ -67,6 +68,10 @@ type fakeProxy struct {
 	list      []providerHost
 	updated   []providerHost
 	deleted   []string
+	// icons is what PUT .../icon got, by host id; noIcons is a provider
+	// that predates icons (its mux answers 405, as the real one did).
+	icons   map[string][]byte
+	noIcons bool
 }
 
 // selfSigned is a fresh certificate for example.com (or the names given)
@@ -138,6 +143,20 @@ func newFakeProxy(t *testing.T, key string, certs ...tls.Certificate) *fakeProxy
 		}
 		if r.Method != "PUT" {
 			w.WriteHeader(405)
+			return
+		}
+		if id, ok := strings.CutSuffix(strings.TrimPrefix(r.URL.Path, "/api/v1/hosts/"), "/icon"); ok {
+			if f.noIcons {
+				w.WriteHeader(405)
+				return
+			}
+			b, _ := io.ReadAll(r.Body)
+			if f.icons == nil {
+				f.icons = map[string][]byte{}
+			}
+			f.icons[id] = b
+			sum := sha256.Sum256(b)
+			json.NewEncoder(w).Encode(map[string]any{"id": id, "icon": hex.EncodeToString(sum[:8]) + ".svg"})
 			return
 		}
 		// As strict as the real provider: only the input fields.
@@ -351,6 +370,36 @@ func TestSyncTargetsUpdatesTheHost(t *testing.T) {
 	f.list[0].Target.Port, f.updated = 7879, nil
 	if err := p.syncStack(context.Background(), st, status); err != nil || len(f.updated) != 0 {
 		t.Fatalf("unchanged: %v %+v", err, f.updated)
+	}
+}
+
+// The app's icon goes to the provider with its name, once: a provider that
+// has it already is not sent it again, and one that predates icons is left
+// alone without an error.
+func TestSyncSendsTheIcon(t *testing.T) {
+	f := newFakeProxy(t, "k")
+	f.complete = true
+	var h providerHost
+	h.ID, h.Name, h.Access, h.Ref = "h1", "radarr", "home", nameRef("radarr")
+	h.Target.Address, h.Target.Port = "192.168.4.103", 7878
+	f.list = []providerHost{h}
+	p := &provider{Stack: "rp", base: f.srv.URL, key: "k", pinPath: filepath.Join(t.TempDir(), "names-rp.json")}
+	dir := t.TempDir()
+	icon := `<svg xmlns="http://www.w3.org/2000/svg"/>`
+	os.WriteFile(filepath.Join(dir, "icon.svg"), []byte(icon), 0o644)
+	st := &stack.Stack{Name: "radarr", Dir: dir, Icon: "icon.svg", Compose: "services:\n  radarr:\n    ports:\n      - \"7878:7878\"\n"}
+	var status engine.StackStatus
+	if err := p.syncStack(context.Background(), st, status); err != nil || string(f.icons["h1"]) != icon {
+		t.Fatalf("sent: %v %q", err, f.icons)
+	}
+	sum := sha256.Sum256([]byte(icon))
+	f.list[0].Icon, f.icons = hex.EncodeToString(sum[:8])+".svg", nil
+	if err := p.syncStack(context.Background(), st, status); err != nil || f.icons != nil {
+		t.Fatalf("has it already: %v %q", err, f.icons)
+	}
+	f.list[0].Icon, f.noIcons = "", true
+	if err := p.syncStack(context.Background(), st, status); err != nil || len(f.updated) != 0 {
+		t.Fatalf("old provider: %v %+v", err, f.updated)
 	}
 }
 

@@ -127,6 +127,15 @@ person changes the name from the app's page (Change name beside Open):
 the same host with a new `name`. Refuse a taken name with a 4xx and say
 whose it is; fjord shows your words.
 
+`PUT /api/v1/hosts/{id}/icon` (optional) takes the app's icon as the
+body, the same file fjord shows for the app (SVG, PNG, WebP or JPEG, at
+most 256 KB), so the provider's list of names can show it. Answer with the
+host, whose `icon` is now `"<hash>.<kind>"`, the hash being the first 16
+hex digits of the file's SHA-256; fjord sends again only when that differs
+from its own file's, after making a name and on its first look at each
+running app. A provider without icons answers 404 or 405 and is left
+alone. An edit of the host keeps its icon.
+
 `DELETE /api/v1/hosts/{id}` removes the name. Keeping it restorable for a
 while is the app's choice; fjord's Undo re-creates it with `POST`.
 
