@@ -87,6 +87,9 @@ type providerHost struct {
 	// x-fjord own_origin). Sent only when true, so a provider that predates
 	// it is never handed a field it refuses.
 	OwnOrigin bool `json:"ownOrigin,omitempty"`
+	// Icon is "<hash>.<kind>" of the icon the provider shows for the name
+	// (set with sendIcon, never sent back by input).
+	Icon string `json:"icon,omitempty"`
 }
 
 // input is the host as the provider's PUT takes it: the editable fields
@@ -423,12 +426,17 @@ func (p *provider) call(ctx context.Context, method, path string, in, out any) (
 		}
 		body = bytes.NewReader(b)
 	}
+	return p.send(ctx, method, path, body, "application/json", out)
+}
+
+// send is call with a body that is not JSON (an icon).
+func (p *provider) send(ctx context.Context, method, path string, body io.Reader, contentType string, out any) (int, error) {
 	req, err := http.NewRequestWithContext(ctx, method, p.base+path, body)
 	if err != nil {
 		return 0, err
 	}
 	req.Header.Set("Authorization", "Bearer "+p.key)
-	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Content-Type", contentType)
 	resp, err := p.client().Do(req)
 	if err != nil {
 		var certErr *tls.CertificateVerificationError
@@ -646,6 +654,8 @@ type nameRequest struct {
 	// ownOrigin is the stack's x-fjord own_origin, read here, not taken
 	// from the page.
 	ownOrigin bool
+	// icon is the stack's icon file, sent after the name is made.
+	icon string
 }
 
 type nameResult struct {
@@ -677,6 +687,7 @@ func (s *server) addNames(w http.ResponseWriter, r *http.Request) {
 		stackName, _, _ := strings.Cut(n.Stack, "/")
 		if st, err := s.manager.Get(stackName); err == nil {
 			n.ownOrigin = wantsOwnOrigin(st)
+			n.icon = stackIcon(st)
 		}
 		res := p.name(ctx, n)
 		if res.Host != nil {
@@ -741,8 +752,44 @@ func (p *provider) name(ctx context.Context, n nameRequest) nameResult {
 		res.Error = err.Error()
 		return res
 	}
+	p.sendIcon(ctx, &h, n.icon)
 	res.Host = &h
 	return res
+}
+
+// stackIcon is the path of the icon fjord shows for the stack, or "".
+func stackIcon(st *stack.Stack) string {
+	if st.Icon == "" || st.Dir == "" {
+		return ""
+	}
+	return filepath.Join(st.Dir, st.Icon)
+}
+
+// sendIcon gives the provider the app's icon for one name, so its list of
+// names shows the same picture fjord does. Only when the provider has no
+// icon or another one for it; best effort: the name works without it, and
+// a provider that predates icons answers 404 or 405 and is left alone.
+func (p *provider) sendIcon(ctx context.Context, h *providerHost, path string) {
+	if path == "" {
+		return
+	}
+	b, err := os.ReadFile(path)
+	if err != nil || len(b) == 0 || len(b) > 256<<10 {
+		return
+	}
+	sum := sha256.Sum256(b)
+	if strings.HasPrefix(h.Icon, hex.EncodeToString(sum[:8])+".") {
+		return
+	}
+	var out providerHost
+	code, err := p.send(ctx, "PUT", "/api/v1/hosts/"+url.PathEscape(h.ID)+"/icon", bytes.NewReader(b), "application/octet-stream", &out)
+	switch {
+	case code == http.StatusNotFound || code == http.StatusMethodNotAllowed:
+	case err != nil:
+		log.Printf("[names] %s: its icon was not sent: %v", h.Name, err)
+	default:
+		h.Icon = out.Icon
+	}
 }
 
 // hostIPv4s is this host's own IPv4 addresses, loopback left out.
@@ -1008,6 +1055,7 @@ func (p *provider) syncStack(ctx context.Context, st *stack.Stack, status engine
 		return err
 	}
 	views := stackServices(st, status)
+	icon := stackIcon(st)
 	for _, h := range hosts {
 		key, ok := ownKey(h.Ref)
 		if !ok {
@@ -1017,6 +1065,9 @@ func (p *provider) syncStack(ctx context.Context, st *stack.Stack, status engine
 		if name != st.Name {
 			continue
 		}
+		// Names made before the provider took icons get one here: this
+		// runs on fjordd's first look at every running stack.
+		p.sendIcon(ctx, &h, icon)
 		addr, port := currentTarget(st, views, svc, h.Target.Port, ownAddress)
 		if addr == "" {
 			addr = h.Target.Address
