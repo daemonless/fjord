@@ -1,0 +1,17 @@
+# fjordd settings: copy to /etc/default/fjordd, uncomment what you change,
+# then `systemctl restart fjordd`. Everything else is set in fjord's
+# Settings page. The full list is in fjord's README.
+
+# Where the page answers (default :3567, every address).
+#FJORD_LISTEN=:3567
+
+# More names fjord answers to, comma-separated (a reverse proxy's).
+#FJORD_ALLOWED_HOSTS=fjord.home.lan
+
+# Reverse proxy addresses or ranges whose X-Forwarded-For/-Proto fjord
+# believes, comma-separated.
+#FJORD_TRUSTED_PROXY=192.168.1.10
+
+# none turns fjord's sign-in off: refused unless FJORD_LISTEN is loopback
+# or FJORD_TRUSTED_PROXY is set.
+#FJORD_AUTH=password

@@ -73,9 +73,25 @@ both come from the `latest` package set
 
 ## Install a release (Linux host)
 
-fjord runs on Linux with rootful podman (Fedora, Debian, Ubuntu). The
-installer checks podman, installs `fjordd` and its systemd unit, and starts
-podman's API socket and fjord:
+fjord runs on Linux with rootful podman (Fedora, Debian, Ubuntu). Each
+release has a package for both, which pulls in podman and podman-compose,
+starts podman's API socket and fjord, and says where to open it:
+
+```sh
+V=0.4.0 A=$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
+# Fedora
+dnf install -y https://github.com/daemonless/fjord/releases/download/v$V/fjord-$V-linux-$A.rpm
+# Debian/Ubuntu
+curl -fsSLO https://github.com/daemonless/fjord/releases/download/v$V/fjord-$V-linux-$A.deb && apt install -y ./fjord-$V-linux-$A.deb
+```
+
+Updating is the same command with the new version: fjord restarts and the
+apps keep running. Removing the package keeps `/var/db/fjord` (your apps
+and their data). A package installed over the installer's copy below moves
+that copy aside (`*.install-linux`).
+
+Or the installer, which checks podman, installs `fjordd` and its systemd
+unit in /usr/local, and starts podman's API socket and fjord:
 
 ```sh
 # Fedora: dnf install -y podman podman-compose   Debian/Ubuntu: apt install -y podman podman-compose

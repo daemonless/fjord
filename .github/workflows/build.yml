@@ -144,6 +144,14 @@ jobs:
           cp packaging/install-linux.sh install-linux.sh
           ls -l fjordd-linux-* fjordd.service install-linux.sh
 
+      # The same Linux binaries as a .deb and an .rpm per arch
+      # (fjord-<version>-linux-<arch>.deb|rpm), with /usr/sbin/fjordd and the
+      # unit in /usr/lib/systemd/system.
+      - name: Package for Linux (deb, rpm)
+        run: |
+          go install github.com/goreleaser/nfpm/v2/cmd/nfpm@v2.48.0
+          PATH="$(go env GOPATH)/bin:$PATH" packaging/linux/build-packages.sh "${TAG#v}"
+
       # Create the release, or refresh the assets of an existing one (re-run on
       # the same tag after a workflow fix) -- never a second release.
       - name: Publish release
@@ -152,6 +160,7 @@ jobs:
         run: |
           VERSION="${TAG#v}"
           BINS="fjordd-freebsd-amd64 fjordd-freebsd-arm64 fjordd.rc fjordd-linux-amd64 fjordd-linux-arm64 fjordd.service install-linux.sh"
+          BINS="$BINS $(ls fjord-${VERSION}-linux-*.deb fjord-${VERSION}-linux-*.rpm)"
           ASSETS="fjord-${VERSION}.tar.gz $BINS"
           if gh release view "${TAG}" --repo "${{ github.repository }}" >/dev/null 2>&1; then
             # A published tarball is immutable (ports pin its checksum): only

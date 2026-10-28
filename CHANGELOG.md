@@ -14,6 +14,10 @@ Proven through the real pages on a FreeBSD host and a Fedora host
   carries `fjordd-linux-amd64` and `-arm64`, a systemd unit and
   `install-linux.sh`, which checks podman, enables its socket and says how
   to open the firewall. (#149)
+- A .deb and an .rpm per arch (`fjord-<version>-linux-<arch>`): installing
+  starts fjord and says where to open it, updating restarts it with the
+  apps left running, removing keeps `/var/db/fjord`. Installed over
+  `install-linux.sh`'s copy, it moves that copy aside.
 - LAN networks on Linux: macvlan with DHCP through netavark's proxy or a
   static pool, the wire probe, and the Open link on the container's own
   address. The host firewall and SELinux are checked at Setup; a folder
