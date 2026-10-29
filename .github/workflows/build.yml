@@ -149,7 +149,8 @@ jobs:
       # unit in /usr/lib/systemd/system.
       - name: Package for Linux (deb, rpm)
         run: |
-          go install github.com/goreleaser/nfpm/v2/cmd/nfpm@v2.48.0
+          # nfpm needs a newer Go than go.mod; setup-go pins GOTOOLCHAIN=local.
+          GOTOOLCHAIN=auto go install github.com/goreleaser/nfpm/v2/cmd/nfpm@v2.48.0
           PATH="$(go env GOPATH)/bin:$PATH" packaging/linux/build-packages.sh "${TAG#v}"
 
       # Create the release, or refresh the assets of an existing one (re-run on

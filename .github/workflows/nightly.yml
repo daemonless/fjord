@@ -133,7 +133,8 @@ jobs:
           done
           cp packaging/fjordd.service fjordd.service
           cp packaging/install-linux.sh install-linux.sh
-          go install github.com/goreleaser/nfpm/v2/cmd/nfpm@v2.48.0
+          # nfpm needs a newer Go than go.mod; setup-go pins GOTOOLCHAIN=local.
+          GOTOOLCHAIN=auto go install github.com/goreleaser/nfpm/v2/cmd/nfpm@v2.48.0
           PATH="$(go env GOPATH)/bin:$PATH" packaging/linux/build-packages.sh "$VERSION"
           for f in fjord-"$VERSION"-linux-*; do mv "$f" "fjord-nightly-linux-${f##*-linux-}"; done
           sha256sum fjordd-freebsd-amd64 fjordd-freebsd-arm64 fjordd.rc \
