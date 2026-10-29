@@ -67,11 +67,19 @@ jobs:
             echo "publish=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          # 0.3.1-nightly.20261006+868d2be: the patch after the last real
-          # release (rc tags skipped), the date, the commit.
+          # 0.4.0-nightly.20261028+accf089: the version main is heading for,
+          # the date, the commit. After an rc (v0.4.0-rc1) that is the rc's
+          # release; after a real release (v0.4.0), its next patch. Counting
+          # from real releases alone called 0.4.0's nightlies 0.3.3.
+          # versionsort.suffix puts v0.4.0-rc1 before v0.4.0.
           BASE="$(git tag -l 'v[0-9]*' --sort=-v:refname | grep -v '[-]' | head -1)"
           BASE="${BASE#v}"
-          NEXT="${BASE%.*}.$(( ${BASE##*.} + 1 ))"
+          NEWEST="$(git -c versionsort.suffix=-rc tag -l 'v[0-9]*' --sort=-v:refname | head -1)"
+          NEWEST="${NEWEST#v}"
+          case "$NEWEST" in
+            *-*) NEXT="${NEWEST%%-*}" ;;
+            *) NEXT="${NEWEST%.*}.$(( ${NEWEST##*.} + 1 ))" ;;
+          esac
           VERSION="${NEXT}-nightly.$(date -u +%Y%m%d)+${SHORT}"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "base=v$BASE" >> "$GITHUB_OUTPUT"
@@ -110,7 +118,26 @@ jobs:
               -o "fjordd-freebsd-${arch}" ./cmd/fjordd
           done
           cp packaging/fjordd.rc fjordd.rc
-          sha256sum fjordd-freebsd-amd64 fjordd-freebsd-arm64 fjordd.rc > SHA256SUMS
+
+      # Linux as the release has it: binaries, unit, installer, and the
+      # .deb/.rpm under fixed names (fjord-nightly-linux-<arch>.deb|rpm), so
+      # the links in the notes stay the same night after night.
+      - if: steps.decide.outputs.publish == 'true'
+        name: Cross-compile and package for Linux
+        env:
+          VERSION: ${{ steps.decide.outputs.version }}
+        run: |
+          for arch in amd64 arm64; do
+            GOOS=linux GOARCH=$arch CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" \
+              -o "fjordd-linux-${arch}" ./cmd/fjordd
+          done
+          cp packaging/fjordd.service fjordd.service
+          cp packaging/install-linux.sh install-linux.sh
+          go install github.com/goreleaser/nfpm/v2/cmd/nfpm@v2.48.0
+          PATH="$(go env GOPATH)/bin:$PATH" packaging/linux/build-packages.sh "$VERSION"
+          for f in fjord-"$VERSION"-linux-*; do mv "$f" "fjord-nightly-linux-${f##*-linux-}"; done
+          sha256sum fjordd-freebsd-amd64 fjordd-freebsd-arm64 fjordd.rc \
+            fjordd-linux-amd64 fjordd-linux-arm64 fjordd.service install-linux.sh fjord-nightly-linux-* > SHA256SUMS
           cat SHA256SUMS
 
       # One "nightly" release, updated in place: move the tag, then new title,
@@ -135,10 +162,19 @@ jobs:
             echo 'chmod 755 /usr/local/sbin/fjordd && service fjordd restart'
             echo '```'
             echo
+            echo "On Linux (as root):"
+            echo '```sh'
+            echo 'A=$(uname -m | sed "s/x86_64/amd64/;s/aarch64/arm64/")'
+            echo '# Fedora'
+            echo 'dnf install -y https://github.com/'"${REPO}"'/releases/download/nightly/fjord-nightly-linux-$A.rpm'
+            echo '# Debian/Ubuntu'
+            echo 'curl -fsSLO https://github.com/'"${REPO}"'/releases/download/nightly/fjord-nightly-linux-$A.deb && apt install -y ./fjord-nightly-linux-$A.deb'
+            echo '```'
+            echo
             echo "### Since ${BASE}"
             git log --format='- %s' "${BASE}..${SHA}"
           } > notes.md
-          ASSETS="fjordd-freebsd-amd64 fjordd-freebsd-arm64 fjordd.rc SHA256SUMS"
+          ASSETS="fjordd-freebsd-amd64 fjordd-freebsd-arm64 fjordd.rc fjordd-linux-amd64 fjordd-linux-arm64 fjordd.service install-linux.sh $(ls fjord-nightly-linux-*) SHA256SUMS"
           git tag -f nightly "$SHA"
           git push -f origin refs/tags/nightly
           if gh release view nightly --repo "$REPO" >/dev/null 2>&1; then
