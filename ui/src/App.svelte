@@ -108,12 +108,17 @@
   // Settings sub-tab, mirrored into the URL (#/settings/<tab>) like the views.
   let settingsTab: 'storage' | 'extensions' | 'catalogs' | 'advanced' | 'account' = 'storage';
 
-  // Draft for the "+" button: a FreeBSD base image that comes Up as-is, so a
-  // blank stack is immediately a box you can open a shell in. A podman draft is
-  // a compose; an appjail draft is a native director spec + Makejail (no
+  // Draft for the "+" button: an image that comes Up as-is, so a blank stack
+  // is immediately a box you can open a shell in -- FreeBSD's base image, or
+  // on Linux alpine, which needs a command to stay up. A podman draft is a
+  // compose; an appjail draft is a native director spec + Makejail (no
   // compose) that runs via appjail-director from the start.
   const NEW_STACK_IMAGE = 'ghcr.io/daemonless/base:15.1-latest';
-  const NEW_STACK_COMPOSE = `services:\n  app:\n    image: ${NEW_STACK_IMAGE}\n`;
+  let hostOS = '';
+  const newStackCompose = (os: string) =>
+    os === 'linux'
+      ? `services:\n  app:\n    image: docker.io/library/alpine:3.24\n    command: sleep infinity\n`
+      : `services:\n  app:\n    image: ${NEW_STACK_IMAGE}\n`;
   const NEW_STACK_MAKEJAIL = `OPTION container=boot\nOPTION overwrite=force\nOPTION from=${NEW_STACK_IMAGE}\n`;
   // Jail name is namespaced by the stack id, like catalog installs.
   const newStackDirector = (name: string) =>
@@ -132,7 +137,7 @@
   const newStackDraft = (engine = defaultEngine, name = `stack-${Date.now().toString().slice(-4)}`): Stack =>
     engine === 'appjail'
       ? { name, dir: '', compose: '', env: `DIRECTOR_PROJECT=${name}\nTZ=UTC\n`, director: newStackDirector(name), makejail: NEW_STACK_MAKEJAIL, engine }
-      : { name, dir: '', compose: NEW_STACK_COMPOSE, env: 'TZ=UTC\n', engine };
+      : { name, dir: '', compose: newStackCompose(hostOS), env: 'TZ=UTC\n', engine };
   // Switch a draft's runtime: swap in that engine's starter files. The two
   // engines' files are different formats (compose vs director + Makejail), so
   // nothing carries over -- which was silent, and took every edit with it. An
@@ -913,14 +918,17 @@
     // The list's .env has its secrets blanked: the editor needs the stack's
     // own answer. Without it (fjord did not answer, the session ended) the
     // list's copy is shown but never saved -- it would blank the passwords.
-    let full = false;
-    try {
-      const res = await fetch(`/api/stacks/${stack.name}`);
-      if (res.ok) {
-        stack = await res.json();
-        full = true;
-      }
-    } catch {}
+    // A draft from "+" is not on the server yet: it is all here already.
+    let full = !stack.dir && !stacks.some((s) => s.name === stack!.name);
+    if (!full) {
+      try {
+        const res = await fetch(`/api/stacks/${stack.name}`);
+        if (res.ok) {
+          stack = await res.json();
+          full = true;
+        }
+      } catch {}
+    }
     if (!full) stack = { ...stack!, listOnly: true };
     selectedStack = stack;
     currentView = 'stacks'; // selecting a stack always means the Stacks section
@@ -1252,7 +1260,10 @@
   onMount(async () => {
     fetch('/api/about')
       .then((r) => (r.ok ? r.json() : null))
-      .then((a) => (daemonVersion = a?.version ?? ''))
+      .then((a) => {
+        daemonVersion = a?.version ?? '';
+        hostOS = a?.os ?? '';
+      })
       .catch(() => {});
     loadAppIcons();
     try {
