@@ -15,6 +15,7 @@ import (
 	composepkg "github.com/daemonless/fjord/pkg/compose"
 	"github.com/daemonless/fjord/pkg/engine"
 	"github.com/daemonless/fjord/pkg/manifest"
+	"github.com/daemonless/fjord/pkg/registry"
 	"github.com/daemonless/fjord/pkg/stack"
 )
 
@@ -306,11 +307,11 @@ func (s *server) handleAdopt(w http.ResponseWriter, r *http.Request) {
 
 // adoptWebHint finds the port the app's web UI answers on, for the Open link
 // of an adopted stack (which publishes nothing on a macvlan): the catalog
-// manifest's web_port/web_https when the image is a catalog app, else the
-// image's first exposed TCP port. "" = no hint.
+// manifest's web_port/web_https when the image is that catalog app's, else
+// the image's first exposed TCP port. "" = no hint.
 func (s *server) adoptWebHint(ctx context.Context, be engine.Backend, appID, image string) (port string, https bool) {
 	if b, err := s.cat.ManifestAny(ctx, appID); err == nil {
-		if m, err := manifest.Parse(string(b)); err == nil {
+		if m, err := manifest.Parse(string(b)); err == nil && runsImage(m.Compose(), image) {
 			if p := m.WebContainerPort(); p != "" {
 				return p, m.WebHTTPS
 			}
@@ -328,4 +329,28 @@ func (s *server) adoptWebHint(ctx context.Context, be engine.Backend, appID, ima
 		}
 	}
 	return "", false
+}
+
+// runsImage: the compose runs the image's repository. An app found by name
+// can be another image of the same app -- plexinc/pms-docker is not
+// linuxserver's plex, whose web port it was given (venus, 2026-10-29).
+func runsImage(compose, image string) bool {
+	imgs, _ := composepkg.ServiceImages(compose)
+	for _, i := range imgs {
+		if sameRepo(i, image) {
+			return true
+		}
+	}
+	return false
+}
+
+// sameRepo compares two image refs by repository: tag and digest dropped,
+// Docker Hub spelled either way.
+func sameRepo(a, b string) bool {
+	norm := func(s string) string {
+		r := registry.Repo(s)
+		r = strings.TrimPrefix(r, "docker.io/")
+		return strings.TrimPrefix(r, "library/")
+	}
+	return norm(a) == norm(b)
 }
