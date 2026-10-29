@@ -261,18 +261,26 @@ func main() {
 	instanceID = ensureInstance(fjordRoot).ID
 	settings := loadSettings(fjordRoot)
 	sources := settings.Catalogs
-	if len(sources) == 0 && !settings.CatalogBootstrapped {
-		// Fresh install: the app store should not be empty out of the box.
-		// Add the default catalog (FJORD_CATALOG_URL overrides which) as an
-		// ordinary, removable source and remember that we did, so a user who
-		// deletes it later doesn't get it back on every restart.
-		id, url := defaultCatalog()
-		if env := os.Getenv("FJORD_CATALOG_URL"); env != "" {
-			id, url = "default", env
+	defaults := defaultCatalogs(runtime.GOOS)
+	if env := os.Getenv("FJORD_CATALOG_URL"); env != "" && len(sources) == 0 && !settings.CatalogBootstrapped {
+		// FJORD_CATALOG_URL replaces the defaults on a fresh install.
+		sources = []catalog.Source{{ID: "default", Name: "default", URL: env}}
+		var ids []string
+		for _, d := range defaults {
+			ids = append(ids, d.ID)
 		}
-		sources = []catalog.Source{{ID: id, Name: id, URL: url}}
-		if err := updateSettings(fjordRoot, func(st *savedSettings) { st.Catalogs = sources }); err != nil {
+		if err := updateSettings(fjordRoot, func(st *savedSettings) { st.Catalogs, st.CatalogDefaults = sources, ids }); err != nil {
 			log.Printf("catalog: could not persist default source: %v", err)
+		}
+		settings.CatalogDefaults = ids
+	}
+	// Fresh install: the app store should not be empty out of the box. The
+	// defaults are ordinary, removable sources, each added once (see
+	// CatalogDefaults), so one deleted later doesn't come back on restart.
+	if added, given := newDefaults(sources, settings.CatalogDefaults, settings.CatalogBootstrapped, defaults); len(added) != len(sources) || !slices.Equal(given, settings.CatalogDefaults) {
+		sources = added
+		if err := updateSettings(fjordRoot, func(st *savedSettings) { st.Catalogs, st.CatalogDefaults = sources, given }); err != nil {
+			log.Printf("catalog: could not persist default sources: %v", err)
 		}
 	}
 	// Once any catalog has ever been configured -- bootstrapped here or added

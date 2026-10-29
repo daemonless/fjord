@@ -51,6 +51,10 @@ type savedSettings struct {
 	// The default catalog was added once on first run. Never re-added after
 	// that, so removing it in Settings sticks across restarts.
 	CatalogBootstrapped bool `json:"catalogBootstrapped,omitempty"`
+	// CatalogDefaults are the default catalogs this install has been given,
+	// by id. A default added in a later version (daemonless on Linux, 0.4.0)
+	// is added once, like the first; removing it sticks the same way.
+	CatalogDefaults []string `json:"catalogDefaults,omitempty"`
 	// Instance is this fjord's own identity: a permanent random id and a
 	// name (the host's, until changed). A names provider shows the name
 	// ("fjord on netlab") and keys this fjord's names by the id, so a

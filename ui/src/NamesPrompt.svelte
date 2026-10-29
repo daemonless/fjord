@@ -8,11 +8,17 @@
   import Spinner from './Spinner.svelte';
   import Icon from './Icon.svelte';
 
-  export let stack: { name: string };
+  export let stack: { name: string; status?: any };
   export let stacks: any[] = [];
 
   let busy = false;
-  $: mine = $names.provider === stack.name;
+  // A linked proxy that runs here is the stack at the address its name resolves to.
+  $: linkedHere =
+    !!$names.linked &&
+    (stack.status?.containers || []).some((c: { addresses?: Record<string, string> }) =>
+      Object.values(c.addresses || {}).some((a) => ($names.linkAddrs || []).includes(a)),
+    );
+  $: mine = $names.provider === stack.name || linkedHere;
   $: todo = mine && $names.ready ? freeLabels(unnamed(stacks, $names), $names) : [];
   $: example = todo[0] ? `${todo[0].label}.${$names.domain}` : '';
 

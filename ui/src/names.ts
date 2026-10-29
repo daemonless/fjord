@@ -28,6 +28,8 @@ export type NamesState = {
   taken?: string[];
   /** Linked by hand (Settings, Names): a proxy on another machine. */
   linked?: boolean;
+  /** Where a linked proxy's name resolves: a stack here at one of them is it. */
+  linkAddrs?: string[];
   /** This fjord, as providers see it. */
   self?: { id: string; name: string };
 };

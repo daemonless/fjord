@@ -332,8 +332,7 @@ func (s *server) adoptWebHint(ctx context.Context, be engine.Backend, appID, ima
 }
 
 // runsImage: the compose runs the image's repository. An app found by name
-// can be another image of the same app -- plexinc/pms-docker is not
-// linuxserver's plex, whose web port it was given (venus, 2026-10-29).
+// can be another image of the same app, with another web port.
 func runsImage(compose, image string) bool {
 	imgs, _ := composepkg.ServiceImages(compose)
 	for _, i := range imgs {

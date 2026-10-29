@@ -49,7 +49,10 @@ systemctl daemon-reload
 
 step "Starting podman's API socket and fjordd"
 systemctl enable --now podman.socket
-systemctl enable --now fjordd
+# restart, not enable --now: run again to upgrade, the old fjordd kept
+# running. The apps stay up (KillMode=process, reloaded above).
+systemctl enable fjordd
+systemctl restart fjordd
 sleep 2
 systemctl is-active --quiet fjordd || fail "fjordd did not start: journalctl -u fjordd"
 

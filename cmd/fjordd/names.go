@@ -522,8 +522,11 @@ type namesView struct {
 	Error string   `json:"error,omitempty"`
 	// Linked: the provider was linked by hand (Settings, Names), not
 	// installed here. Self is this fjord, as providers see it.
-	Linked bool      `json:"linked,omitempty"`
-	Self   *Instance `json:"self,omitempty"`
+	Linked bool `json:"linked,omitempty"`
+	// LinkAddrs are the addresses a linked proxy's name resolves to: a
+	// stack here at one of them is that proxy, and its page offers names.
+	LinkAddrs []string  `json:"linkAddrs,omitempty"`
+	Self      *Instance `json:"self,omitempty"`
 }
 
 func (s *server) namesState(ctx context.Context) namesView {
@@ -546,6 +549,13 @@ func (s *server) namesState(ctx context.Context) namesView {
 		return v
 	}
 	v := namesView{Provider: p.Stack, Linked: p.linked, Self: &self}
+	if p.linked {
+		if u, err := url.Parse(p.base); err == nil {
+			lctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+			v.LinkAddrs, _ = net.DefaultResolver.LookupHost(lctx, u.Hostname())
+			cancel()
+		}
+	}
 	st, code, err := p.status(ctx)
 	if err != nil {
 		v.Disconnected = code == http.StatusUnauthorized
