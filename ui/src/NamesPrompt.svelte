@@ -67,10 +67,11 @@
     <a href={providerSettingsUrl($names, stacks)} target="_blank" rel="noreferrer" class="shrink-0 font-medium text-fjord-accent hover:underline">Open its Settings</a>
   </div>
 {:else if mine && !$names.ready && !$names.setupToken && $names.error}
-  <!-- Just installed: it does not answer yet. The row refreshes by itself. -->
+  <!-- Set up before, and fjord cannot ask it now: say what is wrong. Names
+       already given keep working; fjord looks again by itself. -->
   <div class="flex items-center gap-3 rounded-lg border border-fjord-border bg-fjord-card px-4 py-2.5 text-sm" role="status">
-    <Spinner size={14} />
-    <span class="flex-1 min-w-0 text-fjord-fg-secondary">Waiting for it to answer. Then one step: finish its setup, and your apps get names.</span>
+    <Icon name="alert" size={14} class="shrink-0 text-fjord-warning" />
+    <span class="flex-1 min-w-0 text-fjord-fg-secondary">fjord can't reach it right now: {$names.error}. Names you have still work; fjord keeps trying.</span>
   </div>
 {:else if mine && !$names.ready && $names.setupToken}
   <div class="flex items-center gap-3 rounded-lg border border-fjord-border bg-fjord-card px-4 py-2.5 text-sm" role="status">

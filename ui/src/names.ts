@@ -64,12 +64,23 @@ openBy.subscribe((v) => {
 let again: ReturnType<typeof setTimeout> | undefined;
 let againMs = 5000;
 
+// fjord itself did not answer (restarting, a blip): look again, backing
+// off to a minute. Returning without a timer stopped every later look, and
+// the row stayed as it was until a reload (jupiter, 2026-10-28).
+function lookAgainLater() {
+  again = setTimeout(loadNames, againMs);
+  againMs = Math.min(againMs * 2, 60000);
+}
+
 export async function loadNames(): Promise<NamesState> {
   clearTimeout(again);
   again = undefined;
   try {
     const res = await fetch('/api/names');
-    if (!res.ok) return get(names);
+    if (!res.ok) {
+      lookAgainLater();
+      return get(names);
+    }
     const p: NamesState = await res.json();
     names.set(p);
     // Every look, both ways: a tab left open notices DNS for the ending
@@ -91,6 +102,7 @@ export async function loadNames(): Promise<NamesState> {
     }
     return p;
   } catch {
+    lookAgainLater();
     return get(names);
   }
 }

@@ -544,3 +544,16 @@ func TestDeletedProviderForgetsItsPin(t *testing.T) {
 		}
 	}
 }
+
+// Finish setup only for a provider fjord has never seen set up: one that
+// was set up and cannot be asked now shows its problem instead.
+func TestSetupTokenOnlyBeforeSetup(t *testing.T) {
+	p := &provider{Stack: "rp", setupToken: "TOKEN"}
+	if got := stillSettingUp(p); got != "TOKEN" {
+		t.Fatalf("never set up: %q", got)
+	}
+	p.pin = &providerPin{TrustName: "proxy.apps.test"}
+	if got := stillSettingUp(p); got != "" {
+		t.Fatalf("set up before: %q", got)
+	}
+}
