@@ -6,6 +6,7 @@
 // Needs a catalog with a provides.names app (names.sh) and one app with a
 // page already installed.
 const { chromium } = require('playwright-core');
+const { signedIn } = require('./session');
 const BASE = 'http://127.0.0.1:3567';
 const STACK = 't-rp';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -14,7 +15,7 @@ const shot = (page, n) => page.screenshot({ path: `/out/names-${n}.png`, fullPag
 
 (async () => {
   const b = await chromium.launch({ args: ['--no-sandbox'] });
-  const ctx = await b.newContext({ viewport: { width: 1400, height: 1000 }, ignoreHTTPSErrors: true });
+  const ctx = await b.newContext(signedIn({ viewport: { width: 1400, height: 1000 }, ignoreHTTPSErrors: true }));
   const page = await ctx.newPage();
   page.setDefaultTimeout(30000);
   try {

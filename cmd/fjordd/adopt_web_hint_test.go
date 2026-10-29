@@ -3,7 +3,7 @@ package main
 import "testing"
 
 // The catalog's web port is only taken for the catalog app's own image:
-// linuxserver's plex said 3005, the pms-docker venus runs answers on 32400.
+// another image of the same app can answer on another port.
 func TestRunsImage(t *testing.T) {
 	lsPlex := "services:\n  plex:\n    image: lscr.io/linuxserver/plex:latest\n"
 	cases := []struct {

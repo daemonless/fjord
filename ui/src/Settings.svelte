@@ -9,6 +9,7 @@
   import FolderRows from './FolderRows.svelte';
   import { toast } from './toast';
   import { names, linkProvider, unlinkProvider, renameSelf } from './names';
+  import NamesPrompt from './NamesPrompt.svelte';
   // Names tab: this fjord's name as a proxy lists it, and a proxy on another
   // machine linked by the link from its Connected apps page.
   let selfName = '';
@@ -103,6 +104,11 @@
   // Settings is organized into tabs; the active one lives in the URL
   // (#/settings/<tab>), owned by App: it arrives as a prop, changes go up.
   export let tab: 'storage' | 'extensions' | 'catalogs' | 'names' | 'advanced' | 'account' = 'storage';
+  // A linked proxy has no page here: the apps it has not named yet are
+  // offered on this tab instead.
+  let nameStacks: any[] = [];
+  $: if (tab === 'names' && $names.linked && $names.ready && !nameStacks.length)
+    fetch('/api/stacks').then((r) => (r.ok ? r.json() : [])).then((s) => (nameStacks = s || [])).catch(() => {});
   const dispatch = createEventDispatcher();
   const locale = currentLocale();
   let activeTab: 'storage' | 'extensions' | 'catalogs' | 'names' | 'advanced' | 'account' = tab;
@@ -1101,6 +1107,9 @@
               </div>
               <button on:click={doUnlink} class="shrink-0 px-3 py-1.5 rounded-md text-sm font-medium bg-fjord-card border border-fjord-border text-fjord-fg-secondary hover:text-fjord-danger hover:border-fjord-danger/40">Unlink</button>
             </div>
+            {#if $names.ready && nameStacks.length}
+              <div class="mt-3"><NamesPrompt stack={{ name: $names.provider || '' }} stacks={nameStacks} /></div>
+            {/if}
           {:else}
             <p class="text-xs text-fjord-fg-dim mb-3">
               A reverse proxy gives your apps names and HTTPS, like <span class="font-mono">radarr.apps.lan</span>. Install one from the store and it links by itself. One on another machine: open its Settings, Connected apps, "Connect a fjord…", and paste the link here.
