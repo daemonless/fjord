@@ -252,6 +252,7 @@ func (s *server) routes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/apps/install", s.handleInstall)
 	mux.HandleFunc("/api/apps/size", s.handleInstallSize)
 	mux.HandleFunc("/api/adopt", s.handleAdopt)
+	mux.HandleFunc("/api/adopt/names", s.handleAdoptable)
 	mux.HandleFunc("/api/stacks", s.handleStacksList)
 	mux.HandleFunc("/api/stacks/reorder", s.handleReorder) // exact match beats the subtree below
 	mux.HandleFunc("/api/stacks/", s.handleStackRoutes)

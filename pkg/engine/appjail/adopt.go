@@ -106,6 +106,41 @@ func (b *Backend) UnmanagedContainers(ctx context.Context, skip func(name, proje
 	return list, nil
 }
 
+// AdoptableNames names the jails UnmanagedContainers would offer to adopt,
+// without inspecting any: what the dashboard needs to say there are some.
+func (b *Backend) AdoptableNames(ctx context.Context, skip func(name, project string) bool) ([]string, error) {
+	out, err := exec.CommandContext(ctx, "appjail", "jail", "list", "-HIpt", "name", "status", "is_container").Output()
+	if err != nil {
+		return nil, fmt.Errorf("appjail jail list: %w", err)
+	}
+	projects := directorProjects()
+	var names []string
+	var unknown []string // no image in its config: buildah may still know it
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		f := strings.Fields(line)
+		if len(f) < 3 || f[2] != "1" || skip(f[0], projects[f[0]]) {
+			continue
+		}
+		if recordedImage(ctx, f[0]) != "" {
+			names = append(names, f[0])
+		} else {
+			unknown = append(unknown, f[0])
+		}
+	}
+	if len(unknown) > 0 {
+		images := map[string]bool{}
+		for _, c := range buildahContainers(ctx) {
+			images[strings.TrimPrefix(c.ContainerName, "appjail-")] = c.ImageName != ""
+		}
+		for _, n := range unknown {
+			if images[n] {
+				names = append(names, n)
+			}
+		}
+	}
+	return names, nil
+}
+
 // RemoveContainer stops and destroys the jail (and its buildah container)
 // so the adopted stack can recreate it under the same name.
 func (b *Backend) RemoveContainer(ctx context.Context, name string) error {

@@ -31,6 +31,12 @@ type adopter interface {
 
 // jailOwner is implemented by engines whose stacks own named jails, so
 // fjord's own can be left out of the candidates.
+// adoptableNamer names what an engine can adopt without building each spec.
+// An engine without it is asked for the full list.
+type adoptableNamer interface {
+	AdoptableNames(ctx context.Context, skip func(name, project string) bool) ([]string, error)
+}
+
 type jailOwner interface {
 	StackJails(s *stack.Stack) []string
 }
@@ -143,6 +149,49 @@ func (s *server) fjordOwns(be engine.Backend, engineName string) func(name, proj
 		_, err := s.manager.Get(project)
 		return err == nil
 	}
+}
+
+// handleAdoptable: GET {"names": [...]}, what Adopt would offer, by name
+// only, cheap enough for the dashboard to ask on every visit.
+func (s *server) handleAdoptable(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", 405)
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
+	defer cancel()
+	names := []string{}
+	for _, d := range engineDescriptors {
+		be, ok := s.backend(d.Name)
+		if !ok {
+			continue
+		}
+		skip := s.fjordOwns(be, d.Name)
+		if an, ok := be.(adoptableNamer); ok {
+			list, err := an.AdoptableNames(ctx, skip)
+			if err != nil {
+				log.Printf("adoptable: %s: %v", d.Name, err)
+			}
+			names = append(names, list...)
+			continue
+		}
+		ad, ok := be.(adopter)
+		if !ok {
+			continue
+		}
+		list, err := ad.UnmanagedContainers(ctx, skip)
+		if err != nil {
+			log.Printf("adoptable: %s: %v", d.Name, err)
+			continue
+		}
+		for _, u := range list {
+			if _, err := adoptSpec(u); err == nil {
+				names = append(names, u.Name)
+			}
+		}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string][]string{"names": names})
 }
 
 // handleAdopt: GET lists adoptable containers across engines with a preview

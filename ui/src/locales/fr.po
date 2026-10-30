@@ -226,6 +226,7 @@ msgid "Nothing to adopt — every container on this host already belongs to a st
 msgstr "Rien à adopter — chaque conteneur de cet hôte appartient déjà à une pile."
 
 #: src/Adopt.svelte
+#: src/Dashboard.svelte
 #: src/LoginButton.svelte
 #: src/Networks.svelte
 msgid "Hide"
@@ -4815,3 +4816,20 @@ msgstr "<0/> redémarre une fois, en pile avec les mêmes montages, adresse rés
 #: src/Adopt.svelte
 msgid "<0/> becomes a stack with the same mounts, network address and name, stopped as it is now. Data stays where it is."
 msgstr "<0/> devient une pile avec les mêmes montages, adresse réseau et nom, arrêtée comme maintenant. Les données restent où elles sont."
+
+#: src/Dashboard.svelte
+msgid "1 container on this host isn't run by fjord yet."
+msgstr "1 conteneur de cet hôte n'est pas encore géré par fjord."
+
+#. 0: adoptable.length
+#: src/Dashboard.svelte
+msgid "{0} containers on this host aren't run by fjord yet."
+msgstr "{0} conteneurs de cet hôte ne sont pas encore gérés par fjord."
+
+#: src/Dashboard.svelte
+msgid "Hide until another one turns up"
+msgstr "Masquer jusqu'à ce qu'un autre apparaisse"
+
+#: src/Dashboard.svelte
+msgid "Adopt…"
+msgstr "Adopter…"
