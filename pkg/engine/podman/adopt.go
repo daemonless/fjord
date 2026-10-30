@@ -17,7 +17,7 @@ import (
 // for each (.Config.CreateCommand). On FreeBSD inspect reports no IP or
 // MAC for a macvlan container, so that run line is the only faithful
 // source of its network address. Storage-only records are skipped.
-func (b *Backend) UnmanagedContainers(ctx context.Context) ([]engine.Unmanaged, error) {
+func (b *Backend) UnmanagedContainers(ctx context.Context, skip func(name, project string) bool) ([]engine.Unmanaged, error) {
 	q := url.Values{}
 	q.Set("all", "true")
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://d/v4.0.0/libpod/containers/json?"+q.Encode(), nil)
@@ -53,6 +53,9 @@ func (b *Backend) UnmanagedContainers(ctx context.Context) ([]engine.Unmanaged, 
 			if p == "" {
 				p = c.Labels["com.docker.compose.project"]
 			}
+			if skip(p, p) {
+				continue
+			}
 			u := projects[p]
 			if u == nil {
 				u = &engine.Unmanaged{ID: "project:" + p, Name: p, Project: p, Image: c.Image, State: c.State,
@@ -73,7 +76,7 @@ func (b *Backend) UnmanagedContainers(ctx context.Context) ([]engine.Unmanaged, 
 			}
 			continue
 		}
-		if len(c.Names) == 0 {
+		if len(c.Names) == 0 || skip(c.Names[0], "") {
 			continue
 		}
 		u := engine.Unmanaged{ID: c.ID, Name: c.Names[0], Image: c.Image, State: c.State}
