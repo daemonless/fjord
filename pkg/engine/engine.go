@@ -50,6 +50,9 @@ type ContainerStatus struct {
 	Service string `json:"service,omitempty"`
 	State   string `json:"state"` // running | stopped | starting | crashed | ...
 	Ports   []Port `json:"ports,omitempty"`
+	// Exposed is the TCP ports the image declares and nothing publishes: the
+	// only port there is for an app on its own address that maps none.
+	Exposed []int `json:"exposed,omitempty"`
 	// Detail explains a non-running state in one line (e.g. "crash-looping:
 	// see Logs") -- shown as a hint, never parsed.
 	Detail string `json:"detail,omitempty"`

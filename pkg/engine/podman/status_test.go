@@ -37,3 +37,15 @@ func TestPortRangeExpands(t *testing.T) {
 		t.Errorf("status ports %+v", got)
 	}
 }
+
+// whoami on a LAN address publishes nothing; its EXPOSE is the only port.
+func TestExposedPortsReachStatus(t *testing.T) {
+	var c libpodContainer
+	raw := `{"Names":["spike-lan_web_1"],"State":"running","ExposedPorts":{"8080":["tcp"],"80":["tcp"],"53":["udp"]}}`
+	if err := json.Unmarshal([]byte(raw), &c); err != nil {
+		t.Fatal(err)
+	}
+	if got := aggregateStatus([]libpodContainer{c}, nil).Containers[0].Exposed; !reflect.DeepEqual(got, []int{80, 8080}) {
+		t.Errorf("exposed %v, want [80 8080]", got)
+	}
+}

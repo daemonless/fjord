@@ -17,7 +17,12 @@ export type AppUrlStack = {
   /** The first network puts the container on a real segment (daemon says so). */
   ownAddress?: boolean;
   status?: {
-    containers?: { address?: string; ports?: { hostPort: number; containerPort: number; protocol?: string }[] }[];
+    containers?: {
+      address?: string;
+      ports?: { hostPort: number; containerPort: number; protocol?: string }[];
+      /** TCP ports the image exposes and nothing publishes. */
+      exposed?: number[];
+    }[];
   };
   state?: { origin?: { type?: string } };
 };
@@ -96,6 +101,13 @@ export function appUrl(stack: AppUrlStack | null): string {
       .filter((m) => !m[3] || m[3] === 'tcp')
       .map((m) => (ip ? m[2] : resolve(m[1])))
       .filter((h) => /^\d{2,5}$/.test(h));
+  }
+  // On its own address with no port anywhere (whoami: listens on 80, maps
+  // nothing, declares no web port): the image's EXPOSE, else plain http.
+  // Without this the header blamed the address the app is answering on.
+  if (!ports.length && ip) {
+    ports = (stack.status?.containers ?? []).flatMap((ct) => ct.exposed ?? []).map(String);
+    if (!ports.length) return `http://${ip}`;
   }
   return ports.length ? `http://${host}:${ports[0]}` : '';
 }
