@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"net/url"
 	"runtime"
+	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -26,6 +28,8 @@ type libpodContainer struct {
 	// StartedAt is when the container last started, in Unix seconds.
 	StartedAt int64       `json:"StartedAt"`
 	Ports     libpodPorts `json:"Ports"`
+	// ExposedPorts is "80": ["tcp"], the image's EXPOSE minus what is published.
+	ExposedPorts map[string][]string `json:"ExposedPorts"`
 	// reported is podman's own address per network, where podman knows it
 	// (podmanReportsAddresses), and reportedMAC the MAC on each.
 	reported    map[string]string
@@ -66,6 +70,17 @@ func (ps *libpodPorts) UnmarshalJSON(b []byte) error {
 	}
 	*ps = out
 	return nil
+}
+
+func exposedTCP(c libpodContainer) []int {
+	var out []int
+	for port, protos := range c.ExposedPorts {
+		if n, err := strconv.Atoi(port); err == nil && slices.Contains(protos, "tcp") {
+			out = append(out, n)
+		}
+	}
+	slices.Sort(out)
+	return out
 }
 
 // podmanReportsAddresses: on Linux netavark knows every container's address
@@ -259,7 +274,7 @@ func aggregateStatus(containers []libpodContainer, health func(libpodContainer) 
 				ports = append(ports, engine.Port{HostPort: p.HostPort, ContainerPort: p.ContainerPort, Protocol: p.Protocol})
 			}
 		}
-		cs := engine.ContainerStatus{Name: name, ID: c.ID, Service: c.Labels["io.podman.compose.service"], State: c.State, Ports: ports,
+		cs := engine.ContainerStatus{Name: name, ID: c.ID, Service: c.Labels["io.podman.compose.service"], State: c.State, Ports: ports, Exposed: exposedTCP(c),
 			Address: containerAddress(c), Addresses: containerAddresses(c), MACs: c.reportedMAC}
 		if cs.State == "running" {
 			up++
