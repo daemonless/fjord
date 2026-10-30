@@ -301,7 +301,7 @@ func (s *server) ensurePrivateNetwork(ctx context.Context, engineName, stackID s
 	if !ok {
 		return "", fmt.Errorf("no engine to create %s on", name)
 	}
-	for _, n := range backend.Capabilities().NetworkKinds {
+	for _, n := range backend.NetworkKinds() {
 		if n.ID != "nat" {
 			continue
 		}

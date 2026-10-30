@@ -479,13 +479,10 @@ type Capabilities struct {
 	// RemoteVolumes: the engine can mount nfs:// / smb:// folders as named
 	// volumes (and store SMB credentials for them).
 	RemoteVolumes bool `json:"remoteVolumes"`
-	// NetworkKinds are the networks this engine can create. Empty means
-	// CreateNetwork/RemoveNetwork are unsupported and the UI offers neither.
-	NetworkKinds []NetworkKind `json:"networkKinds,omitempty"`
 	// NetworkRemove: this engine can delete a network. False where networks
 	// are defined elsewhere -- offering Delete would only ever error.
 	NetworkRemove bool `json:"networkRemove"`
-	// NetworkNote says why NetworkKinds is empty, so the UI can explain the
+	// NetworkNote says why NetworkKinds() is empty, so the UI can explain the
 	// absence instead of silently hiding a button. Empty when creating works.
 	NetworkNote string `json:"networkNote,omitempty"`
 	// UpdateServices: Update can pull and recreate a subset of a stack's
@@ -574,8 +571,13 @@ type Backend interface {
 	Status(ctx context.Context, s *stack.Stack) (StackStatus, error)
 	// Networks lists container networks a stack can attach to for its own IP.
 	Networks(ctx context.Context) ([]Network, error)
+	// NetworkKinds are the networks this engine can create. Empty means
+	// CreateNetwork/RemoveNetwork are unsupported and the UI offers neither.
+	// Not part of Capabilities: answering inspects the host's interfaces,
+	// which the many callers that want a flag should not pay for.
+	NetworkKinds() []NetworkKind
 	// CreateNetwork creates a network per spec. Supported only for the kinds
-	// in Capabilities().NetworkKinds.
+	// in NetworkKinds.
 	CreateNetwork(ctx context.Context, spec NetworkSpec) (Network, error)
 	// RemoveNetwork deletes a network. It returns ErrInUse when containers are
 	// still attached, unless force is set -- deleting a network out from under

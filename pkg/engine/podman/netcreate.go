@@ -28,11 +28,11 @@ import (
 // the conflist is written directly rather than shelling out to podman.
 const epairPlugin = "epair"
 
-// NetworkKinds is podman's contribution to Capabilities: what it can create
+// NetworkKinds: what podman can create
 // on this host. A private network works anywhere podman does; a LAN network
 // needs the epair plugin, so it is FreeBSD-only (on Linux the mechanism is
 // kernel macvlan, a different code path).
-func (b *Backend) networkKinds() []engine.NetworkKind {
+func (b *Backend) NetworkKinds() []engine.NetworkKind {
 	// A private network is just `podman network create`: no plugin, no
 	// bridge of the user's, nothing platform-specific. It is offered
 	// wherever podman runs, so the two engines describe the same two
@@ -59,7 +59,7 @@ func (b *Backend) networkKinds() []engine.NetworkKind {
 // CreateNetwork writes the network's conflist. podman picks it up by reading
 // the directory, so there is nothing to restart.
 func (b *Backend) CreateNetwork(ctx context.Context, spec engine.NetworkSpec) (engine.Network, error) {
-	if len(b.networkKinds()) == 0 {
+	if len(b.NetworkKinds()) == 0 {
 		// networkNote knows every reason -- wrong platform, missing plugin --
 		// so it cannot go stale the way a hand-written message did.
 		return engine.Network{}, errors.New(b.networkNote())
@@ -218,7 +218,7 @@ func (b *Backend) networkUsersAll(ctx context.Context) (map[string][]string, err
 // runtimes' own bridges are excluded: podman's and appjail's are managed by
 // those tools, and putting a LAN network on one would cross the two.
 func (b *Backend) NetworkParents(ctx context.Context) ([]engine.NetworkParent, error) {
-	if len(b.networkKinds()) == 0 {
+	if len(b.NetworkKinds()) == 0 {
 		return nil, nil
 	}
 	if runtime.GOOS == "linux" {

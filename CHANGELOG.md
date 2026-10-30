@@ -82,9 +82,15 @@ Proven through the real pages on a FreeBSD host and a Fedora host
   an app's secrets are kept where its container cannot reach. (#149)
 - The sidebar is a drawer on phones; the Shell tab is readable in light
   mode; a long status line no longer runs under the buttons. (#133, #149)
+<<<<<<< HEAD
 - A page load says Loading until the stack list arrives, instead of "No
   stacks yet" on a host that has stacks; a list that fails to load says
   so, with Try Again.
+=======
+- The stack list no longer looks over the host's network interfaces once
+  per stack: at 18 stacks on FreeBSD it answers in 0.2 s instead of 2.3 s,
+  and the first stack shows in about half the time.
+>>>>>>> abde07b (fix: the stack list stops scanning the host's network interfaces per stack)
 
 ## 0.3.2 — 2026-10-21
 

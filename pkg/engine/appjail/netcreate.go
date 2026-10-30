@@ -14,7 +14,7 @@ import (
 	"github.com/daemonless/fjord/pkg/lannet"
 )
 
-// networkKinds is appjail's contribution to Capabilities.
+// NetworkKinds: what appjail can create.
 //
 // Both kinds. "nat" is appjail's own: a private network it creates and owns,
 // gateway and all, which is safe precisely because the segment is new.
@@ -26,7 +26,7 @@ import (
 // feature to check.
 var netNameRe = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,62}$`)
 
-func networkKinds() []engine.NetworkKind {
+func (b *Backend) NetworkKinds() []engine.NetworkKind {
 	return []engine.NetworkKind{lannet.Kind(true), {
 		ID:                  "nat",
 		Label:               "bridge",
