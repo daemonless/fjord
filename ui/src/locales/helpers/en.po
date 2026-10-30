@@ -250,3 +250,51 @@ msgstr "Fair"
 #: src/password.ts
 msgid "Longer is stronger: a short sentence is easy to remember."
 msgstr "Longer is stronger: a short sentence is easy to remember."
+
+#. 0: name; 1: sofar
+#: src/busyStep.ts
+msgid "Downloading {0} ({1})"
+msgstr "Downloading {0} ({1})"
+
+#. 0: name
+#: src/busyStep.ts
+msgid "Downloading {0}"
+msgstr "Downloading {0}"
+
+#: src/busyStep.ts
+msgid "Saving the image"
+msgstr "Saving the image"
+
+#. 0: jail[4]; 1: jail[1]; 2: jail[2]
+#: src/busyStep.ts
+msgid "Building {0} ({1} of {2})"
+msgstr "Building {0} ({1} of {2})"
+
+#. 0: jail[4]; 1: jail[1]; 2: jail[2]
+#: src/busyStep.ts
+msgid "Starting {0} ({1} of {2})"
+msgstr "Starting {0} ({1} of {2})"
+
+#: src/busyStep.ts
+msgid "Creating the containers"
+msgstr "Creating the containers"
+
+#: src/busyStep.ts
+msgid "Removing the containers"
+msgstr "Removing the containers"
+
+#: src/busyStep.ts
+msgid "Building the jails"
+msgstr "Building the jails"
+
+#: src/busyStep.ts
+msgid "Removing the jails"
+msgstr "Removing the jails"
+
+#: src/busyStep.ts
+msgid "Starting the containers"
+msgstr "Starting the containers"
+
+#: src/busyStep.ts
+msgid "Stopping the containers"
+msgstr "Stopping the containers"

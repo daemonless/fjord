@@ -250,3 +250,51 @@ msgstr "Moyen"
 #: src/password.ts
 msgid "Longer is stronger: a short sentence is easy to remember."
 msgstr "Plus long, c'est plus sûr : une courte phrase se retient facilement."
+
+#. 0: name; 1: sofar
+#: src/busyStep.ts
+msgid "Downloading {0} ({1})"
+msgstr "Téléchargement de {0} ({1})"
+
+#. 0: name
+#: src/busyStep.ts
+msgid "Downloading {0}"
+msgstr "Téléchargement de {0}"
+
+#: src/busyStep.ts
+msgid "Saving the image"
+msgstr "Enregistrement de l'image"
+
+#. 0: jail[4]; 1: jail[1]; 2: jail[2]
+#: src/busyStep.ts
+msgid "Building {0} ({1} of {2})"
+msgstr "Construction de {0} ({1} sur {2})"
+
+#. 0: jail[4]; 1: jail[1]; 2: jail[2]
+#: src/busyStep.ts
+msgid "Starting {0} ({1} of {2})"
+msgstr "Démarrage de {0} ({1} sur {2})"
+
+#: src/busyStep.ts
+msgid "Creating the containers"
+msgstr "Création des conteneurs"
+
+#: src/busyStep.ts
+msgid "Removing the containers"
+msgstr "Suppression des conteneurs"
+
+#: src/busyStep.ts
+msgid "Building the jails"
+msgstr "Construction des jails"
+
+#: src/busyStep.ts
+msgid "Removing the jails"
+msgstr "Suppression des jails"
+
+#: src/busyStep.ts
+msgid "Starting the containers"
+msgstr "Démarrage des conteneurs"
+
+#: src/busyStep.ts
+msgid "Stopping the containers"
+msgstr "Arrêt des conteneurs"

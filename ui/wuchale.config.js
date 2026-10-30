@@ -43,7 +43,7 @@ export default defineConfig({
     }),
     helpers: vanilla({
       loader: 'custom', // src/locales/helpers.loader.js, both sides
-      files: ['src/updateWords.ts', 'src/publicUrl.ts', 'src/folderMatch.ts', 'src/choices.ts', 'src/appUrl.ts', 'src/restartPolicy.ts', 'src/stackHealth.ts', 'src/names.ts', 'src/shortcuts.ts', 'src/password.ts'],
+      files: ['src/updateWords.ts', 'src/publicUrl.ts', 'src/folderMatch.ts', 'src/choices.ts', 'src/appUrl.ts', 'src/restartPolicy.ts', 'src/stackHealth.ts', 'src/names.ts', 'src/shortcuts.ts', 'src/password.ts', 'src/busyStep.ts'],
       heuristic: skipCode(defaultHeuristic),
       // A catalog of its own: shared with main, a message's index depends on
       // the .svelte files having been seen first, and the unit tests (which

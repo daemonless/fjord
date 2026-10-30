@@ -38,6 +38,7 @@
   import { toast, dismissToast } from './toast';
   import { expandVars } from './expand';
   import { appUrl, noWebUI } from './appUrl';
+  import { busyStep } from './busyStep';
   import { health } from './stackHealth';
   import { changeSentence } from './updateWords';
   import { firstLine } from './errorLine';
@@ -1780,13 +1781,18 @@
   $: stackNote = busyReason || watchNote || containerNote || noAddress || staleText;
   // Why the actions are greyed, in words: what fjordd is doing to the stack,
   // or what this page started. Grey alone read as broken.
+  // The step itself, when the output names one: the chip up top already
+  // says "Installing…", and a pull took minutes with nothing else to go on.
+  $: busyStepNow = selectedStack && busyNow ? busyStep(logs[selectedStack.name] || '') : '';
   $: busyReason = !selectedStack
     ? ''
-    : selectedStack.busy
-      ? `${BUSY_LABEL[selectedStack.busy] ?? 'Busy…'} — actions come back when it finishes`
-      : execStatus[selectedStack.name] === 'running'
-        ? `${execMessage[selectedStack.name] || 'Working…'} — actions come back when it finishes`
-        : '';
+    : busyStepNow
+      ? `${busyStepNow} — actions come back when it finishes`
+      : selectedStack.busy
+        ? `${BUSY_LABEL[selectedStack.busy] ?? 'Busy…'} — actions come back when it finishes`
+        : execStatus[selectedStack.name] === 'running'
+          ? `${execMessage[selectedStack.name] || 'Working…'} — actions come back when it finishes`
+          : '';
 
   // Stacks with saved-but-unapplied config changes (need a recreate via `up`).
   let needsApply: Record<string, boolean> = {};
