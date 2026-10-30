@@ -192,6 +192,7 @@ msgid "Already running on this host"
 msgstr "Already running on this host"
 
 #: src/Adopt.svelte
+#: src/App.svelte
 #: src/Dashboard.svelte
 msgid "Adopt existing containers"
 msgstr "Adopt existing containers"
@@ -710,9 +711,8 @@ msgstr "<0>F</0>JORD"
 msgid "Search stacks…"
 msgstr "Search stacks…"
 
-#: src/App.svelte
-msgid "New Stack"
-msgstr "New Stack"
+#~ msgid "New Stack"
+#~ msgstr "New Stack"
 
 #: src/App.svelte
 #: src/Dashboard.svelte
@@ -4844,3 +4844,28 @@ msgstr "Hide until another one turns up"
 #: src/Dashboard.svelte
 msgid "Adopt…"
 msgstr "Adopt…"
+
+#: src/App.svelte
+#: src/App.svelte
+msgid "Add a stack"
+msgstr "Add a stack"
+
+#: src/App.svelte
+msgid "Install from the store"
+msgstr "Install from the store"
+
+#: src/App.svelte
+msgid "Pick an app; fjord fills in the rest"
+msgstr "Pick an app; fjord fills in the rest"
+
+#: src/App.svelte
+msgid "Take over ones started outside fjord"
+msgstr "Take over ones started outside fjord"
+
+#: src/App.svelte
+msgid "New stack"
+msgstr "New stack"
+
+#: src/App.svelte
+msgid "Write the compose file yourself"
+msgstr "Write the compose file yourself"

@@ -504,6 +504,17 @@
       )
     : [];
   let linksOpen = false;
+  // The sidebar's + menu: the store, Adopt, or a blank stack.
+  let newOpen = false;
+  function addBy(how: 'store' | 'adopt' | 'new') {
+    newOpen = false;
+    if (how === 'new') {
+      selectStack(newStackDraft());
+      return;
+    }
+    selectStack(null);
+    currentView = how;
+  }
   $: linkIcon = (service: string) =>
     serviceIcon($imageIcons, (selectedStack?.services ?? []).find((s: any) => s.name === service)?.image);
   // The .env as the editors resolve ${VAR} against it, and what the compose
@@ -2072,10 +2083,14 @@
   }
 </script>
 
-<!-- The app menu beside Open closes on a click anywhere else. Keys: the
-     table in shortcuts.ts; never while typing in a field. -->
+<!-- The app menu beside Open and the + menu close on a click anywhere else.
+     Keys: the table in shortcuts.ts; never while typing in a field. -->
 <svelte:window
-  on:click={(e) => linksOpen && !(e.target as HTMLElement)?.closest?.('.svc-links') && (linksOpen = false)}
+  on:click={(e) => {
+    const t = e.target as HTMLElement;
+    if (linksOpen && !t?.closest?.('.svc-links')) linksOpen = false;
+    if (newOpen && !t?.closest?.('.new-menu')) newOpen = false;
+  }}
   on:keydown={(e) => {
     if (typing(e)) return;
     const s = matchShortcut(e);
@@ -2124,13 +2139,32 @@
         placeholder="Search stacks…"
         class="flex-1 min-w-0 bg-fjord-card border border-fjord-border rounded-md px-3 py-1.5 text-sm text-fjord-fg-body focus:outline-none focus:border-fjord-accent"
       />
-      <button
-        title="New Stack"
-        on:click={() =>
-          selectStack(newStackDraft())}
-        class="shrink-0 w-9 flex items-center justify-center bg-fjord-accent hover:bg-fjord-accent-hover text-white rounded-md"
-        ><Icon name="plus" /></button
-      >
+      <!-- Every way to add a stack, so Adopt is found where people look. -->
+      <details class="new-menu relative shrink-0" bind:open={newOpen}>
+        <summary
+          title="Add a stack"
+          aria-label="Add a stack"
+          class="list-none cursor-pointer h-full w-9 flex items-center justify-center bg-fjord-accent hover:bg-fjord-accent-hover text-white rounded-md"
+          ><Icon name="plus" /></summary
+        >
+        <div use:fitMenu class="absolute z-30 left-0 mt-1 w-72 bg-fjord-card border border-fjord-border rounded-lg shadow-xl py-1">
+          <button on:click={() => addBy('store')} class="w-full text-left px-3 py-2 hover:bg-fjord-border/50"
+            ><span class="block text-sm font-medium text-fjord-fg-body">Install from the store</span><span class="block text-xs text-fjord-fg-muted"
+              >Pick an app; fjord fills in the rest</span
+            ></button
+          >
+          <button on:click={() => addBy('adopt')} class="w-full text-left px-3 py-2 hover:bg-fjord-border/50"
+            ><span class="block text-sm font-medium text-fjord-fg-body">Adopt existing containers</span><span class="block text-xs text-fjord-fg-muted"
+              >Take over ones started outside fjord</span
+            ></button
+          >
+          <button on:click={() => addBy('new')} class="w-full text-left px-3 py-2 hover:bg-fjord-border/50"
+            ><span class="block text-sm font-medium text-fjord-fg-body">New stack</span><span class="block text-xs text-fjord-fg-muted"
+              >Write the compose file yourself</span
+            ></button
+          >
+        </div>
+      </details>
     </div>
 
     <!-- status filter: only the chips with something in them -->
