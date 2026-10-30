@@ -226,6 +226,7 @@ msgid "Nothing to adopt — every container on this host already belongs to a st
 msgstr "Nothing to adopt — every container on this host already belongs to a stack."
 
 #: src/Adopt.svelte
+#: src/Dashboard.svelte
 #: src/LoginButton.svelte
 #: src/Networks.svelte
 msgid "Hide"
@@ -4826,3 +4827,20 @@ msgstr "<0/> restarts once, as a stack with the same mounts, network address and
 #: src/Adopt.svelte
 msgid "<0/> becomes a stack with the same mounts, network address and name, stopped as it is now. Data stays where it is."
 msgstr "<0/> becomes a stack with the same mounts, network address and name, stopped as it is now. Data stays where it is."
+
+#: src/Dashboard.svelte
+msgid "1 container on this host isn't run by fjord yet."
+msgstr "1 container on this host isn't run by fjord yet."
+
+#. 0: adoptable.length
+#: src/Dashboard.svelte
+msgid "{0} containers on this host aren't run by fjord yet."
+msgstr "{0} containers on this host aren't run by fjord yet."
+
+#: src/Dashboard.svelte
+msgid "Hide until another one turns up"
+msgstr "Hide until another one turns up"
+
+#: src/Dashboard.svelte
+msgid "Adopt…"
+msgstr "Adopt…"

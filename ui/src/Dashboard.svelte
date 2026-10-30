@@ -111,6 +111,31 @@
     loadAppIcons();
   });
 
+  // Containers on this host that Adopt could take over, asked once the list
+  // is in (the list comes first). Hidden is per browser and by name: a new
+  // container brings the line back.
+  const HIDDEN = 'fjord.adoptHidden';
+  let adoptable: string[] = [];
+  let hidden: string[] = [];
+  let askedAdoptable = false;
+  try {
+    hidden = JSON.parse(localStorage.getItem(HIDDEN) || '[]');
+  } catch {}
+  $: if (loaded && stacks.length && !askedAdoptable) {
+    askedAdoptable = true;
+    fetch('/api/adopt/names')
+      .then((r) => (r.ok ? r.json() : { names: [] }))
+      .then((j) => (adoptable = j.names || []))
+      .catch(() => {});
+  }
+  $: unseen = adoptable.filter((n) => !hidden.includes(n));
+  function hideAdoptable() {
+    hidden = adoptable;
+    try {
+      localStorage.setItem(HIDDEN, JSON.stringify(adoptable));
+    } catch {}
+  }
+
   const act = (name: string, action: string) => dispatch('action', { name, action });
 </script>
 
@@ -173,6 +198,21 @@
         on:secondary={() => dispatch('adopt')}
       />
     {:else}
+      {#if unseen.length}
+        <div class="flex items-center gap-3 mb-3 px-4 py-2.5 rounded-xl border border-fjord-border bg-fjord-card text-sm text-fjord-fg-secondary">
+          <Icon name="download" size={14} />
+          <span class="flex-1 min-w-0"
+            >{#if adoptable.length === 1}1 container on this host isn't run by fjord yet.{:else}{adoptable.length} containers on this host aren't run by fjord yet.{/if}</span
+          >
+          <button on:click={() => dispatch('adopt')} class="text-fjord-accent hover:underline font-medium shrink-0">Adopt…</button>
+          <button
+            on:click={hideAdoptable}
+            title="Hide until another one turns up"
+            aria-label="Hide"
+            class="p-1 rounded text-fjord-fg-dim hover:text-fjord-fg hover:bg-fjord-border shrink-0"><Icon name="close" size={12} /></button
+          >
+        </div>
+      {/if}
       <div class="border border-fjord-border rounded-xl overflow-hidden divide-y divide-fjord-border bg-fjord-card">
         {#each stacks as s (s.name)}
           {@const u = fleet[s.name]}
