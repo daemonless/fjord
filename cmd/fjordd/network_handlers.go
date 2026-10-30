@@ -306,8 +306,9 @@ func (s *server) handleNetworkKinds(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if e := r.URL.Query().Get("engine"); e != "" {
-		caps := s.backendForRequest(r).Capabilities()
-		kinds := caps.NetworkKinds
+		be := s.backendForRequest(r)
+		caps := be.Capabilities()
+		kinds := be.NetworkKinds()
 		if kinds == nil {
 			kinds = []engine.NetworkKind{}
 		}
@@ -333,7 +334,7 @@ func (s *server) handleNetworkKinds(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		caps := be.Capabilities()
-		for _, k := range caps.NetworkKinds {
+		for _, k := range be.NetworkKinds() {
 			// One row per kind, listing every engine that offers it. Whether
 			// the engine MATTERS is Shared's job: a LAN network is the host's
 			// and any engine can attach to the same one, while a private
