@@ -9,6 +9,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -254,7 +256,7 @@ func (s *server) handleAdopt(w http.ResponseWriter, r *http.Request) {
 		defer release()
 		compose := a.Compose
 		if port, https := s.adoptWebHint(ctx, be, a.Service, found.Image); port != "" {
-			compose += fmt.Sprintf("\nx-fjord:\n  web_port: %q\n", port)
+			compose += fmt.Sprintf("\nx-fjord:\n  web_port: %q\n", publishedFor(a.Compose, a.Env, a.Service, port))
 			if https {
 				compose += "  web_https: true\n"
 			}
@@ -329,6 +331,29 @@ func (s *server) adoptWebHint(ctx context.Context, be engine.Backend, appID, ima
 		}
 	}
 	return "", false
+}
+
+// publishedFor is the host port the compose publishes containerPort on:
+// web_port is the host side, as an install writes it, while the hint is
+// where the app listens inside. Unpublished (an address of its own, host
+// networking), the two are the same port.
+func publishedFor(compose, env, service, containerPort string) string {
+	c, err := strconv.Atoi(containerPort)
+	if err != nil {
+		return containerPort
+	}
+	svcs := composepkg.ParseServices(compose, envMap(env))
+	if i := slices.IndexFunc(svcs, func(v composepkg.Service) bool { return v.Name == service }); i >= 0 {
+		svcs = svcs[i : i+1]
+	}
+	for _, v := range svcs {
+		for _, p := range v.Ports {
+			if p.Container == c && p.Proto == "tcp" {
+				return strconv.Itoa(p.Host)
+			}
+		}
+	}
+	return containerPort
 }
 
 // runsImage: the compose runs the image's repository. An app found by name
