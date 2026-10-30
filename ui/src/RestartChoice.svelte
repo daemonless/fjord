@@ -2,7 +2,7 @@
   // A restart policy picked in a form: the install wizard's Options, and the
   // defaults in Settings. The stack page has its own chip (RestartPolicy).
   // The choices are the engine's (see restartPolicy.ts).
-  import { DEFAULT_RETRIES, BOOT_ONLY_NOTE, choicesFor, restartMeaning } from './restartPolicy';
+  import { DEFAULT_RETRIES, bootOnlyNote, choicesFor, restartMeaning } from './restartPolicy';
 
   export let id: string;
   export let policies: string[] = [];
@@ -44,5 +44,5 @@
 </div>
 <p class="text-xs text-fjord-fg-dim mt-1">
   {#if disabled && note}{note}{:else}{restartMeaning(policy, policy === 'on-failure' ? retries : 0, onExit)}{#if !onExit}
-      {BOOT_ONLY_NOTE}{/if}{/if}
+      {bootOnlyNote()}{/if}{/if}
 </p>

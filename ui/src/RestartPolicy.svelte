@@ -10,7 +10,7 @@
   import { toast } from './toast';
   import {
     DEFAULT_RETRIES,
-    BOOT_ONLY_NOTE,
+    bootOnlyNote,
     choicesFor,
     composeValue,
     restartMeaning,
@@ -122,7 +122,7 @@
           </div>
         {/each}
         {#if !onExit}
-          <p class="mx-3 mt-1 pt-2 pb-1 border-t border-fjord-border text-xs text-fjord-fg-dim">{BOOT_ONLY_NOTE}</p>
+          <p class="mx-3 mt-1 pt-2 pb-1 border-t border-fjord-border text-xs text-fjord-fg-dim">{bootOnlyNote()}</p>
         {/if}
       </div>
     {/if}
