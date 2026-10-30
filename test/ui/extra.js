@@ -128,17 +128,17 @@ async function adopt(page) {
   await page.getByText('Looking for containers').waitFor({ state: 'hidden', timeout: 60000 }).catch(() => {});
   await sleep(500);
   // The smallest block holding t-adopt and a Preview button (it stays while
-  // Adopt & replace turns into Replace): not the list, which also holds the
+  // Adopt turns into Adopt & Restart): not the list, which also holds the
   // playwright container running this test.
   const row = page.locator('div').filter({ hasText: 't-adopt' }).filter({ hasNotText: 'playwright' }).filter({ has: page.getByRole('button', { name: 'Preview', exact: true }) }).last();
   if (!(await row.count())) { await shot(page, 'fail-adopt'); note('Adopt: t-adopt listed', false, 'not on the Adopt page'); return; }
   note('Adopt: t-adopt listed', true, 'hand-started container shows on the Adopt page');
-  await row.getByRole('button', { name: 'Adopt & replace', exact: true }).click();
-  // It asks once more, in the same row, naming the container it removes.
-  const replace = row.getByRole('button', { name: 'Replace', exact: true });
+  await row.getByRole('button', { name: 'Adopt', exact: true }).click();
+  // It asks once more, in the same row, saying the container restarts.
+  const replace = row.getByRole('button', { name: 'Adopt & Restart', exact: true });
   await replace.waitFor();
   const warns = await page.locator('body').innerText(); // the line sits under the row block
-  note('Adopt & replace: says what it removes before doing it', /Removes the container t-adopt/.test(warns), warns.split('\n').find((l) => /Removes/.test(l)) || 'no warning shown');
+  note('Adopt: says it restarts the container before doing it', /t-adopt restarts once/.test(warns), warns.split('\n').find((l) => /restarts once/.test(l)) || 'no warning shown');
   await replace.click();
   const d2 = await stackUp(page, 't-adopt', 240);
   const compose = d2?.compose || '';
@@ -146,7 +146,7 @@ async function adopt(page) {
   await shot(page, 'adopt-stack');
   // "replace" means compose re-created it: the container must be fjord's now.
   const cname = (d2?.services || [])[0]?.container || '';
-  note('Adopt & replace: container re-created by the stack', cname !== '' , `container now "${cname}"`);
+  note('Adopt: container re-created by the stack', cname !== '' , `container now "${cname}"`);
   note('Adopt: t-adopt becomes a running stack', d2?.status?.state === 'running' && kept,
     `state ${d2?.status?.state}; compose ${kept ? 'keeps' : 'LOST'} the 3102:3000 publish`);
 }

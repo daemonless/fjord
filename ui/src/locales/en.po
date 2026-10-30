@@ -178,10 +178,8 @@ msgstr "Adopted {0}, but it did not start: {1}. Open it on the Stacks page."
 msgid "Adopted {0} — starting"
 msgstr "Adopted {0} — starting"
 
-#. 0: id
-#: src/Adopt.svelte
-msgid "Created stack {0} (stopped)"
-msgstr "Created stack {0} (stopped)"
+#~ msgid "Created stack {0} (stopped)"
+#~ msgstr "Created stack {0} (stopped)"
 
 #. 0: e.message
 #: src/Adopt.svelte
@@ -209,14 +207,11 @@ msgstr "Containers and jails on this host that no stack owns — started by hand
 #~ msgid "Removes {0} containers and starts each as a stack with the same mounts, network address and name. Data stays where it is."
 #~ msgstr "Removes {0} containers and starts each as a stack with the same mounts, network address and name. Data stays where it is."
 
-#: src/Adopt.svelte
-msgid "Replace all"
-msgstr "Replace all"
+#~ msgid "Replace all"
+#~ msgstr "Replace all"
 
-#. 0: list.filter((c) => !c.error && !isProject(c)).length
-#: src/Adopt.svelte
-msgid "Adopt & replace all ({0})"
-msgstr "Adopt & replace all ({0})"
+#~ msgid "Adopt & replace all ({0})"
+#~ msgstr "Adopt & replace all ({0})"
 
 #: src/Adopt.svelte
 msgid "← Stacks"
@@ -240,20 +235,17 @@ msgstr "Hide"
 msgid "Preview"
 msgstr "Preview"
 
-#: src/Adopt.svelte
-msgid "Create the stack (stopped); the container keeps running"
-msgstr "Create the stack (stopped); the container keeps running"
+#~ msgid "Create the stack (stopped); the container keeps running"
+#~ msgstr "Create the stack (stopped); the container keeps running"
 
-#: src/Adopt.svelte
-msgid "Replace"
-msgstr "Replace"
+#~ msgid "Replace"
+#~ msgstr "Replace"
 
 #~ msgid "Remove the container and start it as a stack"
 #~ msgstr "Remove the container and start it as a stack"
 
-#: src/Adopt.svelte
-msgid "<0/>Adopt & replace"
-msgstr "<0/>Adopt & replace"
+#~ msgid "<0/>Adopt & replace"
+#~ msgstr "<0/>Adopt & replace"
 
 #: src/Adopt.svelte
 msgid "Adopt"
@@ -3956,10 +3948,8 @@ msgstr "Imported {0} — fjord manages it now"
 msgid "Adopted {0} — stopped, as it was"
 msgstr "Adopted {0} — stopped, as it was"
 
-#. 0: list.filter((c) => !c.error).length
-#: src/Adopt.svelte
-msgid "Removes {0} containers and makes each a stack with the same mounts, network address and name; the running ones are started. Data stays where it is."
-msgstr "Removes {0} containers and makes each a stack with the same mounts, network address and name; the running ones are started. Data stays where it is."
+#~ msgid "Removes {0} containers and makes each a stack with the same mounts, network address and name; the running ones are started. Data stays where it is."
+#~ msgstr "Removes {0} containers and makes each a stack with the same mounts, network address and name; the running ones are started. Data stays where it is."
 
 #: src/Adopt.svelte
 msgid "no services"
@@ -3978,18 +3968,14 @@ msgstr "Make this project a stack, from its own compose file; its containers kee
 msgid "<0/>Import"
 msgstr "<0/>Import"
 
-#: src/Adopt.svelte
-msgid "Remove the container and make it a stack, running if it was"
-msgstr "Remove the container and make it a stack, running if it was"
+#~ msgid "Remove the container and make it a stack, running if it was"
+#~ msgstr "Remove the container and make it a stack, running if it was"
 
-#: src/Adopt.svelte
-msgid "stopped, as it is now"
-msgstr "stopped, as it is now"
+#~ msgid "stopped, as it is now"
+#~ msgstr "stopped, as it is now"
 
-#. 0: startsAfterReplace(c) ? 'started' \\: 'stopped, as it is now'
-#: src/Adopt.svelte
-msgid "Removes the container <0/> and makes it a stack with the same mounts, network address and name, {0}. Data stays where it is."
-msgstr "Removes the container <0/> and makes it a stack with the same mounts, network address and name, {0}. Data stays where it is."
+#~ msgid "Removes the container <0/> and makes it a stack with the same mounts, network address and name, {0}. Data stays where it is."
+#~ msgstr "Removes the container <0/> and makes it a stack with the same mounts, network address and name, {0}. Data stays where it is."
 
 #: src/Dashboard.svelte
 #: src/NamesPrompt.svelte
@@ -4806,3 +4792,37 @@ msgstr "Nothing to set up here."
 #: src/Settings.svelte
 msgid "<0/>, installed here, gives your apps names<1/>. <2/>"
 msgstr "<0/>, installed here, gives your apps names<1/>. <2/>"
+
+#. 0: list.filter((c) => !c.error && !isProject(c)).length
+#: src/Adopt.svelte
+msgid "Makes {0} containers stacks with the same mounts, network address and name. The running ones restart once. Data stays where it is."
+msgstr "Makes {0} containers stacks with the same mounts, network address and name. The running ones restart once. Data stays where it is."
+
+#: src/Adopt.svelte
+msgid "Adopt All"
+msgstr "Adopt All"
+
+#. 0: list.filter((c) => !c.error && !isProject(c)).length
+#: src/Adopt.svelte
+msgid "Adopt all ({0})"
+msgstr "Adopt all ({0})"
+
+#: src/Adopt.svelte
+msgid "Adopt & Restart"
+msgstr "Adopt & Restart"
+
+#: src/Adopt.svelte
+msgid "Make it a stack fjord manages, running if it was"
+msgstr "Make it a stack fjord manages, running if it was"
+
+#: src/Adopt.svelte
+msgid "<0/>Adopt"
+msgstr "<0/>Adopt"
+
+#: src/Adopt.svelte
+msgid "<0/> restarts once, as a stack with the same mounts, network address and name. Data stays where it is."
+msgstr "<0/> restarts once, as a stack with the same mounts, network address and name. Data stays where it is."
+
+#: src/Adopt.svelte
+msgid "<0/> becomes a stack with the same mounts, network address and name, stopped as it is now. Data stays where it is."
+msgstr "<0/> becomes a stack with the same mounts, network address and name, stopped as it is now. Data stays where it is."
