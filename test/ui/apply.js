@@ -2,8 +2,9 @@
 // session holding the old container -- zensical's failure. Through the pages.
 // STEP=install: install t-apply (WEB_PORT 3110). STEP=apply: change the port
 // to 3111 on the .env tab, Save, reload, Apply Changes, check the outcome.
+// needs: freebsd
 const { chromium } = require('playwright-core');
-const { signedIn } = require('./session');
+const { signedIn, openPage } = require('./session');
 const BASE = 'http://127.0.0.1:3567';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const note = (id, ok, msg) => console.log(`${ok ? 'PASS' : 'FAIL'} ${id}: ${msg}`);
@@ -15,7 +16,7 @@ const banner = (page) => page.getByText(/still use the old configuration/);
   page.setDefaultTimeout(20000);
   try {
     if (process.env.STEP === 'install') {
-      await page.goto(BASE + '/', { waitUntil: 'networkidle' });
+      await openPage(page, BASE + '/');
       await page.getByText('App Store', { exact: true }).first().click();
       await page.getByPlaceholder(/Search apps/).fill('openspeedtest');
       await page.getByRole('button', { name: /^Install/ }).first().click();
@@ -30,7 +31,7 @@ const banner = (page) => page.getByText(/still use the old configuration/);
       note('install t-apply', d?.status?.state === 'running', `container ${d?.status?.containers?.[0]?.id?.slice(0, 12)}`);
     } else {
       const before = (await detail(page)).status.containers[0].id;
-      await page.goto(BASE + '/#/stacks/t-apply', { waitUntil: 'networkidle' });
+      await openPage(page, BASE + '/#/stacks/t-apply');
       await sleep(1500);
       await page.getByRole('button', { name: '.env', exact: true }).click();
       await page.locator('.cm-content').click();
@@ -42,7 +43,7 @@ const banner = (page) => page.getByText(/still use the old configuration/);
       const pend = (await detail(page)).state?.pending_services || [];
       note('Save records the changed service', pend.includes('openspeedtest'), `pending: ${pend.join(', ') || 'none'}`);
       note('banner after Save', await banner(page).isVisible(), 'shown');
-      await page.goto(BASE + '/?t=' + Date.now() + '#/stacks/t-apply', { waitUntil: 'networkidle' });
+      await openPage(page, BASE + '/?t=' + Date.now() + '#/stacks/t-apply');
       await sleep(2000);
       note('banner survives a reload', await banner(page).isVisible(), (await banner(page).isVisible()) ? 'still shown' : 'gone after reload');
       // What the page receives for Apply -- the same text its terminal shows

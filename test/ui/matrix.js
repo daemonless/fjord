@@ -1,7 +1,8 @@
 // fjord UI test matrix: everything through the real pages, checked by outcome.
 // Run in ghcr.io/daemonless/playwright on the fjord host (--network host).
+// needs: freebsd appjail
 const { chromium } = require('playwright-core');
-const { signedIn } = require('./session');
+const { signedIn, openPage } = require('./session');
 const BASE = process.env.FJORD || 'http://127.0.0.1:3567';
 const BRIDGE = 'lanbridge2'; // has a host address: the subnet fills in
 const BARE = 'lanbridge'; // no host address
@@ -45,7 +46,7 @@ const addrOf = (d) => (d?.services || []).map((s) => s.address).find(Boolean) ||
 
 // ---------- Networks page ----------
 async function createNetwork(page, { name, bridge, source, range }) {
-  await page.goto(BASE + '/#/networks', { waitUntil: 'networkidle' });
+  await openPage(page, BASE + '/#/networks');
   await page.getByRole('button', { name: /New network/i }).first().click();
   // 0 = click as fast as the page lets you, which is what caught the
   // refresh-reset race; >0 only to get past it on a build without the fix.
@@ -71,7 +72,7 @@ async function createNetwork(page, { name, bridge, source, range }) {
 async function openWizard(page, app, name) {
   // Through the sidebar, as a user gets there: a hash-only goto from a stack
   // page left the stack page up.
-  await page.goto(BASE + '/', { waitUntil: 'networkidle' });
+  await openPage(page, BASE + '/');
   await page.getByText('App Store', { exact: true }).first().click();
   await page.getByPlaceholder(/Search apps/).fill(app);
   await page.getByRole('button', { name: /^Install/ }).first().click();
@@ -209,7 +210,7 @@ async function install(page, c) {
     // --- Services tab (AppJail): same-bridge networks shown disabled
     if (made.nets.length >= 2) {
       try {
-        await page.goto(BASE + '/#/stacks/t-jd', { waitUntil: 'networkidle' });
+        await openPage(page, BASE + '/#/stacks/t-jd');
         await page.getByRole('button', { name: /^Services/ }).first().click().catch(() => {});
         await sleep(1500);
         const add = page.getByRole('button', { name: /\+ interface/ });

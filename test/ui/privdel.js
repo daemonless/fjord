@@ -1,6 +1,7 @@
 // A stack's private network goes when the stack is deleted, through the pages.
+// needs: freebsd
 const { chromium } = require('playwright-core');
-const { signedIn } = require('./session');
+const { signedIn, openPage } = require('./session');
 const BASE = 'http://127.0.0.1:3567';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const note = (id, ok, msg) => console.log(`${ok ? 'PASS' : 'FAIL'} ${id}: ${msg}`);
@@ -10,7 +11,7 @@ const note = (id, ok, msg) => console.log(`${ok ? 'PASS' : 'FAIL'} ${id}: ${msg}
   page.setDefaultTimeout(20000);
   const nets = async () => (await (await page.request.get(BASE + '/api/networks')).json()).map((n) => n.name);
   try {
-    await page.goto(BASE + '/', { waitUntil: 'networkidle' });
+    await openPage(page, BASE + '/');
     await page.getByText('App Store', { exact: true }).first().click();
     await page.getByPlaceholder(/Search apps/).fill('openspeedtest');
     await page.getByRole('button', { name: /^Install/ }).first().click();
@@ -30,7 +31,7 @@ const note = (id, ok, msg) => console.log(`${ok ? 'PASS' : 'FAIL'} ${id}: ${msg}
     }
     const before = await nets();
     note('install made t-pd_priv', before.includes('t-pd_priv'), before.filter((n) => n.startsWith('t-pd')).join(', ') || 'none');
-    await page.goto(BASE + '/#/stacks/t-pd', { waitUntil: 'networkidle' });
+    await openPage(page, BASE + '/#/stacks/t-pd');
     await sleep(1500);
     await page.getByTitle('More Actions').click();
     await page.getByRole('button', { name: /Delete…/ }).click();

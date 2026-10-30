@@ -1,8 +1,9 @@
 // One app on several networks, through fjord's pages: picked in the install
 // wizard, and added afterwards on the Services tab. run-multi.sh checks from
 // the host that every interface got an address and answers.
+// needs: freebsd appjail
 const { chromium } = require('playwright-core');
-const { signedIn } = require('./session');
+const { signedIn, openPage } = require('./session');
 const BASE = process.env.FJORD || 'http://127.0.0.1:3567';
 
 const results = [];
@@ -25,7 +26,7 @@ async function stackUp(page, name, secs = 300) {
 }
 
 async function createNetwork(page, name, bridge) {
-  await page.goto(BASE + '/#/networks', { waitUntil: 'networkidle' });
+  await openPage(page, BASE + '/#/networks');
   await page.getByRole('button', { name: /New network/i }).first().click();
   await page.getByRole('button', { name: 'epair', exact: true }).click();
   await page.getByRole('button', { name: 'both', exact: true }).click();
@@ -50,7 +51,7 @@ async function createNetwork(page, name, bridge) {
 const rowPickers = (page) => page.locator('table select').filter({ has: page.locator('option[value="bridge"]') });
 
 async function install(page, name, engine, nets) {
-  await page.goto(BASE + '/', { waitUntil: 'networkidle' });
+  await openPage(page, BASE + '/');
   await page.getByText('App Store', { exact: true }).first().click();
   await page.getByPlaceholder(/Search apps/).fill('openspeedtest');
   await page.getByRole('button', { name: /^Install/ }).first().click();
@@ -93,7 +94,7 @@ async function install(page, name, engine, nets) {
 
 // Services tab: add a second network to a running stack and Save.
 async function addOnServices(page, name, net) {
-  await page.goto(BASE + '/', { waitUntil: 'networkidle' });
+  await openPage(page, BASE + '/');
   await page.getByText(name, { exact: true }).first().click();
   await sleep(2000);
   await page.getByRole('button', { name: 'Services', exact: true }).first().click().catch(() => {});

@@ -2,8 +2,9 @@
 // is one of the things fjord sets up itself; Set up does it, and it is gone
 // from the page after. STEP=broken reads the first state and clicks Set up,
 // STEP=fixed reads the page again.
+// needs: freebsd appjail
 const { chromium } = require('playwright-core');
-const { signedIn } = require('./session');
+const { signedIn, openPage } = require('./session');
 const BASE = 'http://127.0.0.1:3567';
 const STEP = process.env.STEP || 'broken';
 const NAME = 'jail name resolution (appjail-dns + dnsmasq)';
@@ -15,7 +16,7 @@ const note = (id, ok, msg) => console.log(`${ok ? 'PASS' : 'FAIL'} ${id}: ${msg}
   const page = await (await b.newContext(signedIn({ viewport: { width: 1400, height: 1100 } }))).newPage();
   page.setDefaultTimeout(30000);
   try {
-    await page.goto(BASE + '/?t=' + Date.now() + '#/setup', { waitUntil: 'networkidle' });
+    await openPage(page, BASE + '/?t=' + Date.now() + '#/setup');
     await sleep(2500);
     const body = await page.locator('body').innerText();
     const yourTurn = /Your turn/.test(body) ? body.split('Your turn')[1].split(/Recheck|Check again/)[0] : '';

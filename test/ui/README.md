@@ -26,6 +26,13 @@ what a browser cannot: sets the host up (`before`), checks from off-host and
 cleans up (`after`), or runs the script more than once (`main`). The runner
 sources it; `scripts/ui-tests.sh` documents the helpers.
 
+Pages are opened with `openPage(page, url)` from `session.js`, never
+`waitUntil: 'networkidle'`: fjord keeps `/api/events` open for good, so
+networkidle never comes and every load waited out its timeout. A test that
+needs a kind of host says so in a line of its own, `// needs: freebsd
+appjail` (freebsd, linux, appjail); elsewhere it is skipped. Most need
+FreeBSD for the daemonless apps they install (openspeedtest, syncthing).
+
 Output: `PASS`/`FAIL` lines, screenshots and logs under `out/<name>/`
 (ignored by git), a leftovers check for anything named `t-*`, exit 1 on any
 failure.

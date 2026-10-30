@@ -21,6 +21,9 @@
 #   main()     run the script itself, for a test that runs it more than once;
 #              its own PASS/FAIL lines go through say, so they are counted
 #   UI_ENV     extra -e settings for the container
+# A test that only means something on some hosts says so in its .js, in a
+# line of its own: `// needs: freebsd appjail` (freebsd, linux, appjail).
+# Elsewhere it is skipped, not failed.
 # Helpers for them: on, answers, del_stack, del_net, run_js, say (below).
 #
 # Screenshots land in test/ui/out/<name>/. Exits 1 if any line failed or
@@ -141,10 +144,26 @@ if [ "$LOCAL" = 1 ]; then $SUDO cp test/ui/*.js "$REMOTE/" || exit 1; else scp -
 on "podman image exists $IMAGE" || { echo "$IMAGE is not on $HOST: podman pull it first" >&2; exit 1; }
 rm -rf "$OUT"; mkdir -p "$OUT"
 
+HOST_OS=$(on uname -s | tr '[:upper:]' '[:lower:]')
+HOST_APPJAIL=$(on 'command -v appjail >/dev/null && echo yes')
+# lacks <test> names what the test's `// needs:` line asks for that this host
+# does not have, or nothing.
+lacks() {
+  for _n in $(sed -n 's|^// needs: *||p' "test/ui/$1.js" | head -n 1); do
+    case $_n in
+      freebsd|linux) [ "$HOST_OS" = "$_n" ] || printf '%s ' "$_n" ;;
+      appjail) [ -n "$HOST_APPJAIL" ] || printf '%s ' "$_n" ;;
+      *) printf '%s(unknown) ' "$_n" ;;
+    esac
+  done
+}
+
 pass=0; fail=0; skipped=""; failed=""
 for t in $tests; do
   step "$t"
   LOG="$OUT/$t.log"; : > "$LOG"
+  _lack=$(lacks "$t")
+  if [ -n "$_lack" ]; then echo "SKIP $t: needs ${_lack% }"; skipped="$skipped $t"; continue; fi
   unset -f before after main 2>/dev/null; UI_ENV=""
   [ -f "test/ui/$t.sh" ] && . "test/ui/$t.sh"
   on "rm -f $REMOTE/out/*.png"

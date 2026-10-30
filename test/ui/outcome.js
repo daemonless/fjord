@@ -1,8 +1,9 @@
 // A failed install says so on the stack page and in fjordd's log, and its
 // rows read "no container" in grey; the next action that succeeds clears it.
 // Driven with a tag that does not exist, so the pull fails.
+// needs: freebsd
 const { chromium } = require('playwright-core');
-const { signedIn } = require('./session');
+const { signedIn, openPage } = require('./session');
 const BASE = 'http://127.0.0.1:3567';
 const NAME = 't-fail';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -13,7 +14,7 @@ const detail = async (page) => (await page.request.get(BASE + '/api/stacks/' + N
   const page = await (await b.newContext(signedIn({ viewport: { width: 1400, height: 1100 } }))).newPage();
   page.setDefaultTimeout(30000);
   try {
-    await page.goto(BASE + '/', { waitUntil: 'networkidle' });
+    await openPage(page, BASE + '/');
     await page.getByText('App Store', { exact: true }).first().click();
     await page.getByPlaceholder(/Search apps/).fill('openspeedtest');
     await page.getByRole('button', { name: /^Install/ }).first().click();
@@ -34,7 +35,7 @@ const detail = async (page) => (await page.request.get(BASE + '/api/stacks/' + N
     for (let i = 0; i < 60; i++) { d = await detail(page).catch(() => ({})); if (d?.name && !d.busy) break; await sleep(3000); }
     await sleep(2500);
     // 1. The page, as someone opening it later would see it.
-    await page.goto(BASE + '/?t=' + Date.now() + '#/stacks/' + NAME, { waitUntil: 'networkidle' });
+    await openPage(page, BASE + '/?t=' + Date.now() + '#/stacks/' + NAME);
     await sleep(2000);
     const banner = page.getByText(/Install failed at/).first();
     const bannerText = await banner.innerText().catch(() => '');
@@ -59,7 +60,7 @@ const detail = async (page) => (await page.request.get(BASE + '/api/stacks/' + N
     // stay-up check passes, not when the stack stops reading busy (#116).
     for (let i = 0; i < 80; i++) { d = await detail(page); if (!d.busy && d.status?.state === 'running' && !d.state?.last_failure) break; await sleep(3000); }
     await sleep(2500);
-    await page.goto(BASE + '/?t=' + Date.now() + '#/stacks/' + NAME, { waitUntil: 'networkidle' });
+    await openPage(page, BASE + '/?t=' + Date.now() + '#/stacks/' + NAME);
     await sleep(2000);
     await page.screenshot({ path: '/out/outcome-recovered.png', fullPage: true });
     note('after a successful update: running, failure cleared, banner gone', d.status?.state === 'running' && !d.state?.last_failure && (await page.getByText(/Install failed at/).count()) === 0, `state ${d.status?.state}, last_failure ${JSON.stringify(d.state?.last_failure || null)}`);

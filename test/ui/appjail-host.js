@@ -1,8 +1,9 @@
 // AppJail on the host's stack, through fjord's pages: the Networks page offers
 // host as appjail's default, and an install with nothing else changed lands
 // there. appjail-host.sh checks the jail and the app from off-host.
+// needs: freebsd appjail
 const { chromium } = require('playwright-core');
-const { signedIn } = require('./session');
+const { signedIn, openPage } = require('./session');
 const BASE = 'http://127.0.0.1:3567';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const note = (id, ok, msg) => console.log(`${ok ? 'PASS' : 'FAIL'} ${id}: ${msg}`);
@@ -24,7 +25,7 @@ async function answers(page, url, secs = 180) {
 }
 // Services tab: set the Type and Save. networks means one row, on bridge.
 async function setType(page, type) {
-  await page.goto(BASE + '/?t=' + Date.now() + '#/stacks/t-ajhost', { waitUntil: 'networkidle' });
+  await openPage(page, BASE + '/?t=' + Date.now() + '#/stacks/t-ajhost');
   await sleep(2000);
   const sel = page.locator('#type-openspeedtest');
   await sel.waitFor();
@@ -45,7 +46,7 @@ async function setType(page, type) {
   const errs = [];
   page.on('pageerror', (e) => errs.push(e.message));
   try {
-    await page.goto(BASE + '/?t=' + Date.now() + '#/networks', { waitUntil: 'networkidle' });
+    await openPage(page, BASE + '/?t=' + Date.now() + '#/networks');
     await sleep(1000);
     const sel = page.locator('label', { hasText: /^\s*appjail/ }).locator('select').first();
     const opts = await sel.locator('option').allTextContents();
@@ -56,7 +57,7 @@ async function setType(page, type) {
     note('Networks: host saved as appjail default', saved?.forEngine?.appjail === 'host', JSON.stringify(saved?.forEngine));
     await page.screenshot({ path: '/out/appjail-host-networks.png', fullPage: true });
 
-    await page.goto(BASE + '/?t=' + Date.now() + '#/store', { waitUntil: 'networkidle' });
+    await openPage(page, BASE + '/?t=' + Date.now() + '#/store');
     await page.getByPlaceholder(/Search apps/).fill('openspeedtest');
     await sleep(800);
     await page.getByRole('button', { name: /^Install/ }).first().click();
@@ -79,7 +80,7 @@ async function setType(page, type) {
     for (let i = 0; i < 80; i++) { d = await (await page.request.get(BASE + '/api/stacks/t-ajhost')).json().catch(() => ({})); if (!d?.busy && (d?.status?.state === 'running' || d?.state?.last_failure)) break; await sleep(3000); }
     const f = (d?.state || {}).last_failure;
     note('installed on host, running', d?.status?.state === 'running' && !f, `state ${d?.status?.state}${f ? ', failed: ' + f.message : ''}`);
-    await page.goto(BASE + '/?t=' + Date.now() + '#/stacks/t-ajhost', { waitUntil: 'networkidle' });
+    await openPage(page, BASE + '/?t=' + Date.now() + '#/stacks/t-ajhost');
     await sleep(1500);
     await page.screenshot({ path: '/out/appjail-host-stack.png', fullPage: true });
     note('installed: answers on this host :3000', (await answers(page, 'http://127.0.0.1:3000/')) === 200, '127.0.0.1:3000');

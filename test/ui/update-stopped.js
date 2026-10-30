@@ -2,8 +2,9 @@
 // 2026-10-11). The stack (t-ups, one service behind a staged older image)
 // is made by update-stopped.sh; this page stops it, takes the update, checks
 // nothing came up, then starts it.
+// needs: freebsd
 const { chromium } = require('playwright-core');
-const { signedIn } = require('./session');
+const { signedIn, openPage } = require('./session');
 const BASE = 'http://127.0.0.1:3567';
 const NAME = process.env.STACK;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -15,7 +16,7 @@ const settle = async (page) => {
   return d;
 };
 const open = async (page) => {
-  await page.goto(BASE + '/?t=' + Date.now() + '#/stacks/' + NAME, { waitUntil: 'networkidle' });
+  await openPage(page, BASE + '/?t=' + Date.now() + '#/stacks/' + NAME);
   await sleep(1000);
 };
 (async () => {

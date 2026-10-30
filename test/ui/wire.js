@@ -3,7 +3,7 @@
 // VLAN 4; v6lab answers no DHCPv4; lan-range (192.168.86.0/24 on lanbridge)
 // is the wrong network left from before.
 const { chromium } = require('playwright-core');
-const { signedIn } = require('./session');
+const { signedIn, openPage } = require('./session');
 const BASE = process.env.FJORD || 'http://127.0.0.1:3567';
 
 const results = [];
@@ -16,7 +16,7 @@ const api = async (page, path, opts) => {
 };
 
 async function openForm(page, name, bridge) {
-  await page.goto(BASE + '/#/networks', { waitUntil: 'networkidle' });
+  await openPage(page, BASE + '/#/networks');
   await page.getByRole('button', { name: /New network/i }).first().click();
   await page.getByRole('button', { name: 'epair', exact: true }).click();
   await page.getByRole('button', { name: 'both', exact: true }).click();
@@ -67,7 +67,7 @@ const warning = async (page) => (await page.locator('.text-fjord-warning').allIn
     note('192.168.4.0/24 on lanbridge creates', okNow && made?.subnet === '192.168.4.0/24', made ? `created, ${made.subnet}` : 'not created');
 
     // 4. The Networks page flags lan-range now that the wire is known.
-    await page.goto(BASE + '/#/networks', { waitUntil: 'networkidle' });
+    await openPage(page, BASE + '/#/networks');
     await sleep(1000);
     const row = page.locator('div').filter({ hasText: /^lan-range/ }).first();
     const pageText = await page.locator('body').innerText();
