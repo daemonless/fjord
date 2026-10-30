@@ -25,7 +25,7 @@ import (
 // and say how to recreate each: podman hands over the run line, appjail a
 // director bundle read back from the jail.
 type adopter interface {
-	UnmanagedContainers(ctx context.Context) ([]engine.Unmanaged, error)
+	UnmanagedContainers(ctx context.Context, skip func(name, project string) bool) ([]engine.Unmanaged, error)
 	RemoveContainer(ctx context.Context, name string) error
 }
 
@@ -129,6 +129,22 @@ func (s *server) ownedJails(be engine.Backend, engineName string) map[string]boo
 	return owned
 }
 
+// fjordOwns is true for a jail or container fjord's stacks already run: one
+// of their jails, or one in a stack's own compose or director project.
+func (s *server) fjordOwns(be engine.Backend, engineName string) func(name, project string) bool {
+	owned := s.ownedJails(be, engineName)
+	return func(name, project string) bool {
+		if owned[name] {
+			return true
+		}
+		if project == "" {
+			return false
+		}
+		_, err := s.manager.Get(project)
+		return err == nil
+	}
+}
+
 // handleAdopt: GET lists adoptable containers across engines with a preview
 // of the stack each would become; POST {container, engine, name, replace}
 // creates that stack -- same image, mounts, network address (IP and MAC),
@@ -150,21 +166,12 @@ func (s *server) handleAdopt(w http.ResponseWriter, r *http.Request) {
 			if !ok {
 				continue
 			}
-			list, err := ad.UnmanagedContainers(ctx)
+			list, err := ad.UnmanagedContainers(ctx, s.fjordOwns(be, d.Name))
 			if err != nil {
 				log.Printf("adopt: %s: %v", d.Name, err)
 				continue
 			}
-			owned := s.ownedJails(be, d.Name)
 			for _, u := range list {
-				if owned[u.Name] {
-					continue
-				}
-				if u.Project != "" {
-					if _, err := s.manager.Get(u.Project); err == nil {
-						continue // a fjord stack's own director project
-					}
-				}
 				c := adoptCandidate{Unmanaged: u, Engine: d.Name}
 				if a, err := adoptSpec(u); err != nil {
 					c.Error = err.Error()
@@ -207,7 +214,7 @@ func (s *server) handleAdopt(w http.ResponseWriter, r *http.Request) {
 		}
 		ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
 		defer cancel()
-		list, err := ad.UnmanagedContainers(ctx)
+		list, err := ad.UnmanagedContainers(ctx, s.fjordOwns(be, req.Engine))
 		if err != nil {
 			http.Error(w, err.Error(), 502)
 			return
