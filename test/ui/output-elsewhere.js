@@ -2,8 +2,9 @@
 // starts an update over the API (the image removed first, so it pulls), and
 // a fresh page opened on the stack mid-action shows what fjordd is doing in
 // the Output pane, then the end of it, instead of "Waiting for output…".
+// needs: freebsd
 const { chromium } = require('playwright-core');
-const { signedIn } = require('./session');
+const { signedIn, openPage } = require('./session');
 const BASE = 'http://127.0.0.1:3567';
 const NAME = 't-out';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -15,7 +16,7 @@ const detail = async (page) => (await page.request.get(BASE + '/api/stacks/' + N
   page.setDefaultTimeout(30000);
   try {
     if (process.env.STEP === 'install') {
-      await page.goto(BASE + '/?t=' + Date.now() + '#/store', { waitUntil: 'networkidle' });
+      await openPage(page, BASE + '/?t=' + Date.now() + '#/store');
       await page.getByPlaceholder(/Search apps/).fill('openspeedtest');
       await sleep(800);
       await page.getByRole('button', { name: /^Install/ }).first().click();
@@ -36,7 +37,7 @@ const detail = async (page) => (await page.request.get(BASE + '/api/stacks/' + N
       let d;
       for (let i = 0; i < 100; i++) { d = await detail(page); if (d.busy) break; await sleep(300); }
       note('fjordd is busy with an action this page did not start', !!d.busy, `busy=${d.busy}`);
-      await page.goto(BASE + '/?t=' + Date.now() + '#/stacks/' + NAME, { waitUntil: 'networkidle' });
+      await openPage(page, BASE + '/?t=' + Date.now() + '#/stacks/' + NAME);
       const term = page.locator('.xterm, [class*="terminal"]').first();
       let text = '';
       for (let i = 0; i < 40; i++) { text = await page.locator('body').innerText(); if (/\$ podman/.test(text)) break; await sleep(500); }

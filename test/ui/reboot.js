@@ -3,8 +3,9 @@
 // steps (see README). STEP=setup: one stack per rule, set through the page's
 // chip and Stop. STEP=check: which came back. Delete the t-rb-* stacks by
 // hand after.
+// needs: freebsd appjail
 const { chromium } = require('playwright-core');
-const { signedIn } = require('./session');
+const { signedIn, openPage } = require('./session');
 const BASE = 'http://127.0.0.1:3567';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const note = (id, ok, msg) => console.log(`${ok ? 'PASS' : 'FAIL'} ${id}: ${msg}`);
@@ -18,7 +19,7 @@ async function settle(page, name) {
   return d;
 }
 async function install(page, name, engine, port) {
-  await page.goto(BASE + '/?t=' + Date.now() + '#/store', { waitUntil: 'networkidle' });
+  await openPage(page, BASE + '/?t=' + Date.now() + '#/store');
   await page.getByPlaceholder(/Search apps/).fill('openspeedtest');
   await sleep(800);
   await page.getByRole('button', { name: /^Install/ }).first().click();
@@ -36,7 +37,7 @@ async function install(page, name, engine, port) {
   await install.click();
   const d = await settle(page, name);
   note(`${engine}: ${name} installed`, d?.status?.state === 'running', `state ${d?.status?.state}`);
-  await page.goto(BASE + '/?t=' + Date.now() + '#/stacks/' + name, { waitUntil: 'networkidle' });
+  await openPage(page, BASE + '/?t=' + Date.now() + '#/stacks/' + name);
   await sleep(1500);
 }
 // [name, engine, port, chip choice (its words), stopped by the user, up after the reboot]
@@ -80,7 +81,7 @@ async function stopped(page, name) {
           }
         }
         if (stop) {
-          await page.goto(BASE + '/?t=' + Date.now() + '#/stacks/' + name, { waitUntil: 'networkidle' });
+          await openPage(page, BASE + '/?t=' + Date.now() + '#/stacks/' + name);
           await sleep(1500);
           await page.getByRole('button', { name: 'Stop…' }).click();
           await page.getByRole('button', { name: 'Stop', exact: true }).click();
@@ -101,7 +102,7 @@ async function stopped(page, name) {
         // failed to come up.
         if (!up && !stop) note(`${name}: recorded as stopped, not failed`, d.state?.desired_state === 'stopped', `desired ${d.state?.desired_state}`);
       }
-      await page.goto(BASE + '/?t=' + Date.now() + '#/stacks', { waitUntil: 'networkidle' });
+      await openPage(page, BASE + '/?t=' + Date.now() + '#/stacks');
       await sleep(2000);
       await page.screenshot({ path: '/out/reboot-stacks.png', fullPage: true });
     }

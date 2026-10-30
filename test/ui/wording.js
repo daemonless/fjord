@@ -1,7 +1,8 @@
 // The wizard says what "private" is; a busy stack says why its buttons are
 // greyed -- read off the pages.
+// needs: freebsd
 const { chromium } = require('playwright-core');
-const { signedIn } = require('./session');
+const { signedIn, openPage } = require('./session');
 const BASE = 'http://127.0.0.1:3567';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const note = (id, ok, msg) => console.log(`${ok ? 'PASS' : 'FAIL'} ${id}: ${msg}`);
@@ -11,7 +12,7 @@ const note = (id, ok, msg) => console.log(`${ok ? 'PASS' : 'FAIL'} ${id}: ${msg}
   const page = await ctx.newPage();
   page.setDefaultTimeout(20000);
   try {
-    await page.goto(BASE + '/', { waitUntil: 'networkidle' });
+    await openPage(page, BASE + '/');
     await page.getByText('App Store', { exact: true }).first().click();
     await page.getByPlaceholder(/Search apps/).fill('openspeedtest');
     await page.waitForTimeout(800); // let the search filter, or Install opens another app

@@ -1,8 +1,9 @@
 // The Shell tab in light mode reads as the card it sits in: its wrapper has
 // no background of its own, and xterm painted that transparent as black
 // under the light theme's dark text -- the prompt all but invisible.
+// needs: freebsd
 const { chromium } = require('playwright-core');
-const { signedIn } = require('./session');
+const { signedIn, openPage } = require('./session');
 const BASE = 'http://127.0.0.1:3567';
 const NAME = 't-shl';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -21,7 +22,7 @@ const lum = (c) => {
   page.setDefaultTimeout(30000);
   try {
     if (process.env.STEP === 'install') {
-      await page.goto(BASE + '/?t=' + Date.now() + '#/store', { waitUntil: 'networkidle' });
+      await openPage(page, BASE + '/?t=' + Date.now() + '#/store');
       await page.getByPlaceholder(/Search apps/).fill('openspeedtest');
       await sleep(800);
       await page.getByRole('button', { name: /^Install/ }).first().click();
@@ -40,7 +41,7 @@ const lum = (c) => {
       for (let i = 0; i < 80; i++) { d = await detail(page).catch(() => ({})); if (!d?.busy && (d?.status?.state === 'running' || d?.state?.last_failure)) break; await sleep(3000); }
       note('installed', d?.status?.state === 'running', `state ${d?.status?.state}`);
     } else {
-      await page.goto(BASE + '/?t=' + Date.now() + '#/stacks/' + NAME, { waitUntil: 'networkidle' });
+      await openPage(page, BASE + '/?t=' + Date.now() + '#/stacks/' + NAME);
       await page.getByRole('button', { name: /Shell/ }).first().click();
       await page.locator('.xterm').first().waitFor();
       for (let i = 0; i < 20 && !/connected/.test(await page.locator('body').innerText()); i++) await sleep(500);

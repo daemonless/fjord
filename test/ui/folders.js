@@ -1,8 +1,9 @@
 // A second copy of an app gets folders of its own: the wizard's defaults
 // follow the stack name, and fjordd refuses a folder inside another stack's.
 // The other stack is t-own, saved (never started) by this test.
+// needs: freebsd
 const { chromium } = require('playwright-core');
-const { signedIn } = require('./session');
+const { signedIn, openPage } = require('./session');
 const BASE = 'http://127.0.0.1:3567';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const note = (id, ok, msg) => console.log(`${ok ? 'PASS' : 'FAIL'} ${id}: ${msg}`);
@@ -17,7 +18,7 @@ const note = (id, ok, msg) => console.log(`${ok ? 'PASS' : 'FAIL'} ${id}: ${msg}
     // The default App data folder: /containers on one host, /var/db/fjord/containers on another.
     const R = (await (await page.request.get(BASE + '/api/settings/storage')).json()).default;
     const esc = (v) => v.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&');
-    await page.goto(BASE + '/#/store', { waitUntil: 'networkidle' });
+    await openPage(page, BASE + '/#/store');
     await page.getByPlaceholder(/Search apps/).fill('librenms');
     await sleep(1000);
     await page.getByRole('button', { name: /^Install/ }).first().click();

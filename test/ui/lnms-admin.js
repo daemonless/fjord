@@ -2,7 +2,7 @@
 // install LibreNMS through the wizard with ADMIN_PASSWORD=admin, then log in
 // with it.
 const { chromium } = require('playwright-core');
-const { signedIn } = require('./session');
+const { signedIn, openPage } = require('./session');
 const BASE = 'http://127.0.0.1:3567';
 const NAME = 't-lnms';
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin';
@@ -14,7 +14,7 @@ const shot = (page, n) => page.screenshot({ path: `/out/${n}.png`, fullPage: tru
   const page = await (await b.newContext(signedIn({ viewport: { width: 1400, height: 1100 } }))).newPage();
   page.setDefaultTimeout(30000);
   try {
-    await page.goto(BASE + '/#/store', { waitUntil: 'networkidle' });
+    await openPage(page, BASE + '/#/store');
     await page.getByPlaceholder(/Search apps/).fill('librenms');
     await sleep(1000);
     await page.getByRole('button', { name: /^Install/ }).first().click();
@@ -40,7 +40,7 @@ const shot = (page, n) => page.screenshot({ path: `/out/${n}.png`, fullPage: tru
 
     // The login form, then the login. First start runs migrations, so the
     // page gets a few minutes.
-    await page.goto(BASE + '/?t=' + Date.now() + '#/stacks/' + NAME, { waitUntil: 'networkidle' });
+    await openPage(page, BASE + '/?t=' + Date.now() + '#/stacks/' + NAME);
     await sleep(2000);
     const open = await page.getByRole('link', { name: /Open/ }).first().getAttribute('href').catch(() => '');
     note('Open link', !!open, open || 'none');

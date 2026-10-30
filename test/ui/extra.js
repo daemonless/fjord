@@ -1,7 +1,7 @@
 // fjord UI tests beyond the network matrix: Setup, a multi-service stack on
 // both engines, and Adopt. Same rules: through the real pages, checked by outcome.
 const { chromium } = require('playwright-core');
-const { signedIn } = require('./session');
+const { signedIn, openPage } = require('./session');
 const BASE = process.env.FJORD || 'http://127.0.0.1:3567';
 
 const results = [];
@@ -32,7 +32,7 @@ async function answers(page, url, secs) {
 }
 
 async function openWizard(page, search, name) {
-  await page.goto(BASE + '/', { waitUntil: 'networkidle' });
+  await openPage(page, BASE + '/');
   await page.getByText('App Store', { exact: true }).first().click();
   await page.getByPlaceholder(/Search apps/).fill(search);
   await page.getByRole('button', { name: /^Install/ }).first().click();
@@ -54,7 +54,7 @@ async function pickEngine(page, engine) {
 
 // ---------- Setup ----------
 async function setupScreen(page) {
-  await page.goto(BASE + '/#/setup', { waitUntil: 'networkidle' });
+  await openPage(page, BASE + '/#/setup');
   await sleep(2000);
   const fold = page.getByText(/Everything fjord checked \((\d+)\)/);
   const label = await fold.innerText();
@@ -121,8 +121,8 @@ async function paperless(page, name, engine) {
 // ---------- Adopt ----------
 // run.sh starts t-adopt by hand (openspeedtest, -p 3102:3000) before this runs.
 async function adopt(page) {
-  await page.goto(BASE + '/', { waitUntil: 'networkidle' });
-  await page.goto(BASE + '/#/adopt', { waitUntil: 'networkidle' });
+  await openPage(page, BASE + '/');
+  await openPage(page, BASE + '/#/adopt');
   // A hash change: networkidle does not wait for the list, which asks both
   // engines about every container and jail.
   await page.getByText('Looking for containers').waitFor({ state: 'hidden', timeout: 60000 }).catch(() => {});

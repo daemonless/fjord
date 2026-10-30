@@ -1,8 +1,9 @@
 // Change Version on an image whose tag is a variable ("${TAG:-latest}") sets
 // the variable in .env and leaves the compose line as written; the container
 // comes back on the new tag. Through the pages, on a stack made for it.
+// needs: freebsd
 const { chromium } = require('playwright-core');
-const { signedIn } = require('./session');
+const { signedIn, openPage } = require('./session');
 const BASE = 'http://127.0.0.1:3567';
 const NAME = 't-var';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -22,7 +23,7 @@ const detail = async (page) => (await page.request.get(BASE + '/api/stacks/' + N
     for (let i = 0; i < 60; i++) { d = await detail(page); if (d?.status?.state === 'running' && !d.busy) break; await sleep(3000); }
     note('running on the variable\'s value', d?.status?.state === 'running', `state ${d?.status?.state}`);
 
-    await page.goto(BASE + '/?t=' + Date.now() + '#/stacks/' + NAME, { waitUntil: 'networkidle' });
+    await openPage(page, BASE + '/?t=' + Date.now() + '#/stacks/' + NAME);
     await sleep(1500);
     await page.getByRole('button', { name: 'More Actions' }).click();
     await page.getByRole('button', { name: /Change Version/ }).click();

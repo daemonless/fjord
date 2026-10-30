@@ -4,7 +4,7 @@
 // they are filled, and an install on PostgreSQL runs with the database it
 // brought, the answer recorded on the stack.
 const { chromium } = require('playwright-core');
-const { signedIn } = require('./session');
+const { signedIn, openPage } = require('./session');
 const BASE = 'http://127.0.0.1:3567';
 const NAME = 't-choice';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -16,7 +16,7 @@ const note = (id, ok, msg) => console.log(`${ok ? 'PASS' : 'FAIL'} ${id}: ${msg}
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
   try {
-    await page.goto(BASE + '/?t=' + Date.now() + '#/store', { waitUntil: 'networkidle' });
+    await openPage(page, BASE + '/?t=' + Date.now() + '#/store');
     await page.getByPlaceholder(/Search apps/).fill('vikunja');
     await sleep(800);
     await page.getByRole('button', { name: /^Install/ }).last().click();

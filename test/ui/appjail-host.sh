@@ -13,6 +13,6 @@ after() {
   if answers "http://$IP:3000/" 12; then echo "PASS t-ajhost: on bridge, published :3000 answers from off-host"
   else echo "FAIL t-ajhost: on bridge, http://$IP:3000/ does not answer from off-host"; fi
   del_stack t-ajhost
-  curl -s -o /dev/null --max-time 10 -X POST -H "Origin: $FJORD" -H 'Content-Type: application/json' \
+  curl -s -o /dev/null --max-time 10 -X POST -b "$FJORD_COOKIE" -H "Origin: $FJORD" -H 'Content-Type: application/json' \
     -d "{\"engine\":\"appjail\",\"network\":\"$AJ_DEFAULT\"}" "$FJORD/api/settings/network"
 }

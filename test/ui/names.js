@@ -6,7 +6,7 @@
 // Needs a catalog with a provides.names app (names.sh) and one app with a
 // page already installed.
 const { chromium } = require('playwright-core');
-const { signedIn } = require('./session');
+const { signedIn, openPage } = require('./session');
 const BASE = 'http://127.0.0.1:3567';
 const STACK = 't-rp';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -20,7 +20,7 @@ const shot = (page, n) => page.screenshot({ path: `/out/names-${n}.png`, fullPag
   page.setDefaultTimeout(30000);
   try {
     // Install the proxy as anyone would: store, Install, nothing changed but the name.
-    await page.goto(BASE + '/?t=' + Date.now() + '#/store', { waitUntil: 'networkidle' });
+    await openPage(page, BASE + '/?t=' + Date.now() + '#/store');
     await page.getByPlaceholder(/Search apps/).fill('Reverse Proxy');
     await sleep(800);
     await page.getByRole('button', { name: /^Install/ }).first().click();
@@ -61,7 +61,7 @@ const shot = (page, n) => page.screenshot({ path: `/out/names-${n}.png`, fullPag
 
     // The proxy's page opens on its setup with the token in hand.
     const pp = await ctx.newPage();
-    await pp.goto(finish, { waitUntil: 'networkidle' });
+    await openPage(pp, finish);
     await sleep(1500);
     await pp.screenshot({ path: '/out/names-3-provider-setup.png', fullPage: true });
     await pp.close();

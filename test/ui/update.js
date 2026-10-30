@@ -2,8 +2,9 @@
 // store, open Update, read what it says (a real package diff from the
 // registry), take it, and check the container was replaced, runs the offered version,
 // the health watch passed and Roll back is offered.
+// needs: freebsd
 const { chromium } = require('playwright-core');
-const { signedIn } = require('./session');
+const { signedIn, openPage } = require('./session');
 const BASE = 'http://127.0.0.1:3567';
 const NAME = 't-upd';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -14,7 +15,7 @@ const detail = async (page) => (await page.request.get(BASE + '/api/stacks/' + N
   const page = await (await b.newContext(signedIn({ viewport: { width: 1400, height: 1100 } }))).newPage();
   page.setDefaultTimeout(30000);
   try {
-    await page.goto(BASE + '/?t=' + Date.now() + '#/store', { waitUntil: 'networkidle' });
+    await openPage(page, BASE + '/?t=' + Date.now() + '#/store');
     await page.getByPlaceholder(/Search apps/).fill('syncthing');
     await sleep(800);
     await page.getByRole('button', { name: /^Install/ }).first().click();
@@ -36,7 +37,7 @@ const detail = async (page) => (await page.request.get(BASE + '/api/stacks/' + N
     const before = d.status.containers[0].id;
 
     // 1. The panel says what the update is, from the registry.
-    await page.goto(BASE + '/?t=' + Date.now() + '#/stacks/' + NAME, { waitUntil: 'networkidle' });
+    await openPage(page, BASE + '/?t=' + Date.now() + '#/stacks/' + NAME);
     await page.getByText(/available/).first().waitFor({ timeout: 90000 }).catch(() => {});
     await sleep(500);
     await page.getByRole('button', { name: 'Update', exact: true }).first().click();
@@ -73,7 +74,7 @@ const detail = async (page) => (await page.request.get(BASE + '/api/stacks/' + N
     note(`it runs ${to || 'the offered version'}`, d.status?.state === 'running' && !!to && (d.services?.[0]?.image || '').endsWith(':' + to), `${d.status?.state}, ${d.services?.[0]?.image}`);
     note('the stream ended without an [error]', !!out && !/\[error\]/.test(out), out ? (out.split('\n').filter((l) => /\[error\]|\[warn\]|healthy|watch/i.test(l)).join(' | ') || 'clean') : 'no stream captured');
     note('fjordd recorded no failure', !d.state?.last_failure, JSON.stringify(d.state?.last_failure || null));
-    await page.goto(BASE + '/?t=' + Date.now() + '#/stacks/' + NAME, { waitUntil: 'networkidle' });
+    await openPage(page, BASE + '/?t=' + Date.now() + '#/stacks/' + NAME);
     await sleep(2000);
     const body = await page.locator('body').innerText();
     note('the page says Up to date and offers Roll back', /Up to date/.test(body) && /roll back/i.test(body), `${/Up to date/.test(body) ? 'Up to date' : 'no Up to date'}, ${/roll back/i.test(body) ? 'roll back offered' : 'no roll back'}`);

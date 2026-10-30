@@ -1,8 +1,9 @@
 // A version with no build for this host: the wizard and Change Version say so
 // and hold the button; the API refuses the retag; and a compose edited to such
 // a tag is pulled, judged and not applied -- the running container stays.
+// needs: freebsd
 const { chromium } = require('playwright-core');
-const { signedIn } = require('./session');
+const { signedIn, openPage } = require('./session');
 const BASE = 'http://127.0.0.1:3567';
 const NAME = 't-arch';
 const BAD = 'latest-aarch64'; // an arm64-only manifest; netlab is amd64
@@ -15,7 +16,7 @@ const detail = async (page) => (await page.request.get(BASE + '/api/stacks/' + N
   page.setDefaultTimeout(20000);
   try {
     // 1. The wizard.
-    await page.goto(BASE + '/', { waitUntil: 'networkidle' });
+    await openPage(page, BASE + '/');
     await page.getByText('App Store', { exact: true }).first().click();
     await page.getByPlaceholder(/Search apps/).fill('openspeedtest');
     await page.getByRole('button', { name: /^Install/ }).first().click();
@@ -47,7 +48,7 @@ const detail = async (page) => (await page.request.get(BASE + '/api/stacks/' + N
     const before = d.status.containers[0].id;
 
     // 2. Change Version…
-    await page.goto(BASE + '/#/stacks/' + NAME, { waitUntil: 'networkidle' });
+    await openPage(page, BASE + '/#/stacks/' + NAME);
     await sleep(1500);
     await page.getByRole('button', { name: 'More Actions' }).click();
     await page.getByRole('button', { name: /Change Version/ }).click();

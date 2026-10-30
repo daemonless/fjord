@@ -1,8 +1,9 @@
 // Type (networks / host / none) in the Services editor, through fjord's pages:
 // bridge next to a LAN network, host and back without losing rows, Save both
 // ways, and AppJail's limits. run-typec.sh checks the published port off-host.
+// needs: freebsd appjail
 const { chromium } = require('playwright-core');
-const { signedIn } = require('./session');
+const { signedIn, openPage, settled } = require('./session');
 const BASE = process.env.FJORD || 'http://127.0.0.1:3567';
 const SVC = 'openspeedtest';
 const PORT = '3106';
@@ -39,7 +40,7 @@ const rowSels = (page) => page.locator('table select');
 const rowValues = (page) => rowSels(page).evaluateAll((ss) => ss.map((s) => s.value));
 
 async function createLan(page) {
-  await page.goto(BASE + '/#/networks', { waitUntil: 'networkidle' });
+  await openPage(page, BASE + '/#/networks');
   await page.getByRole('button', { name: /New network/i }).first().click();
   await page.getByRole('button', { name: 'epair', exact: true }).click();
   await page.getByRole('button', { name: 'both', exact: true }).click();
@@ -55,7 +56,7 @@ async function createLan(page) {
 }
 
 async function openWizard(page, name, engine) {
-  await page.goto(BASE + '/', { waitUntil: 'networkidle' });
+  await openPage(page, BASE + '/');
   await page.getByText('App Store', { exact: true }).first().click();
   await page.getByPlaceholder(/Search apps/).fill('openspeedtest');
   await page.getByRole('button', { name: /^Install/ }).first().click();
@@ -106,7 +107,7 @@ async function installMixed(page) {
 }
 
 async function openServices(page) {
-  await page.goto(BASE + '/#/stacks/t-tc', { waitUntil: 'networkidle' });
+  await openPage(page, BASE + '/#/stacks/t-tc');
   await sleep(2000);
   await typeSel(page).waitFor();
 }
@@ -161,7 +162,8 @@ async function saveBothWays(page) {
 
   await typeSel(page).selectOption('none');
   await save(page);
-  await page.reload({ waitUntil: 'networkidle' });
+  await page.reload({ waitUntil: 'load' });
+  await settled(page);
   await sleep(2000);
   const shown = await typeSel(page).inputValue();
   c = await composeOf();

@@ -2,8 +2,9 @@
 // The stack (t-aju: web and sync, sync built from a stale image) is made by
 // appjail-update.sh, which also checks the jails after each step; this is
 // the page's half. STEP=rollback: Roll back sync from its row.
+// needs: freebsd appjail
 const { chromium } = require('playwright-core');
-const { signedIn } = require('./session');
+const { signedIn, openPage } = require('./session');
 const BASE = 'http://127.0.0.1:3567';
 const NAME = 't-aju';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -15,7 +16,7 @@ const detail = async (page) => (await page.request.get(BASE + '/api/stacks/' + N
   page.setDefaultTimeout(30000);
   try {
     if (process.env.STEP === 'rollback') {
-      await page.goto(BASE + '/?t=' + Date.now() + '#/stacks/' + NAME, { waitUntil: 'networkidle' });
+      await openPage(page, BASE + '/?t=' + Date.now() + '#/stacks/' + NAME);
       await page.getByRole('button', { name: '↶ roll back' }).first().waitFor({ timeout: 90000 });
       await page.getByRole('button', { name: '↶ roll back' }).first().click();
       const sure = page.getByRole('button', { name: 'Roll back', exact: true });
@@ -29,7 +30,7 @@ const detail = async (page) => (await page.request.get(BASE + '/api/stacks/' + N
       d = await detail(page);
       note('rolled back, running, no failure recorded', d.status?.state === 'running' && !d.state?.last_failure, `${d.status?.state}, ${JSON.stringify(d.state?.last_failure || null)}`);
       note('the director pins sync to a digest', /from: ghcr\.io\/daemonless\/syncthing:latest@sha256:[0-9a-f]{64}/.test(d.director || ''), (d.director || '').split('\n').find((l) => /syncthing/.test(l))?.trim() || 'no syncthing line');
-      await page.goto(BASE + '/?t=' + Date.now() + '#/stacks/' + NAME, { waitUntil: 'networkidle' });
+      await openPage(page, BASE + '/?t=' + Date.now() + '#/stacks/' + NAME);
       await sleep(3000);
       await page.screenshot({ path: '/out/appjail-rollback-done.png', fullPage: true });
       const body = await page.locator('body').innerText();
@@ -37,7 +38,7 @@ const detail = async (page) => (await page.request.get(BASE + '/api/stacks/' + N
       await b.close();
       return;
     }
-    await page.goto(BASE + '/?t=' + Date.now() + '#/stacks/' + NAME, { waitUntil: 'networkidle' });
+    await openPage(page, BASE + '/?t=' + Date.now() + '#/stacks/' + NAME);
     await page.getByText(/available/).first().waitFor({ timeout: 90000 }).catch(() => {});
     await sleep(500);
     await page.getByRole('button', { name: 'Update', exact: true }).first().click();
@@ -64,7 +65,7 @@ const detail = async (page) => (await page.request.get(BASE + '/api/stacks/' + N
     d = await detail(page);
     note('the stack is running, no failure recorded', d.status?.state === 'running' && !d.state?.last_failure, `${d.status?.state}, ${JSON.stringify(d.state?.last_failure || null)}`);
 
-    await page.goto(BASE + '/?t=' + Date.now() + '#/stacks/' + NAME, { waitUntil: 'networkidle' });
+    await openPage(page, BASE + '/?t=' + Date.now() + '#/stacks/' + NAME);
     await page.getByText(/Up to date/).first().waitFor({ timeout: 90000 }).catch(() => {});
     const body = await page.locator('body').innerText();
     await page.screenshot({ path: '/out/appjail-update-done.png', fullPage: true });
