@@ -18,25 +18,27 @@ export type RestartChoice = { value: string; label: string };
 export const DEFAULT_RETRIES = 5;
 
 // The words lead; on an engine that restarts on exit the compose value is
-// shown beside them, as the compose tab spells it.
-const ON_EXIT: Record<string, string> = {
+// shown beside them, as the compose tab spells it. Built on each call, not at
+// module load: the strings come from the language catalog, which main.ts
+// loads after this module is evaluated (as constants they were all "").
+const onExitWords = (): Record<string, string> => ({
   'unless-stopped': 'Restart unless stopped',
   always: 'Always restart',
   'on-failure': 'Restart after a crash',
   no: "Don't restart",
-};
-const BOOT_ONLY: Record<string, string> = {
+});
+const bootOnlyWords = (): Record<string, string> => ({
   'unless-stopped': 'Start at boot',
   always: 'Always start at boot',
   no: "Don't start at boot",
-};
+});
 
-export const BOOT_ONLY_NOTE = 'This engine does not restart an app when it stops; this sets what starts at boot.';
-export const NOT_AVAILABLE_NOTE = 'This engine does not take a restart policy from fjord.';
+export const bootOnlyNote = () => 'This engine does not restart an app when it stops; this sets what starts at boot.';
+export const notAvailableNote = () => 'This engine does not take a restart policy from fjord.';
 
 /** The choices an engine offers, in the order they are listed. */
 export function choicesFor(policies: string[], onExit: boolean): RestartChoice[] {
-  const words = onExit ? ON_EXIT : BOOT_ONLY;
+  const words = onExit ? onExitWords() : bootOnlyWords();
   return Object.keys(words)
     .filter((v) => policies.includes(v))
     .map((v) => ({ value: v, label: words[v] }));
@@ -52,9 +54,9 @@ export function restartShort(r: StackRestart | undefined): string {
   if (!r) return '';
   if (!r.policies.length) return 'Restart: not available';
   if (r.mixed) return 'Restart: mixed';
-  if (!r.onExit) return BOOT_ONLY[r.policy || 'unless-stopped'] ?? 'Start at boot';
+  if (!r.onExit) return bootOnlyWords()[r.policy || 'unless-stopped'] ?? 'Start at boot';
   if (r.policy === 'on-failure') return `Restart after a crash (${r.retries || DEFAULT_RETRIES}×)`;
-  return ON_EXIT[r.policy] ?? 'Restart: not set';
+  return onExitWords()[r.policy] ?? 'Restart: not set';
 }
 
 /** What the policy does, in one sentence: when it exits, and at boot. */
@@ -86,10 +88,10 @@ export function restartMeaning(policy: string, retries = 0, onExit = true): stri
 /** The whole story for a stack, for a hover. */
 export function restartTitle(r: StackRestart | undefined): string {
   if (!r) return '';
-  if (!r.policies.length) return NOT_AVAILABLE_NOTE;
+  if (!r.policies.length) return notAvailableNote();
   if (r.mixed) return mixedMeaning(r.services);
   const m = restartMeaning(r.policy, r.retries, r.onExit);
-  return r.onExit ? m : `${m} ${BOOT_ONLY_NOTE}`;
+  return r.onExit ? m : `${m} ${bootOnlyNote()}`;
 }
 
 /** The mixed case, named service by service. */
