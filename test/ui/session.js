@@ -37,8 +37,56 @@ async function settled(page, timeout = 30000) {
 // openPage loads a page of fjord and waits for it to settle.
 async function openPage(page, url) {
   track(page);
+  await keepStreams(page);
   await page.goto(url, { waitUntil: 'load' });
   await settled(page);
 }
 
-module.exports = { signedIn, settled, openPage };
+// An action's output (Start, Apply, Update...) is one streamed answer the
+// page reads as it comes. Playwright's response.text() gets nothing for it,
+// so the page keeps a copy as it reads: fetch is wrapped to tee every POST
+// under /api/stacks/, handing the page the same stream.
+const keeping = new WeakSet();
+async function keepStreams(page) {
+  if (keeping.has(page)) return;
+  keeping.add(page);
+  await page.addInitScript(() => {
+    const fetch0 = window.fetch;
+    window.__streams = [];
+    window.fetch = async (input, init) => {
+      const res = await fetch0(input, init);
+      const url = typeof input === 'string' ? input : input.url;
+      const method = (init?.method || (typeof input === 'string' ? 'GET' : input.method) || 'GET').toUpperCase();
+      if (method !== 'POST' || !/\/api\/stacks\//.test(url) || !res.body) return res;
+      const [mine, kept] = res.body.tee();
+      const rec = { url: new URL(url, location.href).pathname, text: '', done: false };
+      window.__streams.push(rec);
+      (async () => {
+        const r = kept.getReader();
+        const d = new TextDecoder();
+        for (;;) {
+          const { done, value } = await r.read();
+          if (done) break;
+          rec.text += d.decode(value, { stream: true });
+        }
+      })().catch(() => {}).finally(() => (rec.done = true));
+      return new Response(mine, { status: res.status, statusText: res.statusText, headers: res.headers });
+    };
+  });
+}
+// streamed is the whole output of the last POST whose path matches re, once
+// it has ended: '' if there was none or it has not ended within timeout.
+async function streamed(page, re, timeout = 180000) {
+  const end = Date.now() + timeout;
+  while (Date.now() < end) {
+    const rec = await page.evaluate((src) => {
+      const re = new RegExp(src);
+      return (window.__streams || []).filter((s) => re.test(s.url)).pop() || null;
+    }, re.source).catch(() => null);
+    if (rec?.done) return rec.text;
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  return '';
+}
+
+module.exports = { signedIn, settled, openPage, keepStreams, streamed };

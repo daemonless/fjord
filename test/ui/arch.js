@@ -3,7 +3,7 @@
 // a tag is pulled, judged and not applied -- the running container stays.
 // needs: freebsd
 const { chromium } = require('playwright-core');
-const { signedIn, openPage } = require('./session');
+const { signedIn, openPage, streamed } = require('./session');
 const BASE = 'http://127.0.0.1:3567';
 const NAME = 't-arch';
 const BAD = 'latest-aarch64'; // an arm64-only manifest; netlab is amd64
@@ -75,11 +75,9 @@ const detail = async (page) => (await page.request.get(BASE + '/api/stacks/' + N
     await page.keyboard.insertText((await detail(page)).compose.replace('openspeedtest:latest', 'openspeedtest:' + BAD));
     await page.getByRole('button', { name: 'Save', exact: true }).first().click();
     await sleep(2500);
-    let applied = '';
-    page.on('response', async (x) => { if (new RegExp(`/api/stacks/${NAME}/up$`).test(x.url())) applied = await x.text().catch(() => ''); });
     await page.getByRole('button', { name: 'Apply Changes', exact: true }).click();
     for (let i = 0; i < 80; i++) { d = await detail(page); if (!d.busy) break; await sleep(3000); }
-    for (let i = 0; i < 40 && !applied; i++) await sleep(500);
+    const applied = await streamed(page, new RegExp(`/api/stacks/${NAME}/up$`), 20000);
     await sleep(1500);
     await page.screenshot({ path: '/out/arch-apply.png', fullPage: true });
     console.log('--- Apply output:\n' + applied.split('\n').filter((l) => /\$ podman|\[error\]|\[warn\]|WARNING/.test(l)).join('\n') + '\n---');

@@ -4,7 +4,7 @@
 // to 3111 on the .env tab, Save, reload, Apply Changes, check the outcome.
 // needs: freebsd
 const { chromium } = require('playwright-core');
-const { signedIn, openPage } = require('./session');
+const { signedIn, openPage, streamed } = require('./session');
 const BASE = 'http://127.0.0.1:3567';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const note = (id, ok, msg) => console.log(`${ok ? 'PASS' : 'FAIL'} ${id}: ${msg}`);
@@ -48,8 +48,6 @@ const banner = (page) => page.getByText(/still use the old configuration/);
       note('banner survives a reload', await banner(page).isVisible(), (await banner(page).isVisible()) ? 'still shown' : 'gone after reload');
       // What the page receives for Apply -- the same text its terminal shows
       // (the terminal keeps only the visible rows in the page).
-      let applied = '';
-      page.on('response', async (r) => { if (/\/api\/stacks\/t-apply\/up$/.test(r.url())) applied = await r.text().catch(() => ''); });
       await page.getByRole('button', { name: 'Apply Changes', exact: true }).click();
       await sleep(2000);
       let d;
@@ -60,8 +58,7 @@ const banner = (page) => page.getByText(/still use the old configuration/);
       const pendingNow = (await detail(page)).state?.pending_services || [];
       const bannerNow = await banner(page).isVisible();
       // The page gets Apply's output when its stream ends, after the check.
-      for (let i = 0; i < 360 && !applied; i++) await sleep(500);
-      const out = applied;
+      const out = await streamed(page, /\/api\/stacks\/t-apply\/up$/, 180000);
       console.log('--- Apply output (as the page got it):\n' + out.split('\n').filter((l) => /fjord|warn|error|refused|podman-compose|exec/.test(l)).join('\n') + '\n---');
       await page.screenshot({ path: '/out/apply-after.png', fullPage: true });
       const after = d.status.containers[0].id;

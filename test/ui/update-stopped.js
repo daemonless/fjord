@@ -4,7 +4,7 @@
 // nothing came up, then starts it.
 // needs: freebsd
 const { chromium } = require('playwright-core');
-const { signedIn, openPage } = require('./session');
+const { signedIn, openPage, streamed } = require('./session');
 const BASE = 'http://127.0.0.1:3567';
 const NAME = process.env.STACK;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -40,12 +40,10 @@ const open = async (page) => {
     await go.waitFor({ timeout: 90000 }).catch(() => {});
     await page.screenshot({ path: `/out/${NAME}-panel.png`, fullPage: true });
     note('the panel offers the update while stopped', (await go.count()) === 1, await go.innerText().catch(() => 'no "Update N services" button'));
-    let out = '';
-    page.on('response', async (r) => { if (new RegExp(`/api/stacks/${NAME}/update$`).test(r.url())) out = await r.text().catch(() => ''); });
     await go.click();
     await sleep(2000);
     d = await settle(page);
-    for (let i = 0; i < 40 && !out; i++) await sleep(500);
+    const out = await streamed(page, new RegExp(`/api/stacks/${NAME}/update$`), 20000);
     await sleep(3000);
     d = await detail(page);
     await page.screenshot({ path: `/out/${NAME}-updated.png`, fullPage: true });
