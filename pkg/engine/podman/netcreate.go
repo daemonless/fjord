@@ -218,9 +218,6 @@ func (b *Backend) networkUsersAll(ctx context.Context) (map[string][]string, err
 // runtimes' own bridges are excluded: podman's and appjail's are managed by
 // those tools, and putting a LAN network on one would cross the two.
 func (b *Backend) NetworkParents(ctx context.Context) ([]engine.NetworkParent, error) {
-	if len(b.NetworkKinds()) == 0 {
-		return nil, nil
-	}
 	if runtime.GOOS == "linux" {
 		return linuxParents(), nil
 	}
