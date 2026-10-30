@@ -20,15 +20,22 @@ import (
 	"github.com/daemonless/fjord/pkg/engine/appjail"
 )
 
+// hostMode is "container" when fjordd runs in a jail (an OCI-deployed
+// fjordd is one), else "host". On its own: building the checks reads the
+// interfaces and runs appjail to write their fixes.
+func hostMode() string {
+	if engine.Jailed() {
+		return "container"
+	}
+	return "host"
+}
+
 // platform describes FreeBSD: mode via the jail sysctl (an OCI-deployed fjordd
 // is a jail), installs via pkg(8). A Python package is named by its port
 // origin (sysutils/podman-compose): its package name carries the Python
 // flavor (py312-) and changes on every flavor bump.
 func platform(cfg Config) platformInfo {
-	mode := "host"
-	if engine.Jailed() {
-		mode = "container"
-	}
+	mode := hostMode()
 	_, pkgErr := exec.LookPath("pkg")
 	zone := hostZone("/usr/share/zoneinfo", cfg.TimeZone)
 	checks := []Check{
