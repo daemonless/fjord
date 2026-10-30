@@ -4750,3 +4750,40 @@ msgstr "Ce mot de passe est faible : {0}. Quiconque peut ouvrir cette page pourr
 #: src/NamesPrompt.svelte
 msgid "fjord can't reach it right now: {0}. Names you have still work; fjord keeps trying."
 msgstr "fjord ne peut pas le joindre pour le moment : {0}. Les noms existants fonctionnent toujours ; fjord continue d'essayer."
+
+#: src/Dashboard.svelte
+msgid "Not loaded"
+msgstr "Non chargé"
+
+#: src/App.svelte
+#: src/Dashboard.svelte
+msgid "Loading…"
+msgstr "Chargement…"
+
+#: src/Dashboard.svelte
+msgid "Stacks Did Not Load"
+msgstr "Les piles ne se sont pas chargées"
+
+#~ msgid "This page could not get the list of stacks: {0}"
+#~ msgstr ""
+
+#: src/Dashboard.svelte
+msgid "Try Again"
+msgstr "Réessayer"
+
+#: src/Dashboard.svelte
+msgid "<0/> Loading your stacks…"
+msgstr "<0/> Chargement de vos piles…"
+
+#: src/App.svelte
+msgid "Stacks did not load."
+msgstr "Les piles ne se sont pas chargées."
+
+#. 0: failed
+#: src/Dashboard.svelte
+msgid "This page could not get the list of stacks: fjord answered {0}."
+msgstr "Cette page n'a pas pu obtenir la liste des piles : fjord a répondu {0}."
+
+#: src/Dashboard.svelte
+msgid "This page could not get the list of stacks: fjord did not answer."
+msgstr "Cette page n'a pas pu obtenir la liste des piles : fjord n'a pas répondu."

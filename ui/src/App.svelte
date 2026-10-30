@@ -93,6 +93,11 @@
   }
 
   let stacks: Stack[] = [];
+  // Until the first list arrives, "no stacks" would tell someone with apps
+  // that they are gone.
+  let stacksLoaded = false;
+  // Why the first list did not arrive: 0 = no answer, else the HTTP status.
+  let stacksFailed: number | null = null;
   let logs: Record<string, string> = {};
   let execStatus: Record<string, 'idle' | 'running' | 'watching' | 'error'> = {};
   // Set while the Output pane follows an action this page did not start.
@@ -954,9 +959,18 @@
   }
 
   async function loadStacks() {
-    const res = await fetch('/api/stacks');
+    let res: Response;
+    try {
+      res = await fetch('/api/stacks');
+    } catch {
+      if (!stacksLoaded) stacksFailed = 0;
+      return;
+    }
+    if (!res.ok && !stacksLoaded) stacksFailed = res.status;
     if (res.ok) {
       stacks = await res.json();
+      stacksLoaded = true;
+      stacksFailed = null;
       if (selectedStack) {
         const found = stacks.find((s) => s.name === selectedStack!.name);
         if (found) {
@@ -2247,7 +2261,9 @@
           {fleetBehindCount} update{fleetBehindCount === 1 ? '' : 's'} available
         </div>
       {/if}
-      {#if filtered.length === 0}
+      {#if !stacksLoaded}
+        <p class="px-4 py-2 text-xs text-fjord-fg-faint italic">{stacksFailed !== null ? 'Stacks did not load.' : 'Loading…'}</p>
+      {:else if filtered.length === 0}
         <p class="px-4 py-2 text-xs text-fjord-fg-faint italic">No stacks{search || stackFilter !== 'all' ? ' match' : ' yet'}.</p>
       {/if}
     </div>
@@ -3400,6 +3416,9 @@
       <div class="p-6 h-full overflow-hidden">
         <Dashboard
           {stacks}
+          loaded={stacksLoaded}
+          failed={stacksFailed}
+          on:retry={loadStacks}
           {fleet}
           {fleetRefreshing}
           on:store={() => {
