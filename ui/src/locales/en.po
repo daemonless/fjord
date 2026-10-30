@@ -4761,3 +4761,40 @@ msgstr "This password is weak: {0}. Anyone who can open this page could guess it
 #: src/NamesPrompt.svelte
 msgid "fjord can't reach it right now: {0}. Names you have still work; fjord keeps trying."
 msgstr "fjord can't reach it right now: {0}. Names you have still work; fjord keeps trying."
+
+#: src/Dashboard.svelte
+msgid "Not loaded"
+msgstr "Not loaded"
+
+#: src/App.svelte
+#: src/Dashboard.svelte
+msgid "Loading…"
+msgstr "Loading…"
+
+#: src/Dashboard.svelte
+msgid "Stacks Did Not Load"
+msgstr "Stacks Did Not Load"
+
+#~ msgid "This page could not get the list of stacks: {0}"
+#~ msgstr "This page could not get the list of stacks: {0}"
+
+#: src/Dashboard.svelte
+msgid "Try Again"
+msgstr "Try Again"
+
+#: src/Dashboard.svelte
+msgid "<0/> Loading your stacks…"
+msgstr "<0/> Loading your stacks…"
+
+#: src/App.svelte
+msgid "Stacks did not load."
+msgstr "Stacks did not load."
+
+#. 0: failed
+#: src/Dashboard.svelte
+msgid "This page could not get the list of stacks: fjord answered {0}."
+msgstr "This page could not get the list of stacks: fjord answered {0}."
+
+#: src/Dashboard.svelte
+msgid "This page could not get the list of stacks: fjord did not answer."
+msgstr "This page could not get the list of stacks: fjord did not answer."

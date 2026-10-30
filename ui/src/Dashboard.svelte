@@ -5,6 +5,7 @@
   import Icon from './Icon.svelte';
   import EngineMark from './EngineMark.svelte';
   import EmptyState from './EmptyState.svelte';
+  import Spinner from './Spinner.svelte';
   import { expandVars } from './expand';
   import { names, openBy, deviceTrust, openUrl, opensByName, setupUrl } from './names';
   import TrustMark from './TrustMark.svelte';
@@ -20,6 +21,9 @@
   type StackStatus = { state: string; containers: ContainerStatus[] };
   type Stack = { name: string; displayName?: string; icon?: string; compose?: string; env?: string; services?: { name: string; address?: string }[]; status?: StackStatus; state?: { origin?: { type?: string; app_id?: string }; engine?: string; desired_state?: string }; restart?: StackRestart };
   export let stacks: Stack[] = [];
+  export let loaded = true;
+  // Set when the list did not arrive: 0 = fjord did not answer, else its HTTP status.
+  export let failed: number | null = null;
   // Fleet-wide update state, fetched once by the app shell (server-cached).
   export let fleet: Record<string, any> = {};
   export let fleetRefreshing = false;
@@ -115,7 +119,9 @@
     <div>
       <h2 class="text-2xl font-bold text-fjord-fg">Stacks</h2>
       <div class="text-sm text-fjord-fg-dim">
-        {#if !stacks.length}
+        {#if !loaded}
+          {failed !== null ? 'Not loaded' : 'Loading…'}
+        {:else if !stacks.length}
           No stacks yet
         {:else if problems.length}
           <span class="text-fjord-danger font-medium">{problems[0].s.displayName || problems[0].s.name} {problems[0].p}</span>
@@ -144,7 +150,19 @@
   </div>
 
   <div class="flex-1 overflow-y-auto">
-    {#if stacks.length === 0}
+    {#if !loaded && failed !== null}
+      <EmptyState
+        icon="alert"
+        title="Stacks Did Not Load"
+        description={failed ? `This page could not get the list of stacks: fjord answered ${failed}.` : 'This page could not get the list of stacks: fjord did not answer.'}
+        actionLabel="Try Again"
+        on:action={() => dispatch('retry')}
+      />
+    {:else if !loaded}
+      <div class="h-full flex items-center justify-center gap-2 text-sm text-fjord-fg-dim">
+        <Spinner size={16} /> Loading your stacks…
+      </div>
+    {:else if stacks.length === 0}
       <EmptyState
         icon="stack"
         title="No Stacks"
