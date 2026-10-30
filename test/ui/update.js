@@ -4,7 +4,7 @@
 // the health watch passed and Roll back is offered.
 // needs: freebsd
 const { chromium } = require('playwright-core');
-const { signedIn, openPage } = require('./session');
+const { signedIn, openPage, streamed } = require('./session');
 const BASE = 'http://127.0.0.1:3567';
 const NAME = 't-upd';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -54,8 +54,6 @@ const detail = async (page) => (await page.request.get(BASE + '/api/stacks/' + N
     // 2. Take it.
     const go = page.getByRole('button', { name: /^Update \d+ service/ }).first();
     note('one service ticked, the button says so', (await go.count()) === 1 && /Update 1 service/.test(await go.innerText()), await go.innerText().catch(() => 'no button'));
-    let out = '';
-    page.on('response', async (r) => { if (new RegExp(`/api/stacks/${NAME}/update$`).test(r.url())) out = await r.text().catch(() => ''); });
     await go.click();
     // Busy first (the click is answered before fjordd marks the stack), then
     // not busy: reading before that compared the container with itself.
@@ -65,7 +63,7 @@ const detail = async (page) => (await page.request.get(BASE + '/api/stacks/' + N
     for (let i = 0; i < 120; i++) { d = await detail(page); if (!d.busy) break; await sleep(3000); }
     // Not busy comes when the stay-up check starts (#116); the stream ends
     // with it, up to a minute later.
-    for (let i = 0; i < 240 && !out; i++) await sleep(500);
+    const out = await streamed(page, new RegExp(`/api/stacks/${NAME}/update$`), 120000);
     await sleep(2000);
     d = await detail(page);
     const after = d.status.containers[0]?.id || '';

@@ -15,7 +15,8 @@ const policy = (page) => chip(page).getAttribute('data-policy');
 const LABEL = { 'unless-stopped': 'Restart unless stopped', 'on-failure': 'Restart after a crash', no: "Don't restart" };
 async function settle(page, name) {
   let d;
-  for (let i = 0; i < 80; i++) { d = await detail(page, name).catch(() => ({})); if (!d?.busy && (d?.status?.state === 'running' || d?.state?.last_failure)) break; await sleep(3000); }
+  // Pending is cleared a moment after busy ends (both at the stay-up check).
+  for (let i = 0; i < 80; i++) { d = await detail(page, name).catch(() => ({})); if (!d?.busy && !(d?.state?.pending_services || []).length && (d?.status?.state === 'running' || d?.state?.last_failure)) break; await sleep(3000); }
   return d;
 }
 async function install(page, name, engine, port) {
