@@ -144,7 +144,7 @@ type platformInfo struct {
 // running the full check suite -- for features that only apply on the host
 // (e.g. the host filesystem browser).
 func Mode() string {
-	return platform(Config{}).mode
+	return hostMode()
 }
 
 // Run executes every check applicable to this platform and the engines named.

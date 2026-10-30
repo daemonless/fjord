@@ -7,6 +7,16 @@ import (
 	"runtime"
 )
 
+// hostMode is "container" when a container's markers are present, else "host".
+func hostMode() string {
+	for _, marker := range []string{"/.dockerenv", "/run/.containerenv"} {
+		if _, err := os.Stat(marker); err == nil {
+			return "container"
+		}
+	}
+	return "host"
+}
+
 // platform on platforms without a dedicated leaf yet. Mode is "host" unless
 // the usual container markers are present -- host mode is what unlocks the
 // directory browser and folder creation, which a native Linux host should
@@ -14,16 +24,9 @@ import (
 // tries `pkg` here. A real platform_linux.go (apt/dnf/apk discovery, Pkg map)
 // would replace this stub via its build tag.
 func platform(cfg Config) platformInfo {
-	mode := "host"
-	for _, marker := range []string{"/.dockerenv", "/run/.containerenv"} {
-		if _, err := os.Stat(marker); err == nil {
-			mode = "container"
-			break
-		}
-	}
 	return platformInfo{
 		os:         runtime.GOOS,
-		mode:       mode,
+		mode:       hostMode(),
 		canInstall: false,
 		checks: append([]Check{
 			{
