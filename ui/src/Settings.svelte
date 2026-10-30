@@ -1095,7 +1095,8 @@
           <h3 class="text-sm font-semibold text-fjord-fg-secondary mb-1">Reverse proxy</h3>
           {#if $names.provider && !$names.linked}
             <p class="text-xs text-fjord-fg-dim mb-3">
-              <span class="font-mono">{$names.provider}</span>, installed here, gives your apps names{#if $names.domain} like <span class="font-mono">radarr.{$names.domain}</span>{/if}. Nothing to set up here.
+              <span class="font-mono">{$names.provider}</span>, installed here, gives your apps names{#if $names.domain} like <span class="font-mono">radarr.{$names.domain}</span>{/if}.
+              {#if $names.error}<span class="text-fjord-warning">{$names.error}</span>{:else if $names.ready}Nothing to set up here.{:else}Not ready yet; finish its setup on its own page.{/if}
             </p>
           {:else if $names.linked}
             <div class="bg-fjord-card border border-fjord-border rounded-lg p-4 flex items-center justify-between gap-3 flex-wrap">

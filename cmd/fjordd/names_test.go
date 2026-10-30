@@ -557,3 +557,17 @@ func TestSetupTokenOnlyBeforeSetup(t *testing.T) {
 		t.Fatalf("set up before: %q", got)
 	}
 }
+
+// A proxy linked by hand stays the provider when a stack here is a names
+// provider too: the link's key is the one the proxy accepts.
+func TestLinkedProviderWins(t *testing.T) {
+	root := t.TempDir()
+	if err := saveSettings(root, savedSettings{NamesLink: &NamesLink{URL: "https://proxy.apps.test:8443", Key: "K", ProxyName: "proxy"}}); err != nil {
+		t.Fatal(err)
+	}
+	s := &server{fjordRoot: root} // no manager: the stacks must not be asked
+	p, err := s.findProvider(context.Background())
+	if err != nil || p == nil || !p.linked || p.key != "K" {
+		t.Fatalf("got %+v, %v", p, err)
+	}
+}
