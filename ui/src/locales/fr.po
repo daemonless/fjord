@@ -4504,9 +4504,8 @@ msgstr "Tout le reste vient de l'environnement du démon (variables <0/> — via
 msgid "like <0>radarr.{0}</0>"
 msgstr "comme <0>radarr.{0}</0>"
 
-#: src/Settings.svelte
-msgid "<0/>, installed here, gives your apps names<1/>. Nothing to set up here."
-msgstr "<0/>, installé ici, donne des noms à vos applications<1/>. Rien à configurer ici."
+#~ msgid "<0/>, installed here, gives your apps names<1/>. Nothing to set up here."
+#~ msgstr "<0/>, installé ici, donne des noms à vos applications<1/>. Rien à configurer ici."
 
 #. 0.0: $names.domain
 #: src/Settings.svelte
@@ -4517,6 +4516,7 @@ msgstr " : des noms comme <0>radarr.{0}</0>"
 msgid "Working. Apps get names from the ▾ beside Open, or at install."
 msgstr "En marche. Les applications reçoivent un nom depuis le ▾ à côté d'Ouvrir, ou à l'installation."
 
+#: src/Settings.svelte
 #: src/Settings.svelte
 msgid "Not ready yet; finish its setup on its own page."
 msgstr "Pas encore prêt ; terminez sa configuration sur sa propre page."
@@ -4787,3 +4787,11 @@ msgstr "Cette page n'a pas pu obtenir la liste des piles : fjord a répondu {0}.
 #: src/Dashboard.svelte
 msgid "This page could not get the list of stacks: fjord did not answer."
 msgstr "Cette page n'a pas pu obtenir la liste des piles : fjord n'a pas répondu."
+
+#: src/Settings.svelte
+msgid "Nothing to set up here."
+msgstr "Rien à configurer ici."
+
+#: src/Settings.svelte
+msgid "<0/>, installed here, gives your apps names<1/>. <2/>"
+msgstr "<0/>, installé ici, donne des noms à vos applications<1/>. <2/>"

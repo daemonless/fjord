@@ -159,8 +159,14 @@ func (s *server) namesOf(ctx context.Context, st *stack.Stack) *manifest.NamesPr
 	return rp
 }
 
-// findProvider is the installed names provider, or nil when there is none.
+// findProvider is the names provider: the one linked by hand, else one
+// installed here, else nil. A hand link wins: it holds a key the proxy gave
+// this fjord, while a stack's key is whatever its install wrote, which the
+// proxy may have dropped since.
 func (s *server) findProvider(ctx context.Context) (*provider, error) {
+	if p := s.linkedProvider(); p != nil {
+		return p, nil
+	}
 	stacks, err := s.manager.List()
 	if err != nil {
 		return nil, err
@@ -193,8 +199,7 @@ func (s *server) findProvider(ctx context.Context) (*provider, error) {
 		p.base = base
 		return p, nil
 	}
-	// No stack of this fjord gives names: a provider linked by hand, if any.
-	return s.linkedProvider(), nil
+	return nil, nil
 }
 
 // varName is VAR for "${VAR}", "" for a literal.

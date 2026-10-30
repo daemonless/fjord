@@ -83,6 +83,12 @@ Proven through the real pages on a FreeBSD host and a Fedora host
 - The sidebar is a drawer on phones; the Shell tab is readable in light
   mode; a long status line no longer runs under the buttons. (#133, #149)
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+- A proxy linked by hand stays this fjord's names provider when the store's
+  reverse proxy is also installed here; the installed one's key may be one
+  the proxy dropped, which turned every name back into an address.
+>>>>>>> f9c52a7 (fix(names): a proxy linked by hand stays the provider; the Names tab shows a refused key)
 - A page load says Loading until the stack list arrives, instead of "No
   stacks yet" on a host that has stacks; a list that fails to load says
   so, with Try Again.

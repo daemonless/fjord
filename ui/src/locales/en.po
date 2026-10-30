@@ -4513,9 +4513,8 @@ msgstr "Everything else comes from the daemon's environment (<0/> variables — 
 msgid "like <0>radarr.{0}</0>"
 msgstr "like <0>radarr.{0}</0>"
 
-#: src/Settings.svelte
-msgid "<0/>, installed here, gives your apps names<1/>. Nothing to set up here."
-msgstr "<0/>, installed here, gives your apps names<1/>. Nothing to set up here."
+#~ msgid "<0/>, installed here, gives your apps names<1/>. Nothing to set up here."
+#~ msgstr "<0/>, installed here, gives your apps names<1/>. Nothing to set up here."
 
 #. 0.0: $names.domain
 #: src/Settings.svelte
@@ -4526,6 +4525,7 @@ msgstr ": names like <0>radarr.{0}</0>"
 msgid "Working. Apps get names from the ▾ beside Open, or at install."
 msgstr "Working. Apps get names from the ▾ beside Open, or at install."
 
+#: src/Settings.svelte
 #: src/Settings.svelte
 msgid "Not ready yet; finish its setup on its own page."
 msgstr "Not ready yet; finish its setup on its own page."
@@ -4798,3 +4798,11 @@ msgstr "This page could not get the list of stacks: fjord answered {0}."
 #: src/Dashboard.svelte
 msgid "This page could not get the list of stacks: fjord did not answer."
 msgstr "This page could not get the list of stacks: fjord did not answer."
+
+#: src/Settings.svelte
+msgid "Nothing to set up here."
+msgstr "Nothing to set up here."
+
+#: src/Settings.svelte
+msgid "<0/>, installed here, gives your apps names<1/>. <2/>"
+msgstr "<0/>, installed here, gives your apps names<1/>. <2/>"
