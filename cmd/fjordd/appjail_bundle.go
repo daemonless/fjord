@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"os"
@@ -71,6 +72,11 @@ func writeAppjailBundle(dir, stackID string, b *manifest.AppjailBundle, resolved
 		if directorYML, err = setDirectorTag(directorYML, tag); err != nil {
 			return "", fmt.Errorf("director tag: %w", err)
 		}
+	}
+	// The color startup banner (see banner.go): the jail reads the variable
+	// only if its service names it.
+	if directorYML, err = setDirectorBanner(directorYML, b); err != nil {
+		return "", fmt.Errorf("director banner: %w", err)
 	}
 	// Place the project's jails on a host bridge or an appjail virtual network
 	// instead of appjail's NAT virtualnet, or on nothing at all. Done after
@@ -453,6 +459,12 @@ func directorEnv(envDefaults, stackID string, resolvedEnv, hostEnv, volPlacehold
 		if tz := hostTimezone(); tz != "" {
 			setOrdered("TZ", tz)
 		}
+	}
+
+	// The color startup banner (see banner.go): the wizard's value, else the
+	// bundle's, else color.
+	if env[bannerVar] == "" {
+		setOrdered(bannerVar, cmp.Or(resolvedEnv[bannerVar], bannerDefault))
 	}
 
 	// Values may reference other values (DATABASE_URL=postgresql://x:${DB_PASSWORD}@...).
