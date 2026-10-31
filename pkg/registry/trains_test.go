@@ -219,3 +219,81 @@ func tagList(vs []Version) []string {
 	}
 	return out
 }
+
+// linuxserver puts the arch in FRONT of a tag ("amd64-2.11.0", "arm64v8-2.11.0",
+// "arm32v7-latest"). Left in, "amd64-2.11.0" made "2.11.0" look like a channel
+// other tags pin against and babybuddy's every train came out empty: Change
+// Version said "No published tags".
+func TestArchOfPrefixAndSuffix(t *testing.T) {
+	cases := []struct {
+		tag, arch, base string
+		ok              bool
+	}{
+		{"amd64-2.11.0", "amd64", "2.11.0", true},
+		{"arm64v8-2.11.0", "arm64", "2.11.0", true},
+		{"arm32v7-latest", "", "latest", true}, // an arch fjord never runs on
+		{"amd64-v2.11.0-ls256", "amd64", "v2.11.0-ls256", true},
+		{"0.3.1-nightly-amd64", "amd64", "0.3.1-nightly", true},
+		{"latest-aarch64", "aarch64", "latest", true},
+		{"2.11.0", "", "2.11.0", false},
+		{"v2.11.0-ls256", "", "v2.11.0-ls256", false},
+		{"version-v2.11.0", "", "version-v2.11.0", false},
+		{"latest", "", "latest", false},
+	}
+	for _, c := range cases {
+		arch, base, ok := archOf(c.tag)
+		if arch != c.arch || base != c.base || ok != c.ok {
+			t.Errorf("archOf(%q) = %q, %q, %v; want %q, %q, %v", c.tag, arch, base, ok, c.arch, c.base, c.ok)
+		}
+	}
+}
+
+// babybuddy's real tag list (Docker Hub, newest first, 2026-10-31): each
+// version comes as the plain tag plus amd64-, arm64v8- and arm32v7- copies.
+var babybuddyTags = []string{
+	"latest", "2.11.0", "version-v2.11.0", "v2.11.0-ls256",
+	"arm64v8-2.11.0", "amd64-2.11.0", "arm64v8-version-v2.11.0", "arm64v8-latest",
+	"arm64v8-v2.11.0-ls256", "amd64-version-v2.11.0", "amd64-latest", "amd64-v2.11.0-ls256",
+	"v2.11.0-ls255", "arm64v8-v2.11.0-ls255", "amd64-v2.11.0-ls255",
+	"2.10.1", "version-v2.10.1", "v2.10.1-ls250",
+	"arm64v8-2.10.1", "amd64-2.10.1", "arm64v8-version-v2.10.1", "arm64v8-v2.10.1-ls250",
+	"amd64-version-v2.10.1", "amd64-v2.10.1-ls250",
+	"2.10.0", "version-v2.10.0", "v2.10.0-ls249", "arm64v8-2.10.0", "amd64-2.10.0",
+	"arm32v7-2.10.0", "arm32v7-latest",
+}
+
+func TestFilterArchTagsDropsArchPrefixes(t *testing.T) {
+	want := []string{
+		"latest", "2.11.0", "version-v2.11.0", "v2.11.0-ls256", "v2.11.0-ls255",
+		"2.10.1", "version-v2.10.1", "v2.10.1-ls250",
+		"2.10.0", "version-v2.10.0", "v2.10.0-ls249",
+	}
+	got := filterArchTags(babybuddyTags)
+	if len(got) != len(want) {
+		t.Fatalf("filterArchTags = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("filterArchTags[%d] = %q, want %q (%v)", i, got[i], want[i], got)
+		}
+	}
+}
+
+func TestDiscoverTrainsBabybuddyLatestHasVersions(t *testing.T) {
+	tr := discoverTrains(filterArchTags(babybuddyTags), nil)
+	want := []string{"2.11.0", "2.10.1", "2.10.0"}
+	got := tr["latest"]
+	if len(got) != len(want) {
+		t.Fatalf("latest train = %+v, want %v (all trains: %+v)", got, want, tr)
+	}
+	for i, v := range want {
+		if got[i].Version != v || got[i].Tag != v {
+			t.Fatalf("latest[%d] = %+v, want %s", i, got[i], v)
+		}
+	}
+	for ch := range tr {
+		if _, _, ok := archOf(ch); ok {
+			t.Fatalf("per-arch tag %q became a channel: %+v", ch, tr)
+		}
+	}
+}
