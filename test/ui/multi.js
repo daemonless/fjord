@@ -112,9 +112,10 @@ async function addOnServices(page, name, net) {
   await shot(page, `${name}-services-before-save`);
   await page.getByRole('button', { name: 'Save', exact: true }).first().click();
   await sleep(3000);
-  // Save may ask to restart the stack; say yes.
-  const restart = page.getByRole('button', { name: /Restart|Save and restart|Apply/ });
-  if (await restart.count()) { await restart.first().click(); }
+  // Save leaves the change to apply; take it. By its whole name: the
+  // restart policy's chip ("Restart unless stopped") matched /Restart/.
+  const apply = page.getByRole('button', { name: 'Apply Changes', exact: true });
+  if (await apply.count()) { await apply.first().click(); }
   await sleep(5000);
   const d = await stackUp(page, name);
   await shot(page, `${name}-services-after-save`);

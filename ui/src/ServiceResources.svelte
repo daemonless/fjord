@@ -239,15 +239,20 @@
     // twice is flagged on the row rather than prevented here.
     const unused = pickable(networks, '').find((n) => !used.includes(n.name) && !sameBridgeAs(svc, -1, n))?.name;
     const privateFree = planning && !used.includes('private') ? 'private' : '';
-    const network = unused || privateFree || pickable(networks, '')[0]?.name || (planning ? 'private' : '');
+    const bridgeFree = bridgeOffered(svc) ? 'bridge' : '';
+    const network = unused || privateFree || bridgeFree || pickable(networks, '')[0]?.name || (planning ? 'private' : '');
     // Nothing to put it on: a row with no network reads as a second bridge.
     if (!network) return;
     edits[svc] = [...rows(svc), { network, ip: '', mac: '' }];
     touch();
   }
-  // Whether "+ interface" has a network to offer this service.
+  // Whether "+ interface" has a network to offer this service. The built-in
+  // bridge is not in the list: counted apart, a service on the one LAN
+  // network a host has could not be given the bridge beside it.
+  const onBridge = (svc: string) => rows(svc).some((r) => !r.network || r.network === 'bridge');
+  const bridgeOffered = (svc: string) => !bridgeAlone && !unsupportedModes.includes('bridge') && !onBridge(svc);
   const canAdd = (svc: string) =>
-    planning || pickable(networks, '').some((n) => !rows(svc).some((r) => r.network === n.name));
+    planning || bridgeOffered(svc) || pickable(networks, '').some((n) => !rows(svc).some((r) => r.network === n.name));
   function removeRow(svc: string, i: number) {
     edits[svc] = rows(svc).filter((_, j) => j !== i);
     touch();
