@@ -321,24 +321,48 @@ func hostArchWords() map[string]bool {
 	return map[string]bool{"amd64": true, "x86_64": true, "x64": true}
 }
 
-// filterArchTags strips arch-suffixed noise from a version picker: drop the
-// other arch entirely (e.g. "-aarch64" on amd64, not runnable here), and drop a
-// host-arch tag ("1.3-amd64") when a plain multi-arch equivalent ("1.3") exists,
-// since podman pulls the right arch from the multi-arch tag anyway. A host-arch
-// tag with NO plain equivalent is kept so nothing installable is lost.
+// archPrefixes are the arch words linuxserver puts in front of a tag
+// ("amd64-1.9.0", "arm64v8-1.9.0", "arm32v7-1.9.0"), mapped to the host arch
+// each means; "" is an arch fjord never runs on.
+var archPrefixes = map[string]string{
+	"amd64": "amd64", "x86_64": "amd64",
+	"arm64v8": "arm64", "arm64": "arm64", "aarch64": "arm64",
+	"arm32v7": "", "arm32v6": "", "armhf": "", "i386": "", "ppc64le": "", "s390x": "", "riscv64": "",
+}
+
+// archOf splits a tag into its arch word and the tag without it, suffix
+// ("1.3-amd64") or prefix ("amd64-1.3"). ok is false for a plain tag.
+func archOf(t string) (arch, base string, ok bool) {
+	if i := strings.LastIndex(t, "-"); i >= 0 && archWords[t[i+1:]] {
+		return t[i+1:], t[:i], true
+	}
+	if i := strings.Index(t, "-"); i >= 0 {
+		if a, known := archPrefixes[t[:i]]; known {
+			return a, t[i+1:], true
+		}
+	}
+	return "", t, false
+}
+
+// filterArchTags strips per-arch noise from a version picker: drop the other
+// arch entirely (e.g. "-aarch64" on amd64, not runnable here), and drop a
+// host-arch tag ("1.3-amd64", "amd64-1.3") when a plain multi-arch equivalent
+// ("1.3") exists, since podman pulls the right arch from the multi-arch tag
+// anyway. A host-arch tag with NO plain equivalent is kept so nothing
+// installable is lost. Left in, linuxserver's "amd64-1.9.0" made "1.9.0" look
+// like a channel other tags pin against, and every train came out empty.
 func filterArchTags(tags []string) []string {
 	host := hostArchWords()
-	plain := map[string]bool{} // tags with no recognized arch suffix
+	plain := map[string]bool{}
 	for _, t := range tags {
-		if i := strings.LastIndex(t, "-"); i < 0 || !archWords[t[i+1:]] {
+		if _, _, ok := archOf(t); !ok {
 			plain[t] = true
 		}
 	}
 	out := make([]string, 0, len(tags))
 	for _, t := range tags {
-		if i := strings.LastIndex(t, "-"); i >= 0 && archWords[t[i+1:]] {
-			suf, base := t[i+1:], t[:i]
-			if !host[suf] || plain[base] {
+		if arch, base, ok := archOf(t); ok {
+			if !host[arch] || plain[base] {
 				continue // other arch, or redundant with a multi-arch tag
 			}
 		}
