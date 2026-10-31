@@ -68,7 +68,7 @@ func (b *Backend) UnmanagedContainers(ctx context.Context, skip func(name, proje
 				projects[p] = u
 				order = append(order, p)
 			}
-			if svc := c.Labels["io.podman.compose.service"]; svc != "" {
+			if svc := composeService(c.Labels); svc != "" {
 				u.Services = append(u.Services, svc)
 			}
 			if c.State == "running" {

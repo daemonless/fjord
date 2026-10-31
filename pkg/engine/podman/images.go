@@ -100,7 +100,7 @@ func (b *Backend) RunningImages(ctx context.Context, s *stack.Stack) ([]engine.R
 	var out []engine.RunningImage
 	seen := map[string]bool{}
 	for _, c := range cs {
-		svc := c.Labels["io.podman.compose.service"]
+		svc := composeService(c.Labels)
 		if svc == "" || seen[svc] {
 			continue // one container per service answers for it
 		}

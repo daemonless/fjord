@@ -510,7 +510,7 @@ func (b *Backend) notRecreated(ctx context.Context, s *stack.Stack, services []s
 	}
 	var out []string
 	for _, c := range ofServices(cs, services) {
-		svc := c.Labels["io.podman.compose.service"]
+		svc := composeService(c.Labels)
 		// A second of slack: podman's timestamp and ours round differently.
 		if svc != "" && c.Created.Before(since.Add(-time.Second)) && !slices.Contains(out, svc) {
 			out = append(out, svc)
@@ -535,7 +535,7 @@ func (b *Backend) verifyRecreated(ctx context.Context, pw *io.PipeWriter, s *sta
 	ok := true
 	if len(services) == 0 {
 		for _, c := range cs {
-			if svc := c.Labels["io.podman.compose.service"]; svc != "" && !slices.Contains(services, svc) {
+			if svc := composeService(c.Labels); svc != "" && !slices.Contains(services, svc) {
 				services = append(services, svc)
 			}
 		}
@@ -633,7 +633,7 @@ func (b *Backend) watchHealthy(ctx context.Context, pw *io.PipeWriter, s *stack.
 		if err != nil {
 			continue
 		}
-		ws = append(ws, &watched{svc: c.Labels["io.podman.compose.service"], id: c.ID, ctr: c, first: h})
+		ws = append(ws, &watched{svc: composeService(c.Labels), id: c.ID, ctr: c, first: h})
 	}
 	if len(ws) == 0 {
 		return
@@ -850,7 +850,7 @@ func ofServices(cs []libpodContainer, services []string) []libpodContainer {
 	}
 	var out []libpodContainer
 	for _, c := range cs {
-		if slices.Contains(services, c.Labels["io.podman.compose.service"]) {
+		if slices.Contains(services, composeService(c.Labels)) {
 			out = append(out, c)
 		}
 	}

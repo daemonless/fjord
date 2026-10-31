@@ -240,6 +240,17 @@ func (b *Backend) UsedPorts(ctx context.Context) (map[string]string, error) {
 	return out, nil
 }
 
+// composeService is the compose service a container runs. Older podman-compose
+// labels it io.podman.compose.service; 1.3.0 (Debian 13) writes only
+// com.docker.compose.service, and reading the first alone left every service
+// whose container_name differs from its name without a container.
+func composeService(labels map[string]string) string {
+	if s := labels["io.podman.compose.service"]; s != "" {
+		return s
+	}
+	return labels["com.docker.compose.service"]
+}
+
 // containerNames extracts the (de-slashed) names from a container list.
 func containerNames(cs []libpodContainer) []string {
 	var names []string
@@ -274,7 +285,7 @@ func aggregateStatus(containers []libpodContainer, health func(libpodContainer) 
 				ports = append(ports, engine.Port{HostPort: p.HostPort, ContainerPort: p.ContainerPort, Protocol: p.Protocol})
 			}
 		}
-		cs := engine.ContainerStatus{Name: name, ID: c.ID, Service: c.Labels["io.podman.compose.service"], State: c.State, Ports: ports, Exposed: exposedTCP(c),
+		cs := engine.ContainerStatus{Name: name, ID: c.ID, Service: composeService(c.Labels), State: c.State, Ports: ports, Exposed: exposedTCP(c),
 			Address: containerAddress(c), Addresses: containerAddresses(c), MACs: c.reportedMAC}
 		if cs.State == "running" {
 			up++
