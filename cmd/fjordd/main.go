@@ -493,6 +493,9 @@ func startOnBoot(srv *server) {
 			cancel()
 			continue // something else is already acting on it
 		}
+		if chose := srv.chooseAddresses(ctx, full); chose != "" {
+			log.Printf("start-on-boot: %s: %s", s.Name, strings.TrimSpace(chose))
+		}
 		stream, err := srv.backendFor(full).Up(ctx, full)
 		if err != nil {
 			log.Printf("start-on-boot: up %s: %v", s.Name, err)

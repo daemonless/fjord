@@ -15,8 +15,12 @@ func parseNetavark(name string, data []byte) (Network, bool) {
 		Driver    string `json:"driver"`
 		Interface string `json:"network_interface"`
 		Subnets   []struct {
-			Subnet  string `json:"subnet"`
-			Gateway string `json:"gateway"`
+			Subnet     string `json:"subnet"`
+			Gateway    string `json:"gateway"`
+			LeaseRange struct {
+				Start string `json:"start_ip"`
+				End   string `json:"end_ip"`
+			} `json:"lease_range"`
 		} `json:"subnets"`
 		Options map[string]string `json:"options"`
 		Labels  map[string]string `json:"labels"`
@@ -43,6 +47,7 @@ func parseNetavark(name string, data []byte) (Network, bool) {
 			}
 		} else if n.Subnet == "" {
 			n.Subnet, n.Gateway = s.Subnet, s.Gateway
+			n.RangeStart, n.RangeEnd = s.LeaseRange.Start, s.LeaseRange.End
 		}
 	}
 	// A DHCP network declares no subnet; fjord records the segment it found.

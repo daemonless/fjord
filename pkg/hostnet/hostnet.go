@@ -45,7 +45,10 @@ type Network struct {
 	Bridge  string // the host bridge it hangs off
 	Subnet  string
 	Gateway string
-	MTU     int
+	// RangeStart/RangeEnd: the part of Subnet a pool hands out ("" = all of
+	// it), IPv4.
+	RangeStart, RangeEnd string
+	MTU                  int
 	// DHCP: addresses come from the segment's own server, so there is no
 	// subnet here to read. Without this a DHCP network looks like a broken one.
 	DHCP bool
@@ -128,8 +131,10 @@ func parse(name string, data []byte) (Network, bool) {
 			IPAM   struct {
 				Type   string `json:"type"`
 				Ranges [][]struct {
-					Subnet  string `json:"subnet"`
-					Gateway string `json:"gateway"`
+					Subnet     string `json:"subnet"`
+					Gateway    string `json:"gateway"`
+					RangeStart string `json:"rangeStart"`
+					RangeEnd   string `json:"rangeEnd"`
 				} `json:"ranges"`
 			} `json:"ipam"`
 		} `json:"plugins"`
@@ -157,6 +162,7 @@ func parse(name string, data []byte) (Network, bool) {
 		}
 		if n.Subnet == "" {
 			n.Subnet, n.Gateway = r[0].Subnet, r[0].Gateway
+			n.RangeStart, n.RangeEnd = r[0].RangeStart, r[0].RangeEnd
 		}
 	}
 	// A DHCP network has no ipam ranges; the segment is recorded beside them.

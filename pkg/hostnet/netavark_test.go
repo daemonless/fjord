@@ -29,3 +29,16 @@ func TestParseNetavark(t *testing.T) {
 		t.Error("a CNI conflist read as netavark")
 	}
 }
+
+// A pool's range, which chooseAddresses walks: netavark's lease_range and a
+// conflist's rangeStart/rangeEnd.
+func TestPoolRange(t *testing.T) {
+	n, ok := parseNetavark("lanpool", []byte(`{"name":"lanpool","driver":"macvlan","network_interface":"enp0s6f1","subnets":[{"subnet":"192.168.4.0/24","gateway":"192.168.4.1","lease_range":{"start_ip":"192.168.4.240","end_ip":"192.168.4.245"}}],"ipam_options":{"driver":"host-local"}}`))
+	if !ok || n.RangeStart != "192.168.4.240" || n.RangeEnd != "192.168.4.245" || n.Bridge != "enp0s6f1" {
+		t.Errorf("netavark: %+v", n)
+	}
+	n, ok = parse("lanpool", []byte(`{"plugins":[{"type":"epair","master":"lanbr","ipam":{"type":"host-local","ranges":[[{"subnet":"192.168.4.0/24","gateway":"192.168.4.1","rangeStart":"192.168.4.240","rangeEnd":"192.168.4.245"}]]}}]}`))
+	if !ok || n.RangeStart != "192.168.4.240" || n.RangeEnd != "192.168.4.245" {
+		t.Errorf("conflist: %+v", n)
+	}
+}

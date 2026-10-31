@@ -741,10 +741,17 @@ func (s *server) handleInstall(w http.ResponseWriter, r *http.Request) {
 	if iw, ok := be.(engine.InstallWatcher); ok {
 		up = iw.UpWatched
 	}
+	chose := s.chooseAddresses(ctx, st)
 	stream, err := up(watchable(ctx, id), st)
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
+	}
+	if chose != "" {
+		stream = struct {
+			io.Reader
+			io.Closer
+		}{io.MultiReader(strings.NewReader(chose), stream), stream}
 	}
 	if note := secretsNote(m, dataDir, reused, madeUp); note != "" {
 		stream = struct {
