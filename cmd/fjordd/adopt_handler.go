@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -19,6 +20,7 @@ import (
 	"github.com/daemonless/fjord/pkg/manifest"
 	"github.com/daemonless/fjord/pkg/registry"
 	"github.com/daemonless/fjord/pkg/stack"
+	"github.com/daemonless/fjord/pkg/updates"
 )
 
 // adopter is implemented by engines that can list containers no stack owns
@@ -311,8 +313,8 @@ func (s *server) handleAdopt(w http.ResponseWriter, r *http.Request) {
 		}
 		defer release()
 		compose := a.Compose
-		if port, https := s.adoptWebHint(ctx, be, a.Service, found.Image); port != "" {
-			compose += fmt.Sprintf("\nx-fjord:\n  web_port: %q\n", publishedFor(a.Compose, a.Env, a.Service, port))
+		if port, https := s.adoptWebHint(ctx, be, a.Service, a.Compose, a.Env); port != "" {
+			compose += fmt.Sprintf("\nx-fjord:\n  web_port: %q\n", port)
 			if https {
 				compose += "  web_https: true\n"
 			}
@@ -364,29 +366,65 @@ func (s *server) handleAdopt(w http.ResponseWriter, r *http.Request) {
 }
 
 // adoptWebHint finds the port the app's web UI answers on, for the Open link
-// of an adopted stack (which publishes nothing on a macvlan): the catalog
-// manifest's web_port/web_https when the image is that catalog app's, else
-// the image's first exposed TCP port. "" = no hint.
-func (s *server) adoptWebHint(ctx context.Context, be engine.Backend, appID, image string) (port string, https bool) {
+// of an adopted stack (which publishes nothing on a macvlan), as the host
+// port it is published on: the catalog manifest's web_port/web_https when a
+// service runs that catalog app's image, else the first exposed TCP port of
+// a service's image, services in compose order with databases passed over.
+// An imported project is looked at whole, not through whichever of its
+// containers podman listed first: mealie's was postgres, and Open went to
+// 5432. "" = no hint.
+func (s *server) adoptWebHint(ctx context.Context, be engine.Backend, appID, compose, env string) (port string, https bool) {
+	var mc, mp string
+	var mh bool
 	if b, err := s.cat.ManifestAny(ctx, appID); err == nil {
-		if m, err := manifest.Parse(string(b)); err == nil && runsImage(m.Compose(), image) {
-			if p := m.WebContainerPort(); p != "" {
-				return p, m.WebHTTPS
-			}
+		if m, err := manifest.Parse(string(b)); err == nil {
+			mc, mp, mh = m.Compose(), m.WebContainerPort(), m.WebHTTPS
 		}
 	}
+	exposed := func(string) []string { return nil }
 	if ex, ok := be.(interface {
 		ImageExposedPorts(context.Context, string) ([]string, error)
 	}); ok {
-		if keys, err := ex.ImageExposedPorts(ctx, image); err == nil {
-			for _, k := range keys {
-				if p, proto, _ := strings.Cut(k, "/"); proto == "" || proto == "tcp" {
-					return p, p == "443" || p == "8443"
-				}
+		exposed = func(image string) []string {
+			keys, _ := ex.ImageExposedPorts(ctx, image)
+			return keys
+		}
+	}
+	return webHint(compose, env, mc, mp, mh, exposed)
+}
+
+// webHint is adoptWebHint with the catalog and the engine already asked:
+// manifestCompose/manifestPort/manifestHTTPS are the catalog app's (empty
+// when it has none), exposed lists an image's exposed ports ("9000/tcp").
+func webHint(compose, env, manifestCompose, manifestPort string, manifestHTTPS bool, exposed func(image string) []string) (string, bool) {
+	svcs := composepkg.ParseServices(compose, envMap(env))
+	if manifestPort != "" {
+		for _, v := range svcs {
+			if runsImage(manifestCompose, v.Image) {
+				return publishedFor(compose, env, v.Name, manifestPort), manifestHTTPS
+			}
+		}
+	}
+	for _, v := range svcs {
+		if v.Image == "" || isDatabaseImage(v.Image) {
+			continue
+		}
+		for _, k := range exposed(v.Image) {
+			if p, proto, _ := strings.Cut(k, "/"); proto == "" || proto == "tcp" {
+				return publishedFor(compose, env, v.Name, p), p == "443" || p == "8443"
 			}
 		}
 	}
 	return "", false
+}
+
+// notAWebImage: a database or cache whose exposed port is never a web page,
+// beside the ones updates.DataTiedToMajor knows.
+var notAWebImage = regexp.MustCompile(`^(.*-)?(mysql|mariadb|percona|redis|valkey|memcached)$`)
+
+func isDatabaseImage(image string) bool {
+	repo := registry.Repo(image)
+	return updates.DataTiedToMajor(repo) || notAWebImage.MatchString(strings.ToLower(repo[strings.LastIndex(repo, "/")+1:]))
 }
 
 // publishedFor is the host port the compose publishes containerPort on:
