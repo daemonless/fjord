@@ -191,7 +191,7 @@ func (b *Backend) failedContainers(ctx context.Context, s *stack.Stack) []failed
 		if err != nil {
 			continue
 		}
-		svc := c.Labels["io.podman.compose.service"]
+		svc := composeService(c.Labels)
 		if svc == "" && len(c.Names) > 0 {
 			svc = c.Names[0]
 		}
