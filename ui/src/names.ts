@@ -129,7 +129,11 @@ export async function checkTrust(trustName: string): Promise<DeviceTrust> {
   return t;
 }
 
-type NamedStack = AppUrlStack & { name: string; services?: { name: string; address?: string }[] };
+type NamedStack = AppUrlStack & {
+  name: string;
+  services?: { name: string; address?: string }[];
+  status?: AppUrlStack['status'] & { state?: string };
+};
 
 /** One app a name can point at. A stack of several apps (crafting-apps) has
  *  one per app, keyed "<stack>/<service>" and named after the service; any
@@ -259,9 +263,13 @@ export function nameLabel(s: string): string {
     .replace(/^-+|-+$/g, '');
 }
 
-/** Apps that could have a name and have none yet (not the provider itself). */
+/** Apps that could have a name and have none yet (not the provider itself).
+ *  A stopped stack is left out: the provider probes an app before naming it,
+ *  so naming one that is not running always failed, and the prompt offered
+ *  it again on every visit. It is offered once it runs. */
 export function unnamed(stacks: NamedStack[], p: NamesState): NameTarget[] {
-  return stacks.filter((s) => s.name !== p.provider).flatMap((s) => nameTargets(s).filter((t) => !p.names?.[t.key]));
+  const stopped = (s: NamedStack) => !!s.status?.state && s.status.state !== 'running' && s.status.state !== 'partial';
+  return stacks.filter((s) => s.name !== p.provider && !stopped(s)).flatMap((s) => nameTargets(s).filter((t) => !p.names?.[t.key]));
 }
 
 export type NameResult = { stack: string; host?: AppName; error?: string };
