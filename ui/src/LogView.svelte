@@ -1,6 +1,7 @@
 <script lang="ts">
   import { afterUpdate } from 'svelte';
   import Icon from './Icon.svelte';
+  import { css, isBlockArt, parseAnsi, plain, type Run } from './ansi';
 
   export let text = ''; // the raw log buffer (may contain ANSI + grow live)
   export let streaming = false;
@@ -16,10 +17,11 @@
   let searchInput: HTMLInputElement;
   let stick = true; // pinned to bottom (live tail)
 
-  const ANSI = /\x1b\[[0-9;]*m/g;
   const MAX = 3000; // cap rendered lines so huge logs stay responsive
 
-  $: lines = text.replace(ANSI, '').split('\n');
+  type Line = { runs: Run[]; text: string };
+  $: parsed = parseAnsi(text).map((runs): Line => ({ runs, text: plain(runs) }));
+  $: lines = parsed.map((l) => l.text);
 
   // One matcher, rebuilt when the query/options change. Invalid regex -> null
   // (treated as "no filter") so a half-typed pattern doesn't blow up.
@@ -39,33 +41,50 @@
     return matcher.test(line);
   }
 
-  $: shown = (matcher && doFilter ? lines.filter(hit) : lines).slice(-MAX);
+  $: shownLines = (matcher && doFilter ? parsed.filter((l) => hit(l.text)) : parsed).slice(-MAX);
+  $: shown = shownLines.map((l) => l.text);
   $: matchCount = matcher ? lines.filter(hit).length : 0;
 
-  // Split a line into highlighted / plain segments. The regex and toggle come
-  // in as PARAMETERS so the reactive `rows` statement below names them as
-  // dependencies -- called bare from the template, the compiler can't see
-  // inside the function, and rows whose text didn't change keep stale
+  type Seg = { t: string; m: boolean; st: string };
+
+  // Split a line into segments by colour run and by match. The regex and
+  // toggle come in as PARAMETERS so the reactive `rows` statement below names
+  // them as dependencies -- called bare from the template, the compiler can't
+  // see inside the function, and rows whose text didn't change keep stale
   // highlighting (e.g. a query most lines match re-renders almost nothing).
-  function segs(line: string, re: RegExp | null, hl: boolean): { t: string; m: boolean }[] {
-    if (!re || !hl) return [{ t: line, m: false }];
-    const out: { t: string; m: boolean }[] = [];
-    let last = 0;
-    re.lastIndex = 0;
-    let m: RegExpExecArray | null;
-    while ((m = re.exec(line)) !== null) {
-      if (m.index > last) out.push({ t: line.slice(last, m.index), m: false });
-      out.push({ t: m[0], m: true });
-      last = m.index + m[0].length;
-      if (m[0].length === 0) re.lastIndex++; // guard against zero-width loops
+  function segs(line: Line, re: RegExp | null, hl: boolean): Seg[] {
+    // Match ranges on the plain text, then cut the colour runs at them.
+    const hits: [number, number][] = [];
+    if (re && hl) {
+      re.lastIndex = 0;
+      let m: RegExpExecArray | null;
+      while ((m = re.exec(line.text)) !== null) {
+        hits.push([m.index, m.index + m[0].length]);
+        if (m[0].length === 0) re.lastIndex++; // guard against zero-width loops
+      }
     }
-    if (last < line.length) out.push({ t: line.slice(last), m: false });
+    const out: Seg[] = [];
+    let pos = 0;
+    for (const r of line.runs) {
+      const st = css(r.s);
+      const end = pos + r.t.length;
+      let at = pos;
+      for (const [a, b] of hits) {
+        if (b <= at || a >= end) continue;
+        if (a > at) out.push({ t: line.text.slice(at, a), m: false, st });
+        const stop = Math.min(b, end);
+        out.push({ t: line.text.slice(Math.max(a, at), stop), m: true, st });
+        at = stop;
+      }
+      if (at < end) out.push({ t: line.text.slice(at, end), m: false, st });
+      pos = end;
+    }
     return out;
   }
 
-  // One entry per rendered line: its highlight segments, recomputed whenever
-  // the matcher or the highlight toggle changes (not just the line text).
-  $: rows = shown.map((line) => segs(line, matcher, doHighlight));
+  // One entry per rendered line: its segments, recomputed whenever the
+  // matcher or the highlight toggle changes (not just the line text).
+  $: rows = shownLines.map((l) => ({ segs: segs(l, matcher, doHighlight), art: isBlockArt(l.text) }));
 
   function onScroll() {
     if (!scroller) return;
@@ -138,13 +157,23 @@
       <div class="text-fjord-fg-faint italic px-1">{query ? 'No matching lines.' : 'No output yet…'}</div>
     {:else}
       {#each rows as row}
-        <div class="whitespace-pre-wrap break-all">{#each row as s}{#if s.m}<mark class="bg-fjord-warning/40 text-fjord-fg-strong rounded-[2px] px-px">{s.t}</mark>{:else}{s.t}{/if}{/each}</div>
+        <!-- min-h keeps an empty line; block art gets the font's own line
+             height so the half-block rows meet with no gaps -->
+        <div class="line whitespace-pre-wrap break-all" class:art={row.art}>{#each row.segs as s}{#if s.m}<mark class="bg-fjord-warning/40 text-fjord-fg-strong rounded-[2px] px-px">{s.t}</mark>{:else if s.st}<span style={s.st}>{s.t}</span>{:else}{s.t}{/if}{/each}</div>
       {/each}
     {/if}
   </div>
 </div>
 
 <style>
+  .line {
+    min-height: 1.45em;
+  }
+  .line.art {
+    line-height: normal;
+    min-height: 0;
+    white-space: pre;
+  }
   .chip {
     padding: 1px 7px;
     border-radius: 6px;
