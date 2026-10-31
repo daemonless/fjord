@@ -1360,8 +1360,10 @@ func (s *server) lifecycle(w http.ResponseWriter, r *http.Request, name, action 
 	}
 
 	var stream io.ReadCloser
+	var chose string // what chooseAddresses did, said first
 	switch action {
 	case "up":
+		chose = s.chooseAddresses(ctx, st)
 		// Changes a Save left pending are recreated first, by name and
 		// verified -- not left to podman-compose, which keeps the old container
 		// and exits 0 when the teardown is refused. Then the rest comes up.
@@ -1416,6 +1418,12 @@ func (s *server) lifecycle(w http.ResponseWriter, r *http.Request, name, action 
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
+	}
+	if chose != "" {
+		stream = struct {
+			io.Reader
+			io.Closer
+		}{io.MultiReader(strings.NewReader(chose), stream), stream}
 	}
 	if action != "down" {
 		stream = s.keepAfter(ctx, st, stream)
