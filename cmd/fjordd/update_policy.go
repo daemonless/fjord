@@ -46,12 +46,13 @@ func policyFor(state *stack.State, service string) updates.Policy {
 }
 
 // verdict is what auto-update would do with one service's pending update.
-func (s *server) verdict(st *stack.Stack, service string, class updates.Class, key string) updates.Verdict {
+func (s *server) verdict(st *stack.Stack, service, image string, class updates.Class, key string) updates.Verdict {
 	state, _ := s.manager.LoadState(st.Name)
 	return updates.Decide(policyFor(state, service), updates.Candidate{
 		Class:      class,
 		FirstSeen:  s.seen.Mark(key),
 		Dependency: len(composepkg.WithDependents(st.Compose, []string{service})) > 1,
+		DataMajor:  updates.DataTiedToMajor(registry.Repo(image)),
 	}, time.Now())
 }
 

@@ -524,7 +524,7 @@ func (s *server) stackChanges(w http.ResponseWriter, r *http.Request, name strin
 		// Auto is what auto-update would do with this, under the stack's
 		// policy -- shown, not acted on, until the scheduler exists.
 		Auto updates.Verdict `json:"auto"`
-	}{diff, class, s.verdict(st, sv.Name, class, candidateKey(up.State, sv.Image, up.Latest, up.NewTag))})
+	}{diff, class, s.verdict(st, sv.Name, sv.Image, class, candidateKey(up.State, sv.Image, up.Latest, up.NewTag))})
 }
 
 // platformOf is this host's manifest inside an index, or the digest itself
