@@ -114,6 +114,14 @@ describe('unnamed', () => {
     const sonarr = { ...radarr, name: 'sonarr' };
     expect(unnamed([radarr, db, self, sonarr], ready).map((t) => t.key)).toEqual(['sonarr']);
   });
+  // tailscale, adopted and stopped: the provider cannot reach it, so Add name
+  // failed and the prompt came back for it every time.
+  it('leaves out a stopped app until it runs', () => {
+    const stopped = { ...radarr, name: 'tailscale', status: { state: 'stopped' } };
+    const partial = { ...radarr, name: 'sonarr', status: { state: 'partial' } };
+    expect(unnamed([stopped, partial], ready).map((t) => t.key)).toEqual(['sonarr']);
+    expect(unnamed([{ ...stopped, status: { state: 'running' } }], ready).map((t) => t.key)).toEqual(['tailscale']);
+  });
 });
 
 describe('trustPage', () => {
