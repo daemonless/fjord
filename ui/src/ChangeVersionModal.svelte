@@ -19,6 +19,10 @@
 
   let trains: Record<string, { version: string; tag: string }[]> = {};
   let loading = true;
+  // Why the list could not be had, kept apart from a registry that simply
+  // has no tags: the two read the same otherwise, and a failed request
+  // looked like an image with nothing published.
+  let loadError = '';
   let train = '';
   let versionTag = '';
   let customTag = '';
@@ -49,11 +53,27 @@
     } catch {}
   }
 
-  onMount(async () => {
+  async function load() {
+    loading = true;
+    loadError = '';
     try {
       const res = await fetch(`/api/registry/versions?image=${encodeURIComponent(repo)}`);
-      if (res.ok) trains = await res.json();
-    } catch {}
+      if (res.ok) trains = (await res.json()) ?? {};
+      else {
+        let msg = (await res.text()).trim();
+        try {
+          msg = JSON.parse(msg).error || msg; // the sign-in gate answers in JSON
+        } catch {}
+        loadError = msg || `${res.status} ${res.statusText}`;
+      }
+    } catch (e) {
+      loadError = e instanceof Error ? e.message : String(e);
+    }
+    pickDefault();
+    loading = false;
+  }
+
+  function pickDefault() {
     // Default the picker to the suggested tag (an upgrade target) if given,
     // else the currently-deployed tag.
     const target = suggestTag || currentTag;
@@ -68,8 +88,9 @@
       }
     }
     if (!train) train = trainList[0] || currentTag;
-    loading = false;
-  });
+  }
+
+  onMount(load);
 
   function apply() {
     if (!tag) return;
@@ -94,6 +115,11 @@
 
     {#if loading}
       <p class="text-fjord-fg-dim text-sm">Loading published versions…</p>
+    {:else if loadError}
+      <p class="text-fjord-warning text-sm">
+        Could not load the published versions: {loadError}
+        <button on:click={load} class="ml-1 underline decoration-dotted hover:text-fjord-warning/80">Try again</button>
+      </p>
     {:else if trainList.length === 0}
       <p class="text-fjord-fg-dim text-sm">No published tags found for this image.</p>
     {:else}
@@ -121,6 +147,9 @@
           </select>
         </div>
       </div>
+    {/if}
+
+    {#if !loading}
       <div class="flex items-center gap-2 mt-3">
         <input
           bind:value={customTag}
@@ -132,9 +161,6 @@
       {#if noBuild}
         <p class="text-xs text-fjord-warning mt-2">{noBuild}</p>
       {/if}
-    {/if}
-
-    {#if !loading}
       <label class="flex items-start gap-2 mt-4 cursor-pointer select-none">
         <input type="checkbox" bind:checked={pin} class="mt-0.5 accent-fjord-accent" />
         <span class="text-sm text-fjord-fg-secondary">
@@ -159,7 +185,13 @@
         disabled={applying || !tag || !dirty || !!noBuild}
         title={noBuild || undefined}
         class="px-4 py-2 rounded-md font-medium text-white bg-fjord-accent hover:bg-fjord-accent-hover transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-        >{applying ? 'Applying…' : tag !== currentTag ? 'Change & Redeploy' : pin ? 'Pin' : 'Unpin'}</button
+        >{applying
+          ? 'Applying…'
+          : tag === currentTag && pin !== currentlyPinned
+            ? pin
+              ? 'Pin'
+              : 'Unpin'
+            : 'Change & Redeploy'}</button
       >
     </div>
   </div>

@@ -4869,3 +4869,8 @@ msgstr "New stack"
 #: src/App.svelte
 msgid "Write the compose file yourself"
 msgstr "Write the compose file yourself"
+
+#. 0: loadError
+#: src/ChangeVersionModal.svelte
+msgid "Could not load the published versions: {0} <0>Try again</0>"
+msgstr "Could not load the published versions: {0} <0>Try again</0>"

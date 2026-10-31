@@ -4858,3 +4858,8 @@ msgstr "Nouvelle pile"
 #: src/App.svelte
 msgid "Write the compose file yourself"
 msgstr "Écrivez vous-même le fichier compose"
+
+#. 0: loadError
+#: src/ChangeVersionModal.svelte
+msgid "Could not load the published versions: {0} <0>Try again</0>"
+msgstr "Impossible de charger les versions publiées : {0} <0>Réessayer</0>"
