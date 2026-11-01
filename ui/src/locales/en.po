@@ -4874,3 +4874,8 @@ msgstr "Write the compose file yourself"
 #: src/ChangeVersionModal.svelte
 msgid "Could not load the published versions: {0} <0>Try again</0>"
 msgstr "Could not load the published versions: {0} <0>Try again</0>"
+
+#. 0: r.network
+#: src/ServiceResources.svelte
+msgid "{0} — this stack's own network, made by its compose"
+msgstr "{0} — this stack's own network, made by its compose"

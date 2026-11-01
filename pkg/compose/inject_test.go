@@ -674,3 +674,52 @@ func TestInjectNetworksBridgeWithOthers(t *testing.T) {
 		t.Errorf("read back %+v, want bridge then lan-dhcp with its MAC", got)
 	}
 }
+
+// A network the compose declares itself is the stack's own: compose makes it
+// under the project's name when the stack starts, so the host's list never
+// has it (an imported mealie showed "mealie_internal (not on this host)").
+// An external one, and compose's "default", are not.
+func TestAttachmentsMarkDeclaredNetworksOwn(t *testing.T) {
+	const in = `services:
+  app:
+    image: mealie
+    networks:
+      - lan
+      - mealie_internal
+      - default
+  db:
+    image: postgres
+    networks:
+      - lan
+      - mealie_internal
+      - default
+networks:
+  lan:
+    external: true
+  mealie_internal:
+    driver: bridge
+  default: {}
+`
+	want := map[string]bool{"lan": false, "mealie_internal": true, "bridge": false}
+	check := func(what string, atts []Attachment) {
+		if len(atts) != 3 {
+			t.Fatalf("%s: %+v", what, atts)
+		}
+		for _, a := range atts {
+			if w, ok := want[a.Network]; !ok || a.Own != w {
+				t.Errorf("%s: %s own = %v, want %v", what, a.Network, a.Own, w)
+			}
+		}
+	}
+	check("AttachedNetworks", AttachedNetworks(in))
+	check("ServiceAttachments app", ServiceAttachments(in)["app"])
+	check("ServiceAttachments db", ServiceAttachments(in)["db"])
+	// Saving the rows back leaves the declared network as it was.
+	out, err := InjectNetworks(in, []Attachment{{Network: "lan", Service: "app"}, {Network: "mealie_internal", Service: "app", Own: true}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "mealie_internal:\n    driver: bridge") {
+		t.Fatalf("declared network rewritten:\n%s", out)
+	}
+}

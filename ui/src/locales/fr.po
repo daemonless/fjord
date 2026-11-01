@@ -4863,3 +4863,8 @@ msgstr "Écrivez vous-même le fichier compose"
 #: src/ChangeVersionModal.svelte
 msgid "Could not load the published versions: {0} <0>Try again</0>"
 msgstr "Impossible de charger les versions publiées : {0} <0>Réessayer</0>"
+
+#. 0: r.network
+#: src/ServiceResources.svelte
+msgid "{0} — this stack's own network, made by its compose"
+msgstr "{0} — le réseau propre à cette pile, créé par son compose"

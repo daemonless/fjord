@@ -35,7 +35,9 @@
     /** The network's subnet is not the segment its bridge is on. */
     wireWarning?: string;
   };
-  type Attachment = { network: string; ip?: string; ip6?: string; mac?: string; iface?: string };
+  /** own: the compose declares this network itself, so compose makes it when
+   *  the stack starts and the host's list never has it. */
+  type Attachment = { network: string; ip?: string; ip6?: string; mac?: string; iface?: string; own?: boolean };
   type ServiceVolume = {
     source?: string;
     dest?: string;
@@ -455,7 +457,7 @@
                       {/if}
                       <td class="py-1.5 pr-2">
                         <div class="flex items-center gap-2">
-                          <span class="shrink-0 w-14 text-center font-mono text-[10px] px-1 py-0.5 rounded border border-fjord-border text-fjord-fg-muted">{kindOf(networks, r.network)}</span>
+                          <span class="shrink-0 w-14 text-center font-mono text-[10px] px-1 py-0.5 rounded border border-fjord-border text-fjord-fg-muted">{r.own ? 'bridge' : kindOf(networks, r.network)}</span>
                           <!-- "" is bridge (no network named): shown as such, or
                                it matched no option and the picker was blank. -->
                           <select
@@ -488,9 +490,14 @@
                               </optgroup>
                             {/each}
                             <!-- Keeps a network the host no longer defines, so an
-                                 attachment is not silently lost. -->
+                                 attachment is not silently lost. One the compose
+                                 declares itself is not missing: compose makes it. -->
                             {#if r.network && !byName(r.network) && !isBuiltIn(r.network) && !(offerPrivateSpec && r.network === 'private')}
-                              <option value={r.network}>{r.network} (not on this host)</option>
+                              {#if r.own}
+                                <option value={r.network}>{r.network} — this stack's own network, made by its compose</option>
+                              {:else}
+                                <option value={r.network}>{r.network} (not on this host)</option>
+                              {/if}
                             {/if}
                           </select>
                         </div>
