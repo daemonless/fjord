@@ -3,7 +3,7 @@
 Releases are tagged on GitHub; each rc is a pre-release with the pull
 requests it carries. This file is the story per release.
 
-## 0.4.0 — unreleased
+## 0.4.0 — 2026-11-01
 
 Linux, a sign-in, names and HTTPS for your apps, and a Linux app store.
 Proven through the real pages on a FreeBSD host and a Fedora host
@@ -17,7 +17,7 @@ Proven through the real pages on a FreeBSD host and a Fedora host
 - A .deb and an .rpm per arch (`fjord-<version>-linux-<arch>`): installing
   starts fjord and says where to open it, updating restarts it with the
   apps left running, removing keeps `/var/db/fjord`. Installed over
-  `install-linux.sh`'s copy, it moves that copy aside.
+  `install-linux.sh`'s copy, it moves that copy aside. (#163)
 - LAN networks on Linux: macvlan with DHCP through netavark's proxy or a
   static pool, the wire probe, and the Open link on the container's own
   address. The host firewall and SELinux are checked at Setup; a folder
@@ -32,7 +32,9 @@ Proven through the real pages on a FreeBSD host and a Fedora host
 - fjord has an account. The first visit asks for a setup code printed on
   the host; after that every page and the API need a session, which ends
   after 30 days unused. `fjordd passwd` resets it; `FJORD_AUTH=none` keeps
-  the old behaviour behind a reverse proxy of your own.
+  the old behaviour behind a reverse proxy of your own. There is no
+  length rule: a weak password gets a warning and the person decides.
+  (#160)
 - The password a person signs in to an app with is one they can type, and
   the app's own login shows beside Open ("Sign in"), made up by fjord at
   install or stated as the app's default. (#155)
@@ -44,10 +46,12 @@ Proven through the real pages on a FreeBSD host and a Fedora host
   a shield says whether this device trusts the proxy or can resolve the
   names; names follow an app's port and address. Every fjord has an id and
   a name, and a second fjord links to the same proxy by pasting one link.
-  The contract is `docs/names-provider.md`.
+  The contract is `docs/names-provider.md`. (#156, #161)
 - A provider that takes icons (the reverse proxy) is sent each app's icon
   with its name, so its list of names shows the same logos as fjord. Names
-  made before get theirs when fjordd starts.
+  made before get theirs when fjordd starts. (#162)
+- A fjord linked to a proxy by hand offers Add names too, from Settings →
+  Names. An app that is stopped is not offered a name. (#169, #192)
 
 ### A Linux app store
 - 183 linuxserver.io apps, each one installed and checked on a Linux host
@@ -56,6 +60,8 @@ Proven through the real pages on a FreeBSD host and a Fedora host
   and left out when empty; an app whose default port is taken starts on a
   free one; a value typed in .env reaches the app in one click. (#149,
   #155)
+- daemonless images built for Linux too are offered there: the reverse
+  proxy and the pkg cache. (#169)
 
 ### AppJail
 - Roll back, pin and change one service's version; updated jails are
@@ -63,21 +69,85 @@ Proven through the real pages on a FreeBSD host and a Fedora host
   one click without an open resolver; a stale director lock no longer
   wedges a stack. (#139, #140, #149)
 
+### Updates and versions
+- An offer is one you can take: no pre-release, no other flavour, one
+  major at a time, and a rolling tag gets no tag offer. A database whose
+  data is tied to its major (postgres, mongo, elasticsearch, opensearch) is
+  never offered the next major, nor given it by auto-update; that one you
+  change by hand after a dump and restore. (#190)
+- Change Version says why it has no versions and offers Try again; the
+  custom tag field is always there. (#191)
+- Images whose tags carry the arch in front (`amd64-2.11.0`, `arm64v8-`,
+  `arm32v7-`, as linuxserver's do) have their versions again; before,
+  every train came out empty and Change Version said "No published tags".
+  (#193)
+
+### Adopt
+- The dashboard says when there are containers to adopt, and the
+  sidebar's + offers the store, Adopt and a blank stack. (#183, #185)
+- Adopt takes the container over, restarting it once; the Open link uses
+  the port the app is published on; fjord's own jails are skipped before
+  inspecting them. (#174, #175, #182)
+- A stack started by podman-compose 1.3.0 (Debian 13) shows all its
+  services: that version labels a container `com.docker.compose.service`
+  only, which left every service whose container name differs from its own
+  without a container. (#194)
+- An imported project's Open link goes to the service with a web page,
+  not its database: it used to take whichever container podman listed
+  first. (#196)
+
+### Networks
+- A network a stack's compose declares shows as the stack's own, made by
+  its compose, where it said "not on this host". (#198)
+- A pool skips an address another machine on the wire holds, checked
+  before each use; it used to hand out one a host already had, and break
+  on every recreate. (#186)
+- + interface can add the built-in bridge beside a LAN network. (#187)
+- An app on its own LAN address gets an Open link without a mapped port.
+  (#178)
+- The networks list no longer runs a scan that could never stop it. (#177)
+
+### Logs
+- Every daemonless app fjord installs prints its startup logo in full
+  color in the Logs tab, on podman and on AppJail; a stack that sets
+  `DAEMONLESS_BANNER` itself keeps its own choice. (#195)
+
 ### Fixes and small things
+- New stacks can be created again: Create refused every one with "files
+  did not load". On Linux a new stack starts from alpine, not FreeBSD's
+  base image. (#167)
+- Adopting a container takes the store app's web port only when it runs
+  that app's image; otherwise the image's own. (#168)
+- Running `install-linux.sh` again upgrades fjord: it restarts fjordd,
+  where the old one kept running. A host installed by hand before
+  2026-10-26 should run it once: its unit stopped every app with fjordd.
+  (#169)
 - The names provider's row says Finish setup only before its setup is
   done. One set up before that fjord cannot reach (a certificate, a
   timeout) says so in words, and the page keeps checking after fjord
-  itself did not answer instead of staying stuck until a reload.
+  itself did not answer instead of staying stuck until a reload. (#164)
 - Apply recreates only what changed, and a second Apply during the first
   one's check takes over. A save during an install or an update is kept.
   Two installs at once get different names. (#142, #146, #147, #148, #149)
 - A restart policy per stack, chosen on the page; a stack it leaves down
   at boot reads as stopped. (#134)
+- `service fjordd restart` waits for the old fjordd to let go of its
+  pidfile instead of failing to start. (#159)
+- A stopped container adopted with replace stays stopped. (#154)
 - The doctor checks that crash restarts can work (fdescfs) and that
   podman's API service is not older than podman; the Shell tab explains a
   missing shell or a stale service and offers the restart. (#136, #150)
 - Install says what it downloads before Install; optional fields are
   marked. (#137, #138)
+- A busy stack's status line names the step it is on; the restart choices
+  have their words again. (#179, #180)
+- Logs show the colors an app writes them in. (#188)
+- The doctor works out host or container mode without building every
+  check. (#176)
+- Releases: the package step installs nfpm with the Go it needs, and the
+  nightly tag moves only after the upload succeeded. The UI tests read an
+  action's output from the page, wait for load rather than a quiet
+  network, and say which host they need. (#166, #181, #184, #189)
 - Folders are never a system folder, never follow a planted symlink, and
   an app's secrets are kept where its container cannot reach. (#149)
 - The sidebar is a drawer on phones; the Shell tab is readable in light

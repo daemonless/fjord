@@ -14,42 +14,29 @@ format carries nothing vendor-specific.
 > keep it on a trusted LAN, or put a reverse proxy with HTTPS in front.
 > Never forward port 3567 to the internet.
 
-## What's new in 0.3
+## What's new in 0.4
 
-- **Updates you can see into and undo.** The Update panel lists what each
-  service would get, in plain words ("New build of the same version —
-  3 packages changed"), and lets you tick which ones to update, version bumps
-  included. After an update fjord watches the new container and marks the
-  update failed if it crash-loops; **Roll back** returns to the previous image.
-  A version with no build for this host is refused before it is pulled.
-- **Networks that work.** A service gets an address of its own on your LAN,
-  by DHCP, from a pool or typed in; it keeps that address through updates,
-  restarts and reboots, and an address another stack has is refused. Each
-  service picks its **Type**: networks, host or none. **New Network** asks the
-  wire what subnet it is and refuses one that is not on it.
-- **Setup gets a host ready.** One screen, one thing at a time: an Install
-  button for what fjord can do itself, the exact commands for what it leaves
-  to you. **Adopt** takes over containers and jails you started by hand.
-- **Nothing lies.** Apply confirms the containers were really recreated; a
-  failed install or update stays on the stack page with its reason; a busy
-  stack says so. The lesson of this release: judge by the outcome, not the
-  exit code.
-- **Delete says what it removes.** App data is kept unless you tick it, and
-  **System → Left-over app data** finds folders earlier deletes left behind.
-- The compose tab explains its `${VAR}`s; stack list filters; a one-line
-  health summary; upgrades of fjord itself can be undone
-  (`/var/db/fjord/backups/`).
-
-Not in 0.3, said plainly: no authentication (0.4); AppJail stacks update as a
-whole, without rollback (0.3.5); private networks are not isolated from other
-stacks on the host (0.3.6); no Linux hosts. The full list is in
-[CHANGELOG.md](CHANGELOG.md).
+- **Linux.** fjord runs on Fedora and Debian (and Ubuntu) with rootful
+  podman. Each release has a .deb and an .rpm that start fjord and say where
+  to open it; LAN networks work there too, and Setup checks the firewall
+  and SELinux.
+- **Sign in.** fjord has an account. The first visit asks for a setup code
+  printed on the host; `fjordd passwd` resets the password.
+- **Names and HTTPS for your apps.** With the reverse proxy from the store,
+  apps get names like `radarr.apps.lan` over HTTPS, given from the page.
+  A second fjord joins the same proxy by pasting one link.
+- **A Linux app store.** 183 apps, each installed and checked on Linux
+  before it is offered.
+- **AppJail:** roll back, pin or change one service's version.
+- Apply recreates only what changed; a restart policy per stack; the
+  sidebar is a drawer on phones. The full list is in
+  [CHANGELOG.md](CHANGELOG.md).
 
 ## Install a release (FreeBSD host)
 
 ```sh
 pkg install podman sysutils/podman-compose conmon ocijail
-V=0.3.0   # or a pre-release: https://github.com/daemonless/fjord/releases
+V=0.4.0   # or a pre-release: https://github.com/daemonless/fjord/releases
 fetch -o /usr/local/sbin/fjordd https://github.com/daemonless/fjord/releases/download/v$V/fjordd-freebsd-$(uname -m)
 fetch -o /usr/local/etc/rc.d/fjordd https://github.com/daemonless/fjord/releases/download/v$V/fjordd.rc
 chmod 755 /usr/local/sbin/fjordd /usr/local/etc/rc.d/fjordd
