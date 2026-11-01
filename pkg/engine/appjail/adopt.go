@@ -9,7 +9,9 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
+	"unicode"
 
 	composepkg "github.com/daemonless/fjord/pkg/compose"
 	"github.com/daemonless/fjord/pkg/engine"
@@ -429,10 +431,18 @@ func envVarName(svc, mount string) string {
 	return clean(svc) + "_" + clean(mount)
 }
 
-// yamlScalar quotes a value unless it is plainly safe as a YAML scalar.
+// yamlScalar renders an environment value as a YAML string that loads back as the same
+// string. An environment variable is a string by definition, but an unquoted scalar is
+// typed by the reader: appjail-director is Python (PyYAML, YAML 1.1), so `true`/`false`/
+// `yes`/`no`/`on`/`off` load as booleans, `1.10` as the float 1.1, `0755` as an octal int
+// and `~` as null (which director rejects), and the jail then receives str(True) = "True",
+// "1.1" or "493". Seen live: adopting a stump jail turned STUMP_TRUST_PROXY_HEADERS='true'
+// into "True" and stump refused to start. So every literal is quoted: single quotes for
+// the common case; double quotes with escapes when the value holds a line break or a
+// control character, which single-quoted YAML would fold or the reader would reject.
 func yamlScalar(v string) string {
-	if v != "" && !strings.ContainsAny(v, ":#{}[],&*?|<>=!%@`'\" ") && !strings.HasPrefix(v, "-") {
-		return v
+	if strings.IndexFunc(v, func(r rune) bool { return r != '\t' && !unicode.IsPrint(r) }) >= 0 {
+		return strconv.Quote(v)
 	}
 	return "'" + strings.ReplaceAll(v, "'", "''") + "'"
 }
