@@ -590,6 +590,23 @@ func (s *server) handleInstall(w http.ResponseWriter, r *http.Request) {
 			composeYAML = set
 		}
 	}
+	// Bind the stack to its engine (chosen or default), honored only if it's
+	// actually available; falls back to the default otherwise.
+	eng := req.Engine
+	if _, ok := s.backend(eng); !ok {
+		eng = s.defaultEngine()
+	}
+	// The color startup banner of daemonless images (see banner.go). The
+	// value goes in the compose's .env here; a director bundle writes its
+	// own .env below (directorEnv), and a default put in res.Env now would
+	// override one the bundle carries.
+	if composeYAML, err = bannerCompose(composeYAML, res.Env); err != nil {
+		http.Error(w, "banner: "+err.Error(), 500)
+		return
+	}
+	if eng != "appjail" && res.Env[bannerVar] == "" && strings.Contains(composeYAML, "${"+bannerVar+"}") {
+		res.Env[bannerVar] = bannerDefault
+	}
 	// Persist the catalog's web-endpoint hint in the saved compose (compose on
 	// disk is the source of truth; podman-compose ignores x-* keys). Without it
 	// host-net stacks have no discoverable web link -- nothing is published.
@@ -634,12 +651,6 @@ func (s *server) handleInstall(w http.ResponseWriter, r *http.Request) {
 	if err := s.manager.Save(st); err != nil {
 		http.Error(w, err.Error(), 500)
 		return
-	}
-	// Bind the stack to its engine (chosen or default), honored only if it's
-	// actually available; falls back to the default otherwise.
-	eng := req.Engine
-	if _, ok := s.backend(eng); !ok {
-		eng = s.defaultEngine()
 	}
 	// On appjail with a director bundle, materialize it into the stack dir:
 	// appjail-director.yml + Makejail + template.conf + a director-filled .env

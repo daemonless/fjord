@@ -359,8 +359,8 @@ func buildEnv(env map[string]string) string {
 }
 
 // streamOutput pipes a command stream to the HTTP response verbatim (ANSI
-// escapes + \r intact) -- the UI renders it in xterm.js, a real terminal
-// emulator, so colors and in-place progress lines display correctly.
+// escapes intact) -- the log pane parses them itself (ui/src/ansi.ts), so
+// colors display and the rest is dropped there, not here.
 func streamOutput(w http.ResponseWriter, stream io.ReadCloser) {
 	// The backends hand back the read end of an io.Pipe fed by a goroutine.
 	// Closing it unblocks that writer if the client vanished mid-stream --

@@ -280,3 +280,9 @@ func ImageTag(image string) string {
 	}
 	return ""
 }
+
+// DaemonlessImage reports whether an image reference is one of daemonless's
+// own, by its repository.
+func DaemonlessImage(image string) bool {
+	return strings.HasPrefix(image, "ghcr.io/daemonless/")
+}
