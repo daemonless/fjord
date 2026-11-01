@@ -3,6 +3,22 @@
 Releases are tagged on GitHub; each rc is a pre-release with the pull
 requests it carries. This file is the story per release.
 
+## 0.4.1 — 2026-11-01
+
+Fixes only, for 0.4.0.
+
+- Jail name resolution works from the first boot. fjord's dnsmasq config said
+  `bind-dynamic`, which on FreeBSD binds only the interfaces there at start
+  and refuses to start when one is missing; appjail makes a network's bridge
+  when its first jail starts, so dnsmasq failed at every boot and on any host
+  whose jails were all down, and Set up's button reported "failed to start
+  dnsmasq". It now answers on the bridges as they come and go, and still
+  nothing on the LAN. (#201)
+- Adopting a jail whose environment holds a value like `true`, `1.10` or
+  `0755` keeps it a string. appjail-director read the bare value as a
+  boolean or a number, and the app refused to start on "True". Every value
+  is quoted in the director file now. (#200, jtrotsky)
+
 ## 0.4.0 — 2026-11-01
 
 Linux, a sign-in, names and HTTPS for your apps, and a Linux app store.
