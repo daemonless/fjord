@@ -1,11 +1,39 @@
 <script lang="ts">
-  import { onMount, createEventDispatcher } from 'svelte';
+  import Account from './Account.svelte';
+  import { onMount, createEventDispatcher, tick } from 'svelte';
   import Icon from './Icon.svelte';
+  import { LOCALES, currentLocale, setLocale, type Locale } from './locale';
   import Spinner from './Spinner.svelte';
   import EmptyState from './EmptyState.svelte';
   import DirPicker from './DirPicker.svelte';
   import FolderRows from './FolderRows.svelte';
   import { toast } from './toast';
+  import { names, linkProvider, unlinkProvider, renameSelf } from './names';
+  import NamesPrompt from './NamesPrompt.svelte';
+  // Names tab: this fjord's name as a proxy lists it, and a proxy on another
+  // machine linked by the link from its Connected apps page.
+  let selfName = '';
+  let selfEdited = false;
+  $: if (!selfEdited && $names.self) selfName = $names.self.name;
+  let linkText = '';
+  let linkBusy = false;
+  let linkError = '';
+  async function doLink() {
+    linkBusy = true; linkError = '';
+    try { const p = await linkProvider(linkText); linkText = ''; toast(`Linked to ${p.provider}: your apps can get names like radarr.${p.domain}`, { kind: 'success' }); }
+    catch (err: any) { linkError = err?.message || String(err); }
+    finally { linkBusy = false; }
+  }
+  async function doUnlink() {
+    try { await unlinkProvider(); toast('Unlinked. Names it gave stay on the proxy; fjord no longer changes them.'); }
+    catch (err: any) { toast(`Could not unlink: ${err?.message || err}`, { kind: 'error' }); }
+  }
+  async function saveSelf() {
+    try { await renameSelf(selfName); selfEdited = false; toast(`Proxies now list this fjord as "fjord on ${selfName}"`, { kind: 'success' }); }
+    catch (err: any) { toast(`Could not rename: ${err?.message || err}`, { kind: 'error' }); }
+  }
+  import RestartChoice from './RestartChoice.svelte';
+  import { DEFAULT_RETRIES } from './restartPolicy';
 
   type About = {
     version: string;
@@ -35,7 +63,7 @@
 
 
   // ---- engines (the first "plugin" category) ----
-  type EngineRow = { name: string; description?: string; available: boolean; enabled: boolean; default: boolean; reason?: string; warning?: string; canInstall?: boolean };
+  type EngineRow = { name: string; description?: string; available: boolean; enabled: boolean; default: boolean; reason?: string; warning?: string; canInstall?: boolean; restartPolicies?: string[]; restartOnExit?: boolean };
   let engines: EngineRow[] = [];
   let defaultEngine = '';
   let installingEngine = '';
@@ -75,11 +103,17 @@
 
   // Settings is organized into tabs; the active one lives in the URL
   // (#/settings/<tab>), owned by App: it arrives as a prop, changes go up.
-  export let tab: 'storage' | 'extensions' | 'catalogs' | 'advanced' = 'storage';
+  export let tab: 'storage' | 'extensions' | 'catalogs' | 'names' | 'advanced' | 'account' = 'storage';
+  // A linked proxy has no page here: the apps it has not named yet are
+  // offered on this tab instead.
+  let nameStacks: any[] = [];
+  $: if (tab === 'names' && $names.linked && $names.ready && !nameStacks.length)
+    fetch('/api/stacks').then((r) => (r.ok ? r.json() : [])).then((s) => (nameStacks = s || [])).catch(() => {});
   const dispatch = createEventDispatcher();
-  let activeTab: 'storage' | 'extensions' | 'catalogs' | 'advanced' = tab;
+  const locale = currentLocale();
+  let activeTab: 'storage' | 'extensions' | 'catalogs' | 'names' | 'advanced' | 'account' = tab;
   $: activeTab = tab;
-  function selectTab(t: 'storage' | 'extensions' | 'catalogs' | 'advanced') {
+  function selectTab(t: 'storage' | 'extensions' | 'catalogs' | 'names' | 'advanced' | 'account') {
     activeTab = t;
     dispatch('tab', t);
   }
@@ -241,6 +275,42 @@
     }
   }
 
+  // ---- advanced: the restart policy new installs take, per engine ----
+  type RestartDefault = { policy: string; retries: number };
+  let restartDefaults: Record<string, RestartDefault> = {};
+  let savingRestart = '';
+  $: restartEngines = engines.filter((e) => e.enabled && e.restartPolicies?.length);
+  async function loadRestart() {
+    try {
+      const r = await fetch('/api/settings/restart');
+      if (!r.ok) return;
+      const d: Record<string, { policy: string; retries?: number }> = await r.json();
+      restartDefaults = Object.fromEntries(
+        Object.entries(d).map(([eng, v]) => [eng, { policy: v.policy || 'unless-stopped', retries: v.retries || DEFAULT_RETRIES }]),
+      );
+    } catch {}
+  }
+  onMount(loadRestart);
+  async function saveRestart(engine: string) {
+    await tick(); // the bound policy and count reach here after the change event
+    const d = restartDefaults[engine];
+    savingRestart = engine;
+    try {
+      const r = await fetch('/api/settings/restart', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ engine, policy: d.policy, retries: d.policy === 'on-failure' ? d.retries : 0 }),
+      });
+      if (!r.ok) throw new Error((await r.text()).trim() || `HTTP ${r.status}`);
+      toast(`Restart for new ${engine} installs saved`, { kind: 'success' });
+    } catch (e: any) {
+      toast(e.message || 'Save failed', { kind: 'error' });
+      await loadRestart();
+    } finally {
+      savingRestart = '';
+    }
+  }
+
   // ---- folder sets (homelab provider plugin) ----
   // A folder set is a named set of host folders; the install wizard offers
   // them as "Add folder set…" on any host-path field. No roles, no auto-matching.
@@ -370,12 +440,17 @@
   $: movableCount = catalogs.filter((c) => !c.builtin).length;
 
   let defaultCatalogURL = '';
+  let defaultCatalogName = 'daemonless';
   async function loadCatalogs() {
     try {
       const res = await fetch('/api/catalogs');
       if (res.ok) catalogs = await res.json();
       const st = await fetch('/api/setup/state');
-      if (st.ok) defaultCatalogURL = (await st.json()).defaultCatalog || '';
+      if (st.ok) {
+        const j = await st.json();
+        defaultCatalogURL = j.defaultCatalog || '';
+        defaultCatalogName = j.defaultCatalogName || defaultCatalogName;
+      }
     } catch {
       // list stays stale; individual actions surface their own errors
     }
@@ -384,7 +459,7 @@
   // The default catalog is an ordinary source; once removed, one click puts it back.
   $: hasDefault = !defaultCatalogURL || catalogs.some((c: any) => (c.url || '').replace(/\/+$/, '') === defaultCatalogURL.replace(/\/+$/, ''));
   function readdDefault() {
-    newName = 'daemonless';
+    newName = defaultCatalogName;
     newURL = defaultCatalogURL;
     addCatalog();
   }
@@ -578,6 +653,18 @@
       </div>
 
 
+      <div class="flex items-center gap-4 px-4 py-3 mt-3 border border-fjord-border rounded-xl max-w-2xl">
+        <label for="fjord-locale" class="w-40 shrink-0 text-sm text-fjord-fg-muted">Language</label>
+        <select
+          id="fjord-locale"
+          value={locale}
+          on:change={(e) => setLocale(e.currentTarget.value as Locale)}
+          class="bg-fjord-inset border border-fjord-border rounded-lg px-2 py-1 text-sm text-fjord-fg-body focus:border-fjord-accent outline-none"
+        >
+          {#each LOCALES as l (l.id)}<option value={l.id}>{l.name}</option>{/each}
+        </select>
+      </div>
+
       <!-- Storage / Extensions / Catalogs / Advanced tabs -->
       <div class="flex gap-1 mt-6 mb-4 border-b border-fjord-border max-w-2xl">
         <button
@@ -599,10 +686,22 @@
             : 'border-transparent text-fjord-fg-muted hover:text-fjord-fg-body'}">Catalogs</button
         >
         <button
+          on:click={() => selectTab('names')}
+          class="px-4 py-2 text-sm font-medium -mb-px border-b-2 transition-colors {activeTab === 'names'
+            ? 'border-fjord-accent text-fjord-fg'
+            : 'border-transparent text-fjord-fg-muted hover:text-fjord-fg-body'}">Names</button
+        >
+        <button
           on:click={() => selectTab('advanced')}
           class="px-4 py-2 text-sm font-medium -mb-px border-b-2 transition-colors {activeTab === 'advanced'
             ? 'border-fjord-accent text-fjord-fg'
             : 'border-transparent text-fjord-fg-muted hover:text-fjord-fg-body'}">Advanced</button
+        >
+        <button
+          on:click={() => selectTab('account')}
+          class="px-4 py-2 text-sm font-medium -mb-px border-b-2 transition-colors {activeTab === 'account'
+            ? 'border-fjord-accent text-fjord-fg'
+            : 'border-transparent text-fjord-fg-muted hover:text-fjord-fg-body'}">Account</button
         >
       </div>
 
@@ -975,17 +1074,66 @@
             on:click={readdDefault}
             disabled={adding}
             class="mt-3 flex items-center gap-1.5 text-xs font-medium text-fjord-fg-muted hover:text-fjord-fg py-1 px-2.5 rounded-md border border-fjord-border hover:border-fjord-accent/40 transition-colors disabled:opacity-40"
-            ><Icon name="plus" size={12} /> Re-add the daemonless catalog</button
+            ><Icon name="plus" size={12} /> Re-add the {defaultCatalogName} catalog</button
           >
         {/if}
       </div>
 
       {/if}
 
+      {#if activeTab !== 'names'}
       <p class="text-xs text-fjord-fg-faint mt-6 max-w-2xl">
-        Everything else comes from the daemon's environment (<code>FJORD_*</code> variables — via rc.conf on FreeBSD
-        or the container environment). Host readiness checks live on the <b>System</b> page.
+        Everything else comes from the daemon's environment (<code>FJORD_*</code> variables — via rc.conf on FreeBSD,
+        the systemd unit on Linux, or the container environment). Host readiness checks live on the <b>System</b> page.
       </p>
+      {/if}
+    {/if}
+
+    {#if activeTab === 'names'}
+      <div class="max-w-2xl flex flex-col gap-6">
+        <div>
+          <h3 class="text-sm font-semibold text-fjord-fg-secondary mb-1">Reverse proxy</h3>
+          {#if $names.provider && !$names.linked}
+            <p class="text-xs text-fjord-fg-dim mb-3">
+              <span class="font-mono">{$names.provider}</span>, installed here, gives your apps names{#if $names.domain} like <span class="font-mono">radarr.{$names.domain}</span>{/if}.
+              {#if $names.error}<span class="text-fjord-warning">{$names.error}</span>{:else if $names.ready}Nothing to set up here.{:else}Not ready yet; finish its setup on its own page.{/if}
+            </p>
+          {:else if $names.linked}
+            <div class="bg-fjord-card border border-fjord-border rounded-lg p-4 flex items-center justify-between gap-3 flex-wrap">
+              <div class="min-w-0">
+                <div class="text-sm text-fjord-fg">Linked to <span class="font-mono">{$names.provider}</span>{#if $names.domain}: names like <span class="font-mono">radarr.{$names.domain}</span>{/if}</div>
+                <div class="text-xs text-fjord-fg-dim mt-0.5">
+                  {#if $names.error}<span class="text-fjord-warning">{$names.error}</span>{:else if $names.ready}Working. Apps get names from the ▾ beside Open, or at install.{:else}Not ready yet; finish its setup on its own page.{/if}
+                </div>
+              </div>
+              <button on:click={doUnlink} class="shrink-0 px-3 py-1.5 rounded-md text-sm font-medium bg-fjord-card border border-fjord-border text-fjord-fg-secondary hover:text-fjord-danger hover:border-fjord-danger/40">Unlink</button>
+            </div>
+            {#if $names.ready && nameStacks.length}
+              <div class="mt-3"><NamesPrompt stack={{ name: $names.provider || '' }} stacks={nameStacks} /></div>
+            {/if}
+          {:else}
+            <p class="text-xs text-fjord-fg-dim mb-3">
+              A reverse proxy gives your apps names and HTTPS, like <span class="font-mono">radarr.apps.lan</span>. Install one from the store and it links by itself. One on another machine: open its Settings, Connected apps, "Connect a fjord…", and paste the link here.
+            </p>
+            <form on:submit|preventDefault={doLink} class="flex gap-2 flex-wrap">
+              <input bind:value={linkText} placeholder="https://proxy.apps.lan/link#code=XXXX-XXXX" spellcheck="false" autocomplete="off"
+                class="flex-1 basis-72 min-w-0 px-3 py-1.5 rounded-md bg-fjord-inset border border-fjord-border text-sm font-mono text-fjord-fg-body focus:outline-none focus:border-fjord-accent" />
+              <button disabled={linkBusy || !linkText.trim()} class="px-4 py-1.5 rounded-md text-sm font-medium text-white bg-fjord-accent hover:bg-fjord-accent-hover disabled:opacity-40">{linkBusy ? 'Linking…' : 'Link'}</button>
+            </form>
+            {#if linkError}<p class="text-xs text-fjord-warning mt-2">{linkError}</p>{/if}
+          {/if}
+        </div>
+        <div>
+          <h3 class="text-sm font-semibold text-fjord-fg-secondary mb-1">This fjord</h3>
+          <p class="text-xs text-fjord-fg-dim mb-3">How a proxy lists it when more than one fjord is connected. Its id{#if $names.self}&nbsp;(<span class="font-mono">{$names.self.id}</span>){/if} never changes.</p>
+          <form on:submit|preventDefault={saveSelf} class="flex gap-2 flex-wrap items-center">
+            <span class="text-sm text-fjord-fg-secondary">fjord on</span>
+            <input bind:value={selfName} on:input={() => (selfEdited = true)} spellcheck="false" autocomplete="off" maxlength="40"
+              class="basis-48 min-w-0 px-3 py-1.5 rounded-md bg-fjord-inset border border-fjord-border text-sm text-fjord-fg-body focus:outline-none focus:border-fjord-accent" />
+            <button disabled={!selfEdited || !selfName.trim()} class="px-4 py-1.5 rounded-md text-sm font-medium bg-fjord-card border border-fjord-border text-fjord-fg-secondary hover:text-fjord-fg disabled:opacity-40">Save</button>
+          </form>
+        </div>
+      </div>
     {/if}
 
     {#if activeTab === 'advanced'}
@@ -1024,6 +1172,32 @@
           {/each}
         </div>
 
+        {#if restartEngines.length}
+          <h3 class="text-sm font-semibold text-fjord-fg-secondary mt-8 mb-1">Restart for new installs</h3>
+          <p class="text-xs text-fjord-fg-dim mb-3">
+            What a newly installed app does when it stops, and at boot, per engine: each offers what it can do. The
+            install wizard starts from this under Options, and each stack's own setting is in its page's header.
+          </p>
+          <div class="space-y-4">
+            {#each restartEngines as e (e.name)}
+              {#if restartDefaults[e.name]}
+                <div class="flex flex-col gap-1">
+                  <label class="text-sm font-medium text-fjord-fg" for="default-restart-{e.name}">{e.name}</label>
+                  <RestartChoice
+                    id="default-restart-{e.name}"
+                    policies={e.restartPolicies}
+                    onExit={!!e.restartOnExit}
+                    bind:policy={restartDefaults[e.name].policy}
+                    bind:retries={restartDefaults[e.name].retries}
+                    disabled={savingRestart === e.name}
+                    on:change={() => saveRestart(e.name)}
+                  />
+                </div>
+              {/if}
+            {/each}
+          </div>
+        {/if}
+
         <h3 class="text-sm font-semibold text-fjord-fg-secondary mt-8 mb-1">First-run setup</h3>
         <p class="text-xs text-fjord-fg-dim mb-3">Storage, Homelab folder presets, catalog and the quick guide, as shown on first launch. Nothing is reset; it only walks through the same settings again.</p>
         <button
@@ -1036,6 +1210,10 @@
           class="px-3 py-1.5 rounded-lg text-sm font-medium bg-fjord-border hover:bg-fjord-accent hover:text-white transition-colors">Run setup again</button
         >
       </div>
+    {/if}
+
+    {#if activeTab === 'account'}
+      <Account />
     {/if}
   </div>
 </div>

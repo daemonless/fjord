@@ -1,7 +1,9 @@
 // One app on several networks, through fjord's pages: picked in the install
 // wizard, and added afterwards on the Services tab. run-multi.sh checks from
 // the host that every interface got an address and answers.
+// needs: freebsd appjail
 const { chromium } = require('playwright-core');
+const { signedIn, openPage } = require('./session');
 const BASE = process.env.FJORD || 'http://127.0.0.1:3567';
 
 const results = [];
@@ -24,7 +26,7 @@ async function stackUp(page, name, secs = 300) {
 }
 
 async function createNetwork(page, name, bridge) {
-  await page.goto(BASE + '/#/networks', { waitUntil: 'networkidle' });
+  await openPage(page, BASE + '/#/networks');
   await page.getByRole('button', { name: /New network/i }).first().click();
   await page.getByRole('button', { name: 'epair', exact: true }).click();
   await page.getByRole('button', { name: 'both', exact: true }).click();
@@ -49,12 +51,12 @@ async function createNetwork(page, name, bridge) {
 const rowPickers = (page) => page.locator('table select').filter({ has: page.locator('option[value="bridge"]') });
 
 async function install(page, name, engine, nets) {
-  await page.goto(BASE + '/', { waitUntil: 'networkidle' });
+  await openPage(page, BASE + '/');
   await page.getByText('App Store', { exact: true }).first().click();
   await page.getByPlaceholder(/Search apps/).fill('openspeedtest');
   await page.getByRole('button', { name: /^Install/ }).first().click();
   await page.getByRole('button', { name: 'Install', exact: true }).waitFor();
-  await page.getByLabel('Name').fill(name);
+  await page.getByLabel('Name', { exact: true }).fill(name);
   if (!(await rowPickers(page).count()) || !(await rowPickers(page).first().isVisible())) {
     await page.getByRole('button', { name: /^Options/ }).first().click();
     await sleep(500);
@@ -92,7 +94,7 @@ async function install(page, name, engine, nets) {
 
 // Services tab: add a second network to a running stack and Save.
 async function addOnServices(page, name, net) {
-  await page.goto(BASE + '/', { waitUntil: 'networkidle' });
+  await openPage(page, BASE + '/');
   await page.getByText(name, { exact: true }).first().click();
   await sleep(2000);
   await page.getByRole('button', { name: 'Services', exact: true }).first().click().catch(() => {});
@@ -110,9 +112,10 @@ async function addOnServices(page, name, net) {
   await shot(page, `${name}-services-before-save`);
   await page.getByRole('button', { name: 'Save', exact: true }).first().click();
   await sleep(3000);
-  // Save may ask to restart the stack; say yes.
-  const restart = page.getByRole('button', { name: /Restart|Save and restart|Apply/ });
-  if (await restart.count()) { await restart.first().click(); }
+  // Save leaves the change to apply; take it. By its whole name: the
+  // restart policy's chip ("Restart unless stopped") matched /Restart/.
+  const apply = page.getByRole('button', { name: 'Apply Changes', exact: true });
+  if (await apply.count()) { await apply.first().click(); }
   await sleep(5000);
   const d = await stackUp(page, name);
   await shot(page, `${name}-services-after-save`);
@@ -122,7 +125,7 @@ async function addOnServices(page, name, net) {
 
 (async () => {
   const browser = await chromium.launch({ args: ['--no-sandbox', '--disable-setuid-sandbox'] });
-  const page = await (await browser.newContext({ viewport: { width: 1400, height: 1100 } })).newPage();
+  const page = await (await browser.newContext(signedIn({ viewport: { width: 1400, height: 1100 } }))).newPage();
   page.setDefaultTimeout(20000);
   const errs = [];
   page.on('pageerror', (e) => errs.push(e.message));

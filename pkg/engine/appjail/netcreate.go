@@ -14,7 +14,7 @@ import (
 	"github.com/daemonless/fjord/pkg/lannet"
 )
 
-// networkKinds is appjail's contribution to Capabilities.
+// NetworkKinds: what appjail can create.
 //
 // Both kinds. "nat" is appjail's own: a private network it creates and owns,
 // gateway and all, which is safe precisely because the segment is new.
@@ -26,7 +26,7 @@ import (
 // feature to check.
 var netNameRe = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,62}$`)
 
-func networkKinds() []engine.NetworkKind {
+func (b *Backend) NetworkKinds() []engine.NetworkKind {
 	return []engine.NetworkKind{lannet.Kind(true), {
 		ID:                  "nat",
 		Label:               "bridge",
@@ -90,6 +90,7 @@ func (b *Backend) CreateNetwork(ctx context.Context, spec engine.NetworkSpec) (e
 	if out, err := exec.CommandContext(ctx, "appjail", args...).CombinedOutput(); err != nil {
 		return engine.Network{}, fmt.Errorf("appjail network add: %w: %s", err, strings.TrimSpace(string(out)))
 	}
+	refreshDNS(ctx)
 	// Read it back: appjail derives the gateway, so the spec does not know it.
 	for _, n := range listVirtualnets(ctx) {
 		if n.Name == spec.Name {
@@ -144,6 +145,7 @@ func (b *Backend) RemoveNetwork(ctx context.Context, name string, force bool) er
 	args = append(args, name)
 	out, err := exec.CommandContext(ctx, "appjail", args...).CombinedOutput()
 	if err == nil {
+		refreshDNS(ctx)
 		return nil
 	}
 	msg := strings.TrimSpace(string(out))

@@ -10,11 +10,11 @@ main() {
   on 'podman untag ghcr.io/daemonless/openspeedtest:latest >/dev/null 2>&1; true'
   # Fire the update from here, in the background: the host may have no curl
   # (netlab lost it with the packages), and a failed POST there was silent.
-  ( curl -s -o /dev/null --max-time 900 -X POST -H "Origin: $FJORD" "$FJORD/api/stacks/t-out/update" & )
+  ( curl -s -b "$FJORD_COOKIE" -o /dev/null --max-time 900 -X POST -H "Origin: $FJORD" "$FJORD/api/stacks/t-out/update" & )
   run_js output-elsewhere -e STEP=watch
 }
 
 after() {
-  for _ in $(seq 1 40); do curl -s --max-time 10 "$FJORD/api/stacks/t-out" | grep -q '"busy"' || break; sleep 5; done
+  for _ in $(seq 1 40); do curl -s --max-time 10 -b "$FJORD_COOKIE" "$FJORD/api/stacks/t-out" | grep -q '"busy"' || break; sleep 5; done
   del_stack t-out
 }

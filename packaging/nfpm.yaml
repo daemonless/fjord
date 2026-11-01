@@ -1,0 +1,54 @@
+# fjord as a .deb and an .rpm (nfpm, https://nfpm.goreleaser.com). Built by
+# the release job for each arch:
+#   VERSION=0.4.0 ARCH=amd64 nfpm package -f packaging/nfpm.yaml -p deb -t .
+# The package's binary is /usr/sbin/fjordd and its unit is in
+# /usr/lib/systemd/system; install-linux.sh keeps /usr/local, and a package
+# installed over it moves that copy aside (packaging/linux/postinstall.sh).
+name: fjord
+arch: ${ARCH}
+platform: linux
+# 0.4.0-rc1 is packaged as 0.4.0~rc1: older than 0.4.0 to apt and dnf.
+version: ${VERSION}
+version_schema: semver
+section: admin
+priority: optional
+maintainer: Michael Johnson <buhnux@gmail.com>
+description: |-
+  Manage containers with a web page: install apps from a catalog, update,
+  roll back and give them names. fjord drives rootful podman; open
+  http://<this host>:3567 after installing.
+vendor: daemonless
+homepage: https://github.com/daemonless/fjord
+license: BSD-2-Clause
+
+depends:
+  - podman
+  - podman-compose
+
+contents:
+  - src: ./fjordd   # fjordd-linux-<arch>, copied by build-packages.sh
+    dst: /usr/sbin/fjordd
+    file_info:
+      mode: 0755
+  - src: ./fjordd.pkg.service
+    dst: /usr/lib/systemd/system/fjordd.service
+    file_info:
+      mode: 0644
+  # An example, not /etc/default/fjordd itself: a package owning that file
+  # would stop apt with a question on hosts that already have one.
+  - src: ./packaging/linux/fjordd.default
+    dst: /usr/share/doc/fjord/fjordd.default.example
+    file_info:
+      mode: 0644
+
+scripts:
+  postinstall: ./packaging/linux/postinstall.sh
+overrides:
+  deb:
+    scripts:
+      preremove: ./packaging/linux/prerm.deb.sh
+      postremove: ./packaging/linux/postrm.sh
+  rpm:
+    scripts:
+      preremove: ./packaging/linux/preun.rpm.sh
+      postremove: ./packaging/linux/postrm.sh

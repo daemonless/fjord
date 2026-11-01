@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	composepkg "github.com/daemonless/fjord/pkg/compose"
+	"github.com/daemonless/fjord/pkg/stack"
 )
 
 // zensical's shape: one service, no `from:` of its own, so its image is the
@@ -73,9 +74,20 @@ func TestComposeImageTag(t *testing.T) {
 		"services:\n  a:\n    image: ghcr.io/x/y:1.2\n  b:\n    image: r:3\n": "",
 	}
 	for compose, want := range cases {
-		if got := composeImageTag(compose); got != want {
+		if got := composeImageTag(compose, ""); got != want {
 			t.Errorf("composeImageTag(%q) = %q, want %q", compose, got, want)
 		}
+	}
+}
+
+// A choice's database is a second image; the tag is the one of the image the
+// Makejail builds from. Missed, the jail ran :pkg under a compose saying
+// :latest, and Update never cleared.
+func TestComposeImageTagMakejailImage(t *testing.T) {
+	compose := "services:\n  vikunja:\n    image: ghcr.io/daemonless/vikunja:latest\n  mariadb:\n    image: ghcr.io/daemonless/mariadb:11.4\n"
+	mj := "ARG tag=pkg\n\nOPTION container=boot\nOPTION from=ghcr.io/daemonless/vikunja:${tag}\n"
+	if got := composeImageTag(compose, mj); got != "latest" {
+		t.Fatalf("got %q", got)
 	}
 }
 
@@ -217,5 +229,128 @@ services:
 	}
 	if strings.Count(out, "virtualnet:") != 1 || !strings.Contains(out, "bridge: 'epair:eb_db bridge:vlan6'") {
 		t.Errorf("a service on its own network changed:\n%s", out)
+	}
+}
+
+const pinDirector = `services:
+  vikunja:
+    name: vikunja_vikunja
+    options:
+      - container: 'args:--pull'
+  vikunja-mariadb:
+    name: vikunja_mariadb
+    options:
+      - from: ghcr.io/daemonless/mariadb:11.4
+      - template: !ENV '${PWD}/template.conf'
+`
+
+const pinDigest = "sha256:64a5270f0e2d8e0b1d3c4f8a7b6e5d4c3b2a1908f7e6d5c4b3a291807f6e5d4c"
+
+// A pin reaches the jail: the Makejail service through its tag argument,
+// digest and all, a sidecar through its own from:. Nothing else moves.
+func TestSetDirectorImage(t *testing.T) {
+	out, err := setDirectorImage(pinDirector, "vikunja", "ghcr.io/daemonless/vikunja:latest@"+pinDigest, "ghcr.io/daemonless/vikunja")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "- tag: 'latest@"+pinDigest+"'") {
+		t.Fatalf("tag argument not pinned:\n%s", out)
+	}
+	out, err = setDirectorImage(out, "vikunja-mariadb", "ghcr.io/daemonless/mariadb:11.4@"+pinDigest, "ghcr.io/daemonless/vikunja")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "from: ghcr.io/daemonless/mariadb:11.4@"+pinDigest) {
+		t.Fatalf("from: not pinned:\n%s", out)
+	}
+	for _, keep := range []string{"args:--pull", "!ENV '${PWD}/template.conf'", "vikunja_mariadb"} {
+		if !strings.Contains(out, keep) {
+			t.Errorf("lost %q:\n%s", keep, out)
+		}
+	}
+	// The Makejail builds one repository; another cannot be said there.
+	if _, err := setDirectorImage(pinDirector, "vikunja", "docker.io/other/thing:1", "ghcr.io/daemonless/vikunja"); err == nil {
+		t.Fatal("an image of another repository was written to the tag argument")
+	}
+	if _, err := setDirectorImage(pinDirector, "nope", "x:1", ""); err == nil {
+		t.Fatal("a service the director lacks was not refused")
+	}
+}
+
+func TestTagRef(t *testing.T) {
+	for in, want := range map[string]string{
+		"ghcr.io/daemonless/app:latest":           "latest",
+		"ghcr.io/daemonless/app:pkg@" + pinDigest: "pkg@" + pinDigest,
+		"ghcr.io/daemonless/app@" + pinDigest:     "latest@" + pinDigest,
+		"localhost:5000/app:2.1":                  "2.1",
+	} {
+		if got := tagRef(in); got != want {
+			t.Errorf("%s: got %q, want %q", in, got, want)
+		}
+	}
+}
+
+// Rollback and Version... write the compose; the director follows for the
+// services named, expanding the compose's variables, and leaves the rest.
+func TestDirectorFollowsCompose(t *testing.T) {
+	st := &stack.Stack{
+		Director: pinDirector,
+		Makejail: "OPTION from=ghcr.io/daemonless/vikunja:${tag}\n",
+		Compose: "services:\n  vikunja:\n    image: ghcr.io/daemonless/vikunja:${VIKUNJA_TAG:-latest}@" + pinDigest +
+			"\n  vikunja-mariadb:\n    image: ghcr.io/daemonless/mariadb:11.8\n",
+		Env: "VIKUNJA_TAG=pkg\n",
+	}
+	if err := directorFollowsCompose(st, []string{"vikunja"}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(st.Director, "- tag: 'pkg@"+pinDigest+"'") {
+		t.Fatalf("vikunja not pinned from the compose:\n%s", st.Director)
+	}
+	if !strings.Contains(st.Director, "from: ghcr.io/daemonless/mariadb:11.4") {
+		t.Fatalf("a service not named was changed:\n%s", st.Director)
+	}
+	if err := directorFollowsCompose(st, nil); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(st.Director, "from: ghcr.io/daemonless/mariadb:11.8") {
+		t.Fatalf("every service follows when none is named:\n%s", st.Director)
+	}
+	// A podman stack has no director: nothing to do.
+	if err := directorFollowsCompose(&stack.Stack{Compose: st.Compose}, nil); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A director project with no compose (made from a director file): rollback
+// and unpin write the director itself.
+func TestSetServiceImageDirectorOnly(t *testing.T) {
+	st := &stack.Stack{
+		Director: pinDirector,
+		Makejail: "ARG tag=2.0.5\nOPTION from=ghcr.io/daemonless/vikunja:${tag}\n",
+	}
+	if got := serviceImage(st, "vikunja"); got != "ghcr.io/daemonless/vikunja:2.0.5" {
+		t.Fatalf("vikunja runs %q, want the Makejail's default tag", got)
+	}
+	if err := setServiceImage(st, "vikunja", "ghcr.io/daemonless/vikunja:2.0.5@"+pinDigest); err != nil {
+		t.Fatal(err)
+	}
+	if err := setServiceImage(st, "vikunja-mariadb", "ghcr.io/daemonless/mariadb:11.4@"+pinDigest); err != nil {
+		t.Fatal(err)
+	}
+	if got := serviceImage(st, "vikunja"); got != "ghcr.io/daemonless/vikunja:2.0.5@"+pinDigest {
+		t.Fatalf("vikunja now %q", got)
+	}
+	if got := serviceImage(st, "vikunja-mariadb"); got != "ghcr.io/daemonless/mariadb:11.4@"+pinDigest {
+		t.Fatalf("mariadb now %q", got)
+	}
+	// Unpinning puts the tag back without the digest.
+	if err := setServiceImage(st, "vikunja", withoutDigest(serviceImage(st, "vikunja"))); err != nil {
+		t.Fatal(err)
+	}
+	if got := serviceImage(st, "vikunja"); got != "ghcr.io/daemonless/vikunja:2.0.5" {
+		t.Fatalf("after unpin vikunja is %q", got)
+	}
+	if st.Compose != "" {
+		t.Fatalf("a compose appeared: %q", st.Compose)
 	}
 }

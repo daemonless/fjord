@@ -1,20 +1,22 @@
 // A stack's private network goes when the stack is deleted, through the pages.
+// needs: freebsd
 const { chromium } = require('playwright-core');
+const { signedIn, openPage } = require('./session');
 const BASE = 'http://127.0.0.1:3567';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const note = (id, ok, msg) => console.log(`${ok ? 'PASS' : 'FAIL'} ${id}: ${msg}`);
 (async () => {
   const b = await chromium.launch({ args: ['--no-sandbox'] });
-  const page = await (await b.newContext({ viewport: { width: 1400, height: 1100 } })).newPage();
+  const page = await (await b.newContext(signedIn({ viewport: { width: 1400, height: 1100 } }))).newPage();
   page.setDefaultTimeout(20000);
   const nets = async () => (await (await page.request.get(BASE + '/api/networks')).json()).map((n) => n.name);
   try {
-    await page.goto(BASE + '/', { waitUntil: 'networkidle' });
+    await openPage(page, BASE + '/');
     await page.getByText('App Store', { exact: true }).first().click();
     await page.getByPlaceholder(/Search apps/).fill('openspeedtest');
     await page.getByRole('button', { name: /^Install/ }).first().click();
     await page.getByRole('button', { name: 'Install', exact: true }).waitFor();
-    await page.getByLabel('Name').fill('t-pd');
+    await page.getByLabel('Name', { exact: true }).fill('t-pd');
     if (!(await page.locator('#type-openspeedtest').isVisible().catch(() => false))) await page.getByRole('button', { name: /^Options/ }).first().click();
     await page.locator('#WEB_PORT').fill('3107');
     await page.locator('table select').first().selectOption('bridge');
@@ -29,7 +31,7 @@ const note = (id, ok, msg) => console.log(`${ok ? 'PASS' : 'FAIL'} ${id}: ${msg}
     }
     const before = await nets();
     note('install made t-pd_priv', before.includes('t-pd_priv'), before.filter((n) => n.startsWith('t-pd')).join(', ') || 'none');
-    await page.goto(BASE + '/#/stacks/t-pd', { waitUntil: 'networkidle' });
+    await openPage(page, BASE + '/#/stacks/t-pd');
     await sleep(1500);
     await page.getByTitle('More Actions').click();
     await page.getByRole('button', { name: /Delete…/ }).click();

@@ -21,14 +21,23 @@ import (
 // closures over main(). Handlers stay runtime-agnostic: everything they know
 // about the container runtime comes through engine.Backend.
 type server struct {
+	// syncing holds the stacks whose names are being re-pointed (syncTargets).
+	syncMu  sync.Mutex
+	syncing map[string]bool
 	// platformsFn answers what a tag is built for; nil = the registry.
 	platformsFn func(ctx context.Context, image, tag string) ([]string, error)
 	manager     *stack.Manager
+	pending     pendingMarks
 	// The engine registry is swapped whole by rebuildBackends (an Extensions
 	// toggle) while other requests read it; mu makes that a clean handoff.
-	mu         sync.RWMutex
-	backends   map[string]engine.Backend // available runtimes, keyed by engine name
-	defEngine  string                    // default engine for new installs
+	mu       sync.RWMutex
+	backends map[string]engine.Backend // available runtimes, keyed by engine name
+	// What this fjord last told a names provider about itself (sayHello),
+	// and the address the browser last reached fjord on, for that.
+	helloMu    sync.Mutex
+	hello      string
+	origin     string
+	defEngine  string // default engine for new installs
 	cat        *catalog.Cache
 	fjordRoot  string       // parent of the stacks dir; provisioned volumes live here
 	stacksDir  string       // reported by /api/about
@@ -214,8 +223,12 @@ func (s *server) routes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/registry/rolling", s.handleRegistryRolling)
 	mux.HandleFunc("/api/registry/platforms", s.handleRegistryPlatforms)
 	mux.HandleFunc("/api/compose/mounts", s.handleComposeMounts)
+	mux.HandleFunc("/api/mount-options", s.handleMountOptions)
+	mux.HandleFunc("/api/compose/pass-env", s.handleComposePassEnv)
+	mux.HandleFunc("/api/ports/free", s.handleFreePorts)
 	mux.HandleFunc("/api/settings/storage", s.handleStorageSettings)
 	mux.HandleFunc("/api/settings/wizard", s.handleWizardSettings)
+	mux.HandleFunc("/api/settings/restart", s.handleRestartSettings)
 	mux.HandleFunc("/api/settings/network", s.handleDefaultNetwork)
 	mux.HandleFunc("/api/settings/catalog-refresh", s.handleCatalogRefreshSettings)
 	mux.HandleFunc("/api/setup/state", s.handleSetupState)
@@ -237,7 +250,9 @@ func (s *server) routes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/volumes/smb-credentials", s.handleSMBCredentials)
 	mux.HandleFunc("/api/volumes/", s.handleVolumeDelete)
 	mux.HandleFunc("/api/apps/install", s.handleInstall)
+	mux.HandleFunc("/api/apps/size", s.handleInstallSize)
 	mux.HandleFunc("/api/adopt", s.handleAdopt)
+	mux.HandleFunc("/api/adopt/names", s.handleAdoptable)
 	mux.HandleFunc("/api/stacks", s.handleStacksList)
 	mux.HandleFunc("/api/stacks/reorder", s.handleReorder) // exact match beats the subtree below
 	mux.HandleFunc("/api/stacks/", s.handleStackRoutes)
@@ -247,6 +262,10 @@ func (s *server) routes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/engine/toggle", s.handleEngineToggle)
 	mux.HandleFunc("/api/setup", s.handleSetup)
 	mux.HandleFunc("/api/about", s.handleAbout)
+	mux.HandleFunc("/api/names", s.handleNames)
+	mux.HandleFunc("/api/names/link", s.handleNamesLink)
+	mux.HandleFunc("/api/names/self", s.handleNamesSelf)
+	mux.HandleFunc("/api/names/", s.handleName)
 	mux.HandleFunc("/api/events", s.handleEvents)
 	mux.HandleFunc("/api/browse", s.handleBrowse)
 	mux.HandleFunc("/api/catalogs", s.handleCatalogs)
@@ -305,6 +324,17 @@ type stackWithStatus struct {
 	// a mode. Putting it on one does not throw the addresses away, the same
 	// way it does not throw the published ports away.
 	StashedNetworks []compose.Attachment `json:"stashedNetworks,omitempty"`
+	// Restart is the stack's restart policy, and whether its engine takes one
+	// from fjord.
+	Restart restartView `json:"restart"`
+}
+
+// restartView is a stack's restart policy for the stack page, with what its
+// engine offers.
+type restartView struct {
+	compose.StackRestart
+	Policies []string `json:"policies"`
+	OnExit   bool     `json:"onExit"`
 }
 
 // buildEnv renders resolved variables into .env lines, sorted for determinism.
@@ -329,8 +359,8 @@ func buildEnv(env map[string]string) string {
 }
 
 // streamOutput pipes a command stream to the HTTP response verbatim (ANSI
-// escapes + \r intact) -- the UI renders it in xterm.js, a real terminal
-// emulator, so colors and in-place progress lines display correctly.
+// escapes intact) -- the log pane parses them itself (ui/src/ansi.ts), so
+// colors display and the rest is dropped there, not here.
 func streamOutput(w http.ResponseWriter, stream io.ReadCloser) {
 	// The backends hand back the read end of an io.Pipe fed by a goroutine.
 	// Closing it unblocks that writer if the client vanished mid-stream --

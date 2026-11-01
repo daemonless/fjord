@@ -55,7 +55,36 @@ func (b *Backend) Up(ctx context.Context, s *stack.Stack) (io.ReadCloser, error)
 	pr, pw := io.Pipe()
 	go func() {
 		defer pw.Close()
-		b.bringUp(ctx, pw, s, false, nil)
+		b.bringUp(ctx, pw, s, recreateChanged, nil)
+	}()
+	return pr, nil
+}
+
+// installWindow is how long the services of a fresh install are watched. It
+// is longer than an update's: on first boot an app may restart under s6
+// while its database initialises, and is judged only at the end, with no
+// grace, so it has to have had the time.
+var installWindow = 60 * time.Second
+
+// UpWatched is Up for a fresh install: bring the stack up, then watch every
+// service as an update does. A crash loop at install used to raise nothing --
+// the bring-up had succeeded -- and the stack sat there failing with no
+// banner. Not watched when the bring-up itself already failed.
+func (b *Backend) UpWatched(ctx context.Context, s *stack.Stack) (io.ReadCloser, error) {
+	pr, pw := io.Pipe()
+	go func() {
+		defer pw.Close()
+		seen := &lastBytes{}
+		up, upw := io.Pipe()
+		go func() {
+			defer upw.Close()
+			b.bringUp(ctx, upw, s, recreateChanged, nil)
+		}()
+		io.Copy(io.MultiWriter(pw, seen), up)
+		if strings.Contains(seen.String(), "[error]") {
+			return
+		}
+		b.watchHealthy(ctx, pw, s, nil, installWindow, "install")
 	}()
 	return pr, nil
 }
@@ -71,19 +100,21 @@ func (b *Backend) Up(ctx context.Context, s *stack.Stack) (io.ReadCloser, error)
 // netns anyway.
 // only limits it to those services (empty = the whole stack): only they are
 // recreated, force-removed on a refused recreate, and started.
-func (b *Backend) bringUp(ctx context.Context, pw *io.PipeWriter, s *stack.Stack, forceRecreate bool, only []string) {
+func (b *Backend) bringUp(ctx context.Context, pw *io.PipeWriter, s *stack.Stack, mode recreate, only []string) {
 	b.removeOrphanStorage(ctx, pw, s.Name)
 	b.releaseOrphanAddresses(ctx, pw, s)
 	// What compose up would pull, pulled first, so the images can be checked
 	// before anything is torn down or created: podman pulls a wrong-arch
 	// image with one WARNING and makes a container that cannot run. On a
 	// recreate the old container would already be gone by then.
-	b.pullMissing(ctx, pw, s, only)
+	if err := b.pullMissing(ctx, pw, s, only); err != nil {
+		return // said why: an image that cannot fit
+	}
 	if wrong := b.wrongPlatform(ctx, s, only); len(wrong) > 0 {
 		fmt.Fprintf(pw, "\n%s\n[error] not started: pick a version built for %s\n", strings.Join(wrong, "\n"), hostPlatform())
 		return
 	}
-	args := upArgs(forceRecreate, only)
+	args := upArgs(mode, only)
 	started := time.Now()
 	// A copy of what compose says, to explain a failure its own words don't.
 	seen := &lastBytes{}
@@ -102,7 +133,7 @@ func (b *Backend) bringUp(ctx context.Context, pw *io.PipeWriter, s *stack.Stack
 	// "active exec sessions ... name already in use", starts the old container
 	// again and exits 0. So the retry is decided by the containers, not the
 	// exit code -- any that predate this recreate were not replaced.
-	if forceRecreate {
+	if mode == recreateAll {
 		stale := b.notRecreated(ctx, s, only, started)
 		if err != nil || len(stale) > 0 {
 			// The usual reason a teardown is refused is a lingering exec
@@ -126,8 +157,8 @@ func (b *Backend) bringUp(ctx context.Context, pw *io.PipeWriter, s *stack.Stack
 	if b.explainNoDHCP(ctx, pw, seen.String()) {
 		return // `podman start` would fail the same way
 	}
-	if err != nil && forceRecreate {
-		fmt.Fprintf(pw, "\n[error] recreate failed, the stack still runs its previous image: %v\n", err)
+	if err != nil && mode == recreateAll {
+		fmt.Fprintf(pw, "\n[error] recreate failed, the stack still runs its previous image: %s\n", commandError(seen.String(), err))
 		return
 	}
 	cs, err := b.listStackContainers(ctx, s.Name)
@@ -140,14 +171,31 @@ func (b *Backend) bringUp(ctx context.Context, pw *io.PipeWriter, s *stack.Stack
 	}
 	names := containerNames(ofServices(cs, only))
 	if len(names) == 0 {
-		fmt.Fprintf(pw, "\n[error] compose created no containers to start\n")
+		if why := pullError(seen.String()); why != "" {
+			fmt.Fprintf(pw, "\n[error] %s\n", why)
+		} else {
+			fmt.Fprintf(pw, "\n[error] compose created no containers to start\n")
+		}
 		return
 	}
 	seen.reset()
 	if err := b.runStreaming(ctx, out, s.Dir, "podman", append([]string{"start"}, names...)...); err != nil {
 		if !b.explainNoDHCP(ctx, pw, seen.String()) {
-			fmt.Fprintf(pw, "\n[error] start: %v\n", err)
+			fmt.Fprintf(pw, "\n[error] start: %s\n", commandError(seen.String(), err))
+			// podman's reason is often a symptom: an app that exits at once
+			// (cloudflared with a wrong token) is restarted before its address
+			// is freed, and start reports a duplicate CNI allocation. The
+			// app's own last words are the cause.
+			b.lastLogs(ctx, pw, s.Dir, names)
 		}
+	}
+}
+
+// lastLogs prints the last lines each container logged.
+func (b *Backend) lastLogs(ctx context.Context, w io.Writer, dir string, names []string) {
+	for _, n := range names {
+		fmt.Fprintf(w, "\n%s's last log lines:\n", n)
+		b.runStreaming(ctx, w, dir, "podman", "logs", "--tail", "15", n)
 	}
 }
 
@@ -328,11 +376,12 @@ func (b *Backend) Restart(ctx context.Context, s *stack.Stack) (io.ReadCloser, e
 		// stop, then the same create-then-start as Up: `podman compose start`
 		// alone can leave a container in "created" on FreeBSD (seen with
 		// sonarr), and bringUp's explicit `podman start` catches that.
-		if err := b.runStreaming(ctx, pw, s.Dir, "podman", "compose", "stop"); err != nil {
-			fmt.Fprintf(pw, "\n[error] stop: %v\n", err)
+		seen := &lastBytes{}
+		if err := b.runStreaming(ctx, io.MultiWriter(pw, seen), s.Dir, "podman", "compose", "stop"); err != nil {
+			fmt.Fprintf(pw, "\n[error] stop: %s\n", commandError(seen.String(), err))
 			return
 		}
-		b.bringUp(ctx, pw, s, false, nil)
+		b.bringUp(ctx, pw, s, recreateChanged, nil)
 	}()
 	return pr, nil
 }
@@ -356,14 +405,21 @@ func (b *Backend) Update(ctx context.Context, s *stack.Stack, services []string)
 	if len(services) > 0 {
 		recreate = composepkg.WithDependents(s.Compose, services)
 	}
+	// Asked before anything changes: a stack stopped on purpose stays down.
+	// Not one that crashed or failed to install: nothing runs there either,
+	// and the update is what fixes it (outcome test: Change Version left a
+	// failed install stopped).
+	stopped := s.LeftStopped() && b.notRunning(ctx, s, recreate)
 	pr, pw := io.Pipe()
 	go func() {
 		defer pw.Close()
-		if more := extra(recreate, services); len(more) > 0 {
+		if more := extra(recreate, services); len(more) > 0 && !stopped {
 			fmt.Fprintf(pw, "[fjord] also recreating %s: it depends on %s\n", strings.Join(more, ", "), strings.Join(services, ", "))
 		}
-		if err := b.runNoticed(ctx, pw, s.Dir, "pulling the new images", "podman", append([]string{"compose", "pull"}, services...)...); err != nil {
-			fmt.Fprintf(pw, "\n[error] pull: %v\n", err)
+		b.checkPullSpace(ctx, pw, servicesImages(s, services), false)
+		seen := &lastBytes{}
+		if err := b.runNoticed(ctx, io.MultiWriter(pw, seen), s.Dir, "pulling the new images", "podman", append([]string{"compose", "pull"}, services...)...); err != nil {
+			fmt.Fprintf(pw, "\n[error] pull: %s\n", commandError(seen.String(), err))
 			return
 		}
 		// A pull that succeeded may still have fetched an image this host
@@ -374,13 +430,37 @@ func (b *Backend) Update(ctx context.Context, s *stack.Stack, services []string)
 			fmt.Fprintf(pw, "\n%s\n[error] not recreating: the stack keeps what it runs\n", strings.Join(wrong, "\n"))
 			return
 		}
+		// A stopped stack stays stopped: updating tailscale while it was down
+		// brought it up. Its old containers go (fjord's own Stop leaves none),
+		// so Start builds them from the image just pulled, not the old one.
+		if stopped {
+			b.forceRemoveStackContainers(ctx, pw, s, recreate)
+			fmt.Fprintf(pw, "\n[fjord] updated and left stopped, as it was: Start runs the new image\n")
+			return
+		}
 		started := time.Now()
-		b.bringUp(ctx, pw, s, true, recreate)
+		b.bringUp(ctx, pw, s, recreateAll, recreate)
 		if b.verifyRecreated(ctx, pw, s, recreate, started, "updated", "on the image it had") {
-			b.watchHealthy(ctx, pw, s, recreate, healthWindow)
+			b.watchHealthy(ctx, pw, s, recreate, healthWindow, "the update")
 		}
 	}()
 	return pr, nil
+}
+
+// notRunning reports whether none of the named services (all of them when
+// services is empty) has a running container. Not knowing counts as running:
+// an update that cannot ask podman does what it always did.
+func (b *Backend) notRunning(ctx context.Context, s *stack.Stack, services []string) bool {
+	cs, err := b.listStackContainers(ctx, s.Name)
+	if err != nil {
+		return false
+	}
+	for _, c := range ofServices(cs, services) {
+		if c.State == "running" {
+			return false
+		}
+	}
+	return true
 }
 
 // Recreate replaces the named services (and what depends on them) with
@@ -395,10 +475,17 @@ func (b *Backend) Recreate(ctx context.Context, s *stack.Stack, services []strin
 		defer pw.Close()
 		fmt.Fprintf(pw, "[fjord] applying the saved changes: recreating %s\n", strings.Join(recreate, ", "))
 		started := time.Now()
-		b.bringUp(ctx, pw, s, true, recreate)
-		if b.verifyRecreated(ctx, pw, s, recreate, started, "given the saved changes", "on its previous configuration") {
-			b.watchHealthy(ctx, pw, s, recreate, healthWindow)
+		b.bringUp(ctx, pw, s, recreateAll, recreate)
+		if !b.verifyRecreated(ctx, pw, s, recreate, started, "given the saved changes", "on its previous configuration") {
+			return
 		}
+		// The rest of the stack next, recreating nothing: a plain up re-made
+		// every container (podman-compose 1.5.0 tears all of them down when
+		// any one's config hash differs from the file's, as every other one's
+		// does now). The check last, so the next action can take over from it
+		// -- a second Apply within the 30 s check was refused as busy.
+		b.bringUp(ctx, pw, s, recreateNone, nil)
+		b.watchHealthy(ctx, pw, s, recreate, healthWindow, "the update")
 	}()
 	return pr, nil
 }
@@ -423,7 +510,7 @@ func (b *Backend) notRecreated(ctx context.Context, s *stack.Stack, services []s
 	}
 	var out []string
 	for _, c := range ofServices(cs, services) {
-		svc := c.Labels["io.podman.compose.service"]
+		svc := composeService(c.Labels)
 		// A second of slack: podman's timestamp and ours round differently.
 		if svc != "" && c.Created.Before(since.Add(-time.Second)) && !slices.Contains(out, svc) {
 			out = append(out, svc)
@@ -448,7 +535,7 @@ func (b *Backend) verifyRecreated(ctx context.Context, pw *io.PipeWriter, s *sta
 	ok := true
 	if len(services) == 0 {
 		for _, c := range cs {
-			if svc := c.Labels["io.podman.compose.service"]; svc != "" && !slices.Contains(services, svc) {
+			if svc := composeService(c.Labels); svc != "" && !slices.Contains(services, svc) {
 				services = append(services, svc)
 			}
 		}
@@ -526,10 +613,10 @@ var errContainerGone = errors.New("no such container")
 // container is watched for a window: it fails if it stops, if it restarts
 // (RestartCount or StartedAt moves), or if a HEALTHCHECK says unhealthy. The
 // failure is an [error] line, which the UI reads as a failed update.
-func (b *Backend) watchHealthy(ctx context.Context, pw *io.PipeWriter, s *stack.Stack, services []string, window time.Duration) {
+func (b *Backend) watchHealthy(ctx context.Context, pw *io.PipeWriter, s *stack.Stack, services []string, window time.Duration, after string) {
 	cs, err := b.listStackContainers(ctx, s.Name)
 	if err != nil {
-		fmt.Fprintf(pw, "\n[error] cannot watch the updated containers: %v\n", err)
+		fmt.Fprintf(pw, "\n[error] cannot watch the containers after %s: %v\n", after, err)
 		return
 	}
 	type watched struct {
@@ -546,7 +633,7 @@ func (b *Backend) watchHealthy(ctx context.Context, pw *io.PipeWriter, s *stack.
 		if err != nil {
 			continue
 		}
-		ws = append(ws, &watched{svc: c.Labels["io.podman.compose.service"], id: c.ID, ctr: c, first: h})
+		ws = append(ws, &watched{svc: composeService(c.Labels), id: c.ID, ctr: c, first: h})
 	}
 	if len(ws) == 0 {
 		return
@@ -555,8 +642,19 @@ func (b *Backend) watchHealthy(ctx context.Context, pw *io.PipeWriter, s *stack.
 	for i, w := range ws {
 		names[i] = w.svc
 	}
-	fmt.Fprintf(pw, "\n[fjord] checking %s stay%s up for %s\n", strings.Join(names, ", "),
+	fmt.Fprintf(pw, "\n%s%s stay%s up for %s\n", engine.WatchStartPrefix, strings.Join(names, ", "),
 		map[bool]string{true: "s", false: ""}[len(ws) == 1], window)
+	// Its own context, so ending the watch early cancels nothing else.
+	wctx, stop := context.WithCancel(ctx)
+	defer stop()
+	engine.WatchStarted(ctx, stop)
+	ended := func() bool {
+		if wctx.Err() == nil || ctx.Err() != nil {
+			return false
+		}
+		fmt.Fprintln(pw, engine.WatchEndedLine)
+		return true
+	}
 
 	deadline := time.Now().Add(window)
 	for {
@@ -565,7 +663,7 @@ func (b *Backend) watchHealthy(ctx context.Context, pw *io.PipeWriter, s *stack.
 			if w.failed {
 				continue
 			}
-			h, err := b.inspectHealth(ctx, w.id)
+			h, err := b.inspectHealth(wctx, w.id)
 			if err != nil && !errors.Is(err, errContainerGone) {
 				// No answer is not an answer: ask again next tick.
 				w.unsure++
@@ -576,26 +674,30 @@ func (b *Backend) watchHealthy(ctx context.Context, pw *io.PipeWriter, s *stack.
 			w.unsure = 0
 			switch {
 			case err != nil:
-				fmt.Fprintf(pw, "[error] %s is gone since the update\n", w.svc)
+				fmt.Fprintf(pw, "[error] %s is gone since %s\n", w.svc, after)
 				w.failed = true
 			case !h.State.Running:
-				fmt.Fprintf(pw, "[error] %s stopped after the update (exit code %d) -- see its logs\n", w.svc, h.State.ExitCode)
+				fmt.Fprintf(pw, "[error] %s stopped after %s (exit code %d) -- see its logs\n", w.svc, after, h.State.ExitCode)
 				w.failed = true
 			case h.RestartCount > w.first.RestartCount || !h.State.StartedAt.Equal(w.first.State.StartedAt):
-				fmt.Fprintf(pw, "[error] %s restarted since the update -- it is crash-looping; see its logs\n", w.svc)
+				fmt.Fprintf(pw, "[error] %s restarted since %s -- it is crash-looping; see its logs\n", w.svc, after)
 				w.failed = true
 			case h.State.Health != nil && h.State.Health.Status == "unhealthy":
-				fmt.Fprintf(pw, "[error] %s reports unhealthy since the update\n", w.svc)
+				fmt.Fprintf(pw, "[error] %s reports unhealthy since %s\n", w.svc, after)
 				w.failed = true
 			default:
 				live++
 			}
 		}
+		if ended() {
+			return
+		}
 		if live == 0 || !time.Now().Before(deadline) {
 			break
 		}
 		select {
-		case <-ctx.Done():
+		case <-wctx.Done():
+			ended()
 			return
 		case <-time.After(2 * time.Second):
 		}
@@ -613,8 +715,16 @@ func (b *Backend) watchHealthy(ctx context.Context, pw *io.PipeWriter, s *stack.
 		if w.failed {
 			continue
 		}
-		if state, _ := serviceHealth(ctx, w.ctr); state == "crashed" {
-			fmt.Fprintf(pw, "[error] %s keeps crashing inside its container since the update -- see its logs\n", w.svc)
+		state, detail := serviceHealthWithin(wctx, w.ctr, 0)
+		if ended() {
+			return
+		}
+		if state == "crashed" {
+			if why, ok := strings.CutPrefix(detail, "the app keeps crashing: "); ok {
+				fmt.Fprintf(pw, "[error] %s keeps crashing since %s: %s\n", w.svc, after, why)
+			} else {
+				fmt.Fprintf(pw, "[error] %s keeps crashing inside its container since %s -- see its logs\n", w.svc, after)
+			}
 			w.failed = true
 		}
 	}
@@ -740,15 +850,28 @@ func ofServices(cs []libpodContainer, services []string) []libpodContainer {
 	}
 	var out []libpodContainer
 	for _, c := range cs {
-		if slices.Contains(services, c.Labels["io.podman.compose.service"]) {
+		if slices.Contains(services, composeService(c.Labels)) {
 			out = append(out, c)
 		}
 	}
 	return out
 }
 
+// recreate is which existing containers an up replaces.
+type recreate int
+
+const (
+	// recreateChanged is podman-compose's own rule: all of them when any
+	// one's config hash differs from the compose file's.
+	recreateChanged recreate = iota
+	// recreateAll replaces them whatever the hash says (--force-recreate).
+	recreateAll
+	// recreateNone only creates and starts what is missing (--no-recreate).
+	recreateNone
+)
+
 // upArgs is the podman-compose command line for bringUp.
-func upArgs(forceRecreate bool, only []string) []string {
+func upArgs(mode recreate, only []string) []string {
 	args := []string{"--in-pod=false", "up", "-d"}
 	// Never with a service list: podman-compose 1.5 then counts every service
 	// NOT named as an orphan and deletes its container. Updating immich's
@@ -757,7 +880,8 @@ func upArgs(forceRecreate bool, only []string) []string {
 	if len(only) == 0 {
 		args = append(args, "--remove-orphans")
 	}
-	if forceRecreate {
+	switch mode {
+	case recreateAll:
 		// podman-compose decides whether to recreate by comparing a hash of the
 		// compose FILE, not the image: `up -d` after a pull leaves the existing
 		// container in place and `podman start` then starts it on the old image.
@@ -765,6 +889,8 @@ func upArgs(forceRecreate bool, only []string) []string {
 		// itself; one that pulls a moved tag (:latest) does not, and silently
 		// keeps running the image it already had.
 		args = append(args, "--force-recreate")
+	case recreateNone:
+		args = append(args, "--no-recreate")
 	}
 	if len(only) > 0 {
 		args = append(append(args, "--no-deps"), only...)
@@ -777,8 +903,21 @@ func upArgs(forceRecreate bool, only []string) []string {
 // the full list of containers nothing is freed: an unreadable list would make
 // every reservation look orphaned.
 func (b *Backend) releaseOrphanAddresses(ctx context.Context, pw io.Writer, s *stack.Stack) {
-	atts := composepkg.AttachedNetworks(s.Compose)
-	if len(atts) == 0 {
+	// Every network any service is on. AttachedNetworks alone answers only
+	// for a stack whose services agree, and gives nothing for one whose app
+	// is on the LAN and its database on a private segment -- immich -- so
+	// these releases never ran for any stack with a private network.
+	perSvc := composepkg.ServiceAttachments(s.Compose)
+	var nets []string
+	for _, a := range composepkg.AttachedNetworks(s.Compose) {
+		nets = append(nets, a.Network)
+	}
+	for _, byNet := range perSvc {
+		for _, a := range byNet {
+			nets = append(nets, a.Network)
+		}
+	}
+	if len(nets) == 0 {
 		return
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://d/v4.0.0/libpod/containers/json?all=true", nil)
@@ -804,21 +943,34 @@ func (b *Backend) releaseOrphanAddresses(ctx context.Context, pw io.Writer, s *s
 	// Addresses this stack pins first, with no age guard: they are its own,
 	// and on a cni-epair that never releases they are still held by the
 	// container a recreate just removed.
-	for _, byNet := range composepkg.ServiceAttachments(s.Compose) {
+	for _, byNet := range perSvc {
 		for _, a := range byNet {
 			if a.IP != "" && hostnet.ReleaseAddress(a.Network, a.IP, isLive) {
 				fmt.Fprintf(pw, "[fjord] released %s on %s for its own service: held by a removed container\n", a.IP, a.Network)
 			}
 		}
 	}
+	// This stack's containers that are not running: the only ones a failed
+	// network setup can have left holding their own address.
+	stopped := map[string]bool{}
+	if cs, err := b.listStackContainers(ctx, s.Name); err == nil {
+		for _, c := range cs {
+			if c.State != "running" {
+				stopped[c.ID] = true
+			}
+		}
+	}
 	seen := map[string]bool{}
-	for _, a := range atts {
-		if seen[a.Network] {
+	for _, n := range nets {
+		if seen[n] {
 			continue
 		}
-		seen[a.Network] = true
-		for _, addr := range hostnet.ReleaseOrphans(a.Network, isLive, 2*time.Minute) {
-			fmt.Fprintf(pw, "[fjord] released %s on %s: held by a container that no longer exists\n", addr, a.Network)
+		seen[n] = true
+		for _, addr := range hostnet.ReleaseOrphans(n, isLive, 2*time.Minute) {
+			fmt.Fprintf(pw, "[fjord] released %s on %s: held by a container that no longer exists\n", addr, n)
+		}
+		for _, addr := range hostnet.ReleaseFailedAdds(n, func(id string) bool { return stopped[id] }) {
+			fmt.Fprintf(pw, "[fjord] released %s on %s: a failed start left it reserved to the container now retrying\n", addr, n)
 		}
 	}
 }

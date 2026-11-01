@@ -497,6 +497,33 @@ func TestSetServiceModes(t *testing.T) {
 	}
 }
 
+// A host-networked app has no ports entry; SeedPublished notes its web
+// port, and a move to the bridge publishes it. On the host it stays as it
+// ships, and an app that publishes already is left alone.
+func TestSeededPortComesBackOnTheBridge(t *testing.T) {
+	const in = `services:
+  actual:
+    image: ghcr.io/daemonless/actual:latest
+    network_mode: host
+`
+	seeded, err := SeedPublished(in, "actual", "5006")
+	if err != nil || !strings.Contains(seeded, "x-fjord-published:\n      - 5006:5006") || strings.Contains(seeded, "ports:") {
+		t.Fatalf("seed: %v\n%s", err, seeded)
+	}
+	bridged, err := SetServiceModes(seeded, map[string]string{"actual": "bridge"})
+	if err != nil || !strings.Contains(bridged, "ports:\n      - 5006:5006") || strings.Contains(bridged, "network_mode") || strings.Contains(bridged, "x-fjord-published") {
+		t.Fatalf("bridge: %v\n%s", err, bridged)
+	}
+	back, err := SetServiceModes(bridged, map[string]string{"actual": "host"})
+	if err != nil || !strings.Contains(back, "network_mode: host") || strings.Contains(back, "ports:") || !strings.Contains(back, "x-fjord-published") {
+		t.Fatalf("host again: %v\n%s", err, back)
+	}
+	same, _ := SeedPublished("services:\n  web:\n    ports:\n      - 8080:80\n", "web", "80")
+	if strings.Contains(same, "x-fjord-published") {
+		t.Errorf("an app that publishes was seeded:\n%s", same)
+	}
+}
+
 // Attaching stashes a service's ports; a private segment is the case where
 // they have to come back, because the address it hands out reaches no browser.
 func TestRepublishPorts(t *testing.T) {
@@ -645,5 +672,54 @@ func TestInjectNetworksBridgeWithOthers(t *testing.T) {
 	got := ServiceAttachments(out)["caddy"]
 	if len(got) != 2 || got[0].Network != Bridge || got[1].Network != "lan-dhcp" || got[1].MAC != "58:9c:fc:10:b7:36" {
 		t.Errorf("read back %+v, want bridge then lan-dhcp with its MAC", got)
+	}
+}
+
+// A network the compose declares itself is the stack's own: compose makes it
+// under the project's name when the stack starts, so the host's list never
+// has it (an imported mealie showed "mealie_internal (not on this host)").
+// An external one, and compose's "default", are not.
+func TestAttachmentsMarkDeclaredNetworksOwn(t *testing.T) {
+	const in = `services:
+  app:
+    image: mealie
+    networks:
+      - lan
+      - mealie_internal
+      - default
+  db:
+    image: postgres
+    networks:
+      - lan
+      - mealie_internal
+      - default
+networks:
+  lan:
+    external: true
+  mealie_internal:
+    driver: bridge
+  default: {}
+`
+	want := map[string]bool{"lan": false, "mealie_internal": true, "bridge": false}
+	check := func(what string, atts []Attachment) {
+		if len(atts) != 3 {
+			t.Fatalf("%s: %+v", what, atts)
+		}
+		for _, a := range atts {
+			if w, ok := want[a.Network]; !ok || a.Own != w {
+				t.Errorf("%s: %s own = %v, want %v", what, a.Network, a.Own, w)
+			}
+		}
+	}
+	check("AttachedNetworks", AttachedNetworks(in))
+	check("ServiceAttachments app", ServiceAttachments(in)["app"])
+	check("ServiceAttachments db", ServiceAttachments(in)["db"])
+	// Saving the rows back leaves the declared network as it was.
+	out, err := InjectNetworks(in, []Attachment{{Network: "lan", Service: "app"}, {Network: "mealie_internal", Service: "app", Own: true}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "mealie_internal:\n    driver: bridge") {
+		t.Fatalf("declared network rewritten:\n%s", out)
 	}
 }

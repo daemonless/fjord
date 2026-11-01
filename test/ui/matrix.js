@@ -1,6 +1,8 @@
 // fjord UI test matrix: everything through the real pages, checked by outcome.
 // Run in ghcr.io/daemonless/playwright on the fjord host (--network host).
+// needs: freebsd appjail
 const { chromium } = require('playwright-core');
+const { signedIn, openPage } = require('./session');
 const BASE = process.env.FJORD || 'http://127.0.0.1:3567';
 const BRIDGE = 'lanbridge2'; // has a host address: the subnet fills in
 const BARE = 'lanbridge'; // no host address
@@ -44,7 +46,7 @@ const addrOf = (d) => (d?.services || []).map((s) => s.address).find(Boolean) ||
 
 // ---------- Networks page ----------
 async function createNetwork(page, { name, bridge, source, range }) {
-  await page.goto(BASE + '/#/networks', { waitUntil: 'networkidle' });
+  await openPage(page, BASE + '/#/networks');
   await page.getByRole('button', { name: /New network/i }).first().click();
   // 0 = click as fast as the page lets you, which is what caught the
   // refresh-reset race; >0 only to get past it on a build without the fix.
@@ -70,13 +72,13 @@ async function createNetwork(page, { name, bridge, source, range }) {
 async function openWizard(page, app, name) {
   // Through the sidebar, as a user gets there: a hash-only goto from a stack
   // page left the stack page up.
-  await page.goto(BASE + '/', { waitUntil: 'networkidle' });
+  await openPage(page, BASE + '/');
   await page.getByText('App Store', { exact: true }).first().click();
   await page.getByPlaceholder(/Search apps/).fill(app);
   await page.getByRole('button', { name: /^Install/ }).first().click();
   await page.getByRole('button', { name: 'Install', exact: true }).waitFor();
   const nameBox = page.locator('input').filter({ has: page.locator('xpath=.') }).nth(0);
-  await page.getByLabel('Name').fill(name).catch(async () => { await nameBox.fill(name); });
+  await page.getByLabel('Name', { exact: true }).fill(name).catch(async () => { await nameBox.fill(name); });
 }
 // Options may start folded (the wizard remembers); the network editor and
 // Advanced live inside it.
@@ -149,7 +151,7 @@ async function install(page, c) {
 
 (async () => {
   const browser = await chromium.launch({ args: ['--no-sandbox', '--disable-setuid-sandbox'] });
-  const page = await (await browser.newContext({ viewport: { width: 1400, height: 1100 } })).newPage();
+  const page = await (await browser.newContext(signedIn({ viewport: { width: 1400, height: 1100 } }))).newPage();
   page.setDefaultTimeout(20000);
   const made = { stacks: [], nets: [] };
   try {
@@ -208,7 +210,7 @@ async function install(page, c) {
     // --- Services tab (AppJail): same-bridge networks shown disabled
     if (made.nets.length >= 2) {
       try {
-        await page.goto(BASE + '/#/stacks/t-jd', { waitUntil: 'networkidle' });
+        await openPage(page, BASE + '/#/stacks/t-jd');
         await page.getByRole('button', { name: /^Services/ }).first().click().catch(() => {});
         await sleep(1500);
         const add = page.getByRole('button', { name: /\+ interface/ });

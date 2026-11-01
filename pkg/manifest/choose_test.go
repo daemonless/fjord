@@ -54,6 +54,7 @@ x-fjord:
                 environment:
                   - POSTGRES_PASSWORD=${APP_DB_PASSWORD}
           depends_on: {app: [postgres]}
+          hostnames: {postgres: APP_DB_HOST}
         - id: external
           label: Your own
           ask:
@@ -148,5 +149,46 @@ func TestUnknownOptionIsRefused(t *testing.T) {
 	m, _ := Parse(choosy)
 	if _, err := m.ApplyChoices(map[string]string{"database": "oracle"}, map[string]string{}); err == nil {
 		t.Error("want an error naming the options")
+	}
+}
+
+// The picked option's hostnames join the stack's (so a host-network install
+// can point APP_DB_HOST at 127.0.0.1); one not picked adds nothing.
+func TestApplyChoicesMergesHostnames(t *testing.T) {
+	for pick, want := range map[string]string{"postgres": "APP_DB_HOST", "sqlite": ""} {
+		m, err := Parse(choosy)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := m.ApplyChoices(map[string]string{"database": pick}, map[string]string{}); err != nil {
+			t.Fatal(err)
+		}
+		if got := m.Hostnames["postgres"]; got != want {
+			t.Errorf("%s: hostnames[postgres] = %q, want %q", pick, got, want)
+		}
+	}
+}
+
+// An option that adds a variable and then asks for one the manifest already
+// has: the add can move m.Variables, and the ask's change went to the old
+// copy (review 4.4) -- DB_HOST stayed optional, so the install went ahead
+// with no database host.
+func TestApplyChoicesAskAfterAdd(t *testing.T) {
+	m := &Manifest{
+		Variables: make([]Var, 1, 1),
+		Choices: []Choice{{ID: "db", Default: "ext", Options: []Option{{
+			ID:  "ext",
+			Env: map[string]string{"DB_KIND": "mariadb"},
+			Ask: []Ask{{Name: "DB_HOST"}},
+		}}}},
+	}
+	m.Variables[0] = Var{Name: "DB_HOST", Type: "string", Optional: true}
+	if _, err := m.ApplyChoices(nil, map[string]string{"DB_HOST": "db.lan"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, v := range m.Variables {
+		if v.Name == "DB_HOST" && v.Optional {
+			t.Error("DB_HOST is still optional: the ask was lost")
+		}
 	}
 }

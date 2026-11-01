@@ -57,22 +57,32 @@ func (b *Backend) StackJails(s *stack.Stack) []string {
 
 // UnmanagedContainers lists every jail with the spec it would become.
 // Non-container jails are listed with the reason they can't be adopted.
-func (b *Backend) UnmanagedContainers(ctx context.Context) ([]engine.Unmanaged, error) {
+// skip leaves a jail out before it is inspected: that is a dozen appjail
+// commands per jail, seconds for each of fjord's own.
+func (b *Backend) UnmanagedContainers(ctx context.Context, skip func(name, project string) bool) ([]engine.Unmanaged, error) {
 	out, err := exec.CommandContext(ctx, "appjail", "jail", "list", "-HIpt", "name", "status", "is_container").Output()
 	if err != nil {
 		return nil, fmt.Errorf("appjail jail list: %w", err)
 	}
-	images := map[string]string{}
-	for _, c := range buildahContainers(ctx) {
-		images[strings.TrimPrefix(c.ContainerName, "appjail-")] = c.ImageName
-	}
 	projects := directorProjects()
-	var list []engine.Unmanaged
+	var rows [][]string
+	containers := false
 	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
 		f := strings.Fields(line)
-		if len(f) < 3 {
+		if len(f) < 3 || skip(f[0], projects[f[0]]) {
 			continue
 		}
+		rows = append(rows, f)
+		containers = containers || f[2] == "1"
+	}
+	images := map[string]string{}
+	if containers {
+		for _, c := range buildahContainers(ctx) {
+			images[strings.TrimPrefix(c.ContainerName, "appjail-")] = c.ImageName
+		}
+	}
+	var list []engine.Unmanaged
+	for _, f := range rows {
 		u := engine.Unmanaged{ID: f[0], Name: f[0], Image: images[f[0]], State: "stopped", Project: projects[f[0]]}
 		if f[1] == "UP" {
 			u.State = "running"
@@ -96,6 +106,41 @@ func (b *Backend) UnmanagedContainers(ctx context.Context) ([]engine.Unmanaged, 
 		list = append(list, u)
 	}
 	return list, nil
+}
+
+// AdoptableNames names the jails UnmanagedContainers would offer to adopt,
+// without inspecting any: what the dashboard needs to say there are some.
+func (b *Backend) AdoptableNames(ctx context.Context, skip func(name, project string) bool) ([]string, error) {
+	out, err := exec.CommandContext(ctx, "appjail", "jail", "list", "-HIpt", "name", "status", "is_container").Output()
+	if err != nil {
+		return nil, fmt.Errorf("appjail jail list: %w", err)
+	}
+	projects := directorProjects()
+	var names []string
+	var unknown []string // no image in its config: buildah may still know it
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		f := strings.Fields(line)
+		if len(f) < 3 || f[2] != "1" || skip(f[0], projects[f[0]]) {
+			continue
+		}
+		if recordedImage(ctx, f[0]) != "" {
+			names = append(names, f[0])
+		} else {
+			unknown = append(unknown, f[0])
+		}
+	}
+	if len(unknown) > 0 {
+		images := map[string]bool{}
+		for _, c := range buildahContainers(ctx) {
+			images[strings.TrimPrefix(c.ContainerName, "appjail-")] = c.ImageName != ""
+		}
+		for _, n := range unknown {
+			if images[n] {
+				names = append(names, n)
+			}
+		}
+	}
+	return names, nil
 }
 
 // RemoveContainer stops and destroys the jail (and its buildah container)
@@ -151,18 +196,10 @@ func inspectJail(ctx context.Context, name string) jailInfo {
 		out, _ := exec.CommandContext(ctx, args[0], args[1:]...).Output()
 		return strings.TrimSpace(string(out))
 	}
-	// last line only: `jail get` prints a header with these flags, `list` doesn't
-	lastLine := func(s string) string {
-		lines := strings.Split(strings.TrimSpace(s), "\n")
-		return lines[len(lines)-1]
-	}
 	info := jailInfo{Name: name, Env: map[string]string{}}
-	if f := strings.Fields(lastLine(run("appjail", "jail", "get", "-HIpt", "--", name, "networks", "network_ip4"))); len(f) >= 2 && f[0] != "-" {
-		info.Network = strings.Split(f[0], ",")[0]
-		if f[1] != "-" {
-			info.Address = strings.Split(f[1], ",")[0]
-		}
-	}
+	// No -H here: on `jail get` it ADDS the header, where on the list
+	// commands below it takes it away.
+	info.Network, info.Address = jailNetwork(run("appjail", "jail", "get", "-Ipt", "--", name, "networks", "network_ip4"))
 	for _, line := range strings.Split(run("appjail", "expose", "list", "-HIpt", name, "hport", "jport", "protocol"), "\n") {
 		if f := strings.Fields(line); len(f) == 3 {
 			info.Exposes = append(info.Exposes, exposeEntry{f[0], f[1], f[2]})
@@ -196,6 +233,22 @@ func inspectJail(ctx context.Context, name string) jailInfo {
 	info.HasLimits = run("appjail", "limits", "list", "-HIpt", name) != ""
 	info.HasDevfs = run("appjail", "devfs", "list", "-HIpt", name) != ""
 	return info
+}
+
+// jailNetwork reads `appjail jail get -Ipt <jail> networks network_ip4`:
+// the jail's first network and its address there. A jail with no network
+// prints nothing. Read with -H, that was the header alone, and adopt wrote
+// a virtualnet on network "NETWORKS" at address "NETWORK_IP4".
+func jailNetwork(out string) (network, address string) {
+	f := strings.Fields(out)
+	if len(f) < 2 || f[0] == "-" {
+		return "", ""
+	}
+	network = strings.Split(f[0], ",")[0]
+	if f[1] != "-" {
+		address = strings.Split(f[1], ",")[0]
+	}
+	return network, address
 }
 
 // plumbingRe matches the jail parameters appjail itself adds for the

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { staleNote } from './staleNote';
+  import { staleNote, statusKey } from './staleNote';
   import { onMount, onDestroy, tick } from 'svelte';
   import RemoteFolderForm from './RemoteFolderForm.svelte';
   import { ensureRemoteVolume, remoteKind, type RemoteKind } from './remote';
@@ -11,25 +11,41 @@
   import Adopt from './Adopt.svelte';
   import System from './System.svelte';
   import Settings from './Settings.svelte';
+  import { auth, checkSession, SIGNED_IN } from './auth';
   import SetupWizard from './SetupWizard.svelte';
   import Dashboard from './Dashboard.svelte';
   import LogView from './LogView.svelte';
   import Shell from './Shell.svelte';
   import ChangeVersionModal from './ChangeVersionModal.svelte';
+  import RestartPolicy from './RestartPolicy.svelte';
+  import type { StackRestart } from './restartPolicy';
   import DirPicker from './DirPicker.svelte';
   import Spinner from './Spinner.svelte';
+  import LoginButton from './LoginButton.svelte';
+  import OpenMenu from './OpenMenu.svelte';
+  import { names, openBy, deviceTrust, loadNames, openUrl as nameOrAddress, opensByName, linkUrl, addNames } from './names';
+  import TrustMark from './TrustMark.svelte';
+  import NamesPrompt from './NamesPrompt.svelte';
   import Icon from './Icon.svelte';
+  import { fitMenu } from './fitMenu';
+  import Shortcuts from './Shortcuts.svelte';
+  import { match as matchShortcut, typing } from './shortcuts';
   import ServiceResources from './ServiceResources.svelte';
   import { splitPlan } from './planSeed';
   import EngineMark from './EngineMark.svelte';
-  import { appIcons, loadAppIcons, iconFor, tile, initial } from './appIcons';
+  import { appIcons, imageIcons, loadAppIcons, iconFor, serviceIcon, tile, initial } from './appIcons';
   import Toasts from './Toasts.svelte';
   import { toast, dismissToast } from './toast';
   import { expandVars } from './expand';
   import { appUrl, noWebUI } from './appUrl';
+  import { busyStep } from './busyStep';
   import { health } from './stackHealth';
   import { changeSentence } from './updateWords';
-  import { parseEnv, missingVars, setEnvVar, isSecret, usedVars } from './composeVars';
+  import { firstLine } from './errorLine';
+  import { watchStarted } from './watch';
+  import { startError } from './adopt';
+  import { parseEnv, missingVars, unusedVars, setEnvVar, isSecret, usedVars } from './composeVars';
+  import { serviceLinks } from './serviceLinks';
   import VarsPanel from './VarsPanel.svelte';
   import { currentTheme, setTheme, watchSystem, type Theme } from './theme';
   import { addressProblem, usableRange, networkLabel, HOST_NETWORK, DEFAULT_NETWORK, randomMAC } from './network';
@@ -44,7 +60,7 @@
   };
   type StackStatus = { state: string; containers: ContainerStatus[]; staleSince?: string };
   type StackState = { group?: string; desired_state?: string; engine?: string; order?: number; origin?: { type?: string; app_id?: string }; choices?: Record<string, string>; pending_services?: string[]; last_failure?: { action: string; at: string; message: string } };
-  type Stack = { name: string; displayName?: string; icon?: string; dir: string; compose: string; env: string; director?: string; makejail?: string; engine?: string; status?: StackStatus; state?: StackState; services?: any[]; composeHash?: string; busy?: string; linkHost?: string };
+  type Stack = { name: string; displayName?: string; icon?: string; dir: string; compose: string; env: string; director?: string; makejail?: string; engine?: string; status?: StackStatus; state?: StackState; services?: any[]; composeHash?: string; busy?: string; linkHost?: string; restart?: StackRestart; listOnly?: boolean };
   // What the UI shows for a stack: its label, falling back to the id.
   const label = (s: { name: string; displayName?: string } | null | undefined) => s?.displayName || s?.name || '';
 
@@ -52,11 +68,14 @@
     running: 'bg-fjord-success/10 border-fjord-success/20 text-fjord-success',
     partial: 'bg-fjord-warning/10 border-fjord-warning/20 text-fjord-warning',
     stopped: 'bg-fjord-neutral/10 border-fjord-neutral/20 text-fjord-fg-muted',
-    unknown: 'bg-fjord-danger/10 border-fjord-danger/20 text-fjord-danger',
+    // Not known yet is not broken: grey, not red.
+    checking: 'bg-fjord-neutral/10 border-fjord-neutral/20 text-fjord-fg-dim',
+    // The engine answered and could not say (socket down): a host problem.
+    unknown: 'bg-fjord-warning/10 border-fjord-warning/20 text-fjord-warning',
   };
 
   function statusLabel(status: StackStatus | undefined): string {
-    return status?.state ?? 'unknown';
+    return statusKey(status);
   }
 
   function statusStyle(status: StackStatus | undefined): string {
@@ -67,15 +86,21 @@
     running: 'bg-fjord-success',
     partial: 'bg-fjord-warning',
     stopped: 'bg-fjord-neutral',
-    unknown: 'bg-fjord-danger',
+    checking: 'bg-fjord-neutral animate-pulse',
+    unknown: 'bg-fjord-warning',
   };
   function dot(status: StackStatus | undefined): string {
     return DOT[statusLabel(status)] ?? DOT.unknown;
   }
 
   let stacks: Stack[] = [];
+  // Until the first list arrives, "no stacks" would tell someone with apps
+  // that they are gone.
+  let stacksLoaded = false;
+  // Why the first list did not arrive: 0 = no answer, else the HTTP status.
+  let stacksFailed: number | null = null;
   let logs: Record<string, string> = {};
-  let execStatus: Record<string, 'idle' | 'running' | 'error'> = {};
+  let execStatus: Record<string, 'idle' | 'running' | 'watching' | 'error'> = {};
   // Set while the Output pane follows an action this page did not start.
   let following: Record<string, boolean> = {};
   let execMessage: Record<string, string> = {};
@@ -87,14 +112,19 @@
   let originalMakejail = '';
   let currentView: 'stacks' | 'store' | 'volumes' | 'networks' | 'system' | 'settings' | 'adopt' = 'stacks';
   // Settings sub-tab, mirrored into the URL (#/settings/<tab>) like the views.
-  let settingsTab: 'storage' | 'extensions' | 'catalogs' | 'advanced' = 'storage';
+  let settingsTab: 'storage' | 'extensions' | 'catalogs' | 'advanced' | 'account' = 'storage';
 
-  // Draft for the "+" button: a FreeBSD base image that comes Up as-is, so a
-  // blank stack is immediately a box you can open a shell in. A podman draft is
-  // a compose; an appjail draft is a native director spec + Makejail (no
+  // Draft for the "+" button: an image that comes Up as-is, so a blank stack
+  // is immediately a box you can open a shell in -- FreeBSD's base image, or
+  // on Linux alpine, which needs a command to stay up. A podman draft is a
+  // compose; an appjail draft is a native director spec + Makejail (no
   // compose) that runs via appjail-director from the start.
   const NEW_STACK_IMAGE = 'ghcr.io/daemonless/base:15.1-latest';
-  const NEW_STACK_COMPOSE = `services:\n  app:\n    image: ${NEW_STACK_IMAGE}\n`;
+  let hostOS = '';
+  const newStackCompose = (os: string) =>
+    os === 'linux'
+      ? `services:\n  app:\n    image: docker.io/library/alpine:3.24\n    command: sleep infinity\n`
+      : `services:\n  app:\n    image: ${NEW_STACK_IMAGE}\n`;
   const NEW_STACK_MAKEJAIL = `OPTION container=boot\nOPTION overwrite=force\nOPTION from=${NEW_STACK_IMAGE}\n`;
   // Jail name is namespaced by the stack id, like catalog installs.
   const newStackDirector = (name: string) =>
@@ -113,7 +143,7 @@
   const newStackDraft = (engine = defaultEngine, name = `stack-${Date.now().toString().slice(-4)}`): Stack =>
     engine === 'appjail'
       ? { name, dir: '', compose: '', env: `DIRECTOR_PROJECT=${name}\nTZ=UTC\n`, director: newStackDirector(name), makejail: NEW_STACK_MAKEJAIL, engine }
-      : { name, dir: '', compose: NEW_STACK_COMPOSE, env: 'TZ=UTC\n', engine };
+      : { name, dir: '', compose: newStackCompose(hostOS), env: 'TZ=UTC\n', engine };
   // Switch a draft's runtime: swap in that engine's starter files. The two
   // engines' files are different formats (compose vs director + Makejail), so
   // nothing carries over -- which was silent, and took every edit with it. An
@@ -207,6 +237,17 @@
     } catch {}
   };
   let sidebarWidth = loadSize('fjord.sidebarW', 288); // w-72
+  // Phones: the sidebar is a drawer behind a menu button, not a column
+  // that leaves the page a sliver. narrow follows the viewport.
+  let narrow = false;
+  let navOpen = false;
+  if (typeof window !== 'undefined' && window.matchMedia) {
+    const mq = window.matchMedia('(max-width: 767px)');
+    narrow = mq.matches;
+    mq.addEventListener('change', (e) => { narrow = e.matches; if (!narrow) navOpen = false; });
+  }
+  // Picking anything in the drawer closes it.
+  $: if (narrow && (selectedStack || currentView)) navOpen = false;
   let drawerHeight = loadSize('fjord.drawerH', 256); // h-64
   function setSidebar(w: number) {
     sidebarWidth = clamp(w, 200, 640);
@@ -452,11 +493,42 @@
   // else the host you're browsing fjord on, plus its primary published web
   // port. Empty when the stack publishes nothing web-ish.
 
-  $: openUrl = appUrl(selectedStack);
+  $: openUrl = nameOrAddress(selectedStack, $names, $openBy, $deviceTrust);
+  $: openByName = opensByName(selectedStack, $names, $openBy);
+  // A stack of several apps opens each at its own address: Open is the main
+  // one, the menu beside it the rest.
+  // Each by its name when it has one and this browser opens by name.
+  $: links = selectedStack
+    ? serviceLinks(selectedStack.compose ?? '', parseEnv(selectedStack.env ?? ''), selectedStack.services ?? [], location.hostname).map(
+        (l) => ({ ...l, url: linkUrl($names, `${selectedStack!.name}/${l.service}`, l.url, $openBy, $deviceTrust) }),
+      )
+    : [];
+  let linksOpen = false;
+  // The sidebar's + menu: the store, Adopt, or a blank stack.
+  let newOpen = false;
+  function addBy(how: 'store' | 'adopt' | 'new') {
+    newOpen = false;
+    if (how === 'new') {
+      selectStack(newStackDraft());
+      return;
+    }
+    selectStack(null);
+    currentView = how;
+  }
+  $: linkIcon = (service: string) =>
+    serviceIcon($imageIcons, (selectedStack?.services ?? []).find((s: any) => s.name === service)?.image);
   // The .env as the editors resolve ${VAR} against it, and what the compose
   // (or director file) uses that it never sets -- shown on the .env tab.
-  $: stackVars = parseEnv(selectedStack?.env ?? '');
+  // A director file's ${PWD} is the stack's folder: fjord sets it on every run.
+  let stackVars: Record<string, string> = {};
+  $: stackVars = {
+    ...parseEnv(selectedStack?.env ?? ''),
+    ...(selectedStack?.director ? { PWD: selectedStack.dir } : {}),
+  };
   $: unsetVars = missingVars((selectedStack?.director || selectedStack?.compose) ?? '', stackVars);
+  // .env lines nothing the engine runs uses: WEB_PORT once a stack has its
+  // own address, where no port is published. Edited, they changed nothing.
+  $: unusedEnv = unusedVars((selectedStack?.director || selectedStack?.compose) ?? '', parseEnv(selectedStack?.env ?? ''));
   // Variables on the compose tab. Each ${VAR} carries its value in the
   // editor (Values), and clicking one sets it in a small box right there.
   // The Variables panel lists them all, missing first; with it open, a
@@ -489,6 +561,22 @@
   function varClicked(name: string, rect: DOMRect) {
     if (varsPanelOpen) varsFocus = name;
     else varPop = { name, x: rect.left, y: rect.bottom + 4, value: stackVars[name] ?? '' };
+  }
+  // .env values the compose never names reach no container: hand them to
+  // the app's (first) service, an edit held until Save.
+  async function passUnusedEnv() {
+    if (!selectedStack) return;
+    try {
+      const res = await fetch('/api/compose/pass-env', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ compose: selectedStack.compose ?? '', env: selectedStack.env ?? '', names: unusedEnv }),
+      });
+      if (!res.ok) throw new Error((await res.text()).trim() || `HTTP ${res.status}`);
+      adopt(await res.json());
+    } catch (e: any) {
+      toast(e.message || 'Could not change the compose', { kind: 'error' });
+    }
   }
   function addUnsetVars() {
     if (!selectedStack) return;
@@ -582,7 +670,8 @@
       (stack?.services ?? []).map((v: any) => {
         const rows = (v.networks ?? []).map((n: any) => ({ ...n }));
         if (rows.length) return [v.name, rows];
-        return [v.name, [{ network: v.hostNetwork ? 'host' : v.noNetwork ? 'none' : '', ip: '', mac: '' }]];
+        // On the compose's default network: that is bridge, and says so.
+        return [v.name, [{ network: v.hostNetwork ? 'host' : v.noNetwork ? 'none' : 'bridge', ip: '', mac: '' }]];
       }),
     );
     savedSvcNets = JSON.stringify(svcNets);
@@ -843,12 +932,21 @@
       originalMakejail = '';
       return;
     }
-    // The list endpoint omits compose/env content; fetch the full stack detail
-    // so the editor actually shows the compose.yaml + .env.
-    try {
-      const res = await fetch(`/api/stacks/${stack.name}`);
-      if (res.ok) stack = await res.json();
-    } catch {}
+    // The list's .env has its secrets blanked: the editor needs the stack's
+    // own answer. Without it (fjord did not answer, the session ended) the
+    // list's copy is shown but never saved -- it would blank the passwords.
+    // A draft from "+" is not on the server yet: it is all here already.
+    let full = !stack.dir && !stacks.some((s) => s.name === stack!.name);
+    if (!full) {
+      try {
+        const res = await fetch(`/api/stacks/${stack.name}`);
+        if (res.ok) {
+          stack = await res.json();
+          full = true;
+        }
+      } catch {}
+    }
+    if (!full) stack = { ...stack!, listOnly: true };
     selectedStack = stack;
     currentView = 'stacks'; // selecting a stack always means the Stacks section
     showActionOutput(stack!.name);
@@ -873,9 +971,18 @@
   }
 
   async function loadStacks() {
-    const res = await fetch('/api/stacks');
+    let res: Response;
+    try {
+      res = await fetch('/api/stacks');
+    } catch {
+      if (!stacksLoaded) stacksFailed = 0;
+      return;
+    }
+    if (!res.ok && !stacksLoaded) stacksFailed = res.status;
     if (res.ok) {
       stacks = await res.json();
+      stacksLoaded = true;
+      stacksFailed = null;
       if (selectedStack) {
         const found = stacks.find((s) => s.name === selectedStack!.name);
         if (found) {
@@ -995,7 +1102,7 @@
   const slugOfName = (name: string) =>
     name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
   function expandSetPath(p: string): string {
-    const slug = slugOfName(label(selectedStack)) || selectedStack?.name || 'app';
+    const slug = selectedStack?.name || 'app'; // its folder is named by its id
     return p.replace(/\{\{\s*stack\s*\}\}/g, slug).replace(/\{\{\s*(appdata|base)\s*\}\}/g, appDataDefault || '/containers');
   }
   async function loadFolderSets() {
@@ -1007,7 +1114,7 @@
       folderSets = [];
     }
   }
-  async function addFolderSet(service: string, setId: string, at: string, readOnly: boolean) {
+  async function addFolderSet(service: string, setId: string, at: string, readOnly: boolean, options: string[] = []) {
     const set = folderSets.find((s) => s.id === setId);
     if (!selectedStack || !set) return;
     // No container path typed: mount the set at /<set-name> ("Movies" ->
@@ -1042,7 +1149,7 @@
           source = await ensureRemoteVolume(f, { stack: selectedStack.name });
           kind = 'volume';
         }
-        adopt(await mountsAPI({ op: 'add', kind, service, source, dest: at, readOnly: readOnly }));
+        adopt(await mountsAPI({ op: 'add', kind, service, source, dest: at, readOnly, options }));
       }
       addSource = '';
       addingTo = '';
@@ -1062,7 +1169,7 @@
     if (!res.ok) throw new Error((await res.text()).trim() || `HTTP ${res.status}`);
     return res.json();
   }
-  async function addMount(d: { service: string; kind: string; source: string; dest: string; readOnly: boolean }) {
+  async function addMount(d: { service: string; kind: string; source: string; dest: string; readOnly: boolean; options?: string[] }) {
     if (!selectedStack || !d.source.trim() || !d.dest.trim()) return;
     try {
       adopt(await mountsAPI({ op: 'add', ...d }));
@@ -1072,9 +1179,19 @@
       toast(e.message || 'Add failed', { kind: 'error' });
     }
   }
+  // A mount's options changed (or "Add :z" on an SELinux warning): an edit
+  // like adding one, held until Save.
+  async function setMountOptions(d: { service: string; dest: string; options: string[] }) {
+    if (!selectedStack) return;
+    try {
+      adopt(await mountsAPI({ op: 'options', ...d }));
+    } catch (e: any) {
+      toast(e.message || 'Could not set the options', { kind: 'error' });
+    }
+  }
   // NFS/SMB from the Resources tab: same row format + credential store as the
   // folder-set editor (remote.ts), then mounted as its named volume.
-  async function addRemoteMount(d: { service: string; row: string; dest: string; readOnly: boolean }) {
+  async function addRemoteMount(d: { service: string; row: string; dest: string; readOnly: boolean; options?: string[] }) {
     if (!selectedStack) return;
     if (!d.dest) {
       toast('Enter the container path to mount it at', { kind: 'error' });
@@ -1082,7 +1199,7 @@
     }
     try {
       const source = await ensureRemoteVolume(d.row, { stack: selectedStack.name });
-      adopt(await mountsAPI({ op: 'add', kind: 'volume', service: d.service, source, dest: d.dest, readOnly: d.readOnly }));
+      adopt(await mountsAPI({ op: 'add', kind: 'volume', service: d.service, source, dest: d.dest, readOnly: d.readOnly, options: d.options }));
       addingTo = '';
       loadVolumes(selectedStack.name);
     } catch (e: any) {
@@ -1139,7 +1256,7 @@
     } else if (section === 'settings') {
       currentView = 'settings';
       // 'plugins' is the pre-rename route; keep it working for old links
-      settingsTab = name === 'extensions' || name === 'plugins' ? 'extensions' : name === 'catalogs' || name === 'advanced' ? name : 'storage';
+      settingsTab = name === 'extensions' || name === 'plugins' ? 'extensions' : name === 'catalogs' || name === 'advanced' || name === 'account' ? name : 'storage';
       await selectStack(null);
     } else if (section === 'stacks' && name) {
       currentView = 'stacks';
@@ -1169,7 +1286,10 @@
   onMount(async () => {
     fetch('/api/about')
       .then((r) => (r.ok ? r.json() : null))
-      .then((a) => (daemonVersion = a?.version ?? ''))
+      .then((a) => {
+        daemonVersion = a?.version ?? '';
+        hostOS = a?.os ?? '';
+      })
       .catch(() => {});
     loadAppIcons();
     try {
@@ -1182,6 +1302,7 @@
       .then((d) => { if (d?.hostname) document.title = `fjord - ${d.hostname}`; })
       .catch(() => {});
     await loadStacks();
+    loadNames();
     loadEngines();
     loadNetworks();
     loadVolumes();
@@ -1192,9 +1313,33 @@
     await restoreFromHash();
     routeReady = true;
     window.addEventListener('hashchange', restoreFromHash);
+    window.addEventListener(SIGNED_IN, signedInAgain);
   });
 
+  // Signed in again over this page (its session had ended): reload what
+  // failed meanwhile and reopen the live stream.
+  // Pages that load their own data (Settings, System, ...) are made anew;
+  // the stack view's edits live here and the App store keeps an open wizard.
+  let viewEpoch = 0;
+  let showShortcuts = false; // the ? overlay
+  function signedInAgain() {
+    viewEpoch++;
+    loadStacks();
+    loadEngines();
+    loadNetworks();
+    loadVolumes();
+    loadFleetUpdates();
+    if (!eventSource || eventSource.readyState === EventSource.CLOSED) subscribeEvents();
+    if (selectedStack?.listOnly) selectStack(selectedStack);
+  }
+
+  async function signOut() {
+    await fetch('/api/auth/logout', { method: 'POST' }).catch(() => {});
+    location.reload();
+  }
+
   onDestroy(() => {
+    window.removeEventListener(SIGNED_IN, signedInAgain);
     eventSource?.close();
     unwatchTheme?.();
   });
@@ -1221,6 +1366,10 @@
   }
   async function save() {
     if (!selectedStack) return;
+    if (selectedStack.listOnly) {
+      toast("This stack's files did not load, so there is nothing safe to save. Open it again.", { kind: 'error' });
+      return;
+    }
     saving = true;
     try {
       const body: Record<string, unknown> = {
@@ -1283,6 +1432,9 @@
         originalDirector = selectedStack!.director ?? '';
         originalMakejail = selectedStack!.makejail ?? '';
         toast('Changes saved', { kind: 'success' });
+        // A secret changed on a stack that has run: its database kept the
+        // old one, and the app may be refused with no other explanation.
+        for (const w of (saved.warnings ?? []) as string[]) toast(w, { kind: 'error', timeout: 20000 });
         // A running container keeps its creation-time config (ports, env) --
         // saved changes only apply on a recreate (`up`), NOT on restart. Flag
         // it so the UI can offer "Apply".
@@ -1306,7 +1458,41 @@
   // output into the terminal drawer.
   // onStart runs once the daemon has accepted the action and begun streaming --
   // for a rollback, the moment its compose is written.
+  // Each run of an action on a stack has a number. One taken while another is
+  // down to its stay-up check ends that check; from then on the older run must
+  // not write into the newer one's output, nor say how the stack ended up.
+  let runSeq: Record<string, number> = {};
+  function newRun(name: string): () => boolean {
+    const run = (runSeq[name] = (runSeq[name] ?? 0) + 1);
+    return () => runSeq[name] === run;
+  }
+  // Read an action's output into the stack's log. At the stay-up check the
+  // actions come back (see watch.ts). Stops when a newer run takes over;
+  // false then.
+  async function readRun(name: string, res: Response, mine: () => boolean): Promise<boolean> {
+    const reader = res.body?.getReader();
+    if (!reader) return mine();
+    const decoder = new TextDecoder('utf-8');
+    while (true) {
+      const { done, value } = await reader.read();
+      if (!mine()) {
+        reader.cancel().catch(() => {});
+        return false;
+      }
+      if (done) return true;
+      logs[name] += decoder.decode(value);
+      if (execStatus[name] === 'running' && watchStarted(logs[name])) {
+        execStatus[name] = 'watching';
+        execMessage[name] = 'Checking it stays up';
+        // fjordd counts the changes applied from here (clearPendingAfter):
+        // the banner goes now, not after the whole check.
+        refreshState(name);
+      }
+    }
+  }
+
   async function streamAction(name: string, action: string, msg: string, body?: unknown, onStart?: () => void) {
+    const mine = newRun(name);
     stopLogs(); // action output goes to the Output tab, not the Logs stream
     // Only steer the drawer for the stack being looked at. Started from the
     // list, or left running while the operator moved on, this forced the tab
@@ -1326,28 +1512,23 @@
           ? { method: 'POST' }
           : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) },
       );
+      if (!mine()) return;
       if (res.ok) onStart?.();
       if (!res.ok) {
+        const why = (await res.text()).trim() || res.statusText;
         execStatus[name] = 'error';
-        execMessage[name] = `HTTP ${res.status}`;
-        logs[name] += `[ERROR]: ${(await res.text()).trim() || res.statusText}\n`;
+        // "pre-flight failed:" alone says nothing; the reason is the next line.
+        execMessage[name] = why.split('\n').map((l) => l.trim()).filter(Boolean).slice(0, 2).join(' ').slice(0, 240) || `HTTP ${res.status}`;
+        logs[name] += `[ERROR]: ${why}\n`;
         return;
       }
-      const reader = res.body?.getReader();
-      if (reader) {
-        const decoder = new TextDecoder('utf-8');
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          logs[name] += decoder.decode(value);
-        }
-      }
+      if (!(await readRun(name, res, mine))) return;
       // A streamed action answers 200 before it knows how it ends, so its
       // outcome is in the output: the daemon marks every failure "[error]".
       // Reading only the status made a failed update look like a success.
       if (/^\[error\]/m.test(logs[name])) {
         execStatus[name] = 'error';
-        execMessage[name] = 'Failed — see Output';
+        execMessage[name] = startError(logs[name]) || 'Failed — see Output';
         if (watching) drawerOpen = true;
       } else {
         execStatus[name] = 'idle';
@@ -1359,8 +1540,9 @@
       // returns. The SSE stream (subscribeEvents) pushes the settle to
       // running/stopped as the containers finish -- no polling needed.
     } catch (err: any) {
+      if (!mine()) return;
       execStatus[name] = 'error';
-      execMessage[name] = 'Failed';
+      execMessage[name] = firstLine(String(err?.message || err)) || 'Failed';
       logs[name] += `[ERROR]: ${err?.message || err}\n`;
     }
   }
@@ -1398,6 +1580,11 @@
           applyStackEvent(JSON.parse(e.data));
         } catch {}
       };
+      // The browser retries a dropped stream by itself, but gives up on an
+      // answer like 401: then the session may have ended.
+      eventSource.onerror = () => {
+        if (eventSource?.readyState === EventSource.CLOSED) checkSession();
+      };
     } catch {}
   }
   // The output of an action this page did not start (another tab, the API,
@@ -1406,7 +1593,7 @@
   // and followed while the stack is busy.
   const followingOutput = new Set<string>();
   async function showActionOutput(name: string) {
-    const streamingHere = () => execStatus[name] === 'running';
+    const streamingHere = () => execStatus[name] === 'running' || execStatus[name] === 'watching';
     if (streamingHere() || followingOutput.has(name)) return;
     followingOutput.add(name);
     try {
@@ -1465,6 +1652,13 @@
   let logsMenuOpen = false;
   $: logsSelected = shellContainers.filter((c) => logsSel[c.name] !== false).map((c) => c.name);
   $: logsAll = shellContainers.length > 0 && logsSelected.length === shellContainers.length;
+  // All, None, or one service alone: following one of ten (crafting-apps)
+  // was nine unticks.
+  function setLogs(pick: (name: string) => boolean) {
+    for (const c of shellContainers) logsSel[c.name] = pick(c.name);
+    logsSel = logsSel;
+    streamLogs(selectedStack!.name);
+  }
 
   async function streamLogs(name: string) {
     logController?.abort();
@@ -1477,7 +1671,7 @@
     const selected = shellContainers.filter((c) => logsSel[c.name] !== false).map((c) => c.name);
     const all = selected.length === shellContainers.length;
     if (shellContainers.length > 1 && selected.length === 0) {
-      containerLogs[name] = '[no services selected]\n';
+      containerLogs[name] = '[no services selected: pick one under Services, or All]\n';
       logStacking = '';
       return;
     }
@@ -1573,16 +1767,43 @@
   };
   $: busyNow = !!selectedStack && (execStatus[selectedStack.name] === 'running' || !!selectedStack.busy);
   // What the Output pane's badge shows: running while this page streams an action or follows another page's.
-  $: termStatus = !selectedStack ? 'idle' : execStatus[selectedStack.name] === 'running' || following[selectedStack.name] ? 'running' : execStatus[selectedStack.name] || 'idle';
+  $: termStatus = (
+    !selectedStack
+      ? 'idle'
+      : ['running', 'watching'].includes(execStatus[selectedStack.name]) || following[selectedStack.name]
+        ? 'running'
+        : execStatus[selectedStack.name] === 'error'
+          ? 'error'
+          : 'idle'
+  ) as 'idle' | 'running' | 'error';
+  // Down to the stay-up check: the actions are back, and say what using one does.
+  $: watchNote = selectedStack && execStatus[selectedStack.name] === 'watching' ? 'Checking it stays up — any action ends the check' : '';
+  // One sentence about the stack, under the actions: what fjord is doing,
+  // else what a container reports (named when the stack has several), else
+  // the missing address, else the engine's lag. In the header's chip row
+  // these stretched it, moved Open about and got cut to "the app keeps crash…".
+  $: containerNote = (() => {
+    const cs = selectedStack?.status?.containers || [];
+    const c = cs.find((x) => x.detail);
+    if (!c) return '';
+    return cs.length > 1 && (c.service || c.name) ? `${c.service || c.name}: ${c.detail}` : c.detail || '';
+  })();
+  $: staleText = selectedStack ? staleNote(selectedStack.status, selectedStack.state?.engine || selectedStack.engine) : '';
+  $: stackNote = busyReason || watchNote || containerNote || noAddress || staleText;
   // Why the actions are greyed, in words: what fjordd is doing to the stack,
   // or what this page started. Grey alone read as broken.
+  // The step itself, when the output names one: the chip up top already
+  // says "Installing…", and a pull took minutes with nothing else to go on.
+  $: busyStepNow = selectedStack && busyNow ? busyStep(logs[selectedStack.name] || '') : '';
   $: busyReason = !selectedStack
     ? ''
-    : selectedStack.busy
-      ? `${BUSY_LABEL[selectedStack.busy] ?? 'Busy…'} — actions come back when it finishes`
-      : execStatus[selectedStack.name] === 'running'
-        ? `${execMessage[selectedStack.name] || 'Working…'} — actions come back when it finishes`
-        : '';
+    : busyStepNow
+      ? `${busyStepNow} — actions come back when it finishes`
+      : selectedStack.busy
+        ? `${BUSY_LABEL[selectedStack.busy] ?? 'Busy…'} — actions come back when it finishes`
+        : execStatus[selectedStack.name] === 'running'
+          ? `${execMessage[selectedStack.name] || 'Working…'} — actions come back when it finishes`
+          : '';
 
   // Stacks with saved-but-unapplied config changes (need a recreate via `up`).
   let needsApply: Record<string, boolean> = {};
@@ -1693,6 +1914,8 @@
       location.hash = '#/stacks';
       await loadStacks();
       toast(`Deleted ${gone}`, { kind: 'success' });
+      // The daemon took its name away too, or it was the proxy itself.
+      setTimeout(loadNames, 1500);
     } catch (e: any) {
       deleting = '';
       toast(`Failed to delete ${name}: ${e.message}`, { kind: 'error' });
@@ -1738,6 +1961,8 @@
     /** service -> built-in mode (host/bridge/none). */
     networkModes?: Record<string, string>;
     choices?: Record<string, string>;
+    /** The name to give it (radarr.apps.lan), once it runs. */
+    givenName?: string;
     accepted?: () => void;
     refused?: (msg: string) => void;
   }>) {
@@ -1751,6 +1976,7 @@
     // the form along with the one that was wrong.
     let key = '';
     let handed = false;
+    let mine = () => true; // this install's run, once it has a stack to write to
     try {
       const res = await fetch('/api/apps/install', {
         method: 'POST',
@@ -1767,6 +1993,10 @@
         return;
       }
       e.detail.accepted?.();
+      // The stack is on disk now: a names provider's row and Open learn its
+      // setup link at once (loadNames keeps looking while it comes up),
+      // not after the install's stay-up check a minute later.
+      loadNames();
       handed = true;
       // A 200 always carries the id. Keyed by a handle if one ever doesn't,
       // so the terminal still has somewhere to write.
@@ -1778,15 +2008,18 @@
       originalDirector = '';
       originalMakejail = '';
       logs[key] = `Installing ${name}...\n`;
+      mine = newRun(key);
       execStatus[key] = 'running';
       execMessage[key] = 'Installing...';
 
       if (!res.ok) {
-        // Saved but not started (taken ports, a refused bring-up). The stack
-        // is real, so land on it with the reason in its output.
+        // Saved but not started (a folder it could not make, a network it
+        // cannot use). Taken ports and addresses are refused before the save
+        // and stay in the wizard. The stack is real, so land on it with the
+        // reason in its output.
         const msg = (await res.text()).trim();
         execStatus[key] = 'error';
-        execMessage[key] = `HTTP ${res.status}`;
+        execMessage[key] = firstLine(msg) || `HTTP ${res.status}`;
         logs[key] += `[ERROR]: ${msg}\n`;
         await loadStacks();
         const saved = stacks.find((s) => s.name === key) || null;
@@ -1812,15 +2045,7 @@
         } catch {}
         loadStacks();
       })();
-      const reader = res.body?.getReader();
-      if (reader) {
-        const decoder = new TextDecoder('utf-8');
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          logs[key] += decoder.decode(value);
-        }
-      }
+      if (!(await readRun(key, res, mine))) return;
       execStatus[key] = 'idle';
       execMessage[key] = '';
       await loadStacks();
@@ -1831,6 +2056,18 @@
       // Store to queue the next one, typically -- back to this page. The
       // stack is saved and its status is live in the list either way.
       if (found && stillWatching(key)) selectStack(found);
+      // A name once it runs, if the wizard asked for one; and a provider
+      // just installed shows Finish setup on its row.
+      const p = await loadNames();
+      if (found && e.detail.givenName && p.ready) {
+        try {
+          const [r] = await addNames([{ stack: found, label: e.detail.givenName }]);
+          if (r?.host) toast(`${name} is at ${r.host.name}.${p.domain}`, { kind: 'success' });
+          else toast(`${name} has no name yet: ${r?.error || `${p.provider} refused it`}`, { kind: 'error' });
+        } catch (err: any) {
+          toast(`${name} has no name yet: ${err?.message || err}`, { kind: 'error' });
+        }
+      }
     } catch (err: any) {
       // Before the hand-off there is no stack and no terminal to write to;
       // the wizard is still up, so the failure belongs in it.
@@ -1838,19 +2075,51 @@
         e.detail.refused?.(err?.message || String(err));
         return;
       }
+      if (!mine()) return;
       execStatus[key] = 'error';
-      execMessage[key] = 'Failed';
+      execMessage[key] = firstLine(String(err?.message || err)) || 'Failed';
       logs[key] += `[ERROR]: ${err?.message || err}\n`;
     }
   }
 </script>
 
+<!-- The app menu beside Open and the + menu close on a click anywhere else.
+     Keys: the table in shortcuts.ts; never while typing in a field. -->
+<svelte:window
+  on:click={(e) => {
+    const t = e.target as HTMLElement;
+    if (linksOpen && !t?.closest?.('.svc-links')) linksOpen = false;
+    if (newOpen && !t?.closest?.('.new-menu')) newOpen = false;
+  }}
+  on:keydown={(e) => {
+    if (typing(e)) return;
+    const s = matchShortcut(e);
+    if (!s) return;
+    if (s.action === 'close') {
+      if (showShortcuts) { showShortcuts = false; e.preventDefault(); }
+      return;
+    }
+    e.preventDefault();
+    if (s.action === 'help') showShortcuts = !showShortcuts;
+    else if (s.action === 'search') (document.getElementById(currentView === 'store' ? 'app-search' : 'stack-search') as HTMLInputElement | null)?.focus();
+    else if (s.action === 'refresh') { loadStacks(); loadNetworks(); loadVolumes(); loadFleetUpdates(); toast('Refreshed'); }
+    else if (s.go) location.hash = s.go;
+  }}
+/>
+{#if showShortcuts}<Shortcuts version={daemonVersion} on:close={() => (showShortcuts = false)} />{/if}
+
 {#if setupOpen}
   <SetupWizard on:done={setupDone} />
 {:else}
 <div class="h-screen flex text-fjord-fg-body overflow-hidden">
-  <!-- Sidebar: stack list (Dockge-style) -->
-  <aside class="shrink-0 bg-fjord-bg flex flex-col" style="width:{sidebarWidth}px">
+  {#if narrow && navOpen}
+    <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+    <div class="fixed inset-0 z-30 bg-black/50" on:click={() => (navOpen = false)}></div>
+  {/if}
+  <!-- Sidebar: stack list (Dockge-style); a drawer on phones -->
+  <aside
+    class="shrink-0 bg-fjord-bg flex flex-col {narrow ? (navOpen ? 'fixed inset-y-0 left-0 z-40 w-[85vw] max-w-xs shadow-2xl border-r border-fjord-border' : 'hidden') : ''}"
+    style={narrow ? '' : `width:${sidebarWidth}px`}>
     <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
     <div
       class="flex items-center gap-2.5 text-xl font-bold tracking-widest text-fjord-fg cursor-pointer px-5 py-4 border-b border-fjord-border"
@@ -1865,17 +2134,37 @@
 
     <div class="p-3 flex gap-2 border-b border-fjord-border">
       <input
+        id="stack-search"
         bind:value={search}
         placeholder="Search stacks…"
         class="flex-1 min-w-0 bg-fjord-card border border-fjord-border rounded-md px-3 py-1.5 text-sm text-fjord-fg-body focus:outline-none focus:border-fjord-accent"
       />
-      <button
-        title="New Stack"
-        on:click={() =>
-          selectStack(newStackDraft())}
-        class="shrink-0 w-9 flex items-center justify-center bg-fjord-accent hover:bg-fjord-accent-hover text-white rounded-md"
-        ><Icon name="plus" /></button
-      >
+      <!-- Every way to add a stack, so Adopt is found where people look. -->
+      <details class="new-menu relative shrink-0" bind:open={newOpen}>
+        <summary
+          title="Add a stack"
+          aria-label="Add a stack"
+          class="list-none cursor-pointer h-full w-9 flex items-center justify-center bg-fjord-accent hover:bg-fjord-accent-hover text-white rounded-md"
+          ><Icon name="plus" /></summary
+        >
+        <div use:fitMenu class="absolute z-30 left-0 mt-1 w-72 bg-fjord-card border border-fjord-border rounded-lg shadow-xl py-1">
+          <button on:click={() => addBy('store')} class="w-full text-left px-3 py-2 hover:bg-fjord-border/50"
+            ><span class="block text-sm font-medium text-fjord-fg-body">Install from the store</span><span class="block text-xs text-fjord-fg-muted"
+              >Pick an app; fjord fills in the rest</span
+            ></button
+          >
+          <button on:click={() => addBy('adopt')} class="w-full text-left px-3 py-2 hover:bg-fjord-border/50"
+            ><span class="block text-sm font-medium text-fjord-fg-body">Adopt existing containers</span><span class="block text-xs text-fjord-fg-muted"
+              >Take over ones started outside fjord</span
+            ></button
+          >
+          <button on:click={() => addBy('new')} class="w-full text-left px-3 py-2 hover:bg-fjord-border/50"
+            ><span class="block text-sm font-medium text-fjord-fg-body">New stack</span><span class="block text-xs text-fjord-fg-muted"
+              >Write the compose file yourself</span
+            ></button
+          >
+        </div>
+      </details>
     </div>
 
     <!-- status filter: only the chips with something in them -->
@@ -2012,7 +2301,9 @@
           {fleetBehindCount} update{fleetBehindCount === 1 ? '' : 's'} available
         </div>
       {/if}
-      {#if filtered.length === 0}
+      {#if !stacksLoaded}
+        <p class="px-4 py-2 text-xs text-fjord-fg-faint italic">{stacksFailed !== null ? 'Stacks did not load.' : 'Loading…'}</p>
+      {:else if filtered.length === 0}
         <p class="px-4 py-2 text-xs text-fjord-fg-faint italic">No stacks{search || stackFilter !== 'all' ? ' match' : ' yet'}.</p>
       {/if}
     </div>
@@ -2069,6 +2360,22 @@
           : 'text-fjord-fg-muted hover:text-fjord-fg'}"><Icon name="settings" size={15} /> Settings</button
       >
     </nav>
+    {#if $auth && $auth !== 'unreachable' && $auth.off}
+      <button
+        on:click={() => {
+          selectStack(null);
+          settingsTab = 'account';
+          currentView = 'settings';
+        }}
+        title="FJORD_AUTH=none: only this host and the proxy in front of it can reach fjord"
+        class="mx-3 mb-2 px-2 py-1.5 rounded-md text-left text-xs text-fjord-warning border border-fjord-warning/40">Sign-in is off</button
+      >
+    {:else if $auth && $auth !== 'unreachable' && $auth.user}
+      <div class="flex items-center gap-2 px-4 pb-1 text-xs text-fjord-fg-dim">
+        <span class="min-w-0 truncate" title="Signed in as {$auth.user}">{$auth.user}</span>
+        <button on:click={signOut} class="ml-auto shrink-0 hover:text-fjord-fg">Sign out</button>
+      </div>
+    {/if}
     <!-- Which fjord this is, where anyone reporting a problem can see it. -->
     {#if daemonVersion}
       <button
@@ -2083,6 +2390,7 @@
   </aside>
 
   <!-- sidebar↔main sash: visible divider, widens + highlights on hover -->
+  {#if !narrow}
   <div
     role="slider"
     aria-orientation="vertical"
@@ -2099,8 +2407,22 @@
   >
     <div class="absolute inset-y-0 -left-1 -right-1 group-hover:bg-fjord-accent/60 transition-colors"></div>
   </div>
+  {/if}
 
-  <main class="relative flex-1 min-w-0 bg-fjord-bg/95 flex flex-col h-screen overflow-hidden pr-8">
+  <main class="relative flex-1 min-w-0 bg-fjord-bg/95 flex flex-col h-screen overflow-hidden {narrow ? '' : 'pr-8'}">
+    {#if narrow}
+      <!-- Phone bar: the menu opens the drawer; the brand goes home. -->
+      <div class="flex items-center gap-2 px-2 py-1.5 border-b border-fjord-border bg-fjord-bg shrink-0">
+        <button on:click={() => (navOpen = true)} aria-label="Menu" class="w-10 h-10 grid place-items-center rounded-md text-fjord-fg-secondary hover:text-fjord-fg hover:bg-fjord-border">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+        </button>
+        <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+        <div class="flex items-center gap-2 text-base font-bold tracking-widest text-fjord-fg cursor-pointer" on:click={() => { selectStack(null); currentView = 'stacks'; }}>
+          <Icon name="mountain" size={18} class="text-fjord-accent" />
+          <span><span class="text-fjord-accent">F</span>JORD</span>
+        </div>
+      </div>
+    {/if}
     <!-- Theme toggle: floats in main's right gutter so it stays top-right in
          every view without colliding with each view's own action row. -->
     <button
@@ -2113,8 +2435,8 @@
     {#if selectedStack}
       <div class="flex flex-col h-full overflow-hidden p-6">
         <!-- Header -->
-        <header class="flex justify-between items-center mb-4 shrink-0">
-          <div class="flex items-center gap-3 min-w-0">
+        <header class="flex justify-between items-center mb-4 shrink-0 flex-wrap gap-y-2">
+          <div class="flex items-center gap-3 min-w-0 flex-wrap gap-y-1">
             {#if editingName}
               <!-- svelte-ignore a11y-autofocus -->
               <input
@@ -2129,7 +2451,7 @@
               />
             {:else}
               <!-- The heading stays a heading; the rename is a button inside it. -->
-              <h2 class="text-2xl font-semibold text-fjord-fg truncate">
+              <h2 class="shrink-0 max-w-[16rem] text-2xl font-semibold text-fjord-fg truncate">
                 <button
                   on:click={() => { editingName = true; nameEdit = label(selectedStack); }}
                   title="Click to rename (id: {selectedStack.name})"
@@ -2145,26 +2467,19 @@
                 ? BUSY_LABEL[selectedStack.busy] ?? 'Busy…'
                 : statusLabel(selectedStack.status)}</span
             >
-            {#if staleNote(selectedStack.status, selectedStack.state?.engine || selectedStack.engine)}
-              <span
-                class="shrink-0 text-xs text-fjord-fg-dim"
-                title="The engine did not answer in time -- usually a pull writing an image to disk. The state updates as soon as it answers."
-                >{staleNote(selectedStack.status, selectedStack.state?.engine || selectedStack.engine)}</span
-              >
-            {/if}
-            {#each (selectedStack.status?.containers || []).filter((c) => c.detail) as c}
-              <span class="shrink-0 text-xs text-fjord-warning truncate" title={c.name}>{c.detail}</span>
-            {/each}
+            <!-- Chips only up here. What the engine or a container has to say
+                 is the status line under the actions (stackNote). -->
             {#if selectedStack.state?.engine}
               <span class="shrink-0 flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-fjord-bg border border-fjord-border text-fjord-fg-muted" title="Runtime engine"
                 ><EngineMark engine={selectedStack.state.engine} size={12} strokeWidth={2.25} />{selectedStack.state.engine}</span
               >
             {/if}
             {#if noAddress}
+              <!-- Open stays where it is, greyed: the reason is the status line. -->
               <span
-                class="shrink-0 flex items-center gap-1 text-sm text-fjord-fg-muted"
-                title="A stack on its own IP publishes nothing on the host, so there is no link to open until the network gives it an address."
-                ><Icon name="external" size={13} /> {noAddress}</span
+                class="shrink-0 flex items-center gap-1 text-sm font-medium text-fjord-accent opacity-40"
+                title="A stack on its own IP publishes nothing on the host, so there is no link to open until the network gives it an address. {noAddress}"
+                ><Icon name="external" size={13} /> Open</span
               >
             {/if}
             {#if openUrl}
@@ -2173,13 +2488,63 @@
                 target="_blank"
                 rel="noreferrer"
                 title="Open {openUrl}"
-                class="shrink-0 flex items-center gap-1 text-sm font-medium text-fjord-accent hover:text-fjord-accent-hover hover:underline {statusLabel(
+                class="min-w-0 flex items-center gap-1 text-sm font-medium text-fjord-accent hover:text-fjord-accent-hover hover:underline {statusLabel(
                   selectedStack.status,
                 ) === 'running'
                   ? ''
-                  : 'opacity-40 pointer-events-none'}"><Icon name="external" size={13} /> Open</a
+                  : 'opacity-40 pointer-events-none'}"
+                ><Icon name="external" size={13} /> Open
+                <!-- where it goes, as the dashboard shows it: the name once the
+                     app has one, so the name is in sight, not only in the ▾ -->
+                <span class="min-w-0 max-w-64 truncate font-mono font-normal text-fjord-fg-secondary">{openUrl.replace(/^https?:\/\//, '').replace(/[#?].*$/, '').replace(/\/$/, '')}</span></a
               >
+              {#if openByName && statusLabel(selectedStack.status) === 'running'}<TrustMark {stacks} size={13} />{/if}
+              <OpenMenu stack={selectedStack} disabled={statusLabel(selectedStack.status) !== 'running'} />
+              <LoginButton stack={selectedStack.name} />
             {/if}
+            {#if openUrl && links.length > 1}
+              <details
+                class="svc-links relative shrink-0 {statusLabel(selectedStack.status) === 'running' ? '' : 'opacity-40 pointer-events-none'}"
+                bind:open={linksOpen}
+              >
+                <summary
+                  class="list-none cursor-pointer text-sm font-medium text-fjord-accent hover:text-fjord-accent-hover"
+                  title="Open another of this stack's {links.length} apps">▾ {links.length}</summary
+                >
+                <div use:fitMenu class="absolute z-30 left-0 mt-1 min-w-72 bg-fjord-card border border-fjord-border rounded-lg shadow-xl py-1">
+                  {#each links as l}
+                    <a
+                      href={l.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      on:click={() => (linksOpen = false)}
+                      class="flex items-center justify-between gap-4 px-3 py-1.5 text-sm hover:bg-fjord-border/50"
+                      ><span class="flex items-center gap-2 font-medium text-fjord-fg-body"
+                        >{#if linkIcon(l.service)}<img src={linkIcon(l.service)} alt="" class="w-4 h-4 rounded object-contain" />{:else}<span
+                            class="w-4 h-4"
+                          ></span>{/if}{l.service}</span
+                      ><span class="font-mono text-xs text-fjord-fg-muted"
+                        >{l.url.replace(/^https?:\/\//, '')}</span
+                      ></a
+                    >
+                  {/each}
+                </div>
+              </details>
+            {/if}
+            <!-- The restart policy rewrites the compose on the server: with
+                 unsaved edits open it would replace them, so it waits. -->
+            <RestartPolicy
+              name={selectedStack.name}
+              restart={selectedStack.restart}
+              disabled={busyNow || isDirty}
+              reason={busyReason || (isDirty ? 'Save or discard your edits first' : '')}
+              on:changed={async () => {
+                const name = selectedStack!.name;
+                applyDismissed[name] = false;
+                await selectStack({ name } as Stack);
+                await loadStacks();
+              }}
+            />
             <input
               list="fjord-groups"
               value={selectedStack.state?.group ?? ''}
@@ -2507,12 +2872,17 @@
           <div
             class="flex items-center gap-3 mb-4 shrink-0 px-4 py-2.5 rounded-lg bg-fjord-warning/10 border border-fjord-warning/25 text-sm text-fjord-fg-body"
           >
-            <span class="flex-1"
-              >The running containers still use the old configuration — apply the saved changes to recreate them.</span
-            >
+            <span class="flex-1">
+              {#if execStatus[selectedStack.name] === 'error' && execMessage[selectedStack.name]}
+                <span class="text-fjord-danger font-medium">Couldn't apply:</span> {execMessage[selectedStack.name]}
+                <span class="block text-xs text-fjord-fg-dim mt-0.5">The running services still use the old configuration. The Output below has the whole message.</span>
+              {:else}
+                The running services still use the old configuration — apply the saved changes to recreate them.
+              {/if}
+            </span>
             <button
               on:click={() => { needsApply[selectedStack!.name] = false; applyDismissed[selectedStack!.name] = true; }}
-              title="Keep the running containers as-is; the saved config applies next time you Start/recreate"
+              title="Keep the running services as they are; the saved changes apply the next time the stack starts"
               class="shrink-0 px-3 py-1.5 rounded-lg text-sm font-medium text-fjord-fg-muted hover:text-fjord-fg transition-colors"
               >Not now</button
             >
@@ -2521,7 +2891,7 @@
               disabled={busyNow}
               title={busyReason || undefined}
               class="shrink-0 px-3 py-1.5 rounded-lg text-sm font-medium bg-fjord-warning/15 text-fjord-warning border border-fjord-warning/40 hover:bg-fjord-warning/25 transition-colors disabled:opacity-40"
-              >Apply Changes</button
+              >{execStatus[selectedStack.name] === 'error' ? 'Try again' : 'Apply Changes'}</button
             >
           </div>
         {/if}
@@ -2592,8 +2962,13 @@
               ><Icon name="pin" size={12} /> Pinned</span
             >
           {/if}
-          {#if busyReason}
-            <span class="text-xs text-fjord-fg-dim">{busyReason}</span>
+          {#if stackNote}
+            <span
+              class="min-w-0 truncate text-xs {stackNote === containerNote ? 'text-fjord-warning' : 'text-fjord-fg-dim'}"
+              title={stackNote === staleText
+                ? 'The engine did not answer in time -- usually a pull writing an image to disk. The state updates as soon as it answers.'
+                : stackNote}>{stackNote}</span
+            >
           {/if}
           <div class="flex-1"></div>
           <div class="relative">
@@ -2623,7 +2998,7 @@
                     actionsMenuOpen = false;
                     pendingAction = { kind: 'recreate', stack: selectedStack!.name };
                   }}
-                  title="Pull every image and recreate every container, even ones already up to date"
+                  title="Pull every image and recreate every service, even ones already up to date"
                   class="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-fjord-fg-body hover:bg-fjord-border transition-colors"
                   ><Icon name="update" size={14} class="text-fjord-fg-muted" /> Pull &amp; recreate all…</button
                 >
@@ -2660,6 +3035,8 @@
           </div>
         </div>
         {/if}
+
+        <NamesPrompt stack={selectedStack} {stacks} />
 
         <!-- Editor + tabs -->
         <div class="flex-1 flex flex-col bg-fjord-card border border-fjord-border rounded-xl shadow-xl overflow-hidden min-h-0">
@@ -2755,6 +3132,7 @@
                     <VarsPanel
                       text={varsFile}
                       env={selectedStack.env ?? ''}
+                      builtins={selectedStack.director ? { PWD: selectedStack.dir } : {}}
                       bind:focus={varsFocus}
                       on:set={(e) => setStackVar(e.detail.name, e.detail.value)}
                       on:close={() => (varsPanelOpen = false)}
@@ -2771,6 +3149,25 @@
               />
             {:else if activeTab === 'env'}
               <div class="h-full flex flex-col">
+                {#if unusedEnv.length}
+                  {@const portsOnly = (selectedStack as any).ownAddress && unusedEnv.every((n) => /PORT$/.test(n))}
+                  <div class="shrink-0 flex items-center gap-3 px-4 py-2 text-xs bg-fjord-card border-b border-fjord-border text-fjord-fg-secondary">
+                    <span class="flex-1">
+                      <span class="font-mono text-fjord-fg-body">{unusedEnv.join(', ')}</span>
+                      {unusedEnv.length === 1 ? 'is' : 'are'} not used by this stack{#if portsOnly}:
+                        it has its own address on {(selectedStack as any).network}, so nothing is published on this host's
+                        ports, and the app answers on its own port there{:else}, so changing {unusedEnv.length === 1 ? 'it' : 'them'} has no effect{/if}.
+                    </span>
+                    {#if !portsOnly && !selectedStack.director}
+                      <button
+                        on:click={passUnusedEnv}
+                        title="Add {unusedEnv.map((n) => `${n}=\${${n}}`).join(', ')} to the app's environment in the compose"
+                        class="shrink-0 px-2.5 py-1 rounded-lg font-medium bg-fjord-border hover:bg-fjord-accent hover:text-white transition-colors"
+                        >Pass {unusedEnv.length === 1 ? 'it' : 'them'} to the app</button
+                      >
+                    {/if}
+                  </div>
+                {/if}
                 {#if unsetVars.length}
                   <div class="shrink-0 flex items-center gap-3 px-4 py-2 text-xs bg-fjord-warning/10 border-b border-fjord-warning/30 text-fjord-fg-body">
                     <span class="flex-1">
@@ -2820,6 +3217,7 @@
                 {/if}
                 <ServiceResources
                   services={selectedStack.services ?? []}
+                  iconOf={(image) => serviceIcon($imageIcons, image)}
                   oneBridgePerService={(selectedStack.state?.engine || selectedStack.engine || defaultEngine) === 'appjail'}
                   bridgeAlone={(selectedStack.state?.engine || selectedStack.engine || defaultEngine) === 'appjail'}
                   updates={svcUpdates}
@@ -2828,7 +3226,7 @@
                   on:openUpdate={() => openUpdatePanel(selectedStack!.name)}
                   on:rollback={(e) => rollback(selectedStack!.name, e.detail)}
                   on:unpin={(e) => unpin(selectedStack!.name, e.detail)}
-                  versionable={!selectedStack.director}
+                  versionable={!selectedStack.director || (!!updateInfo?.pinServices && !!selectedStack.compose?.trim())}
                   on:version={(e) =>
                     (changeVersion = {
                       name: selectedStack!.name,
@@ -2849,7 +3247,8 @@
                   on:unmount={(e) => removeMount(e.detail)}
                   on:add={(e) => addMount(e.detail)}
                   on:remote={(e) => addRemoteMount(e.detail)}
-                  on:folderset={(e) => addFolderSet(e.detail.service, e.detail.id, e.detail.dest, e.detail.readOnly)}
+                  on:folderset={(e) => addFolderSet(e.detail.service, e.detail.id, e.detail.dest, e.detail.readOnly, e.detail.options)}
+                  on:mountoptions={(e) => setMountOptions(e.detail)}
                   on:browse={() => (pickingMount = true)}
                   on:openAdd={(e) => { addingTo = e.detail; addSource = ''; }}
                   on:closeAdd={() => { addingTo = ''; addSource = ''; }}
@@ -2920,8 +3319,12 @@
                     <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
                     <div class="fixed inset-0 z-20" on:click={() => (logsMenuOpen = false)}></div>
                     <div class="absolute z-30 top-full left-0 mt-1 bg-fjord-card border border-fjord-border rounded-lg shadow-2xl p-2 min-w-48">
+                      <div class="flex items-center gap-3 px-1.5 pb-1.5 mb-1 border-b border-fjord-border text-xs">
+                        <button on:click={() => setLogs(() => true)} disabled={logsAll} class="text-fjord-accent hover:underline disabled:text-fjord-fg-faint disabled:no-underline">All</button>
+                        <button on:click={() => setLogs(() => false)} disabled={logsSelected.length === 0} class="text-fjord-accent hover:underline disabled:text-fjord-fg-faint disabled:no-underline">None</button>
+                      </div>
                       {#each shellContainers as c}
-                        <label class="flex items-center gap-2 px-1.5 py-1 rounded text-xs text-fjord-fg-secondary cursor-pointer hover:bg-fjord-border/50 hover:text-fjord-fg select-none">
+                        <label class="group flex items-center gap-2 px-1.5 py-1 rounded text-xs text-fjord-fg-secondary cursor-pointer hover:bg-fjord-border/50 hover:text-fjord-fg select-none">
                           <input
                             type="checkbox"
                             checked={logsSel[c.name] !== false}
@@ -2932,7 +3335,12 @@
                             }}
                             class="accent-fjord-accent"
                           />
-                          <span class="font-mono">{serviceLabel(selectedStack.name, c.name)}</span>
+                          <span class="font-mono flex-1">{serviceLabel(selectedStack.name, c.name)}</span>
+                          <button
+                            on:click|preventDefault|stopPropagation={() => setLogs((n) => n === c.name)}
+                            title="Show only {serviceLabel(selectedStack.name, c.name)}"
+                            class="opacity-0 group-hover:opacity-100 focus:opacity-100 text-[11px] text-fjord-accent hover:underline">only</button
+                          >
                         </label>
                       {/each}
                     </div>
@@ -2950,7 +3358,7 @@
                 <select
                   value={shellContainer}
                   on:change={(e) => (shellPick = e.currentTarget.value)}
-                  title="Container to open a shell in"
+                  title="Service to open a shell in"
                   class="ml-1 bg-fjord-bg border border-fjord-border rounded px-2 py-0.5 text-[11px] text-fjord-fg-secondary font-mono focus:outline-none focus:border-fjord-accent"
                 >
                   {#each shellContainers as c}
@@ -3009,45 +3417,48 @@
       </div>
     {:else if currentView === 'store'}
       <div class="p-6 h-full overflow-hidden">
-        <AppStore on:install={handleInstall} />
+        <AppStore stackIds={stacks.map((s) => s.name)} on:install={handleInstall} />
       </div>
     {:else if currentView === 'volumes'}
       <div class="p-6 h-full overflow-hidden">
-        <Volumes />
+        {#key viewEpoch}<Volumes />{/key}
       </div>
     {:else if currentView === 'networks'}
       <div class="p-6 h-full overflow-hidden">
-        <Networks />
+        {#key viewEpoch}<Networks />{/key}
       </div>
     {:else if currentView === 'adopt'}
       <div class="p-6 h-full overflow-hidden">
-        <Adopt
+        {#key viewEpoch}<Adopt
           on:back={() => (currentView = 'stacks')}
           on:adopted={async (e) => {
             await loadStacks();
-            if (e.detail) {
-              const st = stacks.find((x) => x.name === e.detail);
+            if (e.detail.id) {
+              const st = stacks.find((x) => x.name === e.detail.id);
               if (st) {
                 await selectStack(st);
-                up(st.name);
+                if (e.detail.start) up(st.name);
               }
             }
           }}
-        />
+        />{/key}
       </div>
     {:else if currentView === 'system'}
       <div class="p-6 h-full overflow-hidden">
-        <System />
+        {#key viewEpoch}<System />{/key}
       </div>
     {:else if currentView === 'settings'}
       <div class="p-6 h-full overflow-hidden">
-        <Settings tab={settingsTab} on:tab={(e) => (settingsTab = e.detail)} />
+        {#key viewEpoch}<Settings tab={settingsTab} on:tab={(e) => (settingsTab = e.detail)} />{/key}
       </div>
     {:else}
       <!-- Default landing: dashboard overview of all stacks -->
       <div class="p-6 h-full overflow-hidden">
         <Dashboard
           {stacks}
+          loaded={stacksLoaded}
+          failed={stacksFailed}
+          on:retry={loadStacks}
           {fleet}
           {fleetRefreshing}
           on:store={() => {
@@ -3139,7 +3550,7 @@
       </div>
       <div>
         <h3 class="text-lg font-bold text-fjord-fg">Deleting {deleting}</h3>
-        <p class="text-sm text-fjord-fg-muted mt-1">Stopping and removing its containers. This can take a few seconds…</p>
+        <p class="text-sm text-fjord-fg-muted mt-1">Stopping and removing its services. This can take a few seconds…</p>
       </div>
     </div>
   </div>

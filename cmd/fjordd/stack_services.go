@@ -48,6 +48,11 @@ type serviceVolume struct {
 	Name     string `json:"name,omitempty"` // the volume's name, when it has one
 	Kind     string `json:"kind,omitempty"` // bind | volume
 	ReadOnly bool   `json:"readOnly,omitempty"`
+	// Options are all of the mount's options, ro included ("ro", "z").
+	Options []string `json:"options,omitempty"`
+	// SELinux is the folder's SELinux type when SELinux will refuse it to the
+	// container ("user_home_t"), so the page can offer :z where the mount is.
+	SELinux string `json:"selinux,omitempty"`
 }
 
 // stackServices describes every service of a stack. Director stacks are read
@@ -98,7 +103,7 @@ func composeServiceViews(st *stack.Stack) []serviceView {
 		}
 		for _, m := range svc.Volumes {
 			v.Volumes = append(v.Volumes, serviceVolume{
-				Source: m.Source, Name: m.Name, Dest: m.Dest, ReadOnly: m.ReadOnly,
+				Source: m.Source, Name: m.Name, Dest: m.Dest, ReadOnly: m.ReadOnly, Options: m.Options,
 				Kind: mountKind(m.Source + m.Name)})
 		}
 		out = append(out, v)
@@ -302,6 +307,11 @@ func attachStatus(views []serviceView, status engine.StackStatus) {
 				}
 				views[i].Live[a.Network] = addr
 			}
+		}
+		// An engine with one address per container (a jail) and a service on
+		// one network: that address is its address there.
+		if views[i].Live == nil && len(views[i].Networks) == 1 && c.Address != "" {
+			views[i].Live = map[string]string{views[i].Networks[0].Network: c.Address}
 		}
 		// One address for the service, and it should be the one that is any
 		// use. The engine reports whichever it resolved first, which for

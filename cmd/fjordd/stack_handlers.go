@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -8,9 +9,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -112,10 +115,14 @@ func (s *server) handleStacksList(w http.ResponseWriter, r *http.Request) {
 			nameIfaces(atts)
 		}
 		svcs := stackServices(st, status)
+		// The list is every stack at once: it carries what links and tags
+		// need from .env, not the passwords (the stack's own page has them).
+		st.Env = redactSecrets(st.Env)
 		row := stackWithStatus{Stack: st, Status: status, Networks: atts, Busy: busyWith(st.Name),
 			NetworkMode: composepkg.NetworkMode(st.Compose),
 			Services:    svcs,
-			LinkHost:    linkHost(svcs, ownAddress)}
+			LinkHost:    linkHost(svcs, ownAddress),
+			Restart:     s.restartViewOf(st)}
 		// The legacy single-network fields. With per-service networking they
 		// are an arbitrary pick among several, so nothing new should read them
 		// -- Services carries the truth, and LinkHost the one answer the UI
@@ -133,14 +140,15 @@ func (s *server) handleStacksList(w http.ResponseWriter, r *http.Request) {
 // ownAddress reports whether a network gives a container an address of its
 // own on a real segment, rather than one behind the host's NAT.
 //
-// The network's own definition says which: an epair puts the container on the
-// bridge's segment, any other driver is a bridge the runtime NATs. Guessing
+// The network's own definition says which: an epair (FreeBSD) or a macvlan
+// (Linux) puts the container on the LAN's segment, any other driver is a
+// bridge the runtime NATs. Guessing
 // from "is it attached" gets a private network wrong -- it is attached, and
 // its 10.x address is no more reachable from a browser than the default
 // bridge's is.
 func ownAddress(network string) bool {
 	def, ok := hostnet.Get(network)
-	return ok && def.Type == "epair"
+	return ok && (def.Type == "epair" || def.Type == "macvlan")
 }
 
 // nameIfaces fills in what a container will call each interface. podman numbers
@@ -195,6 +203,9 @@ func (s *server) handleStackRoutes(w http.ResponseWriter, r *http.Request) {
 		case "delete-preview":
 			s.stackDeletePreview(w, parts[0])
 			return
+		case "login":
+			s.stackLogin(w, r, parts[0])
+			return
 		}
 	}
 	if len(parts) != 2 || r.Method != http.MethodPost {
@@ -213,6 +224,8 @@ func (s *server) handleStackRoutes(w http.ResponseWriter, r *http.Request) {
 		s.stackRename(w, r, name)
 	case "policy":
 		s.stackPolicy(w, r, name)
+	case "restart-policy":
+		s.stackRestart(w, r, name)
 	case "rollback":
 		s.stackRollback(w, r, name)
 	case "unpin":
@@ -245,6 +258,7 @@ func (s *server) stackDetail(w http.ResponseWriter, r *http.Request, name string
 		nameIfaces(atts)
 	}
 	svcs := stackServices(st, status)
+	s.markSELinux(svcs)
 	net, ip, mac := "", "", ""
 	own := false
 	if len(atts) > 0 {
@@ -261,6 +275,7 @@ func (s *server) stackDetail(w http.ResponseWriter, r *http.Request, name string
 		// What it was on before the mode, so the picker can offer it back
 		// rather than making the user retype addresses that are still here.
 		StashedNetworks: composepkg.StashedNetworks(st.Compose),
+		Restart:         s.restartViewOf(st),
 	})
 }
 
@@ -276,13 +291,41 @@ func (s *server) stackDetail(w http.ResponseWriter, r *http.Request, name string
 func (s *server) stackDelete(w http.ResponseWriter, name string, data bool) {
 	unlock, ok := lockStackAs(name, "deleting")
 	if !ok {
-		http.Error(w, "another operation is already running on this stack; wait for it to finish", http.StatusConflict)
+		http.Error(w, anotherOperation(name), http.StatusConflict)
 		return
 	}
 	defer unlock()
+	if code, msg := s.removeStack(name, data); code != 0 {
+		http.Error(w, msg, code)
+		return
+	}
+	s.forgetNamesAfterDelete(name)
+	w.Header().Set("Content-Type", "application/json")
+	w.Write([]byte(`{"status":"deleted"}`))
+}
+
+// desiredDeleting marks a stack whose delete has begun. A fjordd restart
+// part way through used to leave it "running", and start-on-boot brought it
+// back up; startOnBoot finishes the delete instead.
+const desiredDeleting = "deleting"
+
+// removeStack tears a stack down and removes it, with its app data when data
+// is set. The caller holds the stack's lock. Returns an HTTP status and
+// message on failure, 0 when it is gone.
+func (s *server) removeStack(name string, data bool) (int, string) {
 	var be engine.Backend
 	if st, err := s.manager.Get(name); err == nil {
+		if err := s.manager.SetDesiredState(name, desiredDeleting); err != nil {
+			log.Printf("delete %s: record deleting: %v", name, err)
+		}
+		// Not deleted after all: it is down, so it stays down.
+		keep := func() {
+			if err := s.manager.SetDesiredState(name, "stopped"); err != nil {
+				log.Printf("delete %s: record stopped: %v", name, err)
+			}
+		}
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
 		be = s.backendFor(st)
 		if stream, err := be.Down(ctx, st); err == nil {
 			io.Copy(io.Discard, stream) // block until teardown finishes
@@ -296,39 +339,41 @@ func (s *server) stackDelete(w http.ResponseWriter, name string, data bool) {
 				}
 			}
 			if len(alive) > 0 {
-				cancel()
-				http.Error(w, "not deleted: containers are still up after the stop attempt -- "+strings.Join(alive, ", ")+". Check Output/Logs, stop them, then delete again.", http.StatusConflict)
-				return
+				keep()
+				return http.StatusConflict, "not deleted: containers are still up after the stop attempt -- " + strings.Join(alive, ", ") + ". Check Output/Logs, stop them, then delete again."
 			}
 		}
 		if data {
 			for _, d := range s.planDelete(ctx, st).AppData {
 				if err := os.RemoveAll(d.Path); err != nil {
-					cancel()
-					http.Error(w, "not deleted: could not remove its app data "+d.Path+": "+err.Error()+
-						" -- the stack is stopped and still listed; fix that and delete again", 500)
-					return
+					keep()
+					return 500, "not deleted: could not remove its app data " + d.Path + ": " + err.Error() +
+						" -- the stack is stopped and still listed; fix that and delete again"
 				}
 				log.Printf("delete %s: removed app data %s", name, d.Path)
 			}
+			// Its secrets went with the data when they were kept in it; kept
+			// apart now (review 1.4), they go when its folder does.
+			for _, loc := range s.appDataLocations() {
+				dir := filepath.Join(loc, name)
+				if _, err := os.Stat(dir); errors.Is(err, fs.ErrNotExist) {
+					os.Remove(secretsPath(s.fjordRoot, dir))
+				}
+			}
 		}
-		cancel()
 	}
 	if err := s.manager.Delete(name); err != nil {
 		if os.IsNotExist(err) {
-			http.Error(w, "Stack not found", 404)
-		} else {
-			http.Error(w, err.Error(), 500)
+			return 404, "Stack not found"
 		}
-		return
+		return 500, err.Error()
 	}
 	log.Printf("delete %s", name)
 	if be != nil {
 		s.dropPrivateNetwork(be, name)
 	}
 	s.fleet.forget(name) // no lingering "update available" for a gone stack
-	w.Header().Set("Content-Type", "application/json")
-	w.Write([]byte(`{"status":"deleted"}`))
+	return 0, ""
 }
 
 // stackRename sets a stack's display name -- an instant metadata edit. The
@@ -479,7 +524,7 @@ func (s *server) stackChanges(w http.ResponseWriter, r *http.Request, name strin
 		// Auto is what auto-update would do with this, under the stack's
 		// policy -- shown, not acted on, until the scheduler exists.
 		Auto updates.Verdict `json:"auto"`
-	}{diff, class, s.verdict(st, sv.Name, class, candidateKey(up.State, sv.Image, up.Latest, up.NewTag))})
+	}{diff, class, s.verdict(st, sv.Name, sv.Image, class, candidateKey(up.State, sv.Image, up.Latest, up.NewTag))})
 }
 
 // platformOf is this host's manifest inside an index, or the digest itself
@@ -527,10 +572,10 @@ func (s *server) stackSave(w http.ResponseWriter, r *http.Request, name string) 
 	// the copy it loaded. Saving that copy put the old image straight back:
 	// a rollback of zensical was undone by two Saves during its health watch.
 	// So a save must say which version it edited, and a stale one is refused.
+	// Checked here, before the slow part, and again as it writes (below).
 	if payload.BaseHash != "" {
 		if existing, err := s.manager.Get(name); err == nil && composeHash(existing) != payload.BaseHash {
-			http.Error(w, name+"'s compose changed on the server since you opened it (a rollback, version change or "+
-				"another tab). Reload to see it -- copy your edits first, reloading replaces them.", http.StatusConflict)
+			replyErr(w, changedSinceOpened(name))
 			return
 		}
 	}
@@ -634,7 +679,11 @@ func (s *server) stackSave(w http.ResponseWriter, r *http.Request, name string) 
 		// separate addresses. Install rewrites these; save did not, so moving
 		// a stack off the host's stack left DB_HOSTNAME=localhost and the app
 		// came up unable to reach its own database.
-		payload.Env = rewriteHostnames(payload.Env, s.appHostnames(r.Context(), name), atts, modes)
+		nameOf := func(svc string) string { return svc }
+		if eng == "appjail" {
+			nameOf = func(svc string) string { return directorJailName(name, svc) }
+		}
+		payload.Env = rewriteHostnames(payload.Env, s.appHostnames(r.Context(), name), atts, modes, nameOf)
 	}
 	// A director stack's networking is the director's, and nothing was
 	// regenerating it on save: the Resources tab edited a compose appjail does
@@ -666,6 +715,9 @@ func (s *server) stackSave(w http.ResponseWriter, r *http.Request, name string) 
 		if err == nil && len(payload.NetworkModes) > 0 {
 			directorYML, err = setDirectorModes(directorYML, payload.NetworkModes)
 		}
+		if err == nil {
+			directorYML, err = setDirectorResolv(r.Context(), directorYML, existing.Dir)
+		}
 		if err != nil {
 			http.Error(w, "network attach: "+err.Error(), 400)
 			return
@@ -673,7 +725,7 @@ func (s *server) stackSave(w http.ResponseWriter, r *http.Request, name string) 
 	}
 
 	if payload.Volume != "" {
-		attached, err := composepkg.AttachVolume(composeYAML, composepkg.FirstService, payload.Volume, payload.VolumePath, payload.VolumeRO)
+		attached, err := composepkg.AttachVolume(composeYAML, composepkg.FirstService, payload.Volume, payload.VolumePath, composepkg.WithReadOnly(nil, payload.VolumeRO))
 		if err != nil {
 			http.Error(w, "volume attach: "+err.Error(), 400)
 			return
@@ -684,8 +736,12 @@ func (s *server) stackSave(w http.ResponseWriter, r *http.Request, name string) 
 	st := &stack.Stack{Name: name, Compose: composeYAML, Env: payload.Env}
 	created := false
 	var oldCompose, oldEnv string
+	base := payload.BaseHash // what this save edited; else what it read here
 	if existing, err := s.manager.Get(name); err == nil {
 		oldCompose, oldEnv = existing.Compose, existing.Env
+		if base == "" {
+			base = composeHash(existing)
+		}
 		existing.Compose = composeYAML
 		existing.Env = payload.Env
 		if existing.Director != "" {
@@ -717,12 +773,28 @@ func (s *server) stackSave(w http.ResponseWriter, r *http.Request, name string) 
 	}
 	// Refused here too, not only at start: said while the address is being
 	// typed, rather than the next time the stack comes up.
-	if c := clashes(st, s.takenAddresses(r.Context(), st.Name)); len(c) > 0 {
+	if c := clashes(st, s.takenAddresses(r.Context(), st.Name), fixOnStackPage); len(c) > 0 {
 		http.Error(w, "not saved: "+strings.Join(c, "; "), 409)
 		return
 	}
-	if err := s.manager.Save(st); err != nil {
-		http.Error(w, err.Error(), 500)
+	save := s.manager.Save
+	if !created {
+		// The address check and the network plan above take time; a rollback,
+		// version change or restart policy written meanwhile is not undone.
+		save = func(st *stack.Stack) error {
+			return s.manager.Replace(st, func(cur *stack.Stack) error {
+				if composeHash(cur) != base {
+					return changedSinceOpened(name)
+				}
+				return nil
+			})
+		}
+	}
+	if err := save(st); err != nil {
+		if errors.Is(err, stack.ErrDeleting) {
+			err = httpError{http.StatusConflict, name + " is being deleted; not saved"}
+		}
+		replyErr(w, err)
 		return
 	}
 	// Save has just written the director; the templates it references need
@@ -753,15 +825,16 @@ func (s *server) stackSave(w http.ResponseWriter, r *http.Request, name string) 
 	if !created && st.Director == "" {
 		s.recordPending(name, composepkg.ChangedServices(oldCompose, envMap(oldEnv), st.Compose, st.EnvMap()))
 	}
-	// Bind a new stack to its chosen engine (only if that engine is registered;
-	// unset means podman). Existing stacks keep theirs -- switching runtimes is
-	// a recreate, not an edit.
-	if created && payload.Engine != "" {
-		if _, ok := s.backend(payload.Engine); !ok {
-			http.Error(w, "unknown engine "+payload.Engine, 400)
+	// Bind a new stack to its chosen engine, or the default when none was
+	// named. Existing stacks keep theirs -- switching runtimes is a recreate,
+	// not an edit. Left unbound, nothing maps "" to an engine: every start
+	// failed with "no container engine is available on this host".
+	if eng := cmp.Or(payload.Engine, s.defaultEngine()); created && eng != "" {
+		if _, ok := s.backend(eng); !ok {
+			http.Error(w, "unknown engine "+eng, 400)
 			return
 		}
-		if err := s.manager.SetEngine(name, payload.Engine); err != nil {
+		if err := s.manager.SetEngine(name, eng); err != nil {
 			log.Printf("save %s: set engine: %v", name, err)
 		}
 	}
@@ -775,11 +848,38 @@ func (s *server) stackSave(w http.ResponseWriter, r *http.Request, name string) 
 		hash = composeHash(saved)
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "saved", "composeHash": hash})
+	resp := map[string]any{"status": "saved", "composeHash": hash}
+	if oldEnv != "" {
+		if st, err := s.manager.Get(name); err == nil {
+			secrets := s.secretVars(r.Context(), st)
+			var baseline map[string]string
+			if len(secrets) > 0 {
+				s.manager.UpdateState(name, func(state *stack.State) *stack.State {
+					if state == nil {
+						return nil
+					}
+					baseline = secretBaseline(state.SecretSums, envMap(oldEnv), secrets)
+					state.SecretSums = baseline
+					return state
+				})
+			}
+			hasRun := len(s.live.get(s.backendFor(st), st, statusWait).Containers) > 0
+			if warns := secretChangeWarnings(baseline, st.EnvMap(), secrets, hasRun); len(warns) > 0 {
+				resp["warnings"] = warns
+			}
+		}
+	}
+	json.NewEncoder(w).Encode(resp)
 }
 
 // composeHash identifies what a stack's runtime spec says: the compose, and
 // the director spec when there is one (a rollback can rewrite either).
+// changedSinceOpened refuses a save whose base is not the stack on disk.
+func changedSinceOpened(name string) httpError {
+	return httpError{http.StatusConflict, name + "'s compose changed on the server since you opened it (a rollback, " +
+		"version change or another tab). Reload to see it -- copy your edits first, reloading replaces them."}
+}
+
 func composeHash(st *stack.Stack) string {
 	sum := sha256.Sum256([]byte(st.Compose + "\x00" + st.Director))
 	return hex.EncodeToString(sum[:8])
@@ -808,11 +908,11 @@ func (s *server) stackSetTag(w http.ResponseWriter, r *http.Request, name string
 		return
 	}
 	if body.Service != "" {
-		// A director stack's jails read the tag from the director file, which
-		// has no per-service form here; retagging the compose alone would
-		// show one version and run another.
-		if st.Director != "" {
-			http.Error(w, "an appjail stack changes version for the whole stack", 400)
+		// A director service the compose does not name -- bundles call a
+		// sidecar authelia-redis where the compose says redis, and the page
+		// lists the director's names: its version goes to the director.
+		if st.Director != "" && composeImage(st.Compose, body.Service) == "" {
+			s.directorSetTag(r.Context(), w, st, body.Service, body.Tag, body.Pin)
 			return
 		}
 		if why := s.noBuildForRetag(r.Context(), st.Compose, body.Service, body.Tag); why != "" {
@@ -831,9 +931,19 @@ func (s *server) stackSetTag(w http.ResponseWriter, r *http.Request, name string
 				return
 			}
 		}
-		st.Compose, st.Env = newCompose, newEnv
-		if err := s.manager.Save(st); err != nil {
-			http.Error(w, err.Error(), 500)
+		if _, err := s.manager.Update(name, func(fresh *stack.Stack) error {
+			if err := unchangedSince(fresh, st); err != nil {
+				return err
+			}
+			fresh.Compose, fresh.Env = newCompose, newEnv
+			// And where appjail reads it: the service's from:, or the
+			// Makejail's tag argument, pin included.
+			if err := directorFollowsCompose(fresh, []string{body.Service}); err != nil {
+				return httpError{400, "director: " + err.Error()}
+			}
+			return nil
+		}); err != nil {
+			replyErr(w, err)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -868,19 +978,21 @@ func (s *server) stackSetTag(w http.ResponseWriter, r *http.Request, name string
 			return
 		}
 	}
-	st.Compose, st.Env = newCompose, newEnv
-	// And where appjail will read it. Setting only the compose left the jail
-	// on whatever ${tag} defaults to, so the version on screen and the version
-	// running were different numbers.
-	if st.Director != "" {
-		st.Director, err = setDirectorTag(st.Director, body.Tag)
-		if err != nil {
-			http.Error(w, "director tag: "+err.Error(), 500)
-			return
+	if _, err := s.manager.Update(name, func(fresh *stack.Stack) error {
+		if err := unchangedSince(fresh, st); err != nil {
+			return err
 		}
-	}
-	if err := s.manager.Save(st); err != nil {
-		http.Error(w, err.Error(), 500)
+		fresh.Compose, fresh.Env = newCompose, newEnv
+		// And where appjail will read it. Setting only the compose left the
+		// jail on whatever ${tag} defaults to, so the version on screen and
+		// the version running were different numbers. A pin goes along: the
+		// digest, not just the tag.
+		if err := directorFollowsCompose(fresh, nil); err != nil {
+			return httpError{400, "director: " + err.Error()}
+		}
+		return nil
+	}); err != nil {
+		replyErr(w, err)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -1019,6 +1131,54 @@ var lifecycleLocks sync.Map
 // a "problem" -- and offered Start, which ran a second up alongside the first.
 var busyOps sync.Map
 
+// busyOp is what a locked stack is doing, and since when.
+type busyOp struct {
+	action string
+	since  time.Time
+
+	mu   sync.Mutex
+	stop func() // set once only a health watch is left: ends it early
+}
+
+// watching says the op is down to its health watch, which the next action
+// may end and take over from.
+func (op *busyOp) watching() bool {
+	op.mu.Lock()
+	defer op.mu.Unlock()
+	return op.stop != nil
+}
+
+func loadBusy(name string) *busyOp {
+	if v, ok := busyOps.Load(name); ok {
+		return v.(*busyOp)
+	}
+	return nil
+}
+
+// watchable lets the operation holding name's lock be taken over once it is
+// down to its health watch: the stack reads as idle from then on, and the next
+// action ends the watch instead of being refused (see lockStackAs). Only for
+// operations whose watch is their last step -- an up that recreated and then
+// started the rest would start them after the action that took over, which is
+// why Apply now starts the rest before its check.
+func watchable(ctx context.Context, name string) context.Context {
+	op := loadBusy(name)
+	if op == nil {
+		return ctx
+	}
+	return engine.WithWatchHook(ctx, func(stop func()) {
+		op.mu.Lock()
+		op.stop = stop
+		op.mu.Unlock()
+		publishBusy(name, "")
+	})
+}
+
+// handover is how long an action waits for a watched operation to wind down
+// once its watch is ended: the end of the watch, keeping addresses, and
+// recording the outcome.
+var handover = 15 * time.Second
+
 // busyEvents carries busy changes to open pages, next to the status loop's.
 var busyEvents *eventHub
 
@@ -1035,28 +1195,74 @@ func publishBusy(name, action string) {
 func lockStackAs(name, action string) (unlock func(), ok bool) {
 	u, ok := lockStack(name)
 	if !ok {
+		u, ok = takeOver(name)
+	}
+	if !ok {
 		return nil, false
 	}
-	busyOps.Store(name, action)
+	busyOps.Store(name, &busyOp{action: action, since: time.Now()})
 	outputs.start(name, action) // kept from the first moment, before the stream exists
 	publishBusy(name, action)
 	return func() {
 		outputs.finish(name)
 		busyOps.Delete(name)
-		u()
+		// Before the unlock: after it, a taker's own busy could go out first
+		// and this would clear it.
 		publishBusy(name, "")
+		u()
 	}, true
 }
 
-// busyWith is what a stack is busy with, or "".
+// lockStackTakingOver takes name's lock as lockStackAs does -- ending a
+// stay-up watch rather than refusing -- for a change too quick to show as
+// busy or to start an Output of its own (the restart policy).
+func lockStackTakingOver(name string) (unlock func(), ok bool) {
+	if u, ok := lockStack(name); ok {
+		return u, true
+	}
+	return takeOver(name)
+}
+
+// takeOver ends the health watch of the operation holding name's lock and
+// waits for it to wind down. Refused, as before, when the holder is not down
+// to its watch, or when another action took over first: a second click must
+// not queue behind the first one's pull.
+func takeOver(name string) (unlock func(), ok bool) {
+	op := loadBusy(name)
+	if op == nil {
+		return nil, false
+	}
+	op.mu.Lock()
+	stop := op.stop
+	op.mu.Unlock()
+	if stop == nil {
+		return nil, false
+	}
+	stop()
+	for deadline := time.Now().Add(handover); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
+		if u, ok := lockStack(name); ok {
+			return u, true
+		}
+		if cur := loadBusy(name); cur != nil && cur != op {
+			return nil, false
+		}
+	}
+	return nil, false
+}
+
+// busyWith is what a stack is busy with, or "". An operation down to its
+// health watch is not: the next action takes over from it.
 func busyWith(name string) string {
-	if v, ok := busyOps.Load(name); ok {
-		return v.(string)
+	if op := loadBusy(name); op != nil && !op.watching() {
+		return op.action
 	}
 	return ""
 }
 
 func lockStack(name string) (unlock func(), ok bool) {
+	if stopping.Load() {
+		return nil, false // fjordd is stopping: start nothing it would abandon
+	}
 	mu, _ := lifecycleLocks.LoadOrStore(name, &sync.Mutex{})
 	m := mu.(*sync.Mutex)
 	if !m.TryLock() {
@@ -1101,8 +1307,15 @@ func requestedServices(r *http.Request, st *stack.Stack, engineKnows func() []st
 
 // stackLifecycle runs up/down/update/restart, streaming the backend's output.
 func (s *server) stackLifecycle(w http.ResponseWriter, r *http.Request, name, action string) {
-	st, err := s.manager.Get(name)
-	if err != nil {
+	s.lifecycle(w, r, name, action, nil)
+}
+
+// lifecycle is stackLifecycle with a step that runs once the stack's lock is
+// held, before the stack is read: rollback writes its pin there. Written
+// first, a busy stack refused the update and kept the pin -- the compose
+// said the old image while the container still ran the new one.
+func (s *server) lifecycle(w http.ResponseWriter, r *http.Request, name, action string, locked func() error) {
+	if _, err := s.manager.Get(name); err != nil {
 		http.Error(w, "Stack not found", 404)
 		return
 	}
@@ -1113,6 +1326,21 @@ func (s *server) stackLifecycle(w http.ResponseWriter, r *http.Request, name, ac
 		return
 	}
 	defer unlock()
+	if locked != nil {
+		if err := locked(); err != nil {
+			replyErr(w, err)
+			return
+		}
+	}
+	// Read under the lock: locked may have changed it, and so may a save
+	// made while this waited to take over a stay-up watch. The mark first:
+	// a save after it is not in what this applies.
+	read := s.pending.now()
+	st, err := s.manager.Get(name)
+	if err != nil {
+		http.Error(w, "Stack not found", 404)
+		return
+	}
 
 	// Generous timeout: update pulls images, which can be slow.
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
@@ -1132,17 +1360,20 @@ func (s *server) stackLifecycle(w http.ResponseWriter, r *http.Request, name, ac
 	}
 
 	var stream io.ReadCloser
+	var chose string // what chooseAddresses did, said first
 	switch action {
 	case "up":
+		chose = s.chooseAddresses(ctx, st)
 		// Changes a Save left pending are recreated first, by name and
 		// verified -- not left to podman-compose, which keeps the old container
 		// and exits 0 when the teardown is refused. Then the rest comes up.
 		be := s.backendFor(st)
 		pending := s.pendingFor(st)
 		if rec, ok := be.(engine.Recreator); ok && len(pending) > 0 {
+			// Its stay-up check is its last step, so it can be taken over.
 			var first io.ReadCloser
-			if first, err = rec.Recreate(ctx, st, pending); err == nil {
-				stream = s.clearPendingAfter(name, pending, thenStream(first, func() (io.ReadCloser, error) { return be.Up(ctx, st) }))
+			if first, err = rec.Recreate(watchable(ctx, name), st, pending); err == nil {
+				stream = s.clearPendingAfter(name, pending, read, first)
 			}
 		} else {
 			stream, err = be.Up(ctx, st)
@@ -1167,10 +1398,10 @@ func (s *server) stackLifecycle(w http.ResponseWriter, r *http.Request, name, ac
 			s.recordRollback(ctx, st, services)
 		}
 		note := keptNote(s.keepAddresses(ctx, st))
-		stream, err = s.backendFor(st).Update(ctx, st, services)
+		stream, err = s.backendFor(st).Update(watchable(ctx, name), st, services)
 		if err == nil {
 			// An update recreates what it touches, from the saved config.
-			stream = s.clearPendingAfter(name, services, stream)
+			stream = s.clearPendingAfter(name, services, read, stream)
 		}
 		if err == nil && note != "" {
 			stream = struct {
@@ -1188,6 +1419,12 @@ func (s *server) stackLifecycle(w http.ResponseWriter, r *http.Request, name, ac
 		http.Error(w, err.Error(), 500)
 		return
 	}
+	if chose != "" {
+		stream = struct {
+			io.Reader
+			io.Closer
+		}{io.MultiReader(strings.NewReader(chose), stream), stream}
+	}
 	if action != "down" {
 		stream = s.keepAfter(ctx, st, stream)
 	}
@@ -1195,8 +1432,9 @@ func (s *server) stackLifecycle(w http.ResponseWriter, r *http.Request, name, ac
 
 	// Record operator intent so start-on-boot can restore it after a
 	// fjordd/host restart. Best-effort: a state write failure must not abort
-	// the lifecycle op the user asked for. (update leaves it running.)
-	if desired := map[string]string{"up": "running", "down": "stopped", "update": "running", "restart": "running"}[action]; desired != "" {
+	// the lifecycle op the user asked for. An update leaves the intent as it
+	// was: a stopped stack is updated without being started.
+	if desired := map[string]string{"up": "running", "down": "stopped", "restart": "running"}[action]; desired != "" {
 		if err := s.manager.SetDesiredState(name, desired); err != nil {
 			log.Printf("%s %s: persist desired_state: %v", action, name, err)
 		}
@@ -1237,12 +1475,26 @@ func (s *server) dropPrivateNetwork(be engine.Backend, stackName string) {
 	}
 }
 
-// anotherOperation says what a stack is already doing, for the 409.
+// busyWords is an action as the 409 says it.
+var busyWords = map[string]string{
+	"up": "starting", "down": "stopping", "restart": "restarting", "update": "updating",
+	"install": "installing", "installing": "installing", "deleting": "being deleted",
+}
+
+// anotherOperation says what a stack is already doing and for how long, for
+// the 409. A bare "another operation is running" left a Delete refused with
+// no way to tell a pull still going from one stuck (immich, 2026-10-04).
 func anotherOperation(name string) string {
-	if b := busyWith(name); b != "" {
-		return name + " is already busy (" + b + "); wait for it to finish"
+	op := loadBusy(name)
+	if op == nil {
+		return "another operation is already running on this stack; wait for it to finish"
 	}
-	return "another operation is already running on this stack; wait for it to finish"
+	what := busyWords[op.action]
+	if what == "" {
+		what = "busy (" + op.action + ")"
+	}
+	return fmt.Sprintf("%s is %s (for %s); wait for it to finish, or watch it in Output",
+		name, what, time.Since(op.since).Round(time.Second))
 }
 
 // noBuildForRetag is the refusal when the image a retag would put a service
@@ -1259,6 +1511,55 @@ func (s *server) noBuildForRetag(ctx context.Context, compose, service, tag stri
 		}
 	}
 	return ""
+}
+
+// directorSetTag moves one director service to tag, pinned to the digest
+// the tag resolves to now when asked, written into the director alone.
+func (s *server) directorSetTag(ctx context.Context, w http.ResponseWriter, st *stack.Stack, service, tag string, pin bool) {
+	cur := directorImage(st, service)
+	if cur == "" {
+		http.Error(w, "no service "+service+" in the director", 400)
+		return
+	}
+	if why := s.noBuildHere(ctx, registry.Repo(cur), tag); why != "" {
+		http.Error(w, why, http.StatusConflict)
+		return
+	}
+	img := imageRepo(cur) + ":" + tag
+	if pin {
+		dctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
+		digest, err := registry.Digest(dctx, img)
+		if err != nil {
+			http.Error(w, err.Error(), 502)
+			return
+		}
+		img += "@" + digest
+	}
+	if _, err := s.manager.Update(st.Name, func(fresh *stack.Stack) error {
+		if err := unchangedSince(fresh, st); err != nil {
+			return err
+		}
+		if err := setServiceImage(fresh, service, img); err != nil {
+			return httpError{400, err.Error()}
+		}
+		return nil
+	}); err != nil {
+		replyErr(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Write([]byte(`{"status":"ok"}`))
+}
+
+// unchangedSince refuses a change worked out from snap when the stack has
+// been saved since. Set tag asks the registry first (up to 30s, outside the
+// lock); writing its answer over a save made meanwhile would undo that save.
+func unchangedSince(fresh, snap *stack.Stack) error {
+	if fresh.Compose != snap.Compose || fresh.Env != snap.Env || fresh.Director != snap.Director {
+		return httpError{http.StatusConflict, fresh.Name + " was changed while fjord looked up that version; try again"}
+	}
+	return nil
 }
 
 // stackDismissFailure forgets the stack's last failure. Without it Dismiss

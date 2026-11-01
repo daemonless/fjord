@@ -16,9 +16,13 @@ func TestDoctorEnginesOnAHostWithNone(t *testing.T) {
 		t.Fatalf("no engines: got %v, want %v", got, want)
 	}
 
-	t.Setenv("FJORD_ENGINE", "appjail")
-	if got, want := s.doctorEngines(), []string{"appjail"}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("FJORD_ENGINE=appjail: got %v, want %v", got, want)
+	// Another engine of this OS (AppJail on FreeBSD; Linux has only podman).
+	if len(engineDescriptors) > 1 {
+		other := engineDescriptors[1].Name
+		t.Setenv("FJORD_ENGINE", other)
+		if got, want := s.doctorEngines(), []string{other}; !reflect.DeepEqual(got, want) {
+			t.Fatalf("FJORD_ENGINE=%s: got %v, want %v", other, got, want)
+		}
 	}
 
 	t.Setenv("FJORD_ENGINE", "nonsense")

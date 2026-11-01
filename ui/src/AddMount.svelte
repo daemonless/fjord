@@ -13,6 +13,7 @@
   import { createEventDispatcher } from 'svelte';
   import Icon from './Icon.svelte';
   import RemoteFolderForm from './RemoteFolderForm.svelte';
+  import MountOptionsPicker from './MountOptionsPicker.svelte';
 
   export let service: string;
   /** appjail binds host paths via fstab and has no podman named volumes. */
@@ -25,10 +26,10 @@
   let kind: 'bind' | 'volume' | 'remote' = 'bind';
   let remoteKind: 'nfs' | 'smb' = 'nfs';
   let dest = '';
-  let readOnly = false;
+  let options: string[] = [];
 
   const dispatch = createEventDispatcher();
-  const common = () => ({ service, dest: dest.trim(), readOnly });
+  const common = () => ({ service, dest: dest.trim(), readOnly: options.includes('ro'), options });
 
   function submit() {
     if (!source.trim() || !dest.trim()) return;
@@ -123,9 +124,7 @@
       placeholder="/container/path"
       class="w-48 bg-fjord-inset border border-fjord-border rounded-lg px-3 py-2 text-sm text-fjord-fg-body font-mono focus:border-fjord-accent outline-none"
     />
-    <label class="flex items-center gap-1.5 text-sm text-fjord-fg-secondary cursor-pointer select-none mb-2">
-      <input type="checkbox" bind:checked={readOnly} class="accent-fjord-accent" /> RO
-    </label>
+    <div class="mb-2"><MountOptionsPicker bind:options /></div>
     {#if kind !== 'remote'}
       <button
         on:click={submit}

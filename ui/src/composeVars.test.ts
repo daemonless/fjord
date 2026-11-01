@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseEnv, refs, missingVars, isSecret, setEnvVar, usedVars } from './composeVars';
+import { parseEnv, refs, missingVars, isSecret, setEnvVar, usedVars, unusedVars } from './composeVars';
 
 describe('parseEnv', () => {
   it('reads KEY=VALUE, skips comments, strips one pair of quotes', () => {
@@ -71,5 +71,45 @@ describe('setEnvVar', () => {
 describe('usedVars', () => {
   it('lists each variable once, unset first', () => {
     expect(usedVars('${A} ${B} ${A} ${C:-1}', { A: '1' }).map((r) => r.name)).toEqual(['B', 'A', 'C']);
+  });
+});
+
+describe('unusedVars', () => {
+  it('names what nothing the engine runs refers to', () => {
+    // zensical-2 on the LAN: its port only survives in x-fjord notes.
+    const compose = `services:
+  zensical:
+    image: z:\${TAG}
+    x-fjord-published:
+      - "\${WEB_PORT}:8000"
+x-fjord:
+  web_port: "\${WEB_PORT}"
+`;
+    expect(unusedVars(compose, { TAG: 'latest', WEB_PORT: '346', COMPOSE_PROJECT_NAME: 'z' })).toEqual(['WEB_PORT']);
+  });
+  it('counts everything used when the compose passes the .env in', () => {
+    expect(unusedVars('services:\n  a:\n    env_file: .env\n', { X: '1' })).toEqual([]);
+  });
+  it('keeps the director project, which the director reads itself', () => {
+    expect(unusedVars("expose: !ENV '${WEB_PORT}:8000'", { WEB_PORT: '1', DIRECTOR_PROJECT: 'p' })).toEqual([]);
+  });
+});
+
+describe('refs: every operator', () => {
+  const env = { DB_HOSTNAME: 'immich_database', EMPTY: '' };
+  const one = (text: string) => refs(text, env)[0];
+  // A director file's default (pyaml-env): the name stops at the colon.
+  it("reads a director file's ${VAR:default}", () => {
+    expect(one('${DB_HOSTNAME:127.0.0.1}')).toMatchObject({ name: 'DB_HOSTNAME', state: 'set', value: 'immich_database' });
+    expect(one('${REDIS_HOSTNAME:127.0.0.1}')).toMatchObject({ name: 'REDIS_HOSTNAME', state: 'default', value: '127.0.0.1' });
+    expect(one('${EMPTY:x}')).toMatchObject({ name: 'EMPTY', state: 'empty' });
+  });
+  it('keeps the name out of :? and :+', () => {
+    expect(one('${GONE:?say why}')).toMatchObject({ name: 'GONE', state: 'unset' });
+    expect(one('${DB_HOSTNAME:+on}')).toMatchObject({ name: 'DB_HOSTNAME', state: 'set', value: 'on' });
+    expect(one('${GONE:+on}')).toMatchObject({ name: 'GONE', state: 'default', value: '' });
+  });
+  it('lists none of them as missing when set or defaulted', () => {
+    expect(missingVars("- DB_HOSTNAME: !ENV '${DB_HOSTNAME:127.0.0.1}'\n- X: !ENV '${IMMICH_HOST:0.0.0.0}'", env)).toEqual([]);
   });
 });

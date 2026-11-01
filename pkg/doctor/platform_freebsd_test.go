@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/daemonless/fjord/pkg/engine/appjail"
 )
 
 // The real numbers from jupiter, 2026-09-22. podman_service had been up since
@@ -85,10 +87,32 @@ func TestLocaltimeProbe(t *testing.T) {
 	}
 }
 
+// The timezone check sets the browser's zone only when it is a plain name
+// this host has; anything else falls back to UTC rather than reaching tzsetup.
+func TestHostZone(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "America"), 0o755)
+	os.WriteFile(filepath.Join(dir, "America", "New_York"), []byte("TZif"), 0o644)
+	os.WriteFile(filepath.Join(dir, "UTC"), []byte("TZif"), 0o644)
+	for _, c := range []struct{ want, got string }{
+		{"America/New_York", "America/New_York"},
+		{"", "UTC"},
+		{"Mars/Olympus_Mons", "UTC"}, // not on this host
+		{"America", "UTC"},           // a directory, not a zone
+		{"-n", "UTC"},                // an option
+		{"../../etc/passwd", "UTC"},
+		{"/etc/passwd", "UTC"},
+	} {
+		if got := hostZone(dir, c.want); got != c.got {
+			t.Errorf("hostZone(%q) = %q, want %q", c.want, got, c.got)
+		}
+	}
+}
+
 // appjail-dns is only "running" when dnsmasq answers with appjail's config;
 // each missing piece is named, in the order it gets fixed.
 func TestAppjailDNSStatus(t *testing.T) {
-	conf := appjailDNSMasqConf
+	conf, stock := appjail.DNSConf, appjailDNSMasqConf
 	cases := []struct {
 		name                                        string
 		installed, dnsmasqInstalled, dnsmasqRunning bool
@@ -100,15 +124,40 @@ func TestAppjailDNSStatus(t *testing.T) {
 		{"nothing installed", false, false, false, "", "", false, Warn, "appjail-dns is not installed"},
 		{"no dnsmasq", true, false, false, "", "", true, Warn, "dnsmasq is not installed"},
 		{"dnsmasq stopped (fjordfresh, netlab)", true, true, false, "", "", true, Warn, "dnsmasq is not running"},
-		{"dnsmasq on its own config", true, true, true, "/usr/local/etc/dnsmasq.conf", "123 dnsmasq -C /usr/local/etc/dnsmasq.conf", true, Warn, "not with appjail's config"},
+		{"dnsmasq on its own config", true, true, true, "/usr/local/etc/dnsmasq.conf", "123 dnsmasq -C /usr/local/etc/dnsmasq.conf", true, Warn, "fjord leaves a dnsmasq it did not set up alone"},
+		{"dnsmasq on its default file", true, true, true, "", "123 dnsmasq", true, Warn, "its default"},
+		// netlab, 2026-10-17: *:53 and OpenDNS.
+		{"appjail's stock config", true, true, true, stock, "", true, Warn, "every interface, your LAN included"},
 		{"dnsmasq right, appjail-dns stopped", true, true, true, conf, "", false, Warn, "appjail-dns is not running"},
-		{"all there, by rc var", true, true, true, conf, "", true, OK, "running"},
+		{"all there, by rc var", true, true, true, conf, "", true, OK, "AppJail networks only"},
 		{"all there, config on the command line", true, true, true, "", "123 dnsmasq -C " + conf, true, OK, "running"},
 	}
 	for _, c := range cases {
 		got, msg := appjailDNSStatus(c.installed, c.dnsmasqInstalled, c.dnsmasqRunning, c.dnsmasqConf, c.dnsmasqArgs, c.appjailRunning)
 		if got != c.want || !strings.Contains(msg, c.saying) {
 			t.Errorf("%s: %v %q, want %v saying %q", c.name, got, msg, c.want, c.saying)
+		}
+	}
+}
+
+// netlab-legacy took LAN leases on its containers' epairs: FreeBSD's VM image
+// sets ifconfig_DEFAULT="DHCP", and devd runs dhclient on each new interface.
+func TestDefaultDHCPStatus(t *testing.T) {
+	cases := []struct {
+		value, nic string
+		want       Status
+		saying     string
+	}{
+		{"DHCP", "vtnet0", Warn, `sysrc ifconfig_vtnet0="DHCP"; sysrc -x ifconfig_DEFAULT`},
+		{"SYNCDHCP accept_rtadv", "em0", Warn, `ifconfig_em0="SYNCDHCP accept_rtadv"`},
+		{"DHCP", "", Warn, "every container interface"},
+		{"", "vtnet0", OK, "does not use DHCP"},
+		{"inet 192.168.1.5/24", "vtnet0", OK, "does not use DHCP"},
+	}
+	for _, c := range cases {
+		got, msg := defaultDHCPStatus(c.value, c.nic)
+		if got != c.want || !strings.Contains(msg, c.saying) {
+			t.Errorf("%q on %q: %v %q, want %v saying %q", c.value, c.nic, got, msg, c.want, c.saying)
 		}
 	}
 }

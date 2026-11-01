@@ -32,3 +32,22 @@ func TestCrashLogIgnoresDeliberateStop(t *testing.T) {
 		t.Error("empty log reported a crash")
 	}
 }
+
+func TestCrashReason(t *testing.T) {
+	cases := map[string]string{
+		// Go slog: the msg, not the whole line.
+		"[INFO] Starting vikunja...\n" +
+			`time=2026-10-08T21:49:32Z level=INFO msg="No config file found"` + "\n" +
+			`time=2026-10-08T21:49:32Z level=ERROR msg="service.publicurl must include http:// or https:// scheme, got: f/"` + "\n" +
+			"[s6] Service 'vikunja' crashed (Exit: 1, Signal: 0)\n[s6] Waiting 5 seconds before restart...": "service.publicurl must include http:// or https:// scheme, got: f/",
+		// A Python traceback's last error line.
+		"Traceback (most recent call last):\n  File \"x.py\"\nModuleNotFoundError: No module named 'opentelemetry'\n[s6] Service 'ml' crashed (Exit: 3, Signal: 0)": "ModuleNotFoundError: No module named 'opentelemetry'",
+		// Nothing the app said: no reason, the caller says "see Logs".
+		"[INFO] starting\n[s6] Service 'x' crashed (Exit: 1, Signal: 0)": "",
+	}
+	for tail, want := range cases {
+		if got := CrashReason(tail); got != want {
+			t.Errorf("CrashReason(%q) = %q, want %q", tail, got, want)
+		}
+	}
+}

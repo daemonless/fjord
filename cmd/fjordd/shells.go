@@ -2,10 +2,8 @@ package main
 
 import (
 	"log"
-	"os"
-	"os/signal"
 	"sync"
-	"syscall"
+	"time"
 
 	"github.com/daemonless/fjord/pkg/engine"
 )
@@ -34,29 +32,32 @@ func trackShell(s engine.ExecSession) (untrack func()) {
 	}
 }
 
-// closeShellsOnExit closes every open terminal when fjordd is told to stop,
-// then exits. Not a graceful HTTP shutdown: event streams and terminals never
-// end on their own, so waiting for them would only delay the stop.
-func closeShellsOnExit() {
-	sig := make(chan os.Signal, 1)
-	signal.Notify(sig, syscall.SIGTERM, os.Interrupt)
+// closeShells closes every open terminal, waiting at most wait: a wedged
+// engine must not keep fjordd from stopping.
+func closeShells(wait time.Duration) {
+	openShells.Lock()
+	shells := make([]engine.ExecSession, 0, len(openShells.m))
+	for s := range openShells.m {
+		shells = append(shells, s)
+	}
+	openShells.Unlock()
+	if len(shells) == 0 {
+		return
+	}
+	log.Printf("closing %d open terminal(s)", len(shells))
+	done := make(chan struct{})
 	go func() {
-		got := <-sig
-		openShells.Lock()
-		shells := make([]engine.ExecSession, 0, len(openShells.m))
-		for s := range openShells.m {
-			shells = append(shells, s)
-		}
-		openShells.Unlock()
-		if len(shells) > 0 {
-			log.Printf("%v: closing %d open terminal(s)", got, len(shells))
-		}
 		var wg sync.WaitGroup
 		for _, s := range shells {
 			wg.Add(1)
 			go func() { defer wg.Done(); s.Close() }()
 		}
 		wg.Wait()
-		os.Exit(0)
+		close(done)
 	}()
+	select {
+	case <-done:
+	case <-time.After(wait):
+		log.Printf("terminals still closing after %s; stopping anyway", wait)
+	}
 }

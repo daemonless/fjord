@@ -9,6 +9,8 @@
   import { createEventDispatcher } from 'svelte';
   import Icon from './Icon.svelte';
   import AddMount from './AddMount.svelte';
+  import MountOptionsPicker from './MountOptionsPicker.svelte';
+  import { withOption } from './mountOptions';
   import { addressProblem, address6Problem, usableRange, randomMAC } from './network';
   import { setInterface, serviceType, switchType, isolatedServices, ALONE, type Iface } from './planSeed';
 
@@ -33,13 +35,18 @@
     /** The network's subnet is not the segment its bridge is on. */
     wireWarning?: string;
   };
-  type Attachment = { network: string; ip?: string; ip6?: string; mac?: string; iface?: string };
+  /** own: the compose declares this network itself, so compose makes it when
+   *  the stack starts and the host's list never has it. */
+  type Attachment = { network: string; ip?: string; ip6?: string; mac?: string; iface?: string; own?: boolean };
   type ServiceVolume = {
     source?: string;
     dest?: string;
     name?: string;
     kind?: string;
     readOnly?: boolean;
+    options?: string[];
+    /** The folder's SELinux type when SELinux will refuse it to the container. */
+    selinux?: string;
   };
   type ServiceView = {
     name: string;
@@ -57,6 +64,8 @@
   };
 
   export let services: ServiceView[] = [];
+  /** The icon of the app a service's image runs; "" when no catalog knows it. */
+  export let iconOf: (image?: string) => string = () => '';
   // Service name -> its pending update, from the stack's update check. Shown on
   // the row so a four-service stack says WHICH part is behind.
   export let updates: Record<string, { state: string; tag?: string; fromVersion?: string; toVersion?: string }> = {};
@@ -101,9 +110,10 @@
   const dispatch = createEventDispatcher<{
     change: void;
     unmount: { service: string; dest: string };
-    add: { service: string; kind: string; source: string; dest: string; readOnly: boolean };
-    remote: { service: string; row: string; dest: string; readOnly: boolean };
-    folderset: { service: string; id: string; dest: string; readOnly: boolean };
+    add: { service: string; kind: string; source: string; dest: string; readOnly: boolean; options: string[] };
+    remote: { service: string; row: string; dest: string; readOnly: boolean; options: string[] };
+    folderset: { service: string; id: string; dest: string; readOnly: boolean; options: string[] };
+    mountoptions: { service: string; dest: string; options: string[] };
     browse: void;
     openAdd: string;
     closeAdd: void;
@@ -118,6 +128,18 @@
   // Keyed "<service>:<dest>", not "<dest>": the same container path is mounted
   // by several services (/etc/localtime is on four of immich's), and a single
   // key put every one of those rows into confirm at the same click.
+  // The mount whose options are open for editing ("<service>:<dest>"), and
+  // the options as edited so far.
+  let editingOpts = '';
+  let draftOpts: string[] = [];
+  function editOpts(service: string, v: ServiceVolume) {
+    editingOpts = `${service}:${v.dest}`;
+    draftOpts = [...(v.options ?? [])];
+  }
+  function saveOpts(service: string, dest: string, options: string[]) {
+    dispatch('mountoptions', { service, dest, options });
+    editingOpts = '';
+  }
   let confirmUnmount = '';
   // The same two clicks for an interface. Keyed by row index, which shifts
   // under any edit -- so every edit (touch) drops a pending confirm rather
@@ -219,10 +241,20 @@
     // twice is flagged on the row rather than prevented here.
     const unused = pickable(networks, '').find((n) => !used.includes(n.name) && !sameBridgeAs(svc, -1, n))?.name;
     const privateFree = planning && !used.includes('private') ? 'private' : '';
-    const network = unused || privateFree || pickable(networks, '')[0]?.name || (planning ? 'private' : '');
+    const bridgeFree = bridgeOffered(svc) ? 'bridge' : '';
+    const network = unused || privateFree || bridgeFree || pickable(networks, '')[0]?.name || (planning ? 'private' : '');
+    // Nothing to put it on: a row with no network reads as a second bridge.
+    if (!network) return;
     edits[svc] = [...rows(svc), { network, ip: '', mac: '' }];
     touch();
   }
+  // Whether "+ interface" has a network to offer this service. The built-in
+  // bridge is not in the list: counted apart, a service on the one LAN
+  // network a host has could not be given the bridge beside it.
+  const onBridge = (svc: string) => rows(svc).some((r) => !r.network || r.network === 'bridge');
+  const bridgeOffered = (svc: string) => !bridgeAlone && !unsupportedModes.includes('bridge') && !onBridge(svc);
+  const canAdd = (svc: string) =>
+    planning || bridgeOffered(svc) || pickable(networks, '').some((n) => !rows(svc).some((r) => r.network === n.name));
   function removeRow(svc: string, i: number) {
     edits[svc] = rows(svc).filter((_, j) => j !== i);
     touch();
@@ -281,6 +313,11 @@
             <span class="text-fjord-fg-dim text-xs w-3">{open[s.name] ? '▼' : '▶'}</span>
             {#if !planning}
               <span class="w-2 h-2 rounded-full shrink-0 {dot(s.state)}"></span>
+            {/if}
+            {#if iconOf(s.image)}
+              <img src={iconOf(s.image)} alt="" class="w-5 h-5 rounded shrink-0 object-contain" />
+            {:else}
+              <span class="w-5 h-5 shrink-0"></span>
             {/if}
             <span class="font-medium text-fjord-fg-body min-w-[12rem]">{s.name}</span>
             <span class="text-xs text-fjord-fg-muted font-mono flex-1 truncate">{summary(s, edits[s.name] ?? [])}</span>
@@ -420,7 +457,7 @@
                       {/if}
                       <td class="py-1.5 pr-2">
                         <div class="flex items-center gap-2">
-                          <span class="shrink-0 w-14 text-center font-mono text-[10px] px-1 py-0.5 rounded border border-fjord-border text-fjord-fg-muted">{kindOf(networks, r.network)}</span>
+                          <span class="shrink-0 w-14 text-center font-mono text-[10px] px-1 py-0.5 rounded border border-fjord-border text-fjord-fg-muted">{r.own ? 'bridge' : kindOf(networks, r.network)}</span>
                           <!-- "" is bridge (no network named): shown as such, or
                                it matched no option and the picker was blank. -->
                           <select
@@ -453,9 +490,14 @@
                               </optgroup>
                             {/each}
                             <!-- Keeps a network the host no longer defines, so an
-                                 attachment is not silently lost. -->
+                                 attachment is not silently lost. One the compose
+                                 declares itself is not missing: compose makes it. -->
                             {#if r.network && !byName(r.network) && !isBuiltIn(r.network) && !(offerPrivateSpec && r.network === 'private')}
-                              <option value={r.network}>{r.network} (not on this host)</option>
+                              {#if r.own}
+                                <option value={r.network}>{r.network} — this stack's own network, made by its compose</option>
+                              {:else}
+                                <option value={r.network}>{r.network} (not on this host)</option>
+                              {/if}
                             {/if}
                           </select>
                         </div>
@@ -573,11 +615,13 @@
               <div class="mt-2 flex items-center gap-3">
                 <button
                   on:click={() => addRow(s.name)}
-                  disabled={bridgeAlone && (edits[s.name] ?? []).some((r) => !r.network || r.network === 'bridge')}
+                  disabled={!canAdd(s.name) || (bridgeAlone && (edits[s.name] ?? []).some((r) => !r.network || r.network === 'bridge'))}
                   class="text-xs px-2.5 py-1 rounded-lg bg-fjord-inset border border-fjord-border text-fjord-fg-secondary hover:text-fjord-fg hover:border-fjord-accent/40 transition-colors disabled:opacity-40"
                   >+ interface</button
                 >
-                {#if bridgeAlone && (edits[s.name] ?? []).some((r) => !r.network || r.network === 'bridge')}
+                {#if !canAdd(s.name)}
+                  <span class="text-xs text-fjord-fg-dim">No other network to add — make one on the Networks page.</span>
+                {:else if bridgeAlone && (edits[s.name] ?? []).some((r) => !r.network || r.network === 'bridge')}
                   <span class="text-xs text-fjord-fg-dim">On this engine bridge stands alone — pick a network instead to add more.</span>
                 {/if}
               </div>
@@ -596,8 +640,15 @@
                       <td class="py-1 pr-2 text-fjord-fg-dim">→</td>
                       <td class="py-1 pr-3 font-mono text-fjord-fg-body">{v.dest}</td>
                       <td class="py-1 text-right whitespace-nowrap">
-                        {#if v.readOnly}<span class="text-[10px] px-1 rounded bg-fjord-inset text-fjord-fg-dim mr-1">RO</span>{/if}
+                        {#each v.options ?? [] as o}<span class="text-[10px] px-1 rounded bg-fjord-inset text-fjord-fg-dim mr-1 font-mono">{o === 'ro' ? 'RO' : o}</span>{/each}
                         <span class="text-[10px] px-1 rounded bg-fjord-inset text-fjord-fg-dim">{v.kind ?? ''}</span>
+                        <button
+                          on:click={() => (editingOpts === `${s.name}:${v.dest}` ? (editingOpts = '') : editOpts(s.name, v))}
+                          title="Mount options: read-only, SELinux label, …"
+                          aria-label="Mount options"
+                          class="ml-1 align-middle text-fjord-fg-dim hover:text-fjord-fg transition-colors"
+                          ><Icon name="pencil" size={13} /></button
+                        >
                         {#if confirmUnmount === `${s.name}:${v.dest}`}
                           <button
                             on:click={() => { dispatch('unmount', { service: s.name, dest: v.dest ?? '' }); confirmUnmount = ''; }}
@@ -618,6 +669,40 @@
                         {/if}
                       </td>
                     </tr>
+                    {#if v.selinux}
+                      <tr>
+                        <td colspan="4" class="pb-1.5">
+                          <div class="flex items-center gap-2 px-2 py-1 rounded bg-fjord-warning/10 border border-fjord-warning/30 text-fjord-fg-body">
+                            <Icon name="alert" size={12} class="text-fjord-warning shrink-0" />
+                            <span class="flex-1">SELinux will refuse this folder to the container (it is labelled <span class="font-mono">{v.selinux}</span>).</span>
+                            <button
+                              on:click={() => saveOpts(s.name, v.dest ?? '', withOption(v.options ?? [], 'z'))}
+                              title="Relabel the folder at start so containers may use it (podman's :z)"
+                              class="shrink-0 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-fjord-warning/15 text-fjord-warning border border-fjord-warning/30 hover:bg-fjord-warning/25"
+                              >Add :z</button
+                            >
+                          </div>
+                        </td>
+                      </tr>
+                    {/if}
+                    {#if editingOpts === `${s.name}:${v.dest}`}
+                      <tr>
+                        <td colspan="4" class="pb-2">
+                          <div class="flex flex-wrap items-center gap-3 px-2 py-1.5 rounded bg-fjord-inset/40 border border-fjord-border">
+                            <MountOptionsPicker bind:options={draftOpts} />
+                            <span class="flex-1"></span>
+                            <button
+                              on:click={() => saveOpts(s.name, v.dest ?? '', draftOpts)}
+                              class="text-[10px] px-1.5 py-0.5 rounded bg-fjord-accent hover:bg-fjord-accent-hover text-white">Set</button
+                            >
+                            <button
+                              on:click={() => (editingOpts = '')}
+                              class="text-[10px] px-1.5 py-0.5 rounded text-fjord-fg-muted hover:text-fjord-fg">Cancel</button
+                            >
+                          </div>
+                        </td>
+                      </tr>
+                    {/if}
                   {/each}
                 </tbody>
               </table>

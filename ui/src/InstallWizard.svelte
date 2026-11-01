@@ -1,15 +1,22 @@
 <script lang="ts">
   import { setFor } from './folderMatch';
+  import { insidePort, ownAddress } from './ownPort';
+  import { publicUrlProblem, suggestedPublicUrl } from './publicUrl';
   import { onMount, createEventDispatcher } from 'svelte';
   import * as yaml from 'js-yaml';
   import Icon from './Icon.svelte';
+  import Switch from './Switch.svelte';
+  import { names, nameLabel, freeName, nameOwner } from './names';
   import { defaultPath } from './pathDefaults';
   import Spinner from './Spinner.svelte';
   import DirPicker from './DirPicker.svelte';
   import { addressProblem, usableRange, randomMAC } from './network';
   import ServiceResources from './ServiceResources.svelte';
-  import { chosenServices } from './choices';
+  import { appjailMissing, askValue, chosenServices, choiceVars, isToggle, pickedPhrase } from './choices';
   import { resolveDefault, seedInterfaces, splitPlan, joinable, keepAttachable, addressesNeeded, type Iface } from './planSeed';
+  import RestartChoice from './RestartChoice.svelte';
+  import { sizeWords, SIZE_NOTE, type SizeAnswer } from './installSize';
+  import { DEFAULT_RETRIES } from './restartPolicy';
 
   // sources: every catalog offering this app; the user picks one (Repository)
   // when there's more than one. Each carries its own manifest_url + variants.
@@ -29,6 +36,7 @@
   // costs every answer in it, not just the one that was wrong.
   export let busy = false;
   export let submitError = '';
+  export let stackIds: string[] = []; // existing stacks: the new one's folder is its id
 
   // App data locations (Settings): the first is the default; with more than one
   // the wizard shows a picker. The choice drives path hints + {{appdata}}.
@@ -54,17 +62,25 @@
   // lowercase, runs of non-alphanumerics collapsed to "-", app id as fallback.
   const slugOf = (name: string, fallback: string) =>
     name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || fallback;
+  // The new stack's id, as the server allocates it (stack.AllocateName): the
+  // slug, or "<slug>-2", "-3" ... while one exists. Its folder is named by it.
+  const folderOf = (name: string, fallback: string) => {
+    const base = slugOf(name, fallback);
+    let id = base;
+    for (let n = 2; stackIds.includes(id); n++) id = `${base}-${n}`;
+    return id;
+  };
   // Suggested host directory for a path variable:
   // <app data>/<app folder>/<var-lowercased-sans-suffix>.
   const pathHint = (v: any) =>
-    `${storageBase}/${slugOf(stackName, appId || 'app')}/${String(v.name).toLowerCase().replace(/[._]?path$/, '').replace(/[^a-z0-9]+/g, '-') || 'data'}`;
+    `${storageBase}/${folderOf(stackName, appId || 'app')}/${String(v.name).toLowerCase().replace(/[._]?path$/, '').replace(/[^a-z0-9]+/g, '-') || 'data'}`;
   const seedPath = (v: any, slug: string) =>
     defaultPath(v.default || '', { appId, locations: appDataLocations, base: storageBase, slug, hint: pathHint(v) });
   // The folders follow the name while it is being typed: a default seeded
   // for "librenms" is wrong the moment the name becomes "t-lnms". Only
   // fields nobody has edited or filled from a folder set.
   let seededSlug = '';
-  $: reseedPaths(slugOf(stackName, appId || 'app'));
+  $: reseedPaths(folderOf(stackName, appId || 'app'));
   function reseedPaths(slug: string) {
     if (!variables.length || !seededSlug || slug === seededSlug) return;
     for (const v of variables) {
@@ -92,47 +108,92 @@
   const remoteKind = (p: string) => (/^(nfs|smb):\/\//i.exec(p || '')?.[1] || '').toUpperCase();
   $: previewOf = (p: string) =>
     (p || '')
-      .replace(/\{\{\s*stack\s*\}\}/g, slugOf(stackName, appId || 'app'))
+      .replace(/\{\{\s*stack\s*\}\}/g, folderOf(stackName, appId || 'app'))
       .replace(/\{\{\s*(appdata|base)\s*\}\}/g, storageBase);
 
   // Host-mode fjordd can browse the host filesystem; a container can't.
   let hostMode = false;
   // Runtime engines available for this install (podman, appjail, ...).
-  let engines: { name: string; available: boolean; default: boolean; warning?: string }[] = [];
+  let engines: { name: string; available: boolean; default: boolean; warning?: string; restartPolicies?: string[]; restartOnExit?: boolean }[] = [];
+  // The restart policy, from the engine's choices, starting from its default
+  // in Settings; picking another engine starts again from that one's. An
+  // engine that offers none installs without one.
+  type RestartDefault = { policy: string; retries?: number };
+  let restartDefaults: Record<string, RestartDefault> = {};
+  let restartPolicy = 'unless-stopped';
+  let restartRetries = DEFAULT_RETRIES;
+  let restartFor = '';
+  $: restartEngine = engines.find((e) => e.name === engineChoice);
+  $: restartPolicies = restartEngine?.restartPolicies ?? [];
+  $: restartOnExit = !!restartEngine?.restartOnExit;
+  function restartFromDefault(eng: string) {
+    restartFor = eng;
+    restartPolicy = restartDefaults[eng]?.policy || 'unless-stopped';
+    restartRetries = restartDefaults[eng]?.retries || DEFAULT_RETRIES;
+  }
+  $: if (engineChoice && engineChoice !== restartFor) restartFromDefault(engineChoice);
   let engineChoice = '';
   $: availableEngines = engines.filter((e) => e.available);
-  onMount(async () => {
-    try {
-      const res = await fetch('/api/settings/wizard');
-      if (res.ok) {
-        const detail = Number((await res.json()).detail) || 1;
+  // Until the engine list answers, the summary said "podman" and Install
+  // was live; on a host defaulting to AppJail an early click, or an engine
+  // picked before the answer (which then overwrote it), installed on the
+  // wrong one. Asked at once, the pick kept, Install held until it is known.
+  let enginesKnown = false;
+  onMount(() => {
+    fetch('/api/settings/restart')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((d) => {
+        if (!d) return;
+        restartDefaults = d;
+        if (engineChoice) restartFromDefault(engineChoice);
+      })
+      .catch(() => {}); // unless-stopped
+    fetch('/api/settings/wizard')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((d) => {
+        if (!d) return;
+        const detail = Number(d.detail) || 1;
         showOptions = detail >= 2;
         advancedOpen = detail >= 3;
-      }
-    } catch {
-      // default disclosure
-    }
-    try {
-      const res = await fetch('/api/about');
-      if (res.ok) hostMode = (await res.json()).mode === 'host';
-    } catch {
-      // leave browsing off; the plain field still works
-    }
-    try {
-      const res = await fetch('/api/engine');
-      if (res.ok) {
-        const d = await res.json();
+      })
+      .catch(() => {}); // default disclosure
+    fetch('/api/about')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((d) => {
+        if (d) hostMode = d.mode === 'host';
+      })
+      .catch(() => {}); // leave browsing off; the plain field still works
+    fetch('/api/engine')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((d) => {
+        if (!d) return;
         engines = d.engines || [];
-        engineChoice = d.default || 'podman';
-      }
-    } catch {
-      // no engine info -> the server falls back to its default
-    }
+        if (!engineChoice) engineChoice = d.default || 'podman';
+      })
+      .catch(() => {}) // no engine info -> the server falls back to its default
+      .finally(() => (enginesKnown = true));
   });
 
   let picking: { name: string; i: number } | null = null; // host-path row whose directory is being picked
 
-  let stackName = appId; // editable install name; defaults to the app id
+  // Editable install name. Defaults to the app id, or to the id the server
+  // would give a second copy (zensical-2): two stacks both called zensical,
+  // with the folder and the name saying -2, read as a mistake.
+  let stackName = folderOf(appId, appId || 'app');
+  // A name (radarr.apps.lan): on by default once something installed gives
+  // names, for an app with a page to open. The label follows the install
+  // name until it is edited.
+  let wantName = true;
+  let nameEdited = false;
+  let givenName = '';
+  // The label follows the stack's id (zensical-2 for a second copy), and
+  // never one an app already has: a second zensical was offered zensical.
+  $: if (!nameEdited) givenName = freeName(nameLabel(folderOf(stackName, appId || 'app')), $names);
+  $: offerName = $names.ready && !!webPortHint && !givesNames;
+  // A typed label another app has: said under the field, Install held.
+  $: nameOwnedBy = offerName && wantName ? nameOwner(nameLabel(givenName), $names) : undefined;
+  $: nameTaken = nameOwnedBy ? `${nameLabel(givenName)}.${$names.domain} is ${nameOwnedBy.split('/')[0]}'s already` : '';
+  let givesNames = false;
   // Mirrors the server's ValidDisplayName: a human label, not a path.
   $: validName = /^[\p{L}\p{N}][\p{L}\p{N} ._-]{0,63}$/u.test(stackName);
 
@@ -147,6 +208,7 @@
   let error: string | null = null;
   let manifestText = '';
   let variables: any[] = [];
+  let fjordFills = new Set<string>(); // variables fjord fills itself (a names provider's pairing)
   let formData: Record<string, string> = {};
   // Deploy target = train (build/channel, from the catalog) + version (rolling
   // or a pin, from the registry). trains[trainId] = published pins for it.
@@ -244,7 +306,7 @@
   // pick; the compose is the default answer. What an option asks for shows
   // only when it is picked, and is required then.
   type Ask = { name: string; label?: string; default?: string; type?: string; values?: Record<string, string> };
-  type ChoiceOption = { id: string; label: string; doc?: string; ask?: Ask[]; drop?: string[]; services?: string };
+  type ChoiceOption = { id: string; label: string; doc?: string; ask?: Ask[]; drop?: string[]; services?: string; appjail?: unknown };
   type Choice = { id: string; label: string; doc?: string; default: string; options: ChoiceOption[] };
   let choices: Choice[] = [];
   let picks: Record<string, string> = {};
@@ -253,9 +315,7 @@
   $: askedNow = choices.flatMap((c) => c.options.find((o) => o.id === picks[c.id])?.ask ?? []);
   function pick(c: Choice, id: string) {
     picks = { ...picks, [c.id]: id };
-    for (const a of c.options.find((o) => o.id === id)?.ask ?? []) {
-      if (formData[a.name] === undefined) formData[a.name] = a.default ?? '';
-    }
+    for (const a of c.options.find((o) => o.id === id)?.ask ?? []) formData[a.name] = askValue(a, formData[a.name]);
     formData = formData;
   }
   // Not bind:value: a binding to formData[...] inside the asks loop makes the
@@ -265,11 +325,49 @@
     formData[name] = value;
     formData = formData;
   }
+  // An option that adds services runs on AppJail only with its AppJail form
+  // (the jails it adds); a catalog built before forms has none. Greyed, with
+  // the reason, rather than refused at Install.
+  $: noAppjail = (o: ChoiceOption) => engineChoice === 'appjail' && !!o.services && !o.appjail;
+  // Switched to AppJail with such an option picked: back to the default.
+  $: if (engineChoice === 'appjail') {
+    for (const c of choices) {
+      const o = c.options.find((x) => x.id === picks[c.id]);
+      if (o && noAppjail(o)) picks = { ...picks, [c.id]: c.default };
+    }
+  }
   // Non-default answers, in words, for the summary line.
-  $: pickedWords = choices
-    .filter((c) => picks[c.id] && picks[c.id] !== c.default)
-    .map((c) => c.options.find((o) => o.id === picks[c.id])?.label ?? '')
-    .filter(Boolean);
+  $: pickedWords = pickedPhrase(choices, picks);
+
+  // What the install downloads, for the summary line. fjordd resolves the
+  // images as install does, so it follows the choices, the tag and the
+  // image_tag fields; asked a moment after they settle.
+  let size: SizeAnswer | null = null;
+  let sizeAsked = '';
+  let sizeTimer: ReturnType<typeof setTimeout> | undefined;
+  $: sizeBody = JSON.stringify({
+    manifest: manifestText,
+    app_id: appId,
+    tag: appClass === 'stack' ? '' : tag.trim(),
+    choices: picks,
+    engine: engineChoice,
+    values: Object.fromEntries(tagVars.map((v) => [v.name, formData[v.name] ?? ''])),
+  });
+  $: if (manifestText && enginesKnown && sizeBody !== sizeAsked) {
+    sizeAsked = sizeBody;
+    clearTimeout(sizeTimer);
+    sizeTimer = setTimeout(() => askSize(sizeBody), 400);
+  }
+  async function askSize(body: string) {
+    try {
+      const res = await fetch('/api/apps/size', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body });
+      const answer: SizeAnswer | null = res.ok ? await res.json() : null;
+      if (body === sizeAsked) size = answer;
+    } catch {
+      if (body === sizeAsked) size = null; // no size said is no error
+    }
+  }
+  $: sizeLine = sizeWords(size);
   $: tagVars = variables.filter((v) => v.type === 'image_tag' && v.image);
 
   // Progressive disclosure, three levels (placement only; whether a field may
@@ -281,15 +379,25 @@
   // `advanced: true|false` is the older spelling. Everything else follows its type.
   const levelOf = (v: any): 'primary' | 'options' | 'advanced' => {
     if (v.level === 'primary' || v.level === 'options' || v.level === 'advanced') return v.level;
+    if (madeUp(v)) return 'options'; // nothing to do, but there to set one's own
+    if (given(v) && v.optional !== true) return 'primary';
     const hasDefault = String(v.default ?? '') !== '';
     if (v.optional !== true && !hasDefault && v.type !== 'path' && v.type !== 'zfs_dataset') return 'primary';
     if (v.advanced === true) return 'advanced';
     if (v.advanced === false) return 'options';
     return v.type === 'path' || v.type === 'port' || v.type === 'image_tag' ? 'options' : 'advanced';
   };
-  $: primaryVars = variables.filter((v) => levelOf(v) === 'primary');
-  $: optionVars = variables.filter((v) => levelOf(v) === 'options');
-  $: advancedVars = variables.filter((v) => levelOf(v) === 'advanced');
+  // A variable a choice sets is the choice's to show (see choiceVars): the
+  // row above Options, and its asks when an option has them.
+  $: byChoice = choiceVars(choices);
+  $: listedVars = variables.filter((v) => !byChoice.has(v.name) && !fjordFills.has(v.name));
+  // A required address nothing can fill in (the app's own address on a DHCP
+  // network is known once it starts) is up front: woodpecker's
+  // WOODPECKER_HOST held Install from inside the folded Advanced section.
+  $: mustType = (v: any) => v.type === 'public_url' && v.optional !== true && !!webOwnAddress && !webIP;
+  $: primaryVars = listedVars.filter((v) => mustType(v) || levelOf(v) === 'primary');
+  $: optionVars = listedVars.filter((v) => !mustType(v) && levelOf(v) === 'options');
+  $: advancedVars = listedVars.filter((v) => !mustType(v) && levelOf(v) === 'advanced');
   let showOptions = false;
   let advancedOpen = false; // Settings → Advanced can pre-open these (wizard detail 2/3)
   // One line that states the defaults being accepted, so nobody has to open
@@ -329,17 +437,84 @@
   // rejects a required var whose value resolves empty. Track the unfilled ones
   // so Deploy can be blocked with a clear reason instead of a 400 after submit.
   const isEmpty = (v: any) => !String(formData[v.name] ?? '').trim();
+  // A required secret nobody has to bring is made up at install when left
+  // empty (manifest.MadeUp): the catalog default is a placeholder like
+  // "changeme", and it was what got installed. `generate: false` marks one
+  // only its owner has (a tunnel token), typed as before.
+  // A port another stack, container or program already holds: start on the
+  // nearest free one and say why, instead of Install refusing it (every
+  // linuxserver desktop app wants 3000 and 3001).
+  let portNotes: Record<string, string> = {};
+  async function freePorts() {
+    portNotes = {};
+    const vs = variables.filter((v: any) => v.type === 'port' && /^\d+$/.test(String(formData[v.name] ?? '')));
+    if (!vs.length) return;
+    const proto = (n: string) => (new RegExp('\\$\\{' + n + '\\}:\\d+/udp').test(manifestText) ? 'udp' : 'tcp');
+    const keys = vs.map((v: any) => `${formData[v.name]}/${proto(v.name)}`);
+    try {
+      const r = await fetch('/api/ports/free?ports=' + encodeURIComponent(keys.join(',')));
+      if (!r.ok) return;
+      const got: Record<string, { heldBy: string; free?: number }> = await r.json();
+      vs.forEach((v: any, i: number) => {
+        const t = got[keys[i]];
+        if (!t) return;
+        const was = formData[v.name];
+        if (Number(was) < 1024) {
+          // A well-known port is found by its number (DNS on 53, HTTP on
+          // 80): moved to 54, nothing would ask there.
+          portNotes[v.name] = `${was} is in use by ${t.heldBy}, and clients look for this app on ${was}: give it its own address on a LAN network (Networking, below).`;
+        } else if (t.free) {
+          formData[v.name] = String(t.free);
+          portNotes[v.name] = `${was} is in use by ${t.heldBy}, so ${t.free}.`;
+        } else portNotes[v.name] = `${was} is in use by ${t.heldBy}.`;
+      });
+      formData = formData;
+      portNotes = portNotes;
+    } catch {
+      // pre-flight still refuses a taken port at Install
+    }
+  }
+  const madeUp = (v: any) => v.type === 'secret' && v.optional !== true && v.generate !== false;
+  // One only its owner has starts empty and up front: its catalog default is
+  // a placeholder too (cloudflared's YOUR_CLOUDFLARE_TOKEN_HERE), and filled
+  // in, under Advanced, it installed and crash-looped.
+  const given = (v: any) => v.type === 'secret' && v.generate === false;
   // Host-path variables are folder LISTS (one row per folder); every other
   // variable is a single value in formData. Deps are spelled out (formData,
   // paths): a legacy-mode `$:` only tracks variables named in the statement.
   $: missingRequired = [
-    ...variables.filter(
+    ...listedVars.filter(
       (v) =>
         v.optional !== true &&
+        !madeUp(v) &&
         !(v.type === 'path' ? (paths[v.name] || []).some((p) => p.trim()) : String(formData[v.name] ?? '').trim()),
     ),
     ...askedNow.filter((a) => !String(formData[a.name] ?? '').trim()).map((a) => ({ name: a.label || a.name })),
   ];
+
+  // Why Install is held, on screen beside it: in a tooltip alone nobody saw it
+  // (woodpecker's empty WOODPECKER_HOST read as a dead button).
+  $: blockReason = !validName
+    ? 'Enter a valid stack name'
+    : nameTaken
+      ? nameTaken
+    : !enginesKnown
+      ? 'Checking the engines…'
+    : noBuild
+      ? noBuild
+    : noJail.length
+      ? `${appId} can't run on AppJail yet: its AppJail bundle has no jail for ${noJail.join(', ')}. Install it on podman.`
+      : missingRequired.length
+        ? `Fill in ${missingRequired.map((v) => v.name).join(', ')}`
+        : badUrls.length
+          ? `Fix the address in ${badUrls.map((v) => v.name).join(', ')}`
+          : ipProblem
+            ? ipProblem
+            : ipRequired && !netIP.trim()
+              ? `${netChoice} allocates nothing — give this app an address`
+              : needAddress.length
+                ? `Give an address: ${needAddress.join(', ')} (in Networking above)`
+                : '';
 
   // Folder lists per host-path variable. One folder mounts as-is; several are
   // mounted as sub-folders of the app's own mount point (server-side expansion).
@@ -448,6 +623,10 @@
   // operator can see and change rather than a wildcard to reason about.
   let baseSvcNames: string[] = [];
   let declaredNet: Record<string, string> = {};
+  // The AppJail bundle's director: a service it has no jail for is refused
+  // by the daemon, so Install is held with that reason before the click.
+  let appjailDirector = '';
+  $: noJail = engineChoice === 'appjail' ? appjailMissing(baseSvcNames, choices, picks, appjailDirector) : [];
   $: svcNames = chosenServices(baseSvcNames, choices, picks);
   let netPlan: Record<string, string> = {};
   $: {
@@ -511,6 +690,49 @@
   // What the blurb promises has to be what the rows say, or the screen gives
   // two answers.
   $: exposedOn = Object.entries(planEdits).find(([svc]) => netPlan[svc] === PLAN_DEFAULT)?.[1]?.[0]?.network ?? '';
+  // The networking blurb says what the rows below do, for this app: which of
+  // its parts go where. It used to promise "its database and cache" for every
+  // app, seven web apps with neither included.
+  $: openParts = svcNames.filter((n) => netPlan[n] === PLAN_DEFAULT);
+  $: privateParts = svcNames.filter((n) => netPlan[n] === PLAN_PRIVATE);
+  const listed = (xs: string[]) => (xs.length < 2 ? xs.join('') : `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}`);
+  // The network the app's web service lands on. With an address of its own
+  // there, its port variables publish nothing (see ownPort.ts).
+  $: webNet = perService ? exposedOn || planEdits[svcNames[0]]?.[0]?.network || '' : netChoice;
+  $: webOwnAddress = ownAddress(webNet, networks);
+  // The app's own ports, where it answers at that address: said once under
+  // Networking, in place of port fields that would publish nothing.
+  $: ownPorts = webOwnAddress
+    ? [...new Set(variables.filter((v: any) => v.type === 'port').map((v: any) => insidePort(manifestText, v.name)).filter(Boolean))]
+    : [];
+  // public_url fields follow where the app lands until someone types in one.
+  let webPortHint = '';
+  let webHttps = false;
+  $: webIP = perService
+    ? (Object.entries(planEdits).find(([svc]) => netPlan[svc] === PLAN_DEFAULT)?.[1] ?? planEdits[svcNames[0]] ?? [])[0]?.ip ?? ''
+    : netIP;
+  $: fillPublicUrls(variables, formData, webPortHint, webHttps, webOwnAddress, webIP);
+  // Only a value this put there is replaced: anything else was typed.
+  let suggestedUrl: Record<string, string> = {};
+  function fillPublicUrls(vars: any[], values: Record<string, string>, port: string, https: boolean, own: boolean, ip: string) {
+    let changed = false;
+    for (const v of vars) {
+      if (v.type !== 'public_url' || touched.has(v.name)) continue;
+      if ((values[v.name] ?? '') !== (suggestedUrl[v.name] ?? v.default ?? '')) continue;
+      const portVar = port.match(/^\$\{([A-Za-z_][A-Za-z0-9_]*)/)?.[1] ?? '';
+      const url = suggestedPublicUrl({
+        webPort: port, https, values, host: location.hostname, ownAddress: own, ownIP: ip,
+        insidePort: portVar ? insidePort(manifestText, portVar) : '',
+      });
+      suggestedUrl[v.name] = url;
+      if (values[v.name] !== url) {
+        values[v.name] = url;
+        changed = true;
+      }
+    }
+    if (changed) formData = formData;
+  }
+  $: badUrls = variables.filter((v) => v.type === 'public_url' && publicUrlProblem(formData[v.name] ?? ''));
   const PLAN_PRIVATE = 'private';
   const PLAN_DEFAULT = 'default';
   const PLAN_NONE = 'none';
@@ -519,7 +741,7 @@
   // Attachable networks (empty on hosts without them). A network with no
   // subnet gets its addresses from DHCP -- nothing here needs to know the
   // segment, and no address has to be supplied.
-  type Network = { name: string; subnet?: string; static?: boolean; addressSource?: string };
+  type Network = { name: string; driver?: string; subnet?: string; static?: boolean; addressSource?: string };
   let networks: Network[] = [];
   let netChoice = '';
   const BUILT_IN = [
@@ -671,8 +893,21 @@
       manifestText = await res.text();
       const parsed: any = yaml.load(manifestText);
       baseSvcNames = Object.keys(parsed?.services ?? {});
+      appjailDirector = String(parsed?.['x-fjord']?.appjail?.director ?? '');
       declaredNet = parsed?.['x-fjord']?.networking ?? {};
       choices = parsed?.['x-fjord']?.choices ?? [];
+      webPortHint = String(parsed?.['x-fjord']?.info?.web_port ?? '');
+      givesNames = !!parsed?.['x-fjord']?.provides?.names;
+      // A names provider's key, setup token, fjord's address, id and name are
+      // fjord's to fill at install (install_handler), not the person's: never
+      // asked. RP_PAIRING_URL showed as a required field on jupiter.
+      const pn = parsed?.['x-fjord']?.provides?.names ?? {};
+      fjordFills = new Set(
+        [pn.key, pn.setup_token, pn.client_url, pn.client_id, pn.client_name]
+          .map((v: unknown) => /^\$\{(\w+)\}$/.exec(String(v ?? ''))?.[1])
+          .filter((v): v is string => !!v),
+      );
+      webHttps = parsed?.['x-fjord']?.info?.web_https === true;
       for (const c of choices) picks[c.id] = c.default;
       picks = picks;
       if (parsed['x-fjord'] && parsed['x-fjord'].variables) {
@@ -681,14 +916,15 @@
           // Path vars get this stack's own <App data>/<stack>/... folder: a
           // catalog default that names the app is re-rooted, none at all
           // becomes a hint; still fully editable + browsable.
-          formData[v.name] = v.type === 'path' ? seedPath(v, slugOf(stackName, appId || 'app')) : v.default || '';
+          formData[v.name] = v.type === 'path' ? seedPath(v, folderOf(stackName, appId || 'app')) : madeUp(v) || given(v) ? '' : v.default || '';
           if (v.type === 'path') paths[v.name] = [formData[v.name]];
         });
-        seededSlug = slugOf(stackName, appId || 'app');
+        seededSlug = folderOf(stackName, appId || 'app');
         formData = formData; // seeding above mutates in place; reassign so missingRequired recomputes
         paths = paths;
         defaultedFrom = {};
         applyDefaultSets();
+        freePorts();
       }
       loadVersions();
     } catch (e: any) {
@@ -737,6 +973,8 @@
       networks: plan?.networks,
       networkModes: plan?.modes,
       choices: picks,
+      givenName: offerName && wantName && givenName ? givenName : undefined,
+      restart: restartPolicies.includes(restartPolicy) ? { policy: restartPolicy, retries: restartPolicy === 'on-failure' ? restartRetries : 0 } : undefined,
     });
   }
 
@@ -772,17 +1010,65 @@
             {#if stackName && !validName}
               <div class="text-xs text-fjord-danger">Letters, digits, spaces, dots, dashes and underscores; up to 64 characters.</div>
             {:else}
-              <div class="text-xs text-fjord-fg-dim">Change it to run more than one copy, e.g. <span class="font-mono">{appId}-4k</span>.</div>
+              {#if stackIds.includes(appId)}
+                <div class="text-xs text-fjord-fg-dim"><span class="font-mono">{appId}</span> is installed already; this is another copy.</div>
+              {:else}
+                <div class="text-xs text-fjord-fg-dim">Change it to run more than one copy, e.g. <span class="font-mono">{appId}-4k</span>.</div>
+              {/if}
             {/if}
           </div>
 
+          {#if offerName}
+            <div class="flex flex-col gap-1">
+              <div class="flex items-center justify-between gap-3">
+                <label class="text-sm font-semibold text-fjord-fg-secondary" for="appname">Open it at</label>
+                <Switch bind:checked={wantName} label="Give it a name" />
+              </div>
+              {#if wantName}
+                <div class="flex items-center rounded-md border border-fjord-border bg-fjord-inset focus-within:border-fjord-accent">
+                  <span class="pl-3 text-fjord-fg-dim font-mono">https://</span>
+                  <input id="appname" bind:value={givenName} on:input={() => (nameEdited = true)}
+                    class="min-w-0 flex-1 bg-transparent py-2 font-mono text-fjord-fg-body focus:outline-none" />
+                  <span class="pr-3 text-fjord-fg-dim font-mono">.{$names.domain}</span>
+                </div>
+                {#if nameTaken && nameLabel(givenName) !== givenName.trim()}
+                  <div class="text-xs text-fjord-danger">Saved as <span class="font-mono">{nameLabel(givenName)}.{$names.domain}</span>, which is {nameOwnedBy?.split('/')[0]}'s already.</div>
+                {:else if nameTaken}
+                  <div class="text-xs text-fjord-danger">{nameTaken}. Pick another first part.</div>
+                {:else if nameLabel(givenName) && nameLabel(givenName) !== givenName.trim()}
+                  <div class="text-xs text-fjord-fg-dim">Saved as <span class="font-mono">{nameLabel(givenName)}.{$names.domain}</span>.</div>
+                {:else}
+                  <div class="text-xs text-fjord-fg-dim">{$names.provider} gives it this name once it is running, home network only.</div>
+                {/if}
+              {:else}
+                <div class="text-xs text-fjord-fg-dim">Only its address, no name. You can add one later from its page.</div>
+              {/if}
+            </div>
+          {/if}
+
+          {#snippet reachedAt()}
+            {#if ownPorts.length}
+              <p class="text-sm text-fjord-fg-body mt-1 mb-2">
+                It answers at its own address on <span class="font-mono">{webNet}</span>{#if webIP} (<span class="font-mono">{webIP}</span>){/if},
+                on {ownPorts.length > 1 ? 'ports' : 'port'} <span class="font-mono">{ownPorts.join(', ')}</span>. Nothing is published on this host.
+              </p>
+            {/if}
+          {/snippet}
+
           {#snippet varField(v: any)}
+            {#if v.type === 'port' && webOwnAddress && insidePort(manifestText, v.name)}
+              <!-- Nothing to choose: with its own address nothing is published
+                   on this host. Networking says where it answers instead. -->
+            {:else}
             <div class="flex flex-col gap-1">
               <label class="text-sm font-semibold text-fjord-fg-secondary flex items-center gap-2" for={v.name}>
                 <span class="font-mono text-fjord-accent/90">{v.name}</span>
-                {#if v.optional !== true}<span class="text-fjord-danger" title="Required">*</span>{/if}
+                {#if v.optional !== true}<span class="text-fjord-danger" title="Required">*</span>{:else}<span class="text-xs font-normal text-fjord-fg-dim" data-optional>(optional)</span>{/if}
                 {#if v.type === 'path'}<span class="text-[10px] font-normal uppercase tracking-wide text-fjord-fg-dim border border-fjord-border rounded px-1.5 py-0.5">host path</span>{/if}
               </label>
+              {#if portNotes[v.name]}
+                <div class="text-xs text-fjord-warning">{portNotes[v.name]}</div>
+              {/if}
               {#if v.label}
                 <div class="text-xs text-fjord-fg-dim">{#each linkify(v.label) as seg}{#if seg.url}<a href={seg.url} target="_blank" rel="noopener noreferrer" class="text-fjord-accent hover:underline">{seg.text}</a>{:else}{seg.text}{/if}{/each}</div>
               {/if}
@@ -848,22 +1134,55 @@
                   {/if}
                 </div>
               {:else}
+                {#if v.type === 'public_url'}
+                  {#if webOwnAddress && !webIP && v.optional !== true && isEmpty(v)}
+                    <div class="text-xs text-fjord-warning">
+                      Its address on {webNet} is only known once it starts, so it can't be filled in for you. Type the address you will open it at
+                      (a name or address and its port), or put it on bridge in Networking.
+                    </div>
+                  {:else}
+                    <div class="text-xs text-fjord-fg-dim">
+                      Filled in from where this app will be reachable{#if webOwnAddress && !webIP} (its address on {webNet} is only known once it starts){/if}.
+                      Change it if you open it another way, a domain or a reverse proxy.
+                    </div>
+                  {/if}
+                {/if}
                 <input
                   id={v.name}
                   type="text"
                   bind:value={formData[v.name]}
                   on:input={() => touched.add(v.name)}
-                  placeholder={v.default || (v.optional !== true ? 'required' : '')}
-                  class="w-full bg-fjord-inset border rounded-md px-3 py-2 text-fjord-fg-body focus:outline-none focus:border-fjord-accent transition-colors {v.optional !== true && isEmpty(v) ? 'border-fjord-danger/60' : 'border-fjord-border'}"
+                  placeholder={madeUp(v) ? 'made up at install — or type your own' : given(v) ? (v.optional !== true ? 'required' : '') : v.default || (v.optional !== true ? 'required' : '')}
+                  class="w-full bg-fjord-inset border rounded-md px-3 py-2 text-fjord-fg-body focus:outline-none focus:border-fjord-accent transition-colors {(v.optional !== true && !madeUp(v) && isEmpty(v)) || (v.type === 'public_url' && publicUrlProblem(formData[v.name] ?? '')) ? 'border-fjord-danger/60' : 'border-fjord-border'}"
                 />
+                {#if v.type === 'public_url' && publicUrlProblem(formData[v.name] ?? '')}
+                  <div class="text-xs text-fjord-danger">{publicUrlProblem(formData[v.name] ?? '')}</div>
+                {/if}
               {/if}
             </div>
+            {/if}
           {/snippet}
 
           {#each choices as c (c.id)}
             {@const chosen = c.options.find((o) => o.id === picks[c.id])}
             {@const asks = chosen?.ask ?? []}
             <div class="space-y-2 border border-fjord-border rounded-lg p-3 bg-fjord-card/40">
+              {#if isToggle(c)}
+                {@const onOpt = c.options.find((o) => o.id === 'on')}
+                <div class="flex items-center gap-4">
+                  <div class="flex-1 min-w-0">
+                    <div class="text-sm font-medium text-fjord-fg">{c.label}</div>
+                    {#if c.doc}<div class="text-xs text-fjord-fg-muted">{c.doc}</div>{/if}
+                  </div>
+                  <Switch
+                    checked={picks[c.id] === 'on'}
+                    label={c.label}
+                    disabled={picks[c.id] !== 'on' && !!onOpt && noAppjail(onOpt)}
+                    title={picks[c.id] !== 'on' && onOpt && noAppjail(onOpt) ? 'Not on AppJail with this catalog: it has no AppJail form for this part.' : ''}
+                    on:change={(e) => pick(c, e.detail ? 'on' : 'off')}
+                  />
+                </div>
+              {:else}
               <div class="flex flex-wrap items-baseline gap-x-2">
                 <span class="text-sm font-medium text-fjord-fg">{c.label}</span>
                 {#if c.doc}<span class="text-xs text-fjord-fg-muted">{c.doc}</span>{/if}
@@ -874,14 +1193,16 @@
                     type="button"
                     role="radio"
                     aria-checked={picks[c.id] === o.id}
-                    title={o.doc || ''}
+                    disabled={noAppjail(o)}
+                    title={noAppjail(o) ? 'Not on AppJail with this catalog: it has no AppJail form for this option. Install on podman, or refresh the catalog.' : o.doc || ''}
                     on:click={() => pick(c, o.id)}
-                    class="px-3 py-1.5 rounded-full text-sm border transition-colors {picks[c.id] === o.id
+                    class="px-3 py-1.5 rounded-full text-sm border transition-colors disabled:opacity-40 disabled:cursor-not-allowed {picks[c.id] === o.id
                       ? 'bg-fjord-accent text-white border-fjord-accent'
                       : 'bg-fjord-inset text-fjord-fg-secondary border-fjord-border hover:text-fjord-fg'}">{o.label}</button
                   >
                 {/each}
               </div>
+              {/if}
               {#if chosen?.doc}
                 <p class="text-xs text-fjord-fg-muted">{chosen.doc}</p>
               {/if}
@@ -897,7 +1218,7 @@
                           on:change={(e) => setAsked(a.name, e.currentTarget.value)}
                           class="w-full bg-fjord-inset border border-fjord-border rounded-md px-3 py-2 text-fjord-fg-body focus:outline-none focus:border-fjord-accent"
                         >
-                          <option value="">—</option>
+                          {#if Object.keys(a.values).length > 1}<option value="">—</option>{/if}
                           {#each Object.entries(a.values) as entry (entry[0])}<option value={entry[0]}>{entry[1]}</option>{/each}
                         </select>
                       {:else}
@@ -919,13 +1240,24 @@
 
           {#each primaryVars as v}{@render varField(v)}{/each}
 
-          <!-- the defaults being accepted, in one line; Options is one click -->
-          <div class="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-fjord-fg-muted border-t border-fjord-border pt-4">
-            <span>
-              Installs <b class="text-fjord-fg-body">{appName} {summaryVersion}</b>{#if summaryTrain}{' '}({summaryTrain}){/if}
-              on <b class="text-fjord-fg-body">{engineChoice || 'podman'}</b>{#if pickedWords.length}, <b class="text-fjord-fg-body">{pickedWords.join(', ').toLowerCase()}</b>{/if}
-              · data in <span class="font-mono text-fjord-fg-secondary">{storageBase}/{slugOf(stackName, appId || 'app')}</span>
-            </span>
+          <!-- the defaults being accepted, one fact a row; Options is one click -->
+          <div class="flex flex-wrap items-end gap-x-4 gap-y-2 text-sm border-t border-fjord-border pt-4">
+            <dl class="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 min-w-0" data-install-summary>
+              <dt class="text-fjord-fg-dim">Version</dt>
+              <dd class="text-fjord-fg-body min-w-0"><b>{summaryVersion}</b>{#if summaryTrain}<span class="text-fjord-fg-muted"> · {summaryTrain}</span>{/if}</dd>
+              <dt class="text-fjord-fg-dim">Engine</dt>
+              <dd class="text-fjord-fg-body">{engineChoice || (enginesKnown ? 'the default engine' : 'checking engines…')}</dd>
+              {#if pickedWords}
+                <dt class="text-fjord-fg-dim">With</dt>
+                <dd class="text-fjord-fg-body">{pickedWords}</dd>
+              {/if}
+              <dt class="text-fjord-fg-dim">Data</dt>
+              <dd class="font-mono text-fjord-fg-secondary break-all">{storageBase}/{folderOf(stackName, appId || 'app')}</dd>
+              {#if sizeLine}
+                <dt class="text-fjord-fg-dim">Download</dt>
+                <dd class="text-fjord-fg-body" title={SIZE_NOTE} data-install-size>{sizeLine}</dd>
+              {/if}
+            </dl>
             <button
               type="button"
               on:click={() => (showOptions = !showOptions)}
@@ -995,7 +1327,7 @@
           {#if appDataLocations.length > 1}
             <div class="flex flex-col gap-1">
               <label class="text-sm font-semibold text-fjord-fg-secondary" for="appdata">App data</label>
-              <p class="text-xs text-fjord-fg-dim">Where this app's own folders go — <span class="font-mono">{storageBase}/{slugOf(stackName, appId || 'app')}/…</span></p>
+              <p class="text-xs text-fjord-fg-dim">Where this app's own folders go — <span class="font-mono">{storageBase}/{folderOf(stackName, appId || 'app')}/…</span></p>
               <select
                 id="appdata"
                 bind:value={appDataChoice}
@@ -1040,6 +1372,7 @@
             <div class="pt-4 border-t border-fjord-border">
               {#if perService}
                 <label class="text-sm font-semibold text-fjord-fg-secondary" for="net">Networking</label>
+                {@render reachedAt()}
                 {#if singleService}
                   {#if hostNetworked}
                     <p class="text-xs text-fjord-warning mt-1 mb-3">
@@ -1051,10 +1384,16 @@
                   {/if}
                 {:else if joinableNets.length}
                   <p class="text-xs text-fjord-fg-dim mb-3">
-                    This app says which of its parts belongs where: the one you open goes on
-                    <span class="font-mono">{exposedOn || joinableNets[0].name}</span>, and its
-                    database and cache go on a network of their own, not reachable from your LAN. Change any of it
-                    here, or after installing.
+                    {#if builtIn(exposedOn)}
+                      New installs use <span class="font-mono">{exposedOn}</span>, so this app goes as it ships.
+                    {:else if openParts.length}
+                      {listed(openParts)}
+                      {openParts.length === 1 ? 'goes' : 'go'} on <span class="font-mono">{exposedOn || joinableNets[0].name}</span>{#if privateParts.length},
+                        and {listed(privateParts)} on a network of their own, not reachable from your LAN{/if}.
+                    {:else if privateParts.length}
+                      {listed(privateParts)} {privateParts.length === 1 ? 'goes' : 'go'} on a network of its own, not reachable from your LAN.
+                    {/if}
+                    Change any of it here, or after installing.
                   </p>
                 {:else}
                   <!-- Promising a private segment while every row below says
@@ -1077,6 +1416,7 @@
                 />
               {:else}
                 <label class="text-sm font-semibold text-fjord-fg-secondary" for="net">Networking</label>
+                {@render reachedAt()}
                 {#if hostNetworked && !declaresNetworking && engineChoice !== 'appjail'}
                   <p class="text-xs text-fjord-warning mt-1 mb-2">
                     This app expects host networking — its services reach each other over
@@ -1151,6 +1491,19 @@
               {/if}
             </div>
 
+            <div class="flex flex-col gap-1">
+              <label class="text-sm font-semibold text-fjord-fg-secondary" for="restart">{restartOnExit || !restartPolicies.length ? 'Restart' : 'At boot'}</label>
+              <RestartChoice
+                id="restart"
+                policies={restartPolicies}
+                onExit={restartOnExit}
+                bind:policy={restartPolicy}
+                bind:retries={restartRetries}
+                disabled={!restartPolicies.length}
+                note="{engineChoice || 'This engine'} does not take a restart policy from fjord."
+              />
+            </div>
+
               {#if advancedVars.length || availableEngines.length > 1 || variants.length}
                 <details class="group border-t border-fjord-border pt-4" open={advancedOpen}>
                   <summary class="flex items-center gap-1.5 cursor-pointer text-sm font-semibold text-fjord-fg-secondary hover:text-fjord-fg select-none list-none">
@@ -1207,25 +1560,13 @@
         disabled={busy}
         class="px-4 py-2 rounded-md font-medium text-fjord-fg-secondary hover:text-fjord-fg hover:bg-fjord-border transition-all disabled:opacity-50">Cancel</button
       >
-      {#if needAddress.length}
-        <span class="text-xs text-fjord-warning">Give an address: {needAddress.join(', ')} (in Networking above)</span>
+      {#if blockReason && !busy && !loading && !error}
+        <span class="text-xs text-fjord-warning">{blockReason}</span>
       {/if}
       <button
         on:click={deploy}
-        disabled={busy || loading || !!error || !validName || missingRequired.length > 0 || (ipRequired && !netIP.trim()) || !!ipProblem || needAddress.length > 0 || !!noBuild}
-        title={!validName
-          ? 'Enter a valid stack name'
-          : noBuild
-            ? noBuild
-          : missingRequired.length
-            ? `Fill required: ${missingRequired.map((v) => v.name).join(', ')}`
-            : ipProblem
-              ? ipProblem
-              : ipRequired && !netIP.trim()
-                ? `${netChoice} allocates nothing — give this app an address`
-                : needAddress.length
-                  ? `Give an address: ${needAddress.join(', ')}`
-                  : ''}
+        disabled={busy || loading || !enginesKnown || !!error || !validName || !!nameTaken || missingRequired.length > 0 || badUrls.length > 0 || (ipRequired && !netIP.trim()) || !!ipProblem || needAddress.length > 0 || !!noBuild}
+        title={blockReason || undefined}
         class="bg-fjord-accent hover:bg-fjord-accent-hover text-white px-6 py-2 rounded-md font-medium shadow-lg transition-all disabled:opacity-50 flex items-center gap-2"
       >
         {#if busy}<Spinner size={14} />{/if}

@@ -1,13 +1,19 @@
+/// <reference types="vitest/config" />
 import { defineConfig } from 'vite'
 import { svelte } from '@sveltejs/vite-plugin-svelte'
 import tailwindcss from '@tailwindcss/vite'
+import { wuchale } from 'wuchale/vite'
 
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [
     tailwindcss(),
+    wuchale(),
     svelte()
   ],
+  test: {
+    setupFiles: ['src/test-setup.ts'],
+  },
   server: {
     allowedHosts: true,
     proxy: {

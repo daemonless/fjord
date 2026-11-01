@@ -24,11 +24,19 @@ func (b *Backend) PruneCapabilities() engine.PruneCapabilities {
 func (b *Backend) Capabilities() engine.Capabilities {
 	return engine.Capabilities{
 		RemoteVolumes: false,
-		NetworkKinds:  networkKinds(),
 		NetworkRemove: true,
 		// A subset, yes; pins and rollback, not yet: director never reads
 		// the compose they are written in.
 		UpdateServices: true,
+		// Pins reach the jails through the director (fjord writes the image
+		// into from: or the tag argument), and a rebuilt jail keeps its
+		// address on its own (netlab 2026-10-17: DHCP and virtualnet).
+		PinServices:    true,
+		KeepsAddresses: true,
+		// Boot only: a jail stays up after its app exits (persist, which its
+		// start needs), so nothing can tell it to come back. fjord's start on
+		// boot follows these.
+		RestartPolicies: []string{"unless-stopped", "always", "no"},
 	}
 }
 

@@ -5,9 +5,12 @@
   import { createEventDispatcher } from 'svelte';
   import { toast } from './toast';
   import Spinner from './Spinner.svelte';
+  import { browserZone } from './setupPlan';
 
   export let id: string;
   export let name: string;
+  export let label = 'Install';
+  export let busyLabel = 'Installing…';
 
   const dispatch = createEventDispatcher<{ installed: void }>();
   let busy = false;
@@ -18,13 +21,13 @@
       const res = await fetch('/api/setup/install', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id }),
+        body: JSON.stringify({ id, timezone: browserZone() }),
       });
       if (!res.ok) throw new Error((await res.text()).trim() || `HTTP ${res.status}`);
-      toast(`Installed: ${name}`, { kind: 'success' });
+      toast(`${label === 'Install' ? 'Installed' : 'Done'}: ${name}`, { kind: 'success' });
       dispatch('installed');
     } catch (e: any) {
-      toast(`Could not install ${name}: ${e.message}`, { kind: 'error' });
+      toast(`${label === 'Install' ? 'Could not install' : 'Could not fix'} ${name}: ${e.message}`, { kind: 'error' });
     } finally {
       busy = false;
     }
@@ -35,5 +38,5 @@
   on:click={install}
   disabled={busy}
   class="shrink-0 flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-fjord-accent text-white hover:bg-fjord-accent-hover transition-colors disabled:opacity-60"
-  >{#if busy}<Spinner size={12} /> Installing…{:else}Install{/if}</button
+  >{#if busy}<Spinner size={12} /> {busyLabel}{:else}{label}{/if}</button
 >

@@ -1,0 +1,300 @@
+msgid ""
+msgstr ""
+"Source-Language: en\n"
+"Language: en\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2\n"
+"X-Plurals-Order: one, other\n"
+
+#: src/publicUrl.ts
+msgid "Start with http:// or https://"
+msgstr "Start with http:// or https://"
+
+#: src/publicUrl.ts
+msgid "Needs a host name or address"
+msgstr "Needs a host name or address"
+
+#: src/publicUrl.ts
+msgid "Not a valid address"
+msgstr "Not a valid address"
+
+#. 0: xs.slice(0, -1).join(', '); 1: xs[xs.length - 1]
+#: src/choices.ts
+msgid "{0} and {1}"
+msgstr "{0} and {1}"
+
+#~ msgid "package"
+#~ msgstr "package"
+
+#. 0: count(changed, 'package')
+#: src/updateWords.ts
+msgid "{0} changed"
+msgstr "{0} changed"
+
+#. 0: changed ? added \\: count(added, 'package')
+#: src/updateWords.ts
+msgid "{0} added"
+msgstr "{0} added"
+
+#. 0: changed || added ? removed \\: count(removed, 'package')
+#: src/updateWords.ts
+msgid "{0} removed"
+msgstr "{0} removed"
+
+#. 0: to
+#: src/updateWords.ts
+msgid "New build of the same version ({0})"
+msgstr "New build of the same version ({0})"
+
+#: src/updateWords.ts
+msgid "New build of the same version"
+msgstr "New build of the same version"
+
+#. 0: c.class
+#: src/updateWords.ts
+msgid "New {0} version"
+msgstr "New {0} version"
+
+#. 0: from; 1: to
+#: src/updateWords.ts
+msgid "Newer image, {0} → {1}"
+msgstr "Newer image, {0} → {1}"
+
+#. 0: to
+#: src/updateWords.ts
+msgid "Newer image ({0})"
+msgstr "Newer image ({0})"
+
+#: src/updateWords.ts
+msgid "Newer image"
+msgstr "Newer image"
+
+#: src/restartPolicy.ts
+msgid "Restart unless stopped"
+msgstr "Restart unless stopped"
+
+#: src/restartPolicy.ts
+msgid "Always restart"
+msgstr "Always restart"
+
+#: src/restartPolicy.ts
+msgid "Restart after a crash"
+msgstr "Restart after a crash"
+
+#: src/restartPolicy.ts
+msgid "Don't restart"
+msgstr "Don't restart"
+
+#: src/restartPolicy.ts
+#: src/restartPolicy.ts
+msgid "Start at boot"
+msgstr "Start at boot"
+
+#: src/restartPolicy.ts
+msgid "Always start at boot"
+msgstr "Always start at boot"
+
+#: src/restartPolicy.ts
+msgid "Don't start at boot"
+msgstr "Don't start at boot"
+
+#: src/restartPolicy.ts
+msgid "This engine does not restart an app when it stops; this sets what starts at boot."
+msgstr "This engine does not restart an app when it stops; this sets what starts at boot."
+
+#: src/restartPolicy.ts
+msgid "This engine does not take a restart policy from fjord."
+msgstr "This engine does not take a restart policy from fjord."
+
+#: src/restartPolicy.ts
+msgid "Restart: not available"
+msgstr "Restart: not available"
+
+#: src/restartPolicy.ts
+msgid "Restart: mixed"
+msgstr "Restart: mixed"
+
+#. 0: r.retries || DEFAULT_RETRIES
+#: src/restartPolicy.ts
+msgid "Restart after a crash ({0}×)"
+msgstr "Restart after a crash ({0}×)"
+
+#: src/restartPolicy.ts
+msgid "Restart: not set"
+msgstr "Restart: not set"
+
+#: src/restartPolicy.ts
+msgid "Started at boot, even if you stopped it."
+msgstr "Started at boot, even if you stopped it."
+
+#: src/restartPolicy.ts
+msgid "Not started at boot: only you start it."
+msgstr "Not started at boot: only you start it."
+
+#: src/restartPolicy.ts
+msgid "Started at boot, unless you stopped it."
+msgstr "Started at boot, unless you stopped it."
+
+#: src/restartPolicy.ts
+msgid "Restarted whenever it exits. Started at boot, unless you stopped it."
+msgstr "Restarted whenever it exits. Started at boot, unless you stopped it."
+
+#: src/restartPolicy.ts
+msgid "Restarted whenever it exits. Started at boot, even if you stopped it."
+msgstr "Restarted whenever it exits. Started at boot, even if you stopped it."
+
+#. 0: retries > 0 ? `, up to ${retries} times` \\: ''
+#: src/restartPolicy.ts
+msgid "Restarted when it exits with an error{0}. Started at boot, unless you stopped it."
+msgstr "Restarted when it exits with an error{0}. Started at boot, unless you stopped it."
+
+#: src/restartPolicy.ts
+msgid "Left down when it exits. Not started at boot."
+msgstr "Left down when it exits. Not started at boot."
+
+#: src/restartPolicy.ts
+msgid "Not set: left down when it exits, started at boot if it was running."
+msgstr "Not set: left down when it exits, started at boot if it was running."
+
+#. 0: parts.join(', ')
+#: src/restartPolicy.ts
+msgid "Its services differ ({0}). Pick one to set them all."
+msgstr "Its services differ ({0}). Pick one to set them all."
+
+#: src/shortcuts.ts
+msgid "Show these shortcuts"
+msgstr "Show these shortcuts"
+
+#: src/shortcuts.ts
+msgid "Search stacks, or apps in the store"
+msgstr "Search stacks, or apps in the store"
+
+#: src/shortcuts.ts
+msgid "Go to Stacks"
+msgstr "Go to Stacks"
+
+#: src/shortcuts.ts
+msgid "Go to the App Store"
+msgstr "Go to the App Store"
+
+#: src/shortcuts.ts
+msgid "Go to Networks"
+msgstr "Go to Networks"
+
+#: src/shortcuts.ts
+msgid "Go to Volumes"
+msgstr "Go to Volumes"
+
+#: src/shortcuts.ts
+msgid "Go to System"
+msgstr "Go to System"
+
+#: src/shortcuts.ts
+msgid "Go to Settings"
+msgstr "Go to Settings"
+
+#: src/shortcuts.ts
+msgid "Refresh"
+msgstr "Refresh"
+
+#~ msgid "Esc"
+#~ msgstr "Esc"
+
+#: src/shortcuts.ts
+msgid "Close a dialog, or this"
+msgstr "Close a dialog, or this"
+
+#~ msgid "Ctrl F"
+#~ msgstr "Ctrl F"
+
+#: src/shortcuts.ts
+msgid "Find in the log view"
+msgstr "Find in the log view"
+
+#: src/shortcuts.ts
+msgid "Resize the sidebar and the output drawer (when focused)"
+msgstr "Resize the sidebar and the output drawer (when focused)"
+
+#: src/password.ts
+#: src/password.ts
+#: src/password.ts
+msgid "Weak"
+msgstr "Weak"
+
+#: src/password.ts
+msgid "It is one of the most common passwords."
+msgstr "It is one of the most common passwords."
+
+#: src/password.ts
+msgid "Runs and repeats are guessed first."
+msgstr "Runs and repeats are guessed first."
+
+#: src/password.ts
+msgid "Short passwords are guessed quickly."
+msgstr "Short passwords are guessed quickly."
+
+#: src/password.ts
+msgid "Strong"
+msgstr "Strong"
+
+#: src/password.ts
+msgid "Good"
+msgstr "Good"
+
+#: src/password.ts
+msgid "Fair"
+msgstr "Fair"
+
+#: src/password.ts
+msgid "Longer is stronger: a short sentence is easy to remember."
+msgstr "Longer is stronger: a short sentence is easy to remember."
+
+#. 0: name; 1: sofar
+#: src/busyStep.ts
+msgid "Downloading {0} ({1})"
+msgstr "Downloading {0} ({1})"
+
+#. 0: name
+#: src/busyStep.ts
+msgid "Downloading {0}"
+msgstr "Downloading {0}"
+
+#: src/busyStep.ts
+msgid "Saving the image"
+msgstr "Saving the image"
+
+#. 0: jail[4]; 1: jail[1]; 2: jail[2]
+#: src/busyStep.ts
+msgid "Building {0} ({1} of {2})"
+msgstr "Building {0} ({1} of {2})"
+
+#. 0: jail[4]; 1: jail[1]; 2: jail[2]
+#: src/busyStep.ts
+msgid "Starting {0} ({1} of {2})"
+msgstr "Starting {0} ({1} of {2})"
+
+#: src/busyStep.ts
+msgid "Creating the containers"
+msgstr "Creating the containers"
+
+#: src/busyStep.ts
+msgid "Removing the containers"
+msgstr "Removing the containers"
+
+#: src/busyStep.ts
+msgid "Building the jails"
+msgstr "Building the jails"
+
+#: src/busyStep.ts
+msgid "Removing the jails"
+msgstr "Removing the jails"
+
+#: src/busyStep.ts
+msgid "Starting the containers"
+msgstr "Starting the containers"
+
+#: src/busyStep.ts
+msgid "Stopping the containers"
+msgstr "Stopping the containers"

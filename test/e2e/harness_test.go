@@ -13,6 +13,7 @@
 //	go test -tags e2e ./test/e2e -v -count=1
 //
 // FJORD_URL   fjordd to drive (default http://127.0.0.1:3567)
+// FJORD_SESSION a signed-in session's cookie value (scripts/e2e.sh signs in)
 // E2E_SUDO    how to run podman as root (default doas; "" when already root)
 //
 // It runs podman on the host fjordd manages, and moves the local
@@ -34,8 +35,9 @@ import (
 )
 
 var (
-	base = envOr("FJORD_URL", "http://127.0.0.1:3567")
-	sudo = envOr("E2E_SUDO", "doas")
+	base    = envOr("FJORD_URL", "http://127.0.0.1:3567")
+	session = os.Getenv("FJORD_SESSION")
+	sudo    = envOr("E2E_SUDO", "doas")
 )
 
 func envOr(k, d string) string {
@@ -79,6 +81,9 @@ func api(t *testing.T, method, path string, body any) (int, string) {
 	}
 	req, _ := http.NewRequest(method, base+path, rd)
 	req.Header.Set("Content-Type", "application/json")
+	if session != "" {
+		req.AddCookie(&http.Cookie{Name: "fjord_session", Value: session})
+	}
 	cl := &http.Client{Timeout: 10 * time.Minute}
 	resp, err := cl.Do(req)
 	if err != nil {

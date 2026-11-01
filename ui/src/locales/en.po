@@ -1,0 +1,4881 @@
+msgid ""
+msgstr ""
+"Source-Language: en\n"
+"Language: en\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2\n"
+"X-Plurals-Order: one, other\n"
+
+#. 0: xs.slice(0, -1).join(', '); 1: xs[xs.length - 1]
+#: src/InstallWizard.svelte
+msgid "{0} and {1}"
+msgstr "{0} and {1}"
+
+#~ msgid "Start with http:// or https://"
+#~ msgstr "Start with http:// or https://"
+
+#~ msgid "Needs a host name or address"
+#~ msgstr "Needs a host name or address"
+
+#~ msgid "Not a valid address"
+#~ msgstr "Not a valid address"
+
+#~ msgid "package"
+#~ msgstr "package"
+
+#~ msgid "{0} changed"
+#~ msgstr "{0} changed"
+
+#~ msgid "{0} added"
+#~ msgstr "{0} added"
+
+#~ msgid "{0} removed"
+#~ msgstr "{0} removed"
+
+#~ msgid "New build of the same version ({0})"
+#~ msgstr "New build of the same version ({0})"
+
+#~ msgid "New build of the same version"
+#~ msgstr "New build of the same version"
+
+#~ msgid "New {0} version"
+#~ msgstr "New {0} version"
+
+#~ msgid "Newer image, {0} → {1}"
+#~ msgstr "Newer image, {0} → {1}"
+
+#~ msgid "Newer image ({0})"
+#~ msgstr "Newer image ({0})"
+
+#~ msgid "Newer image"
+#~ msgstr "Newer image"
+
+#: src/AddMount.svelte
+msgid "Mount into <0/> — edits the compose, <1>Save</1> to apply."
+msgstr "Mount into <0/> — edits the compose, <1>Save</1> to apply."
+
+#: src/Account.svelte
+#: src/AddMount.svelte
+#: src/Adopt.svelte
+#: src/Adopt.svelte
+#: src/App.svelte
+#: src/App.svelte
+#: src/App.svelte
+#: src/ChangeVersionModal.svelte
+#: src/ConfirmDialog.svelte
+#: src/DirPicker.svelte
+#: src/InstallWizard.svelte
+#: src/NamesPrompt.svelte
+#: src/Networks.svelte
+#: src/Networks.svelte
+#: src/Networks.svelte
+#: src/OpenMenu.svelte
+#: src/RemoteFolderForm.svelte
+#: src/ServiceResources.svelte
+#: src/ServiceResources.svelte
+#: src/ServiceResources.svelte
+#: src/ServiceResources.svelte
+#: src/Settings.svelte
+#: src/SetupWizard.svelte
+#: src/System.svelte
+#: src/System.svelte
+#: src/Volumes.svelte
+#: src/Volumes.svelte
+#: src/Volumes.svelte
+msgid "Cancel"
+msgstr "Cancel"
+
+#: src/AddMount.svelte
+msgid "Host path"
+msgstr "Host path"
+
+#: src/AddMount.svelte
+msgid "Volume"
+msgstr "Volume"
+
+#: src/AddMount.svelte
+msgid "NFS / SMB"
+msgstr "NFS / SMB"
+
+#: src/AddMount.svelte
+#: src/Volumes.svelte
+msgid "NFS"
+msgstr "NFS"
+
+#: src/AddMount.svelte
+msgid "SMB"
+msgstr "SMB"
+
+#: src/AddMount.svelte
+msgid "Volume…"
+msgstr "Volume…"
+
+#: src/AddMount.svelte
+#: src/InstallWizard.svelte
+msgid "Browse the host filesystem"
+msgstr "Browse the host filesystem"
+
+#: src/AddMount.svelte
+#: src/InstallWizard.svelte
+msgid "Add a folder set"
+msgstr "Add a folder set"
+
+#: src/AddMount.svelte
+msgid "Mounts the set's folders under the container path on the right"
+msgstr "Mounts the set's folders under the container path on the right"
+
+#: src/AddMount.svelte
+#: src/InstallWizard.svelte
+msgid "Add folder set…"
+msgstr "Add folder set…"
+
+#: src/AddMount.svelte
+#: src/FolderRows.svelte
+#: src/InstallWizard.svelte
+#: src/Settings.svelte
+#: src/SetupWizard.svelte
+msgid "Browse…"
+msgstr "Browse…"
+
+#: src/AddMount.svelte
+#: src/RemoteFolderForm.svelte
+#: src/Settings.svelte
+#: src/SetupWizard.svelte
+msgid "Add"
+msgstr "Add"
+
+#~ msgid "<0/> RO"
+#~ msgstr "<0/> RO"
+
+#: src/AddMount.svelte
+msgid "No named volumes yet — create one on the Volumes page."
+msgstr "No named volumes yet — create one on the Volumes page."
+
+#. 0: todo.length - failed; 1: failed
+#: src/Adopt.svelte
+msgid "Adopted {0}, {1} failed"
+msgstr "Adopted {0}, {1} failed"
+
+#. 0: todo.length
+#: src/Adopt.svelte
+msgid "Adopted {0} containers"
+msgstr "Adopted {0} containers"
+
+#. 0: c.name
+#: src/Adopt.svelte
+msgid "Adopted {0} — running as a stack"
+msgstr "Adopted {0} — running as a stack"
+
+#. 0: c.name; 1: e.message
+#: src/Adopt.svelte
+msgid "Adopted {0}, but it did not start: {1}. Open it on the Stacks page."
+msgstr "Adopted {0}, but it did not start: {1}. Open it on the Stacks page."
+
+#. 0: c.name
+#: src/Adopt.svelte
+msgid "Adopted {0} — starting"
+msgstr "Adopted {0} — starting"
+
+#~ msgid "Created stack {0} (stopped)"
+#~ msgstr "Created stack {0} (stopped)"
+
+#. 0: e.message
+#: src/Adopt.svelte
+msgid "Adopt failed: {0}"
+msgstr "Adopt failed: {0}"
+
+#: src/Adopt.svelte
+#: src/SetupWizard.svelte
+msgid "Already running on this host"
+msgstr "Already running on this host"
+
+#: src/Adopt.svelte
+#: src/App.svelte
+#: src/Dashboard.svelte
+msgid "Adopt existing containers"
+msgstr "Adopt existing containers"
+
+#: src/Adopt.svelte
+msgid "Nothing here has to be done now; the Stacks page can adopt them later."
+msgstr "Nothing here has to be done now; the Stacks page can adopt them later."
+
+#: src/Adopt.svelte
+msgid "Containers and jails on this host that no stack owns — started by hand, a script, or another tool. Adopting one turns what the engine recorded into a stack: same image, mounts, network address and name. <0/>"
+msgstr "Containers and jails on this host that no stack owns — started by hand, a script, or another tool. Adopting one turns what the engine recorded into a stack: same image, mounts, network address and name. <0/>"
+
+#~ msgid "Removes {0} containers and starts each as a stack with the same mounts, network address and name. Data stays where it is."
+#~ msgstr "Removes {0} containers and starts each as a stack with the same mounts, network address and name. Data stays where it is."
+
+#~ msgid "Replace all"
+#~ msgstr "Replace all"
+
+#~ msgid "Adopt & replace all ({0})"
+#~ msgstr "Adopt & replace all ({0})"
+
+#: src/Adopt.svelte
+msgid "← Stacks"
+msgstr "← Stacks"
+
+#: src/Adopt.svelte
+msgid "<0/> Looking for containers…"
+msgstr "<0/> Looking for containers…"
+
+#: src/Adopt.svelte
+msgid "Nothing to adopt — every container on this host already belongs to a stack."
+msgstr "Nothing to adopt — every container on this host already belongs to a stack."
+
+#: src/Adopt.svelte
+#: src/Dashboard.svelte
+#: src/LoginButton.svelte
+#: src/Networks.svelte
+msgid "Hide"
+msgstr "Hide"
+
+#: src/Adopt.svelte
+msgid "Preview"
+msgstr "Preview"
+
+#~ msgid "Create the stack (stopped); the container keeps running"
+#~ msgstr "Create the stack (stopped); the container keeps running"
+
+#~ msgid "Replace"
+#~ msgstr "Replace"
+
+#~ msgid "Remove the container and start it as a stack"
+#~ msgstr "Remove the container and start it as a stack"
+
+#~ msgid "<0/>Adopt & replace"
+#~ msgstr "<0/>Adopt & replace"
+
+#: src/Adopt.svelte
+msgid "Adopt"
+msgstr "Adopt"
+
+#~ msgid "Removes the container <0/> and starts it as a stack with the same mounts, network address and name. Data stays where it is."
+#~ msgstr "Removes the container <0/> and starts it as a stack with the same mounts, network address and name. Data stays where it is."
+
+#: src/App.svelte
+#: src/App.svelte
+#: src/AppStore.svelte
+#: src/AppStore.svelte
+#: src/AppStore.svelte
+#: src/AppStore.svelte
+#: src/AppStore.svelte
+#: src/NamesPrompt.svelte
+msgid "All"
+msgstr "All"
+
+#: src/AppStore.svelte
+#: src/Settings.svelte
+msgid "Catalog refreshed"
+msgstr "Catalog refreshed"
+
+#: src/AppStore.svelte
+msgid "Catalog refresh failed"
+msgstr "Catalog refresh failed"
+
+#. 0: filtered.length; 1: catalog.apps.length
+#: src/AppStore.svelte
+msgid "{0} of {1} apps"
+msgstr "{0} of {1} apps"
+
+#: src/AppStore.svelte
+msgid "Loading catalog…"
+msgstr "Loading catalog…"
+
+#: src/AppStore.svelte
+#: src/SetupWizard.svelte
+msgid "App Store"
+msgstr "App Store"
+
+#: src/AppStore.svelte
+msgid "Search apps…"
+msgstr "Search apps…"
+
+#. 0: sourceCount === 1 ? 'the configured catalog' \\: `all ${sourceCount} catalogs`
+#: src/AppStore.svelte
+msgid "Re-fetch {0}"
+msgstr "Re-fetch {0}"
+
+#: src/AppStore.svelte
+msgid "No catalogs configured — add one in Settings"
+msgstr "No catalogs configured — add one in Settings"
+
+#: src/AppStore.svelte
+msgid "Refreshing…"
+msgstr "Refreshing…"
+
+#: src/AppStore.svelte
+msgid "Refresh"
+msgstr "Refresh"
+
+#: src/AppStore.svelte
+msgid "<0/> Loading catalog…"
+msgstr "<0/> Loading catalog…"
+
+#: src/AppStore.svelte
+msgid "Catalog Unavailable"
+msgstr "Catalog Unavailable"
+
+#: src/AppStore.svelte
+msgid "No Catalogs"
+msgstr "No Catalogs"
+
+#: src/AppStore.svelte
+msgid "No app catalogs are configured. Add one under Settings — any base URL publishing catalog.json (another fjord instance's /catalog works)."
+msgstr "No app catalogs are configured. Add one under Settings — any base URL publishing catalog.json (another fjord instance's /catalog works)."
+
+#: src/AppStore.svelte
+msgid "Catalogs Not Fetched Yet"
+msgstr "Catalogs Not Fetched Yet"
+
+#: src/AppStore.svelte
+msgid "Catalogs are configured but nothing has been fetched yet."
+msgstr "Catalogs are configured but nothing has been fetched yet."
+
+#: src/AppStore.svelte
+msgid "Fetch Catalogs"
+msgstr "Fetch Catalogs"
+
+#: src/AppStore.svelte
+msgid "No Results Found"
+msgstr "No Results Found"
+
+#. 0: hiddenUnsupported; 1: hiddenUnsupported === 1 ? '' \\: 's'; 2: hostArch
+#: src/AppStore.svelte
+msgid "{0} matching app{1} hidden — not built for {2}."
+msgstr "{0} matching app{1} hidden — not built for {2}."
+
+#: src/AppStore.svelte
+msgid "Try a different search or category."
+msgstr "Try a different search or category."
+
+#: src/AppStore.svelte
+msgid "Show them anyway"
+msgstr "Show them anyway"
+
+#: src/AppStore.svelte
+msgid "Showing apps not built for <0/> too — they can't be installed here. <1>Hide</1>"
+msgstr "Showing apps not built for <0/> too — they can't be installed here. <1>Hide</1>"
+
+#. 0: hiddenUnsupported; 1: hiddenUnsupported === 1 ? '' \\: 's'
+#: src/AppStore.svelte
+msgid "{0} app{1} hidden — not built for <0/>. <1>Show</1>"
+msgstr "{0} app{1} hidden — not built for <0/>. <1>Show</1>"
+
+#. 0: app.sources?.map((s) => s.catalog_name).join(', ')
+#: src/AppStore.svelte
+msgid "{0} — pick one when installing"
+msgstr "{0} — pick one when installing"
+
+#. 0: app.catalog_name
+#: src/AppStore.svelte
+msgid "From {0}"
+msgstr "From {0}"
+
+#. 0: app.sources?.map((s) => s.catalog_name).join(', ')
+#: src/AppStore.svelte
+msgid "Available from {0} — pick one when installing"
+msgstr "Available from {0} — pick one when installing"
+
+#. 0: app.sources?.length
+#: src/AppStore.svelte
+msgid "{0} catalogs"
+msgstr "{0} catalogs"
+
+#. 0: app.catalog_name
+#: src/AppStore.svelte
+msgid "From the {0} catalog"
+msgstr "From the {0} catalog"
+
+#. 0: (app.architectures || []).join(', '); 1: hostArch
+#: src/AppStore.svelte
+msgid "Image is built for {0} — this host is {1}"
+msgstr "Image is built for {0} — this host is {1}"
+
+#. 0: (app.architectures || []).join('/')
+#: src/AppStore.svelte
+msgid "{0} only"
+msgstr "{0} only"
+
+#. 0: hostArch
+#: src/AppStore.svelte
+msgid "Not built for {0}"
+msgstr "Not built for {0}"
+
+#: src/AppStore.svelte
+#: src/AppStore.svelte
+msgid "Install…"
+msgstr "Install…"
+
+#: src/AppStore.svelte
+msgid "Multi-service stack"
+msgstr "Multi-service stack"
+
+#: src/AppStore.svelte
+msgid "Stack"
+msgstr "Stack"
+
+#: src/AppStore.svelte
+#: src/InstallWizard.svelte
+#: src/Shortcuts.svelte
+msgid "Close"
+msgstr "Close"
+
+#: src/AppStore.svelte
+msgid "Builds"
+msgstr "Builds"
+
+#: src/AppStore.svelte
+msgid "Website <0/>"
+msgstr "Website <0/>"
+
+#: src/AppStore.svelte
+msgid "Source <0/>"
+msgstr "Source <0/>"
+
+#: src/ChangeVersionModal.svelte
+msgid "· <0/> pinned"
+msgstr "· <0/> pinned"
+
+#: src/ChangeVersionModal.svelte
+msgid "Loading published versions…"
+msgstr "Loading published versions…"
+
+#: src/ChangeVersionModal.svelte
+msgid "No published tags found for this image."
+msgstr "No published tags found for this image."
+
+#: src/ChangeVersionModal.svelte
+#: src/InstallWizard.svelte
+msgid "Build / channel"
+msgstr "Build / channel"
+
+#: src/ChangeVersionModal.svelte
+#: src/InstallWizard.svelte
+msgid "Latest (rolling)"
+msgstr "Latest (rolling)"
+
+#: src/ChangeVersionModal.svelte
+#: src/InstallWizard.svelte
+#: src/InstallWizard.svelte
+msgid "Version"
+msgstr "Version"
+
+#: src/ChangeVersionModal.svelte
+msgid "Custom tag (optional)"
+msgstr "Custom tag (optional)"
+
+#: src/ChangeVersionModal.svelte
+msgid "Pin to exact image <0>(sha256 digest)</0> <1>Locks to the exact <0>sha256:…</0> that <1/> points to right now, so if that tag is later re-published to a different image, this stack stays on the bytes you pinned. Update won't move it until you unpin.</1>"
+msgstr "Pin to exact image <0>(sha256 digest)</0> <1>Locks to the exact <0>sha256:…</0> that <1/> points to right now, so if that tag is later re-published to a different image, this stack stays on the bytes you pinned. Update won't move it until you unpin.</1>"
+
+#: src/ChangeVersionModal.svelte
+msgid "Applying…"
+msgstr "Applying…"
+
+#: src/ChangeVersionModal.svelte
+msgid "Change & Redeploy"
+msgstr "Change & Redeploy"
+
+#: src/ChangeVersionModal.svelte
+msgid "Pin"
+msgstr "Pin"
+
+#: src/ChangeVersionModal.svelte
+msgid "Unpin"
+msgstr "Unpin"
+
+#. 0: name
+#: src/ChangeVersionModal.svelte
+msgid "Change Version — {0}"
+msgstr "Change Version — {0}"
+
+#: src/ChangeVersionModal.svelte
+msgid "Currently running <0/><1/>"
+msgstr "Currently running <0/><1/>"
+
+#: src/App.svelte
+msgid "Groups"
+msgstr "Groups"
+
+#: src/App.svelte
+#: src/InstallWizard.svelte
+#: src/InstallWizard.svelte
+msgid "Engine"
+msgstr "Engine"
+
+#: src/App.svelte
+msgid "App"
+msgstr "App"
+
+#: src/App.svelte
+#: src/ServiceResources.svelte
+msgid "Network"
+msgstr "Network"
+
+#: src/App.svelte
+msgid "Status"
+msgstr "Status"
+
+#: src/App.svelte
+msgid "Flat"
+msgstr "Flat"
+
+#. 0: service
+#: src/App.svelte
+msgid "Rolling back {0}…"
+msgstr "Rolling back {0}…"
+
+#. 0: (await res.text()).trim()
+#: src/App.svelte
+msgid "Unpin failed: {0}"
+msgstr "Unpin failed: {0}"
+
+#. 0: service
+#: src/App.svelte
+msgid "{0} follows its tag again"
+msgstr "{0} follows its tag again"
+
+#. 0: (await res.text()).trim()
+#. 0: msg
+#: src/App.svelte
+#: src/App.svelte
+msgid "Version change failed: {0}"
+msgstr "Version change failed: {0}"
+
+#. 0: s.service; 1: s.toVersion; 2: (await res.text()).trim()
+#: src/App.svelte
+msgid "Could not move {0} to v{1}: {2}"
+msgstr "Could not move {0} to v{1}: {2}"
+
+#. 0: set.name; 1: dest
+#: src/App.svelte
+msgid "Mounting \"{0}\" at {1} — type a container path first to choose another"
+msgstr "Mounting \"{0}\" at {1} — type a container path first to choose another"
+
+#: src/App.svelte
+#: src/App.svelte
+#: src/App.svelte
+#: src/Settings.svelte
+msgid "Add failed"
+msgstr "Add failed"
+
+#: src/App.svelte
+msgid "Enter the container path to mount it at"
+msgstr "Enter the container path to mount it at"
+
+#: src/App.svelte
+#: src/Settings.svelte
+msgid "Remove failed"
+msgstr "Remove failed"
+
+#. 0: dec
+#: src/App.svelte
+msgid "No stack named \"{0}\""
+msgstr "No stack named \"{0}\""
+
+#: src/App.svelte
+msgid "Reverted to the last saved version"
+msgstr "Reverted to the last saved version"
+
+#: src/App.svelte
+msgid "Changes saved"
+msgstr "Changes saved"
+
+#: src/App.svelte
+msgid "Checking it stays up"
+msgstr "Checking it stays up"
+
+#: src/App.svelte
+msgid "Failed — see Output"
+msgstr "Failed — see Output"
+
+#: src/App.svelte
+#: src/App.svelte
+#: src/App.svelte
+#: src/System.svelte
+msgid "Failed"
+msgstr "Failed"
+
+#: src/App.svelte
+#: src/InstallCheckButton.svelte
+#: src/InstallWizard.svelte
+#: src/System.svelte
+msgid "Installing…"
+msgstr "Installing…"
+
+#: src/App.svelte
+#: src/App.svelte
+msgid "Starting…"
+msgstr "Starting…"
+
+#: src/App.svelte
+#: src/App.svelte
+msgid "Updating…"
+msgstr "Updating…"
+
+#: src/App.svelte
+#: src/App.svelte
+#: src/Shell.svelte
+msgid "Restarting…"
+msgstr "Restarting…"
+
+#: src/App.svelte
+#: src/App.svelte
+msgid "Stopping…"
+msgstr "Stopping…"
+
+#: src/App.svelte
+msgid "Deleting…"
+msgstr "Deleting…"
+
+#. 0: res ? await res.text() \\: 'fjordd did not answer'
+#: src/App.svelte
+msgid "Could not dismiss: {0}"
+msgstr "Could not dismiss: {0}"
+
+#: src/App.svelte
+msgid "Install failed"
+msgstr "Install failed"
+
+#: src/App.svelte
+msgid "Start failed"
+msgstr "Start failed"
+
+#: src/App.svelte
+msgid "Update failed"
+msgstr "Update failed"
+
+#: src/App.svelte
+msgid "Restart failed"
+msgstr "Restart failed"
+
+#: src/App.svelte
+msgid "Stop failed"
+msgstr "Stop failed"
+
+#. 0: services!.join(', ')
+#: src/App.svelte
+msgid "Updating {0}…"
+msgstr "Updating {0}…"
+
+#. 0: gone
+#: src/App.svelte
+msgid "Deleted {0}"
+msgstr "Deleted {0}"
+
+#. 0: name; 1: e.message
+#: src/App.svelte
+msgid "Failed to delete {0}: {1}"
+msgstr "Failed to delete {0}: {1}"
+
+#. 0: newName
+#. 0: name
+#: src/App.svelte
+#: src/Settings.svelte
+msgid "Renamed to {0}"
+msgstr "Renamed to {0}"
+
+#. 0: e.message
+#: src/App.svelte
+msgid "Rename failed: {0}"
+msgstr "Rename failed: {0}"
+
+#. 0: name
+#: src/App.svelte
+msgid ""
+"Installing {0}...\n"
+""
+msgstr ""
+"Installing {0}...\n"
+""
+
+#: src/App.svelte
+msgid "Installing..."
+msgstr "Installing..."
+
+#. 0: msg || `HTTP ${res.status}`
+#: src/App.svelte
+msgid "Install failed: {0}"
+msgstr "Install failed: {0}"
+
+#: src/App.svelte
+#: src/App.svelte
+msgid "<0>F</0>JORD"
+msgstr "<0>F</0>JORD"
+
+#: src/App.svelte
+msgid "Search stacks…"
+msgstr "Search stacks…"
+
+#~ msgid "New Stack"
+#~ msgstr "New Stack"
+
+#: src/App.svelte
+#: src/Dashboard.svelte
+msgid "Running"
+msgstr "Running"
+
+#: src/App.svelte
+#: src/Dashboard.svelte
+msgid "Stopped"
+msgstr "Stopped"
+
+#: src/App.svelte
+msgid "Problems"
+msgstr "Problems"
+
+#: src/App.svelte
+msgid "Updates"
+msgstr "Updates"
+
+#: src/App.svelte
+msgid "Group by"
+msgstr "Group by"
+
+#: src/App.svelte
+msgid "Ungrouped"
+msgstr "Ungrouped"
+
+#: src/App.svelte
+msgid "Drag here to remove from group"
+msgstr "Drag here to remove from group"
+
+#. 0: fleet[stack.name].fromVersion ? `v${fleet[stack.name].fromVersion} → ` \\: ''; 1: fleet[stack.name].toVersion
+#. 0: updateInfo!.fromVersion ? `v${updateInfo!.fromVersion} → ` \\: ''; 1: updateInfo!.toVersion
+#: src/App.svelte
+#: src/App.svelte
+msgid "{0}v{1} available"
+msgstr "{0}v{1} available"
+
+#: src/App.svelte
+#: src/App.svelte
+msgid "Update available"
+msgstr "Update available"
+
+#. 0: fleetBehindCount; 1: fleetBehindCount === 1 ? '' \\: 's'
+#: src/App.svelte
+msgid "<0/> {0} update{1} available"
+msgstr "<0/> {0} update{1} available"
+
+#. 0: search || stackFilter !== 'all' ? ' match' \\: ' yet'
+#: src/App.svelte
+msgid "No stacks{0}."
+msgstr "No stacks{0}."
+
+#: src/App.svelte
+msgid "<0/> App Store"
+msgstr "<0/> App Store"
+
+#: src/App.svelte
+msgid "<0/> Volumes"
+msgstr "<0/> Volumes"
+
+#: src/App.svelte
+msgid "<0/> Networks"
+msgstr "<0/> Networks"
+
+#: src/App.svelte
+msgid "<0/> System"
+msgstr "<0/> System"
+
+#: src/App.svelte
+msgid "<0/> Settings"
+msgstr "<0/> Settings"
+
+#: src/App.svelte
+msgid "System: this host and fjord"
+msgstr "System: this host and fjord"
+
+#. 0: daemonVersion
+#. 0: version
+#. 0: daemonVersion
+#: src/App.svelte
+#: src/Shortcuts.svelte
+#: src/System.svelte
+msgid "fjord {0}"
+msgstr "fjord {0}"
+
+#: src/App.svelte
+msgid "Sidebar width"
+msgstr "Sidebar width"
+
+#: src/App.svelte
+#: src/App.svelte
+msgid "Drag to resize · double-click to reset"
+msgstr "Drag to resize · double-click to reset"
+
+#: src/App.svelte
+#: src/App.svelte
+msgid "Switch to light theme"
+msgstr "Switch to light theme"
+
+#: src/App.svelte
+#: src/App.svelte
+msgid "Switch to dark theme"
+msgstr "Switch to dark theme"
+
+#. 0: selectedStack.name
+#: src/App.svelte
+msgid "Click to rename (id: {0})"
+msgstr "Click to rename (id: {0})"
+
+#: src/App.svelte
+#: src/App.svelte
+msgid "Busy…"
+msgstr "Busy…"
+
+#: src/App.svelte
+msgid "The engine did not answer in time -- usually a pull writing an image to disk. The state updates as soon as it answers."
+msgstr "The engine did not answer in time -- usually a pull writing an image to disk. The state updates as soon as it answers."
+
+#: src/App.svelte
+msgid "Runtime engine"
+msgstr "Runtime engine"
+
+#~ msgid "A stack on its own IP publishes nothing on the host, so there is no link to open until the network gives it an address."
+#~ msgstr "A stack on its own IP publishes nothing on the host, so there is no link to open until the network gives it an address."
+
+#. 0: openUrl
+#: src/App.svelte
+msgid "Open {0}"
+msgstr "Open {0}"
+
+#: src/App.svelte
+msgid "<0/> Open"
+msgstr "<0/> Open"
+
+#. 0: links.length
+#: src/App.svelte
+msgid "Open another of this stack's {0} apps"
+msgstr "Open another of this stack's {0} apps"
+
+#: src/App.svelte
+msgid "Assign this stack to a sidebar group"
+msgstr "Assign this stack to a sidebar group"
+
+#: src/App.svelte
+msgid "Unsaved"
+msgstr "Unsaved"
+
+#: src/App.svelte
+msgid "Engine <0/>"
+msgstr "Engine <0/>"
+
+#: src/App.svelte
+msgid "Discard unsaved changes and restore the last saved version"
+msgstr "Discard unsaved changes and restore the last saved version"
+
+#: src/App.svelte
+msgid "Revert"
+msgstr "Revert"
+
+#: src/App.svelte
+#: src/Networks.svelte
+#: src/Volumes.svelte
+msgid "Creating…"
+msgstr "Creating…"
+
+#: src/App.svelte
+#: src/Settings.svelte
+#: src/Settings.svelte
+msgid "Saving…"
+msgstr "Saving…"
+
+#: src/App.svelte
+#: src/Networks.svelte
+#: src/Volumes.svelte
+msgid "Create"
+msgstr "Create"
+
+#: src/App.svelte
+#: src/Networks.svelte
+#: src/OpenMenu.svelte
+#: src/Settings.svelte
+#: src/Settings.svelte
+msgid "Save"
+msgstr "Save"
+
+#. 0.0: engineSwitch; 0: selectedStack.director ? 'director file and Makejail' \\: 'compose.yaml'; 1: draftFiles(engineSwitch)
+#: src/App.svelte
+msgid "<0>Switch to {0}?</0> It replaces this {0} with {1} — your edits are lost."
+msgstr "<0>Switch to {0}?</0> It replaces this {0} with {1} — your edits are lost."
+
+#. 0: selectedStack.engine ?? defaultEngine
+#: src/App.svelte
+msgid "Keep {0}"
+msgstr "Keep {0}"
+
+#: src/App.svelte
+msgid "Switch"
+msgstr "Switch"
+
+#: src/App.svelte
+msgid "Looking at what it uses…"
+msgstr "Looking at what it uses…"
+
+#: src/App.svelte
+msgid "Its app data"
+msgstr "Its app data"
+
+#: src/App.svelte
+msgid "<0/> Also delete its app data — this cannot be undone"
+msgstr "<0/> Also delete its app data — this cannot be undone"
+
+#: src/App.svelte
+msgid "Not touched: <0/>"
+msgstr "Not touched: <0/>"
+
+#: src/App.svelte
+msgid "Its data stays on disk."
+msgstr "Its data stays on disk."
+
+#. 0.0: label(selectedStack)
+#: src/App.svelte
+msgid "<0>Delete {0}?</0> Stops it and removes its containers and its settings in fjord. <1/>"
+msgstr "<0>Delete {0}?</0> Stops it and removes its containers and its settings in fjord. <1/>"
+
+#. 0.0: label(selectedStack)
+#: src/App.svelte
+msgid "<0>Pull & recreate {0}?</0> Pulls every image and recreates every container, including ones already up to date."
+msgstr "<0>Pull & recreate {0}?</0> Pulls every image and recreates every container, including ones already up to date."
+
+#. 0.0: label(selectedStack)
+#: src/App.svelte
+msgid "<0>Stop {0}?</0> Stops and removes the containers. Your data is preserved."
+msgstr "<0>Stop {0}?</0> Stops and removes the containers. Your data is preserved."
+
+#: src/App.svelte
+msgid "Delete stack and data"
+msgstr "Delete stack and data"
+
+#: src/App.svelte
+#: src/Networks.svelte
+#: src/Networks.svelte
+#: src/Networks.svelte
+#: src/Networks.svelte
+#: src/Networks.svelte
+#: src/Volumes.svelte
+#: src/Volumes.svelte
+#: src/Volumes.svelte
+msgid "Delete"
+msgstr "Delete"
+
+#: src/App.svelte
+msgid "Recreate"
+msgstr "Recreate"
+
+#: src/App.svelte
+#: src/Dashboard.svelte
+msgid "Stop"
+msgstr "Stop"
+
+#: src/App.svelte
+msgid "<0/> Checking the registry…"
+msgstr "<0/> Checking the registry…"
+
+#: src/App.svelte
+msgid "Service"
+msgstr "Service"
+
+#: src/App.svelte
+msgid "Tag"
+msgstr "Tag"
+
+#: src/App.svelte
+msgid "State"
+msgstr "State"
+
+#: src/App.svelte
+msgid "Change"
+msgstr "Change"
+
+#. 0: s.service
+#: src/App.svelte
+msgid "Update {0}"
+msgstr "Update {0}"
+
+#: src/App.svelte
+msgid "update"
+msgstr "update"
+
+#: src/App.svelte
+msgid "new version"
+msgstr "new version"
+
+#: src/App.svelte
+msgid "up to date"
+msgstr "up to date"
+
+#: src/App.svelte
+msgid "pinned"
+msgstr "pinned"
+
+#: src/App.svelte
+msgid "unknown"
+msgstr "unknown"
+
+#: src/App.svelte
+msgid "new build"
+msgstr "new build"
+
+#: src/App.svelte
+msgid "(set in the compose)"
+msgstr "(set in the compose)"
+
+#. 0: s.fromVersion; 1: s.toVersion
+#: src/App.svelte
+msgid "v{0} → v{1} <0/>"
+msgstr "v{0} → v{1} <0/>"
+
+#: src/App.svelte
+msgid "Reading what changed…"
+msgstr "Reading what changed…"
+
+#. 0: versionStep.tag
+#: src/App.svelte
+msgid "Switches to {0} and recreates the container."
+msgstr "Switches to {0} and recreates the container."
+
+#: src/App.svelte
+msgid "Tick the services to update."
+msgstr "Tick the services to update."
+
+#. 0: s.service; 1: s.toVersion
+#: src/App.svelte
+msgid "{0} to v{1}"
+msgstr "{0} to v{1}"
+
+#. 0: bumps.map((s) => `${s.service} to v${s.toVersion}`).join(', ')
+#: src/App.svelte
+msgid "Moves {0} in the compose, then pulls"
+msgstr "Moves {0} in the compose, then pulls"
+
+#: src/App.svelte
+msgid "Pulls"
+msgstr "Pulls"
+
+#. 0: also.join(', '); 1: also.length === 1 ? 'restarts' \\: 'restart'
+#: src/App.svelte
+msgid "; {0} {1} with it (depends on it)"
+msgstr "; {0} {1} with it (depends on it)"
+
+#. 0: picked.map((s) => s.service).join(', ')
+#: src/App.svelte
+msgid "<0/> and recreates only {0}<1/>. The rest keep running."
+msgstr "<0/> and recreates only {0}<1/>. The rest keep running."
+
+#. 0: updatable.length; 1: updateInfo.services?.length ?? 0; 2: updateInfo.services?.length === 1 ? 'service has' \\: 'services have'
+#: src/App.svelte
+msgid "{0} of {1} {2} an update. This engine updates the whole stack: every image is pulled and every container recreated."
+msgstr "{0} of {1} {2} an update. This engine updates the whole stack: every image is pulled and every container recreated."
+
+#: src/App.svelte
+msgid "Nothing here is pulled by Update."
+msgstr "Nothing here is pulled by Update."
+
+#. 0: versionStep.to
+#: src/App.svelte
+msgid "Update to v{0}"
+msgstr "Update to v{0}"
+
+#. 0: picked.length; 1: picked.length === 1 ? '' \\: 's'
+#: src/App.svelte
+msgid "Update {0} service{1}"
+msgstr "Update {0} service{1}"
+
+#: src/App.svelte
+#: src/Dashboard.svelte
+msgid "Update"
+msgstr "Update"
+
+#: src/App.svelte
+msgid "<0>Not saved.</0> The compose changed on the server after you opened it — a rollback, version change or unpin, or another tab. Reload to see it; copy your edits first, reloading replaces them."
+msgstr "<0>Not saved.</0> The compose changed on the server after you opened it — a rollback, version change or unpin, or another tab. Reload to see it; copy your edits first, reloading replaces them."
+
+#: src/App.svelte
+#: src/App.svelte
+#: src/Toasts.svelte
+msgid "Dismiss"
+msgstr "Dismiss"
+
+#: src/App.svelte
+msgid "Reload"
+msgstr "Reload"
+
+#: src/App.svelte
+msgid "Hide this until it happens again"
+msgstr "Hide this until it happens again"
+
+#. 0: failedWhen(f.at); 1: f.message
+#: src/App.svelte
+msgid "<0/> at {0} — {1}"
+msgstr "<0/> at {0} — {1}"
+
+#: src/App.svelte
+msgid "Keep the running services as they are; the saved changes apply the next time the stack starts"
+msgstr "Keep the running services as they are; the saved changes apply the next time the stack starts"
+
+#: src/App.svelte
+msgid "The running services still use the old configuration — apply the saved changes to recreate them."
+msgstr "The running services still use the old configuration — apply the saved changes to recreate them."
+
+#: src/App.svelte
+msgid "Not now"
+msgstr "Not now"
+
+#: src/App.svelte
+msgid "Apply Changes"
+msgstr "Apply Changes"
+
+#. 0: updatable.map((s) => s.service).join(', '); 1: updatable.length === 1 ? 'has' \\: 'have'
+#: src/App.svelte
+msgid "{0} {1} an update"
+msgstr "{0} {1} an update"
+
+#: src/App.svelte
+msgid "Check for updates"
+msgstr "Check for updates"
+
+#: src/App.svelte
+msgid "Checking…"
+msgstr "Checking…"
+
+#: src/App.svelte
+msgid "Registry has a newer image than what's pulled"
+msgstr "Registry has a newer image than what's pulled"
+
+#: src/App.svelte
+msgid "A newer version is published — switch to it via Change Version"
+msgstr "A newer version is published — switch to it via Change Version"
+
+#: src/App.svelte
+msgid "Check again"
+msgstr "Check again"
+
+#: src/App.svelte
+#: src/Dashboard.svelte
+msgid "<0/> Up to date"
+msgstr "<0/> Up to date"
+
+#: src/App.svelte
+#: src/Dashboard.svelte
+msgid "<0/> Pinned"
+msgstr "<0/> Pinned"
+
+#: src/App.svelte
+msgid "More Actions"
+msgstr "More Actions"
+
+#: src/App.svelte
+msgid "Pull every image and recreate every service, even ones already up to date"
+msgstr "Pull every image and recreate every service, even ones already up to date"
+
+#: src/App.svelte
+msgid "<0/> Change Version…<1/>"
+msgstr "<0/> Change Version…<1/>"
+
+#: src/App.svelte
+msgid "<0/> Restart"
+msgstr "<0/> Restart"
+
+#: src/App.svelte
+msgid "<0/> Pull & recreate all…"
+msgstr "<0/> Pull & recreate all…"
+
+#: src/App.svelte
+msgid "<0/> Delete…"
+msgstr "<0/> Delete…"
+
+#: src/App.svelte
+msgid "<0/> Start"
+msgstr "<0/> Start"
+
+#: src/App.svelte
+msgid "<0/> Stop…"
+msgstr "<0/> Stop…"
+
+#: src/App.svelte
+#: src/Dashboard.svelte
+msgid "<0/> Update"
+msgstr "<0/> Update"
+
+#: src/App.svelte
+msgid "appjail-director.yml<0/>"
+msgstr "appjail-director.yml<0/>"
+
+#: src/App.svelte
+msgid "compose.yaml<0/>"
+msgstr "compose.yaml<0/>"
+
+#: src/App.svelte
+msgid "Makejail<0/>"
+msgstr "Makejail<0/>"
+
+#: src/App.svelte
+#: src/App.svelte
+#: src/App.svelte
+msgid "Services"
+msgstr "Services"
+
+#: src/App.svelte
+msgid ".env<0/>"
+msgstr ".env<0/>"
+
+#: src/App.svelte
+msgid "Hide the values shown after each ${VAR}"
+msgstr "Hide the values shown after each ${VAR}"
+
+#: src/App.svelte
+msgid "Show each ${VAR}’s value in the file"
+msgstr "Show each ${VAR}’s value in the file"
+
+#: src/App.svelte
+msgid "Every variable this file uses, and a field to set each"
+msgstr "Every variable this file uses, and a field to set each"
+
+#. 0: fileMissing
+#: src/App.svelte
+msgid "· {0} missing"
+msgstr "· {0} missing"
+
+#: src/App.svelte
+msgid "Values"
+msgstr "Values"
+
+#: src/App.svelte
+msgid "Variables<0/>"
+msgstr "Variables<0/>"
+
+#. 0: (selectedStack as any).network
+#: src/App.svelte
+msgid ": it has its own address on {0}, so nothing is published on this host's ports, and the app answers on its own port there"
+msgstr ": it has its own address on {0}, so nothing is published on this host's ports, and the app answers on its own port there"
+
+#. 0: unusedEnv.length === 1 ? 'it' \\: 'them'
+#: src/App.svelte
+msgid ", so changing {0} has no effect"
+msgstr ", so changing {0} has no effect"
+
+#. 0: unusedEnv.length === 1 ? 'is' \\: 'are'
+#: src/App.svelte
+msgid "<0/> {0} not used by this stack<1/>."
+msgstr "<0/> {0} not used by this stack<1/>."
+
+#. 0: selectedStack.director ? 'director file' \\: 'compose'; 1: unsetVars.length === 1 ? 'is' \\: 'are'; 2: unsetVars.length === 1 ? 'has' \\: 'have'
+#: src/App.svelte
+msgid "The {0} uses <0/>, which {1} not set here and {2} no default."
+msgstr "The {0} uses <0/>, which {1} not set here and {2} no default."
+
+#. 0: unsetVars.length === 1 ? 'it' \\: 'them'
+#: src/App.svelte
+msgid "Add {0}"
+msgstr "Add {0}"
+
+#: src/App.svelte
+msgid "<0/> Still installing — this fills in as soon as the stack is written."
+msgstr "<0/> Still installing — this fills in as soon as the stack is written."
+
+#. 0: Object.entries(selectedStack.state?.choices ?? {}) .map(([c, o]) => `${c.replace(/_/g, ' ')} ${o}`) .join(' · ')
+#: src/App.svelte
+msgid "Chosen at install: {0}"
+msgstr "Chosen at install: {0}"
+
+#: src/App.svelte
+msgid "What each service holds, and where each one is on the network. Changes apply to the stack on <0>Save</0>."
+msgstr "What each service holds, and where each one is on the network. Changes apply to the stack on <0>Save</0>."
+
+#: src/App.svelte
+msgid "Output height"
+msgstr "Output height"
+
+#: src/App.svelte
+msgid "Choose which services' logs to show"
+msgstr "Choose which services' logs to show"
+
+#. 0: logsSelected.length; 1: shellContainers.length
+#: src/App.svelte
+msgid "{0}/{1} services"
+msgstr "{0}/{1} services"
+
+#: src/App.svelte
+#: src/NamesPrompt.svelte
+msgid "None"
+msgstr "None"
+
+#. 0: serviceLabel(selectedStack.name, c.name)
+#: src/App.svelte
+msgid "Show only {0}"
+msgstr "Show only {0}"
+
+#: src/App.svelte
+msgid "only"
+msgstr "only"
+
+#: src/App.svelte
+msgid "Service to open a shell in"
+msgstr "Service to open a shell in"
+
+#: src/App.svelte
+msgid "<0/> Output"
+msgstr "<0/> Output"
+
+#: src/App.svelte
+msgid "<0/> Logs <1/>"
+msgstr "<0/> Logs <1/>"
+
+#: src/App.svelte
+msgid "<0/> Shell"
+msgstr "<0/> Shell"
+
+#: src/App.svelte
+msgid "<0/> Hide"
+msgstr "<0/> Hide"
+
+#: src/App.svelte
+msgid "Start the stack to open a shell."
+msgstr "Start the stack to open a shell."
+
+#: src/App.svelte
+msgid "· last output"
+msgstr "· last output"
+
+#: src/App.svelte
+msgid "<0/> Panel <1/>"
+msgstr "<0/> Panel <1/>"
+
+#: src/App.svelte
+#: src/ServiceResources.svelte
+msgid "Set"
+msgstr "Set"
+
+#: src/App.svelte
+msgid "<0/> in .env"
+msgstr "<0/> in .env"
+
+#. 0: deleting
+#: src/App.svelte
+msgid "Deleting {0}"
+msgstr "Deleting {0}"
+
+#: src/App.svelte
+msgid "Stopping and removing its services. This can take a few seconds…"
+msgstr "Stopping and removing its services. This can take a few seconds…"
+
+#: src/ConfirmDialog.svelte
+msgid "Are you sure?"
+msgstr "Are you sure?"
+
+#: src/ConfirmDialog.svelte
+msgid "Confirm"
+msgstr "Confirm"
+
+#: src/ConfirmDialog.svelte
+msgid "Type <0/> to confirm:"
+msgstr "Type <0/> to confirm:"
+
+#: src/Dashboard.svelte
+msgid "No stacks yet"
+msgstr "No stacks yet"
+
+#. 0: problems.length - 1
+#: src/Dashboard.svelte
+msgid "· and {0} more"
+msgstr "· and {0} more"
+
+#: src/Dashboard.svelte
+msgid "View"
+msgstr "View"
+
+#. 0: stoppedByYou
+#: src/Dashboard.svelte
+msgid "· {0} stopped"
+msgstr "· {0} stopped"
+
+#. 0: runningCount
+#: src/Dashboard.svelte
+msgid "All {0} running"
+msgstr "All {0} running"
+
+#. 0: updateCount; 1: updateCount === 1 ? '' \\: 's'
+#: src/Dashboard.svelte
+msgid "{0} update{1} available"
+msgstr "{0} update{1} available"
+
+#: src/Dashboard.svelte
+#: src/SetupWizard.svelte
+msgid "Stacks"
+msgstr "Stacks"
+
+#: src/Dashboard.svelte
+msgid "Turn containers started outside fjord into stacks"
+msgstr "Turn containers started outside fjord into stacks"
+
+#: src/Dashboard.svelte
+msgid "<0/> Adopt existing…"
+msgstr "<0/> Adopt existing…"
+
+#: src/Dashboard.svelte
+msgid "<0/> New Stack"
+msgstr "<0/> New Stack"
+
+#: src/Dashboard.svelte
+msgid "No Stacks"
+msgstr "No Stacks"
+
+#: src/Dashboard.svelte
+msgid "Install an app from the store, adopt the containers already running on this host, or create a stack from a compose file."
+msgstr "Install an app from the store, adopt the containers already running on this host, or create a stack from a compose file."
+
+#: src/Dashboard.svelte
+msgid "Open App Store"
+msgstr "Open App Store"
+
+#: src/Dashboard.svelte
+msgid "Runs on the podman engine"
+msgstr "Runs on the podman engine"
+
+#. 0: s.state.engine
+#: src/Dashboard.svelte
+msgid "Runs on the {0} engine"
+msgstr "Runs on the {0} engine"
+
+#. 0: u.fromVersion ? `v${u.fromVersion} → ` \\: ''; 1: u.toVersion
+#: src/Dashboard.svelte
+msgid "<0/> {0}v{1}"
+msgstr "<0/> {0}v{1}"
+
+#: src/Dashboard.svelte
+msgid "Could not compare the local image with the registry"
+msgstr "Could not compare the local image with the registry"
+
+#: src/Dashboard.svelte
+msgid "<0/> Unknown"
+msgstr "<0/> Unknown"
+
+#. 0: (info[s.name].more?.length ?? 1) - 1
+#: src/Dashboard.svelte
+msgid "+{0} more apps"
+msgstr "+{0} more apps"
+
+#: src/Dashboard.svelte
+msgid "Start"
+msgstr "Start"
+
+#: src/Dashboard.svelte
+#: src/InstallWizard.svelte
+msgid "Restart"
+msgstr "Restart"
+
+#: src/DirPicker.svelte
+msgid "Could not create folder"
+msgstr "Could not create folder"
+
+#: src/DirPicker.svelte
+msgid "Choose a directory"
+msgstr "Choose a directory"
+
+#: src/Account.svelte
+#: src/DirPicker.svelte
+#: src/Networks.svelte
+#: src/Settings.svelte
+#: src/Volumes.svelte
+msgid "<0/> Loading…"
+msgstr "<0/> Loading…"
+
+#. 0: error
+#: src/DirPicker.svelte
+msgid "{0} — you can still create it below and select it."
+msgstr "{0} — you can still create it below and select it."
+
+#: src/DirPicker.svelte
+msgid "No sub-directories."
+msgstr "No sub-directories."
+
+#: src/DirPicker.svelte
+msgid "Create folder here"
+msgstr "Create folder here"
+
+#: src/DirPicker.svelte
+msgid "<0/> New"
+msgstr "<0/> New"
+
+#: src/DirPicker.svelte
+msgid "Select this folder"
+msgstr "Select this folder"
+
+#: src/FixSnippet.svelte
+#: src/Terminal.svelte
+msgid "Copied"
+msgstr "Copied"
+
+#: src/FixSnippet.svelte
+msgid "Could not copy — select the text instead"
+msgstr "Could not copy — select the text instead"
+
+#: src/FixSnippet.svelte
+#: src/LoginButton.svelte
+#: src/LoginButton.svelte
+#: src/Terminal.svelte
+msgid "Copy"
+msgstr "Copy"
+
+#: src/FolderRows.svelte
+msgid "Mounted as a named volume at install"
+msgstr "Mounted as a named volume at install"
+
+#: src/FolderRows.svelte
+#: src/Settings.svelte
+msgid "Browse"
+msgstr "Browse"
+
+#: src/FolderRows.svelte
+#: src/InstallWizard.svelte
+msgid "Remove folder"
+msgstr "Remove folder"
+
+#: src/FolderRows.svelte
+msgid "No folders yet — add one below."
+msgstr "No folders yet — add one below."
+
+#: src/FolderRows.svelte
+#: src/InstallWizard.svelte
+msgid "<0/> Add folder"
+msgstr "<0/> Add folder"
+
+#: src/FolderRows.svelte
+msgid "<0/> Add NFS…"
+msgstr "<0/> Add NFS…"
+
+#: src/FolderRows.svelte
+msgid "<0/> Add SMB…"
+msgstr "<0/> Add SMB…"
+
+#~ msgid "Installed: {0}"
+#~ msgstr "Installed: {0}"
+
+#~ msgid "Could not install {0}: {1}"
+#~ msgstr "Could not install {0}: {1}"
+
+#: src/Settings.svelte
+msgid "<0/> Installing…"
+msgstr "<0/> Installing…"
+
+#: src/InstallCheckButton.svelte
+#: src/InstallCheckButton.svelte
+#: src/InstallCheckButton.svelte
+#: src/InstallWizard.svelte
+#: src/System.svelte
+#: src/System.svelte
+#: src/System.svelte
+msgid "Install"
+msgstr "Install"
+
+#: src/LogView.svelte
+msgid "Find in logs…  (Ctrl+F)"
+msgstr "Find in logs…  (Ctrl+F)"
+
+#. 0: matchCount; 1: matchCount === 1 ? '' \\: 'es'
+#: src/LogView.svelte
+msgid "{0} match{1}"
+msgstr "{0} match{1}"
+
+#: src/LogView.svelte
+msgid "Show only matching lines"
+msgstr "Show only matching lines"
+
+#: src/LogView.svelte
+msgid "Highlight matches"
+msgstr "Highlight matches"
+
+#: src/LogView.svelte
+msgid "Case sensitive"
+msgstr "Case sensitive"
+
+#: src/LogView.svelte
+msgid "Regular expression"
+msgstr "Regular expression"
+
+#: src/LogView.svelte
+msgid "Copy shown lines"
+msgstr "Copy shown lines"
+
+#: src/LogView.svelte
+msgid "Live"
+msgstr "Live"
+
+#: src/LogView.svelte
+msgid "Filter"
+msgstr "Filter"
+
+#: src/LogView.svelte
+msgid "Highlight"
+msgstr "Highlight"
+
+#: src/LogView.svelte
+msgid "Aa"
+msgstr "Aa"
+
+#: src/LogView.svelte
+msgid "No matching lines."
+msgstr "No matching lines."
+
+#: src/LogView.svelte
+msgid "No output yet…"
+msgstr "No output yet…"
+
+#: src/InstallWizard.svelte
+msgid "A private address behind NAT, reached on the ports it publishes on this host."
+msgstr "A private address behind NAT, reached on the ports it publishes on this host."
+
+#: src/InstallWizard.svelte
+msgid "No address or port mapping of its own — it binds this host's ports directly."
+msgstr "No address or port mapping of its own — it binds this host's ports directly."
+
+#: src/InstallWizard.svelte
+#: src/Networks.svelte
+#: src/ServiceResources.svelte
+msgid "No network at all: nothing in and nothing out."
+msgstr "No network at all: nothing in and nothing out."
+
+#. 0: appName
+#: src/InstallWizard.svelte
+msgid "Install {0}"
+msgstr "Install {0}"
+
+#: src/InstallWizard.svelte
+msgid "<0/> Loading configuration…"
+msgstr "<0/> Loading configuration…"
+
+#: src/InstallWizard.svelte
+msgid "Letters, digits, spaces, dots, dashes and underscores; up to 64 characters."
+msgstr "Letters, digits, spaces, dots, dashes and underscores; up to 64 characters."
+
+#. 0.0: appId
+#: src/InstallWizard.svelte
+msgid "Change it to run more than one copy, e.g. <0>{0}-4k</0>."
+msgstr "Change it to run more than one copy, e.g. <0>{0}-4k</0>."
+
+#: src/InstallWizard.svelte
+#: src/Networks.svelte
+#: src/Volumes.svelte
+msgid "Name"
+msgstr "Name"
+
+#~ msgid "Port <0/>, the app's own, at its address on {0}."
+#~ msgstr "Port <0/>, the app's own, at its address on {0}."
+
+#~ msgid "With an address of its own nothing is published on this host, so there is no port to choose here."
+#~ msgstr "With an address of its own nothing is published on this host, so there is no port to choose here."
+
+#: src/InstallWizard.svelte
+msgid "Required"
+msgstr "Required"
+
+#: src/InstallWizard.svelte
+msgid "host path"
+msgstr "host path"
+
+#. 0: v.host_permissions?.uid ?? 1000; 1: v.host_permissions?.gid ?? 1000
+#: src/InstallWizard.svelte
+msgid "Auto-provisioned by fjord ({0}:{1}); no need to change."
+msgstr "Auto-provisioned by fjord ({0}:{1}); no need to change."
+
+#: src/InstallWizard.svelte
+msgid "Tag for <0/> — follows the build/channel above when that image publishes it. Edit to override."
+msgstr "Tag for <0/> — follows the build/channel above when that image publishes it. Edit to override."
+
+#: src/InstallWizard.svelte
+msgid "Absolute path on the host — e.g. <0/>"
+msgstr "Absolute path on the host — e.g. <0/>"
+
+#: src/InstallWizard.svelte
+msgid "Mounted as a named volume"
+msgstr "Mounted as a named volume"
+
+#: src/InstallWizard.svelte
+msgid "Defaults from your <0/> folder set — edit freely."
+msgstr "Defaults from your <0/> folder set — edit freely."
+
+#: src/InstallWizard.svelte
+msgid "Several folders: each is mounted as its own sub-folder inside the container."
+msgstr "Several folders: each is mounted as its own sub-folder inside the container."
+
+#. 0: webNet
+#: src/InstallWizard.svelte
+msgid "Its address on {0} is only known once it starts, so it can't be filled in for you. Type the address you will open it at (a name or address and its port), or put it on bridge in Networking."
+msgstr "Its address on {0} is only known once it starts, so it can't be filled in for you. Type the address you will open it at (a name or address and its port), or put it on bridge in Networking."
+
+#. 0: webNet
+#: src/InstallWizard.svelte
+msgid "(its address on {0} is only known once it starts)"
+msgstr "(its address on {0} is only known once it starts)"
+
+#: src/InstallWizard.svelte
+msgid "Filled in from where this app will be reachable<0/>. Change it if you open it another way, a domain or a reverse proxy."
+msgstr "Filled in from where this app will be reachable<0/>. Change it if you open it another way, a domain or a reverse proxy."
+
+#: src/InstallWizard.svelte
+msgid "Not on AppJail with this catalog: it has no AppJail form for this part."
+msgstr "Not on AppJail with this catalog: it has no AppJail form for this part."
+
+#: src/InstallWizard.svelte
+msgid "Not on AppJail with this catalog: it has no AppJail form for this option. Install on podman, or refresh the catalog."
+msgstr "Not on AppJail with this catalog: it has no AppJail form for this option. Install on podman, or refresh the catalog."
+
+#~ msgid "Installs <0/><1/> on <2/><3/> · data in <4/>"
+#~ msgstr "Installs <0/><1/> on <2/><3/> · data in <4/>"
+
+#: src/InstallWizard.svelte
+msgid "Options <0/>"
+msgstr "Options <0/>"
+
+#: src/InstallWizard.svelte
+msgid "Only one catalog offers this app"
+msgstr "Only one catalog offers this app"
+
+#: src/InstallWizard.svelte
+msgid "Choose which catalog to install from"
+msgstr "Choose which catalog to install from"
+
+#: src/InstallWizard.svelte
+msgid "Repository"
+msgstr "Repository"
+
+#: src/InstallWizard.svelte
+msgid "Loading versions…"
+msgstr "Loading versions…"
+
+#: src/InstallWizard.svelte
+#: src/Settings.svelte
+msgid "App data"
+msgstr "App data"
+
+#: src/InstallWizard.svelte
+msgid "Where this app's own folders go — <0/>"
+msgstr "Where this app's own folders go — <0/>"
+
+#: src/InstallWizard.svelte
+msgid "MAC (optional — pin one for a DHCP reservation)"
+msgstr "MAC (optional — pin one for a DHCP reservation)"
+
+#: src/InstallWizard.svelte
+msgid "Clear the field first — changing a MAC breaks a DHCP reservation keyed on it"
+msgstr "Clear the field first — changing a MAC breaks a DHCP reservation keyed on it"
+
+#: src/InstallWizard.svelte
+msgid "Generate a locally-administered address"
+msgstr "Generate a locally-administered address"
+
+#: src/InstallWizard.svelte
+msgid "Generate"
+msgstr "Generate"
+
+#: src/InstallWizard.svelte
+msgid "This app expects host networking. Giving it an address of its own is possible below; install it as it is and change it afterwards if you want to try."
+msgstr "This app expects host networking. Giving it an address of its own is possible below; install it as it is and change it afterwards if you want to try."
+
+#: src/InstallWizard.svelte
+msgid "How this app reaches the network — the same editor as its Services tab after install."
+msgstr "How this app reaches the network — the same editor as its Services tab after install."
+
+#: src/InstallWizard.svelte
+msgid "New installs use <0/>, so this app goes as it ships."
+msgstr "New installs use <0/>, so this app goes as it ships."
+
+#. 0: listed(privateParts)
+#: src/InstallWizard.svelte
+msgid ", and {0} on a network of their own, not reachable from your LAN"
+msgstr ", and {0} on a network of their own, not reachable from your LAN"
+
+#. 0: listed(openParts); 1: openParts.length === 1 ? 'goes' \\: 'go'
+#: src/InstallWizard.svelte
+msgid "{0} {1} on <0/><1/>."
+msgstr "{0} {1} on <0/><1/>."
+
+#. 0: listed(privateParts); 1: privateParts.length === 1 ? 'goes' \\: 'go'
+#: src/InstallWizard.svelte
+msgid "{0} {1} on a network of its own, not reachable from your LAN."
+msgstr "{0} {1} on a network of its own, not reachable from your LAN."
+
+#: src/InstallWizard.svelte
+msgid "<0/> Change any of it here, or after installing."
+msgstr "<0/> Change any of it here, or after installing."
+
+#: src/InstallWizard.svelte
+msgid "There is no network on this host to put it on, so it is installed the way it ships — every part together, answering on this host's address. Add a network under Networks to give the part you open one of its own."
+msgstr "There is no network on this host to put it on, so it is installed the way it ships — every part together, answering on this host's address. Add a network under Networks to give the part you open one of its own."
+
+#: src/InstallWizard.svelte
+#: src/InstallWizard.svelte
+#: src/ServiceResources.svelte
+msgid "Networking"
+msgstr "Networking"
+
+#: src/InstallWizard.svelte
+msgid "This app expects host networking — its services reach each other over <0>localhost</0>. Giving it an address of its own means they have to find each other by name or address instead, which this app has not said it can do. Install it as it is and change it afterwards if you want to try."
+msgstr "This app expects host networking — its services reach each other over <0>localhost</0>. Giving it an address of its own means they have to find each other by name or address instead, which this app has not said it can do. Install it as it is and change it afterwards if you want to try."
+
+#: src/InstallWizard.svelte
+msgid "How this app reaches the network."
+msgstr "How this app reaches the network."
+
+#: src/InstallWizard.svelte
+msgid "The address comes from the DHCP server on that segment, using the MAC below."
+msgstr "The address comes from the DHCP server on that segment, using the MAC below."
+
+#: src/InstallWizard.svelte
+msgid "IP (required on this engine)"
+msgstr "IP (required on this engine)"
+
+#: src/InstallWizard.svelte
+msgid "IP (optional — auto-assign if blank)"
+msgstr "IP (optional — auto-assign if blank)"
+
+#: src/InstallWizard.svelte
+#: src/ServiceResources.svelte
+msgid "Usable: <0/>"
+msgstr "Usable: <0/>"
+
+#. 0: netChoice; 1: chosenNet.subnet || 'that segment'
+#: src/InstallWizard.svelte
+msgid "Nothing allocates on {0} — give this app an address on {1}."
+msgstr "Nothing allocates on {0} — give this app an address on {1}."
+
+#. 0: netChoice
+#: src/InstallWizard.svelte
+msgid "{0} draws from a range set aside for podman's IPAM, which appjail cannot ask — give this jail an address from that range, or pick a DHCP network."
+msgstr "{0} draws from a range set aside for podman's IPAM, which appjail cannot ask — give this jail an address from that range, or pick a DHCP network."
+
+#: src/InstallWizard.svelte
+msgid "The runtime this stack runs on — fixed once installed."
+msgstr "The runtime this stack runs on — fixed once installed."
+
+#: src/InstallWizard.svelte
+msgid "Custom tag (optional override)"
+msgstr "Custom tag (optional override)"
+
+#: src/InstallWizard.svelte
+#: src/Networks.svelte
+msgid "<0/> Advanced"
+msgstr "<0/> Advanced"
+
+#: src/Networks.svelte
+msgid "Failed to load networks"
+msgstr "Failed to load networks"
+
+#: src/Networks.svelte
+msgid "The engine's own bridge — a private address behind NAT, reached on the ports it publishes on this host."
+msgstr "The engine's own bridge — a private address behind NAT, reached on the ports it publishes on this host."
+
+#: src/Networks.svelte
+msgid "This host's own stack — no address and no port mapping of its own, so it binds host ports directly."
+msgstr "This host's own stack — no address and no port mapping of its own, so it binds host ports directly."
+
+#. 0: owned
+#: src/Networks.svelte
+msgid "{0} made by a stack"
+msgstr "{0} made by a stack"
+
+#. 0: left
+#: src/Networks.svelte
+msgid "{0} left over from a deleted stack"
+msgstr "{0} left over from a deleted stack"
+
+#. 0: engine
+#: src/Networks.svelte
+msgid "{0} the engine's own"
+msgstr "{0} the engine's own"
+
+#. 0: engine; 1: name
+#: src/Networks.svelte
+msgid "New installs on {0} will use {1}"
+msgstr "New installs on {0} will use {1}"
+
+#. 0: parents.length; 1: parents.length === 1 ? 'bridge' \\: 'bridges'
+#: src/Networks.svelte
+msgid "Found {0} {1}"
+msgstr "Found {0} {1}"
+
+#: src/Networks.svelte
+msgid "Still no bridge on this host"
+msgstr "Still no bridge on this host"
+
+#. 0: engine; 1: labels.join(' and ')
+#: src/Networks.svelte
+msgid "{0} can create {1} networks here"
+msgstr "{0} can create {1} networks here"
+
+#. 0: body.name
+#: src/Networks.svelte
+msgid "Network {0} created"
+msgstr "Network {0} created"
+
+#: src/Networks.svelte
+#: src/Volumes.svelte
+msgid "Create failed"
+msgstr "Create failed"
+
+#: src/Networks.svelte
+msgid "IPv6 segment removed"
+msgstr "IPv6 segment removed"
+
+#: src/Networks.svelte
+msgid "IPv6 segment saved — stacks pick it up when they next start"
+msgstr "IPv6 segment saved — stacks pick it up when they next start"
+
+#: src/Networks.svelte
+msgid "Could not change the IPv6 segment"
+msgstr "Could not change the IPv6 segment"
+
+#: src/Networks.svelte
+#: src/Volumes.svelte
+msgid "Delete failed"
+msgstr "Delete failed"
+
+#: src/Networks.svelte
+msgid "Networks"
+msgstr "Networks"
+
+#: src/Networks.svelte
+msgid "Give a stack its own address instead of publishing ports on the host. Attach one when installing, or from a stack's <0>Resources</0> tab."
+msgstr "Give a stack its own address instead of publishing ports on the host. Attach one when installing, or from a stack's <0>Resources</0> tab."
+
+#: src/Networks.svelte
+msgid "<0/> New Network…"
+msgstr "<0/> New Network…"
+
+#: src/Networks.svelte
+msgid "Networks Unavailable"
+msgstr "Networks Unavailable"
+
+#: src/Networks.svelte
+msgid "New installs use"
+msgstr "New installs use"
+
+#. 0: list.join(', ')
+#: src/Networks.svelte
+msgid "Usable by: {0}"
+msgstr "Usable by: {0}"
+
+#: src/Networks.svelte
+msgid "built in"
+msgstr "built in"
+
+#: src/Networks.svelte
+msgid "Built in — always available, nothing to delete"
+msgstr "Built in — always available, nothing to delete"
+
+#: src/Networks.svelte
+msgid "This engine cannot create networks on this host."
+msgstr "This engine cannot create networks on this host."
+
+#: src/Networks.svelte
+msgid "No networks yet — create one to give stacks an address of their own."
+msgstr "No networks yet — create one to give stacks an address of their own."
+
+#. 0: n.bridge
+#: src/Networks.svelte
+msgid "· a pool network on {0} can carry one"
+msgstr "· a pool network on {0} can carry one"
+
+#: src/Networks.svelte
+msgid "IPv6 — not on a DHCP network<0/>"
+msgstr "IPv6 — not on a DHCP network<0/>"
+
+#: src/Networks.svelte
+msgid "IPv6 subnet"
+msgstr "IPv6 subnet"
+
+#: src/Networks.svelte
+#: src/Networks.svelte
+msgid "IPv6 gateway"
+msgstr "IPv6 gateway"
+
+#: src/Networks.svelte
+msgid "Remove IPv6"
+msgstr "Remove IPv6"
+
+#: src/Networks.svelte
+msgid "Take the IPv6 segment off this network"
+msgstr "Take the IPv6 segment off this network"
+
+#: src/Networks.svelte
+#: src/ServiceResources.svelte
+#: src/Settings.svelte
+#: src/Settings.svelte
+#: src/SetupWizard.svelte
+msgid "Remove"
+msgstr "Remove"
+
+#. 0: n.usedBy.length
+#: src/Networks.svelte
+msgid "{0} attached — they keep their current addresses until each is restarted."
+msgstr "{0} attached — they keep their current addresses until each is restarted."
+
+#. 0: n.subnet6 ? '' \\: '— none'
+#: src/Networks.svelte
+msgid "IPv6 {0} <0/>"
+msgstr "IPv6 {0} <0/>"
+
+#. 0: n.usedBy.join(', ')
+#: src/Networks.svelte
+msgid "Attached: {0}"
+msgstr "Attached: {0}"
+
+#: src/Networks.svelte
+msgid "The engine's own default network — it makes this one itself, and the bridge mode needs it"
+msgstr "The engine's own default network — it makes this one itself, and the bridge mode needs it"
+
+#. 0: n.usedBy.join(', ')
+#: src/Networks.svelte
+msgid "In use by {0} — detach those first"
+msgstr "In use by {0} — detach those first"
+
+#. 0: privateNets.length; 1: privateNets.length === 1 ? 'network' \\: 'networks'
+#: src/Networks.svelte
+msgid "{0} {1} not reachable from your LAN"
+msgstr "{0} {1} not reachable from your LAN"
+
+#: src/Networks.svelte
+msgid "Only <0/> stacks can attach to it — each engine makes its own kind of private network, and neither can join the other's."
+msgstr "Only <0/> stacks can attach to it — each engine makes its own kind of private network, and neither can join the other's."
+
+#: src/Networks.svelte
+msgid "One bridge, one segment — this only narrows the form to what appjail can do."
+msgstr "One bridge, one segment — this only narrows the form to what appjail can do."
+
+#. 0: forEngine
+#: src/Networks.svelte
+msgid "One bridge, one segment — this only narrows the form to what {0} can do."
+msgstr "One bridge, one segment — this only narrows the form to what {0} can do."
+
+#: src/Networks.svelte
+msgid "Either engine can attach to it."
+msgstr "Either engine can attach to it."
+
+#: src/Networks.svelte
+msgid "For"
+msgstr "For"
+
+#: src/Networks.svelte
+msgid "Interface <0/>"
+msgstr "Interface <0/>"
+
+#: src/Networks.svelte
+msgid "id <0/>"
+msgstr "id <0/>"
+
+#: src/Networks.svelte
+msgid "<0/> Tagged VLAN"
+msgstr "<0/> Tagged VLAN"
+
+#: src/Networks.svelte
+#: src/Networks.svelte
+#: src/SetupReady.svelte
+msgid "<0/> Check again"
+msgstr "<0/> Check again"
+
+#: src/Networks.svelte
+msgid "once you have run it on the host"
+msgstr "once you have run it on the host"
+
+#. 0: kind.parentLabel?.toLowerCase(); 1: kind.parentLabel?.toLowerCase()
+#: src/Networks.svelte
+msgid "No {0} on this host yet. A {1} is persistent host configuration, so fjord does not create one — here is what to add:"
+msgstr "No {0} on this host yet. A {1} is persistent host configuration, so fjord does not create one — here is what to add:"
+
+#. 0: kind.parentLabel?.toLowerCase(); 1: kind.parentLabel?.toLowerCase()
+#: src/Networks.svelte
+msgid "No {0} on this host yet. A {1} is persistent host configuration, so fjord does not create one — make one on the host, then reopen this dialog."
+msgstr "No {0} on this host yet. A {1} is persistent host configuration, so fjord does not create one — make one on the host, then reopen this dialog."
+
+#~ msgid "{0} flex-1"
+#~ msgstr "{0} flex-1"
+
+#: src/Networks.svelte
+msgid "Clear the field first"
+msgstr "Clear the field first"
+
+#: src/Networks.svelte
+msgid "Pick a private range nothing on this host uses"
+msgstr "Pick a private range nothing on this host uses"
+
+#: src/Networks.svelte
+msgid "<0/> Generate"
+msgstr "<0/> Generate"
+
+#: src/Networks.svelte
+msgid "Subnet"
+msgstr "Subnet"
+
+#: src/Networks.svelte
+msgid "A range nothing else uses — appjail creates the bridge and takes the first address as the gateway."
+msgstr "A range nothing else uses — appjail creates the bridge and takes the first address as the gateway."
+
+#. 0: kind.parentLabel?.toLowerCase()
+#: src/Networks.svelte
+msgid "Set up another {0}"
+msgstr "Set up another {0}"
+
+#. 0: kind.parentLabel?.toLowerCase()
+#: src/Networks.svelte
+msgid "+ Set up a new {0}…"
+msgstr "+ Set up a new {0}…"
+
+#~ msgid "Select a {0}…"
+#~ msgstr "Select a {0}…"
+
+#. 0: chosenParent.gateway
+#. 0: wire[chosenParent.name].gateway
+#: src/Networks.svelte
+#: src/Networks.svelte
+msgid "gateway {0}"
+msgstr "gateway {0}"
+
+#. 0: chosenParent.hostIp
+#: src/Networks.svelte
+msgid "host {0}"
+msgstr "host {0}"
+
+#. 0: chosenParent.name
+#: src/Networks.svelte
+msgid "asking {0}'s DHCP server what this network is…"
+msgstr "asking {0}'s DHCP server what this network is…"
+
+#. 0: chosenParent.name
+#: src/Networks.svelte
+msgid "from {0}'s DHCP server"
+msgstr "from {0}'s DHCP server"
+
+#. 0: chosenParent.name
+#: src/Networks.svelte
+msgid "nothing answered DHCP on {0} — type the subnet; fjord could not check it"
+msgstr "nothing answered DHCP on {0} — type the subnet; fjord could not check it"
+
+#: src/Networks.svelte
+msgid "no address on this host yet"
+msgstr "no address on this host yet"
+
+#: src/Networks.svelte
+msgid "Run this on the host, then check again."
+msgstr "Run this on the host, then check again."
+
+#. 0: kind.parentLabel?.toLowerCase()
+#: src/Networks.svelte
+msgid "A {0} is host configuration, so fjord does not create one.<0/>"
+msgstr "A {0} is host configuration, so fjord does not create one.<0/>"
+
+#: src/Networks.svelte
+msgid "Range"
+msgstr "Range"
+
+#: src/Networks.svelte
+msgid "Static"
+msgstr "Static"
+
+#~ msgid "The DHCP server on this segment leases one to each stack, keyed on its MAC, so reservations you already have apply. A stack can still be given a fixed address instead."
+#~ msgstr "The DHCP server on this segment leases one to each stack, keyed on its MAC, so reservations you already have apply. A stack can still be given a fixed address instead."
+
+#: src/Networks.svelte
+msgid "The subnet"
+msgstr "The subnet"
+
+#. 0: form.subnet || 'The subnet'
+#: src/Networks.svelte
+msgid "{0} is handed out by podman's IPAM from a range set aside here. appjail cannot ask it, so an appjail stack needs an address typed in."
+msgstr "{0} is handed out by podman's IPAM from a range set aside here. appjail cannot ask it, so an appjail stack needs an address typed in."
+
+#: src/Networks.svelte
+msgid "Nothing allocates: every stack is given an address when it attaches, on either engine. Forgetting one is an error rather than a surprise."
+msgstr "Nothing allocates: every stack is given an address when it attaches, on either engine. Forgetting one is an error rather than a surprise."
+
+#: src/Networks.svelte
+msgid "Addresses"
+msgstr "Addresses"
+
+#: src/Networks.svelte
+msgid "(the segment)"
+msgstr "(the segment)"
+
+#: src/Networks.svelte
+msgid "Subnet<0/>"
+msgstr "Subnet<0/>"
+
+#: src/Networks.svelte
+msgid "Gateway"
+msgstr "Gateway"
+
+#: src/Networks.svelte
+msgid "Addresses come from the DHCP server on that segment, using each container's MAC — so your existing reservations apply and nothing here has to know the subnet."
+msgstr "Addresses come from the DHCP server on that segment, using each container's MAC — so your existing reservations apply and nothing here has to know the subnet."
+
+#: src/Networks.svelte
+msgid "IPv6 subnet <0>— optional</0>"
+msgstr "IPv6 subnet <0>— optional</0>"
+
+#: src/Networks.svelte
+msgid "Range start"
+msgstr "Range start"
+
+#: src/Networks.svelte
+msgid "Range end"
+msgstr "Range end"
+
+#: src/Networks.svelte
+msgid "This host is <0/> on that segment."
+msgstr "This host is <0/> on that segment."
+
+#: src/Networks.svelte
+msgid "Containers get an address from this range — podman's IPAM picks one; a jail needs an address you choose from it. Your router knows nothing about the range, so keep it clear of whatever it leases.<0/>"
+msgstr "Containers get an address from this range — podman's IPAM picks one; a jail needs an address you choose from it. Your router knows nothing about the range, so keep it clear of whatever it leases.<0/>"
+
+#: src/Networks.svelte
+msgid "MTU"
+msgstr "MTU"
+
+#~ msgid "{0} {1} on this host"
+#~ msgstr "{0} {1} on this host"
+
+#: src/Networks.svelte
+msgid "No bridge on this host yet -- make one first (commands above)"
+msgstr "No bridge on this host yet -- make one first (commands above)"
+
+#: src/Networks.svelte
+msgid "New Network"
+msgstr "New Network"
+
+#: src/RemoteFolderForm.svelte
+msgid "Could not add the folder"
+msgstr "Could not add the folder"
+
+#: src/RemoteFolderForm.svelte
+#: src/Volumes.svelte
+#: src/Volumes.svelte
+msgid "Server"
+msgstr "Server"
+
+#: src/RemoteFolderForm.svelte
+#: src/Volumes.svelte
+msgid "Export path"
+msgstr "Export path"
+
+#: src/RemoteFolderForm.svelte
+#: src/Volumes.svelte
+msgid "Share"
+msgstr "Share"
+
+#: src/LoginButton.svelte
+#: src/LoginButton.svelte
+#: src/RemoteFolderForm.svelte
+#: src/Volumes.svelte
+msgid "User"
+msgstr "User"
+
+#: src/LoginButton.svelte
+#: src/LoginButton.svelte
+#: src/RemoteFolderForm.svelte
+#: src/SignIn.svelte
+#: src/Volumes.svelte
+msgid "Password"
+msgstr "Password"
+
+#: src/ServiceResources.svelte
+msgid "One or more interfaces, each on a network."
+msgstr "One or more interfaces, each on a network."
+
+#: src/ServiceResources.svelte
+msgid "No interface of its own — it binds this host's ports directly."
+msgstr "No interface of its own — it binds this host's ports directly."
+
+#: src/ServiceResources.svelte
+msgid "This stack reports no services."
+msgstr "This stack reports no services."
+
+#. 0: s.name
+#: src/ServiceResources.svelte
+msgid "Nothing else in this stack shares a network with {0}"
+msgstr "Nothing else in this stack shares a network with {0}"
+
+#: src/ServiceResources.svelte
+msgid "cut off"
+msgstr "cut off"
+
+#. 0: u.tag
+#: src/ServiceResources.svelte
+msgid "A newer version of {0} is published — see what an update would change"
+msgstr "A newer version of {0} is published — see what an update would change"
+
+#. 0: u.tag
+#: src/ServiceResources.svelte
+msgid "A newer image is published for {0} — see what an update would change"
+msgstr "A newer image is published for {0} — see what an update would change"
+
+#: src/ServiceResources.svelte
+msgid "Pinned to an exact image, so it takes no updates. Unpin to follow its tag again."
+msgstr "Pinned to an exact image, so it takes no updates. Unpin to follow its tag again."
+
+#: src/ServiceResources.svelte
+msgid "<0/>pinned · unpin"
+msgstr "<0/>pinned · unpin"
+
+#. 0: s.name
+#: src/ServiceResources.svelte
+msgid "Go back to the image {0} ran before its last update"
+msgstr "Go back to the image {0} ran before its last update"
+
+#: src/ServiceResources.svelte
+msgid "↶ roll back"
+msgstr "↶ roll back"
+
+#. 0: day(rollbacks[s.name].at)
+#: src/ServiceResources.svelte
+msgid "Roll <0/> back to <1/>, which it ran until {0}? It is pinned there until you unpin it. This does not undo changes the new version made to its data — an app that migrated its database keeps the new schema."
+msgstr "Roll <0/> back to <1/>, which it ran until {0}? It is pinned there until you unpin it. This does not undo changes the new version made to its data — an app that migrated its database keeps the new schema."
+
+#: src/ServiceResources.svelte
+msgid "Roll back"
+msgstr "Roll back"
+
+#: src/ServiceResources.svelte
+msgid "Version…"
+msgstr "Version…"
+
+#: src/ServiceResources.svelte
+msgid "image"
+msgstr "image"
+
+#: src/ServiceResources.svelte
+msgid "container"
+msgstr "container"
+
+#: src/ServiceResources.svelte
+msgid "Type"
+msgstr "Type"
+
+#. 0: (kept[s.name] ?? []).length; 1: (kept[s.name] ?? []).length > 1 ? 's' \\: ''; 2: (kept[s.name] ?? []).length > 1 ? 'them' \\: 'it'
+#: src/ServiceResources.svelte
+msgid "{0} interface{1} kept until Save — set Type back to networks to get {2} back."
+msgstr "{0} interface{1} kept until Save — set Type back to networks to get {2} back."
+
+#: src/ServiceResources.svelte
+msgid "Interface"
+msgstr "Interface"
+
+#: src/ServiceResources.svelte
+msgid "Address"
+msgstr "Address"
+
+#: src/ServiceResources.svelte
+msgid "MAC"
+msgstr "MAC"
+
+#. 0: r.network
+#: src/ServiceResources.svelte
+msgid "{0} is already on this service"
+msgstr "{0} is already on this service"
+
+#: src/ServiceResources.svelte
+msgid "private — this stack's own network, not reachable from your LAN"
+msgstr "private — this stack's own network, not reachable from your LAN"
+
+#. 0: blocked ? ' (only on its own on this engine)' \\: ''
+#: src/ServiceResources.svelte
+msgid "bridge — built in: NAT, published ports{0}"
+msgstr "bridge — built in: NAT, published ports{0}"
+
+#. 0: r.network
+#: src/ServiceResources.svelte
+msgid "{0} (not on this host)"
+msgstr "{0} (not on this host)"
+
+#: src/ServiceResources.svelte
+msgid "IPv4 only — add an IPv6 segment on Networks"
+msgstr "IPv4 only — add an IPv6 segment on Networks"
+
+#: src/ServiceResources.svelte
+msgid "IPv6 — from the network"
+msgstr "IPv6 — from the network"
+
+#: src/ServiceResources.svelte
+msgid "Generate a MAC"
+msgstr "Generate a MAC"
+
+#: src/ServiceResources.svelte
+msgid "Gen"
+msgstr "Gen"
+
+#: src/ServiceResources.svelte
+msgid "Remove this interface"
+msgstr "Remove this interface"
+
+#. 0: s.name; 1: r.network || 'this interface'; 2: s.name
+#: src/ServiceResources.svelte
+msgid "{0} reaches the rest of this stack over {1}. Remove it and nothing else in the stack can talk to {2} — it will keep running and stop answering."
+msgstr "{0} reaches the rest of this stack over {1}. Remove it and nothing else in the stack can talk to {2} — it will keep running and stop answering."
+
+#: src/ServiceResources.svelte
+msgid "On no network. Nothing outside this host can reach it."
+msgstr "On no network. Nothing outside this host can reach it."
+
+#: src/ServiceResources.svelte
+msgid "Nothing else in this stack shares a network with <0/>, so its own parts can no longer reach it — it will keep running and stop answering them. Put it back on a network one of them is also on."
+msgstr "Nothing else in this stack shares a network with <0/>, so its own parts can no longer reach it — it will keep running and stop answering them. Put it back on a network one of them is also on."
+
+#: src/ServiceResources.svelte
+msgid "On this engine bridge stands alone — pick a network instead to add more."
+msgstr "On this engine bridge stands alone — pick a network instead to add more."
+
+#: src/ServiceResources.svelte
+msgid "+ interface"
+msgstr "+ interface"
+
+#~ msgid "RO"
+#~ msgstr "RO"
+
+#: src/ServiceResources.svelte
+msgid "Unmount"
+msgstr "Unmount"
+
+#: src/ServiceResources.svelte
+msgid "Unmount this — the files stay, the stack stops seeing them"
+msgstr "Unmount this — the files stay, the stack stops seeing them"
+
+#: src/ServiceResources.svelte
+msgid "Nothing mounted."
+msgstr "Nothing mounted."
+
+#: src/ServiceResources.svelte
+msgid "+ Add…"
+msgstr "+ Add…"
+
+#: src/ServiceResources.svelte
+#: src/Settings.svelte
+#: src/SetupWizard.svelte
+#: src/SetupWizard.svelte
+msgid "Storage"
+msgstr "Storage"
+
+#: src/Settings.svelte
+msgid "Failed to load daemon info"
+msgstr "Failed to load daemon info"
+
+#. 0: name
+#. 0: name
+#: src/Settings.svelte
+#: src/Settings.svelte
+msgid "{0} enabled"
+msgstr "{0} enabled"
+
+#. 0: name
+#. 0: name
+#: src/Settings.svelte
+#: src/Settings.svelte
+msgid "{0} disabled"
+msgstr "{0} disabled"
+
+#: src/Settings.svelte
+msgid "Could not change engine"
+msgstr "Could not change engine"
+
+#: src/Settings.svelte
+msgid "Could not change plugin"
+msgstr "Could not change plugin"
+
+#. 0: defaultEngine
+#: src/Settings.svelte
+msgid "Default engine set to {0}"
+msgstr "Default engine set to {0}"
+
+#: src/Settings.svelte
+msgid "Could not set default engine"
+msgstr "Could not set default engine"
+
+#. 0: name
+#: src/Settings.svelte
+msgid "{0} installed — restart fjordd to enable it"
+msgstr "{0} installed — restart fjordd to enable it"
+
+#. 0: name
+#: src/Settings.svelte
+msgid "{0} installed and ready"
+msgstr "{0} installed and ready"
+
+#. 0: name
+#: src/Settings.svelte
+msgid "Could not install {0}"
+msgstr "Could not install {0}"
+
+#: src/Settings.svelte
+msgid ""
+"The first location is the default. Add more (an SSD pool, a bulk disk) and the install wizard lets you pick one per app.\n"
+"Changes affect new installs only; installed apps keep their folders.\n"
+"If a folder with the app's name already exists in a location it is kept as-is (data and ownership untouched), so to bring existing data in, install the app under that name.\n"
+"Folder sets can refer to the chosen location as {{appdata}} and to the app's folder name as {{stack}}."
+msgstr ""
+"The first location is the default. Add more (an SSD pool, a bulk disk) and the install wizard lets you pick one per app.\n"
+"Changes affect new installs only; installed apps keep their folders.\n"
+"If a folder with the app's name already exists in a location it is kept as-is (data and ownership untouched), so to bring existing data in, install the app under that name.\n"
+"Folder sets can refer to the chosen location as {{appdata}} and to the app's folder name as {{stack}}."
+
+#: src/Settings.svelte
+msgid ""
+"Name a set of host folders once (your movies, your TV, your downloads). At install, any host-path field offers \"Add folder set…\" to drop them in.\n"
+"With the Homelab extension on (Settings → Extensions), preset sets (Movies, TV, …) carry their icon and are picked up automatically by apps with a matching folder at install. Sets you name yourself show a folder icon and are added by hand.\n"
+"Folders may use {{stack}} (the app's folder name) and {{appdata}} (the App data folder), e.g. {{appdata}}/{{stack}}/data."
+msgstr ""
+"Name a set of host folders once (your movies, your TV, your downloads). At install, any host-path field offers \"Add folder set…\" to drop them in.\n"
+"With the Homelab extension on (Settings → Extensions), preset sets (Movies, TV, …) carry their icon and are picked up automatically by apps with a matching folder at install. Sets you name yourself show a folder icon and are added by hand.\n"
+"Folders may use {{stack}} (the app's folder name) and {{appdata}} (the App data folder), e.g. {{appdata}}/{{stack}}/data."
+
+#: src/Settings.svelte
+msgid "App data locations saved"
+msgstr "App data locations saved"
+
+#: src/Settings.svelte
+#: src/Settings.svelte
+#: src/Settings.svelte
+#: src/Settings.svelte
+#: src/Settings.svelte
+msgid "Save failed"
+msgstr "Save failed"
+
+#: src/Settings.svelte
+msgid "Install wizard back to essentials"
+msgstr "Install wizard back to essentials"
+
+#: src/Settings.svelte
+msgid "Install wizard detail saved"
+msgstr "Install wizard detail saved"
+
+#: src/Settings.svelte
+msgid "Folder sets saved"
+msgstr "Folder sets saved"
+
+#. 0: Math.round(s / 60)
+#: src/Settings.svelte
+msgid "{0}m ago"
+msgstr "{0}m ago"
+
+#. 0: Math.round(s / 3600)
+#: src/Settings.svelte
+msgid "{0}h ago"
+msgstr "{0}h ago"
+
+#. 0: Math.round(s / 86400)
+#: src/Settings.svelte
+msgid "{0}d ago"
+msgstr "{0}d ago"
+
+#: src/Settings.svelte
+msgid "Off"
+msgstr "Off"
+
+#: src/Settings.svelte
+msgid "Hourly"
+msgstr "Hourly"
+
+#: src/Settings.svelte
+msgid "Every 6 hours"
+msgstr "Every 6 hours"
+
+#: src/Settings.svelte
+msgid "Daily"
+msgstr "Daily"
+
+#: src/Settings.svelte
+msgid "Automatic refresh off"
+msgstr "Automatic refresh off"
+
+#. 0: REFRESH_LABELS[interval].toLowerCase()
+#: src/Settings.svelte
+msgid "Catalogs refresh {0}"
+msgstr "Catalogs refresh {0}"
+
+#. 0: added.name; 1: added.apps
+#: src/Settings.svelte
+msgid "Catalog \"{0}\" added — {1} apps"
+msgstr "Catalog \"{0}\" added — {1} apps"
+
+#: src/Settings.svelte
+msgid "Refresh failed"
+msgstr "Refresh failed"
+
+#: src/Settings.svelte
+msgid "Catalog enabled"
+msgstr "Catalog enabled"
+
+#: src/Settings.svelte
+msgid "Catalog disabled"
+msgstr "Catalog disabled"
+
+#: src/Settings.svelte
+msgid "Could not change catalog"
+msgstr "Could not change catalog"
+
+#: src/Settings.svelte
+#: src/Settings.svelte
+msgid "Reorder failed"
+msgstr "Reorder failed"
+
+#: src/Settings.svelte
+msgid "Rename failed"
+msgstr "Rename failed"
+
+#: src/Settings.svelte
+msgid "Catalog removed"
+msgstr "Catalog removed"
+
+#: src/Settings.svelte
+#: src/SetupWizard.svelte
+msgid "Settings"
+msgstr "Settings"
+
+#: src/Settings.svelte
+msgid "Daemon identity and effective configuration."
+msgstr "Daemon identity and effective configuration."
+
+#: src/Settings.svelte
+msgid "Daemon Info Unavailable"
+msgstr "Daemon Info Unavailable"
+
+#: src/Settings.svelte
+msgid "fjord"
+msgstr "fjord"
+
+#. 0: about.version
+#: src/Settings.svelte
+msgid "v{0}"
+msgstr "v{0}"
+
+#: src/Settings.svelte
+msgid "Extensions"
+msgstr "Extensions"
+
+#: src/Settings.svelte
+#: src/Settings.svelte
+msgid "Catalogs"
+msgstr "Catalogs"
+
+#: src/Settings.svelte
+msgid "Advanced"
+msgstr "Advanced"
+
+#: src/Settings.svelte
+msgid "About the App data folder"
+msgstr "About the App data folder"
+
+#: src/Settings.svelte
+#: src/Settings.svelte
+#: src/Settings.svelte
+#: src/System.svelte
+#: src/VarsPanel.svelte
+msgid "default"
+msgstr "default"
+
+#: src/Settings.svelte
+msgid "Move up (the top one is the default)"
+msgstr "Move up (the top one is the default)"
+
+#: src/Settings.svelte
+msgid "Move down"
+msgstr "Move down"
+
+#: src/Settings.svelte
+msgid "Remove location"
+msgstr "Remove location"
+
+#: src/Settings.svelte
+msgid "<0/> Add location"
+msgstr "<0/> Add location"
+
+#. 0.0: (appData[0] || '').trim().replace(/\\\\/+$/, '') || '…'
+#: src/Settings.svelte
+msgid "Each app gets its own folder in the location chosen at install, like <0>{0}/radarr</0> — created at install; an existing folder is kept as-is."
+msgstr "Each app gets its own folder in the location chosen at install, like <0>{0}/radarr</0> — created at install; an existing folder is kept as-is."
+
+#: src/Settings.svelte
+msgid "fjord keeps its own files (compose files, settings, catalog cache) in <0/>. Nothing of yours lives there."
+msgstr "fjord keeps its own files (compose files, settings, catalog cache) in <0/>. Nothing of yours lives there."
+
+#: src/Settings.svelte
+msgid "About folder sets"
+msgstr "About folder sets"
+
+#: src/Settings.svelte
+msgid "Folder sets"
+msgstr "Folder sets"
+
+#. 0: lib.name.trim().toLowerCase() || 'matching'
+#: src/Settings.svelte
+msgid "Apps with a {0} folder get this set at install"
+msgstr "Apps with a {0} folder get this set at install"
+
+#: src/Settings.svelte
+msgid "Added to apps by hand"
+msgstr "Added to apps by hand"
+
+#: src/Settings.svelte
+msgid "Name (Movies)"
+msgstr "Name (Movies)"
+
+#: src/Settings.svelte
+msgid "Remove folder set"
+msgstr "Remove folder set"
+
+#: src/Settings.svelte
+msgid "Another folder set already has this name — rename it or move its folders into the other one."
+msgstr "Another folder set already has this name — rename it or move its folders into the other one."
+
+#. 0: p.name
+#: src/Settings.svelte
+msgid "Add a {0} set that apps pick up automatically"
+msgstr "Add a {0} set that apps pick up automatically"
+
+#: src/Settings.svelte
+msgid "Fix duplicate folder set names first"
+msgstr "Fix duplicate folder set names first"
+
+#: src/Settings.svelte
+msgid "Save folder sets"
+msgstr "Save folder sets"
+
+#: src/Settings.svelte
+msgid "<0/> Add folder set"
+msgstr "<0/> Add folder set"
+
+#: src/Settings.svelte
+msgid "Reusable host folders, offered on any path field at install."
+msgstr "Reusable host folders, offered on any path field at install."
+
+#: src/Settings.svelte
+msgid "Default engine"
+msgstr "Default engine"
+
+#: src/Settings.svelte
+msgid "Set as default"
+msgstr "Set as default"
+
+#: src/Settings.svelte
+msgid "Enable this engine first"
+msgstr "Enable this engine first"
+
+#: src/Settings.svelte
+#: src/Settings.svelte
+msgid "disabled"
+msgstr "disabled"
+
+#: src/Settings.svelte
+msgid "not installed"
+msgstr "not installed"
+
+#: src/Settings.svelte
+msgid "<0/> Install"
+msgstr "<0/> Install"
+
+#: src/Settings.svelte
+msgid "Disable this engine"
+msgstr "Disable this engine"
+
+#: src/Settings.svelte
+msgid "Enable this engine"
+msgstr "Enable this engine"
+
+#: src/Settings.svelte
+#: src/Settings.svelte
+#: src/Settings.svelte
+msgid "Disable "
+msgstr "Disable "
+
+#: src/Settings.svelte
+#: src/Settings.svelte
+#: src/Settings.svelte
+msgid "Enable "
+msgstr "Enable "
+
+#: src/Settings.svelte
+msgid "Engines"
+msgstr "Engines"
+
+#: src/Settings.svelte
+msgid "Container runtimes stacks can run on. <0>Enable</0> the ones this host should use; the <1>default</1> (checkmark) is used by new installs unless you pick another in the wizard. A stack's engine is fixed once installed, so an engine can't be disabled while stacks run on it."
+msgstr "Container runtimes stacks can run on. <0>Enable</0> the ones this host should use; the <1>default</1> (checkmark) is used by new installs unless you pick another in the wizard. A stack's engine is fixed once installed, so an engine can't be disabled while stacks run on it."
+
+#: src/Settings.svelte
+msgid "off"
+msgstr "off"
+
+#. 0: p.label
+#: src/Settings.svelte
+msgid "Turn {0} off"
+msgstr "Turn {0} off"
+
+#. 0: p.label
+#: src/Settings.svelte
+msgid "Turn {0} on"
+msgstr "Turn {0} on"
+
+#: src/Settings.svelte
+msgid "Features"
+msgstr "Features"
+
+#: src/Settings.svelte
+msgid "Optional behaviours on top of the core. Homelab adds the Movies, TV, Music… presets under Storage → Folder sets and their automatic pick-up at install."
+msgstr "Optional behaviours on top of the core. Homelab adds the Movies, TV, Music… presets under Storage → Folder sets and their automatic pick-up at install."
+
+#: src/Settings.svelte
+msgid "Only the Refresh buttons update the store."
+msgstr "Only the Refresh buttons update the store."
+
+#. 0: refreshLastError
+#: src/Settings.svelte
+msgid "Last automatic refresh failed: {0}"
+msgstr "Last automatic refresh failed: {0}"
+
+#. 0: ago(refreshLastRun)
+#: src/Settings.svelte
+msgid "· last run {0}"
+msgstr "· last run {0}"
+
+#. 0: until(refreshNextDue)
+#: src/Settings.svelte
+msgid "Next {0}<0/>"
+msgstr "Next {0}<0/>"
+
+#: src/Settings.svelte
+msgid "Refresh automatically"
+msgstr "Refresh automatically"
+
+#: src/Settings.svelte
+msgid "Higher priority"
+msgstr "Higher priority"
+
+#: src/Settings.svelte
+msgid "Lower priority"
+msgstr "Lower priority"
+
+#: src/Settings.svelte
+msgid "Click to rename"
+msgstr "Click to rename"
+
+#. 0: ago(c.fetchedAt)
+#: src/Settings.svelte
+msgid "· fetched {0}"
+msgstr "· fetched {0}"
+
+#. 0: c.apps
+#: src/Settings.svelte
+msgid "{0} apps<0/>"
+msgstr "{0} apps<0/>"
+
+#: src/Settings.svelte
+msgid "Disable — hide its apps from the store"
+msgstr "Disable — hide its apps from the store"
+
+#: src/Settings.svelte
+msgid "Enable — show its apps in the store"
+msgstr "Enable — show its apps in the store"
+
+#: src/Settings.svelte
+msgid "Re-fetch this catalog"
+msgstr "Re-fetch this catalog"
+
+#: src/Settings.svelte
+msgid "No catalogs configured — the App Store is empty."
+msgstr "No catalogs configured — the App Store is empty."
+
+#: src/Settings.svelte
+msgid "Adding…"
+msgstr "Adding…"
+
+#~ msgid "<0/> Re-add the daemonless catalog"
+#~ msgstr "<0/> Re-add the daemonless catalog"
+
+#: src/Settings.svelte
+msgid "App sources for the store. Each is a base URL publishing <0/>, icons and manifests — another fjord instance's <1/> URL also works. Apps from every catalog appear together; order sets <2>priority</2> (top wins) — the highest-priority catalog provides an app's icon and is the default repository when installing."
+msgstr "App sources for the store. Each is a base URL publishing <0/>, icons and manifests — another fjord instance's <1/> URL also works. Apps from every catalog appear together; order sets <2>priority</2> (top wins) — the highest-priority catalog provides an app's icon and is the default repository when installing."
+
+#~ msgid "Everything else comes from the daemon's environment (<0/> variables — via rc.conf on FreeBSD or the container environment). Host readiness checks live on the <1>System</1> page."
+#~ msgstr "Everything else comes from the daemon's environment (<0/> variables — via rc.conf on FreeBSD or the container environment). Host readiness checks live on the <1>System</1> page."
+
+#: src/Settings.svelte
+msgid "Essentials only"
+msgstr "Essentials only"
+
+#: src/Settings.svelte
+msgid "Required fields and the stack name. Options and Advanced stay folded."
+msgstr "Required fields and the stack name. Options and Advanced stay folded."
+
+#: src/Settings.svelte
+msgid "Expand Options"
+msgstr "Expand Options"
+
+#: src/Settings.svelte
+msgid "Also opens paths, ports and image tags on every install."
+msgstr "Also opens paths, ports and image tags on every install."
+
+#: src/Settings.svelte
+msgid "Expand everything"
+msgstr "Expand everything"
+
+#: src/Settings.svelte
+msgid "Also opens Advanced: engine, networks, raw environment. For people who read the compose file anyway."
+msgstr "Also opens Advanced: engine, networks, raw environment. For people who read the compose file anyway."
+
+#: src/Settings.svelte
+msgid "Current level"
+msgstr "Current level"
+
+#: src/Settings.svelte
+msgid "Use this level"
+msgstr "Use this level"
+
+#. 0: o.label
+#: src/Settings.svelte
+msgid "Install wizard detail: {0}"
+msgstr "Install wizard detail: {0}"
+
+#: src/Settings.svelte
+msgid "recommended"
+msgstr "recommended"
+
+#: src/Settings.svelte
+msgid "Install wizard detail"
+msgstr "Install wizard detail"
+
+#: src/Settings.svelte
+msgid "How much the install wizard shows before you click anything. The defaults are chosen so an app works without touching them; every field is still one click away at the lowest level. Raise this only if you change the same fields on every install and know what they do."
+msgstr "How much the install wizard shows before you click anything. The defaults are chosen so an app works without touching them; every field is still one click away at the lowest level. Raise this only if you change the same fields on every install and know what they do."
+
+#: src/Settings.svelte
+msgid "First-run setup"
+msgstr "First-run setup"
+
+#: src/Settings.svelte
+msgid "Storage, Homelab folder presets, catalog and the quick guide, as shown on first launch. Nothing is reset; it only walks through the same settings again."
+msgstr "Storage, Homelab folder presets, catalog and the quick guide, as shown on first launch. Nothing is reset; it only walks through the same settings again."
+
+#: src/Settings.svelte
+msgid "Run setup again"
+msgstr "Run setup again"
+
+#: src/SetupReady.svelte
+msgid "AppJail"
+msgstr "AppJail"
+
+#. 0: e.message
+#: src/SetupReady.svelte
+msgid "Could not check the host: {0}"
+msgstr "Could not check the host: {0}"
+
+#: src/SetupReady.svelte
+msgid "<0/> Checking the host…"
+msgstr "<0/> Checking the host…"
+
+#: src/SetupReady.svelte
+msgid "Pick at least one."
+msgstr "Pick at least one."
+
+#. 0: doneCount; 1: ran.length
+#: src/SetupReady.svelte
+msgid "Setting up… {0} of {1}"
+msgstr "Setting up… {0} of {1}"
+
+#: src/SetupReady.svelte
+msgid "Setup stopped"
+msgstr "Setup stopped"
+
+#. 0: p.auto.length; 1: p.auto.length === 1 ? '' \\: 's'
+#: src/SetupReady.svelte
+msgid "fjord sets up {0} thing{1}"
+msgstr "fjord sets up {0} thing{1}"
+
+#: src/SetupReady.svelte
+msgid "Hide commands"
+msgstr "Hide commands"
+
+#: src/SetupReady.svelte
+msgid "Show commands"
+msgstr "Show commands"
+
+#: src/App.svelte
+#: src/Root.svelte
+#: src/SetupReady.svelte
+msgid "Try again"
+msgstr "Try again"
+
+#: src/SetupReady.svelte
+#: src/SignIn.svelte
+msgid "Set up"
+msgstr "Set up"
+
+#. 0: p.manual.length
+#. 0: p.manual.length
+#: src/SetupReady.svelte
+#: src/SetupReady.svelte
+msgid "{0} things"
+msgstr "{0} things"
+
+#. 0: p.manual.length === 1 ? 'one thing' \\: `${p.manual.length} things`
+#: src/SetupReady.svelte
+msgid "After this, {0} for you to run in a terminal."
+msgstr "After this, {0} for you to run in a terminal."
+
+#: src/SetupReady.svelte
+msgid "Hide output"
+msgstr "Hide output"
+
+#: src/SetupReady.svelte
+msgid "Show output"
+msgstr "Show output"
+
+#: src/SetupReady.svelte
+msgid "A step failed"
+msgstr "A step failed"
+
+#. 0: p.manual.length === 1 ? 'one thing' \\: `${p.manual.length} things`
+#: src/SetupReady.svelte
+msgid "Your turn: {0} to run in a terminal"
+msgstr "Your turn: {0} to run in a terminal"
+
+#: src/SetupReady.svelte
+msgid "fjord did its part."
+msgstr "fjord did its part."
+
+#: src/SetupReady.svelte
+msgid "<0/>These change your host's own configuration, so fjord leaves them to you. Run them as root on this host."
+msgstr "<0/>These change your host's own configuration, so fjord leaves them to you. Run them as root on this host."
+
+#: src/SetupReady.svelte
+msgid "<0/>I've done it, check again"
+msgstr "<0/>I've done it, check again"
+
+#. 0: selected.map(label).join(' and ')
+#: src/SetupReady.svelte
+msgid "Ready to run apps with {0}."
+msgstr "Ready to run apps with {0}."
+
+#. 0: p.all.length
+#: src/SetupReady.svelte
+msgid "<0/> Everything fjord checked ({0})"
+msgstr "<0/> Everything fjord checked ({0})"
+
+#: src/SetupReady.svelte
+msgid "Apps run in FreeBSD jails, with podman, AppJail, or both. Pick what you want:"
+msgstr "Apps run in FreeBSD jails, with podman, AppJail, or both. Pick what you want:"
+
+#: src/SetupWizard.svelte
+msgid "Welcome"
+msgstr "Welcome"
+
+#: src/SetupWizard.svelte
+#: src/SetupWizard.svelte
+msgid "Catalog"
+msgstr "Catalog"
+
+#: src/SetupWizard.svelte
+msgid "Already running"
+msgstr "Already running"
+
+#: src/SetupWizard.svelte
+#: src/SetupWizard.svelte
+msgid "How it works"
+msgstr "How it works"
+
+#. 0: e.message
+#: src/SetupWizard.svelte
+msgid "Could not set the default engine: {0}"
+msgstr "Could not set the default engine: {0}"
+
+#: src/SetupWizard.svelte
+msgid "Could not save storage settings"
+msgstr "Could not save storage settings"
+
+#. 0: c.name
+#. 0: path
+#: src/SetupWizard.svelte
+#: src/System.svelte
+msgid "Removed {0}"
+msgstr "Removed {0}"
+
+#: src/SetupWizard.svelte
+msgid "Could not remove the catalog"
+msgstr "Could not remove the catalog"
+
+#. 0: added.apps
+#: src/SetupWizard.svelte
+msgid "Catalog added — {0} apps"
+msgstr "Catalog added — {0} apps"
+
+#: src/SetupWizard.svelte
+msgid "Could not add the catalog"
+msgstr "Could not add the catalog"
+
+#: src/SetupWizard.svelte
+msgid "Welcome to fjord"
+msgstr "Welcome to fjord"
+
+#: src/SetupWizard.svelte
+msgid "An app store for your own host. First, let's get this host ready to run apps."
+msgstr "An app store for your own host. First, let's get this host ready to run apps."
+
+#: src/SetupWizard.svelte
+msgid "Homelab folder presets"
+msgstr "Homelab folder presets"
+
+#: src/SetupWizard.svelte
+msgid "suggested"
+msgstr "suggested"
+
+#: src/SetupWizard.svelte
+msgid "Movies, TV, Music, Downloads, Books, Photos as ready-made folder sets. Apps that want one of those folders pick it up at install instead of asking. Turn it off if this host isn't a media box."
+msgstr "Movies, TV, Music, Downloads, Books, Photos as ready-made folder sets. Apps that want one of those folders pick it up at install instead of asking. Turn it off if this host isn't a media box."
+
+#: src/SetupWizard.svelte
+msgid "Disable Homelab folder presets"
+msgstr "Disable Homelab folder presets"
+
+#: src/SetupWizard.svelte
+msgid "Enable Homelab folder presets"
+msgstr "Enable Homelab folder presets"
+
+#: src/SetupWizard.svelte
+msgid "Where these folders live on this host. Add the ones you have (local paths or NFS/SMB); leave the rest empty. You can edit them later under Settings → Storage."
+msgstr "Where these folders live on this host. Add the ones you have (local paths or NFS/SMB); leave the rest empty. You can edit them later under Settings → Storage."
+
+#: src/SetupWizard.svelte
+msgid "Where apps keep their data. Each app gets its own folder under this location. Pick a disk with room; you can add more locations later under Settings → Storage."
+msgstr "Where apps keep their data. Each app gets its own folder under this location. Pick a disk with room; you can add more locations later under Settings → Storage."
+
+#: src/SetupWizard.svelte
+msgid "App data location"
+msgstr "App data location"
+
+#: src/SetupWizard.svelte
+msgid "Leave it empty to use <0/>."
+msgstr "Leave it empty to use <0/>."
+
+#. 0: c.apps
+#: src/SetupWizard.svelte
+msgid "{0} apps"
+msgstr "{0} apps"
+
+#: src/SetupWizard.svelte
+msgid "Remove this catalog"
+msgstr "Remove this catalog"
+
+#. 0: totalApps
+#: src/SetupWizard.svelte
+msgid "{0} apps ready. The default is the daemonless catalog; remove it or add your own below — all of this is editable later under Settings → Catalogs."
+msgstr "{0} apps ready. The default is the daemonless catalog; remove it or add your own below — all of this is editable later under Settings → Catalogs."
+
+#: src/SetupWizard.svelte
+msgid "No catalog configured — the store will be empty until one is added."
+msgstr "No catalog configured — the store will be empty until one is added."
+
+#: src/SetupWizard.svelte
+msgid "<0/> Fetching…"
+msgstr "<0/> Fetching…"
+
+#: src/SetupWizard.svelte
+msgid "Where apps come from. A catalog is a URL publishing an app list, icons and install manifests. The daemonless catalog is the default; your own, or another fjord's <0>/catalog</0>, works the same way."
+msgstr "Where apps come from. A catalog is a URL publishing an app list, icons and install manifests. The daemonless catalog is the default; your own, or another fjord's <0>/catalog</0>, works the same way."
+
+#: src/SetupWizard.svelte
+msgid "Add another catalog"
+msgstr "Add another catalog"
+
+#: src/SetupWizard.svelte
+msgid "<0/> Looking for containers and jails already running…"
+msgstr "<0/> Looking for containers and jails already running…"
+
+#: src/SetupWizard.svelte
+msgid "Browse, pick an app, press Install. The wizard asks only what it must; the defaults are chosen so the app works untouched."
+msgstr "Browse, pick an app, press Install. The wizard asks only what it must; the defaults are chosen so the app works untouched."
+
+#: src/SetupWizard.svelte
+msgid "Everything running, with logs, a shell, updates and delete. Each app is a compose file you can open and edit."
+msgstr "Everything running, with logs, a shell, updates and delete. Each app is a compose file you can open and edit."
+
+#: src/SetupWizard.svelte
+#: src/Volumes.svelte
+msgid "Volumes"
+msgstr "Volumes"
+
+#: src/SetupWizard.svelte
+msgid "App data lives in the location you just picked, one folder per app, plus any named volumes an app declares."
+msgstr "App data lives in the location you just picked, one folder per app, plus any named volumes an app declares."
+
+#: src/SetupWizard.svelte
+msgid "Storage, engines, catalogs, and the knobs you will not need on day one. Setup can be run again from Advanced."
+msgstr "Storage, engines, catalogs, and the knobs you will not need on day one. Setup can be run again from Advanced."
+
+#: src/SetupWizard.svelte
+msgid "Back"
+msgstr "Back"
+
+#: src/SetupWizard.svelte
+msgid "Skip setup"
+msgstr "Skip setup"
+
+#: src/SetupWizard.svelte
+msgid "<0/>Continue <1/>"
+msgstr "<0/>Continue <1/>"
+
+#: src/SetupWizard.svelte
+msgid "<0/>Open the App Store"
+msgstr "<0/>Open the App Store"
+
+#: src/Shell.svelte
+msgid "● connected"
+msgstr "● connected"
+
+#: src/Shell.svelte
+msgid "connecting…"
+msgstr "connecting…"
+
+#: src/Shell.svelte
+msgid "● connection error"
+msgstr "● connection error"
+
+#: src/Shell.svelte
+msgid "● closed"
+msgstr "● closed"
+
+#: src/Spinner.svelte
+msgid "Loading"
+msgstr "Loading"
+
+#: src/System.svelte
+msgid "Failed to load system report"
+msgstr "Failed to load system report"
+
+#. 0: rep.reclaimed
+#: src/System.svelte
+msgid "Reclaimed {0}"
+msgstr "Reclaimed {0}"
+
+#: src/System.svelte
+msgid "Cleanup complete"
+msgstr "Cleanup complete"
+
+#: src/System.svelte
+msgid "Cleanup failed"
+msgstr "Cleanup failed"
+
+#. 0: path; 1: e.message
+#: src/System.svelte
+msgid "Could not remove {0}: {1}"
+msgstr "Could not remove {0}: {1}"
+
+#: src/System.svelte
+msgid "Warning"
+msgstr "Warning"
+
+#: src/System.svelte
+msgid "Unverified"
+msgstr "Unverified"
+
+#: src/System.svelte
+msgid "Command copied"
+msgstr "Command copied"
+
+#: src/System.svelte
+msgid "System"
+msgstr "System"
+
+#: src/System.svelte
+msgid "Host readiness — platform, deployment mode, and engine requirements."
+msgstr "Host readiness — platform, deployment mode, and engine requirements."
+
+#: src/System.svelte
+msgid "<0/> Re-check"
+msgstr "<0/> Re-check"
+
+#: src/System.svelte
+msgid "<0/> Running checks…"
+msgstr "<0/> Running checks…"
+
+#: src/System.svelte
+msgid "System Report Unavailable"
+msgstr "System Report Unavailable"
+
+#. 0: engineName
+#: src/System.svelte
+msgid "default engine: {0}"
+msgstr "default engine: {0}"
+
+#. 0: failCount; 1: failCount === 1 ? '' \\: 's'
+#: src/System.svelte
+msgid "{0} check{1} failing"
+msgstr "{0} check{1} failing"
+
+#: src/System.svelte
+msgid "all checks passing"
+msgstr "all checks passing"
+
+#: src/System.svelte
+msgid "Engine: <0/>"
+msgstr "Engine: <0/>"
+
+#: src/System.svelte
+msgid "<0/> Measuring…"
+msgstr "<0/> Measuring…"
+
+#. 0: row.active; 1: row.total
+#: src/System.svelte
+msgid "{0}/{1} in use"
+msgstr "{0}/{1} in use"
+
+#. 0: row.reclaimable
+#: src/System.svelte
+msgid "{0} reclaimable"
+msgstr "{0} reclaimable"
+
+#: src/System.svelte
+msgid "<0/> Stopped containers"
+msgstr "<0/> Stopped containers"
+
+#: src/System.svelte
+msgid "<0/> Dangling images"
+msgstr "<0/> Dangling images"
+
+#: src/System.svelte
+msgid "Networks no container is attached to"
+msgstr "Networks no container is attached to"
+
+#: src/System.svelte
+msgid "<0/> Unused networks"
+msgstr "<0/> Unused networks"
+
+#: src/System.svelte
+msgid "Working containers and cache left behind by image builds. Includes stopped containers, dangling images and unused networks."
+msgstr "Working containers and cache left behind by image builds. Includes stopped containers, dangling images and unused networks."
+
+#: src/System.svelte
+msgid "<0/> Build leftovers"
+msgstr "<0/> Build leftovers"
+
+#: src/System.svelte
+msgid "Removes every image not used by a container — they re-pull when next needed"
+msgstr "Removes every image not used by a container — they re-pull when next needed"
+
+#: src/System.svelte
+msgid "<0/> All unused images"
+msgstr "<0/> All unused images"
+
+#: src/System.svelte
+msgid "Deletes volumes not attached to any container — this can destroy data"
+msgstr "Deletes volumes not attached to any container — this can destroy data"
+
+#: src/System.svelte
+msgid "<0/> Unused volumes"
+msgstr "<0/> Unused volumes"
+
+#: src/System.svelte
+msgid "⚠ Unused volumes may hold real data — anything not currently mounted by a container will be deleted."
+msgstr "⚠ Unused volumes may hold real data — anything not currently mounted by a container will be deleted."
+
+#: src/System.svelte
+msgid "Remove the selected unused resources now?"
+msgstr "Remove the selected unused resources now?"
+
+#: src/System.svelte
+msgid "Confirm cleanup"
+msgstr "Confirm cleanup"
+
+#: src/System.svelte
+msgid "<0/> Cleaning…"
+msgstr "<0/> Cleaning…"
+
+#: src/System.svelte
+msgid "<0/> Clean up"
+msgstr "<0/> Clean up"
+
+#. 0: leftoversError
+#: src/System.svelte
+msgid "Could not check: {0}"
+msgstr "Could not check: {0}"
+
+#: src/System.svelte
+msgid "<0/> Looking…"
+msgstr "<0/> Looking…"
+
+#: src/System.svelte
+msgid "None — every folder there is in use."
+msgstr "None — every folder there is in use."
+
+#: src/System.svelte
+msgid "Delete for good"
+msgstr "Delete for good"
+
+#: src/System.svelte
+msgid "Remove this folder"
+msgstr "Remove this folder"
+
+#. 0: leftovers.unchecked.join(', ')
+#: src/System.svelte
+msgid "Not checked against {0}: it cannot list what its containers mount, so make sure none of them uses a folder before removing it."
+msgstr "Not checked against {0}: it cannot list what its containers mount, so make sure none of them uses a folder before removing it."
+
+#. 0: leftovers.folders.length; 1: leftovers.folders.length === 1 ? '' \\: 's'; 2: fmtBytes(leftoverTotal)
+#: src/System.svelte
+msgid "{0} folder{1}, {2}"
+msgstr "{0} folder{1}, {2}"
+
+#: src/System.svelte
+msgid "Storage cleanup"
+msgstr "Storage cleanup"
+
+#: src/System.svelte
+msgid "Reclaim disk held by resources no stack uses. What can be cleaned depends on the engine."
+msgstr "Reclaim disk held by resources no stack uses. What can be cleaned depends on the engine."
+
+#: src/System.svelte
+msgid "Left-over app data"
+msgstr "Left-over app data"
+
+#: src/System.svelte
+msgid "Folders in your app-data locations that no stack and no container uses — usually what a deleted stack left behind."
+msgstr "Folders in your app-data locations that no stack and no container uses — usually what a deleted stack left behind."
+
+#: src/Terminal.svelte
+msgid "Executing…"
+msgstr "Executing…"
+
+#: src/Terminal.svelte
+#: src/Terminal.svelte
+msgid "Error"
+msgstr "Error"
+
+#: src/InstallCheckButton.svelte
+#: src/Terminal.svelte
+msgid "Done"
+msgstr "Done"
+
+#: src/Terminal.svelte
+msgid "Terminal"
+msgstr "Terminal"
+
+#: src/Terminal.svelte
+msgid "Clear"
+msgstr "Clear"
+
+#: src/Terminal.svelte
+msgid "Waiting for output…"
+msgstr "Waiting for output…"
+
+#. 0: missing
+#: src/VarsPanel.svelte
+msgid "{0} missing"
+msgstr "{0} missing"
+
+#: src/VarsPanel.svelte
+msgid "Hide variables"
+msgstr "Hide variables"
+
+#: src/VarsPanel.svelte
+msgid "Variables"
+msgstr "Variables"
+
+#: src/VarsPanel.svelte
+msgid "This file uses no <0/> variables."
+msgstr "This file uses no <0/> variables."
+
+#: src/VarsPanel.svelte
+msgid "Saved to this stack's .env with Save. The whole file is on the .env tab."
+msgstr "Saved to this stack's .env with Save. The whole file is on the .env tab."
+
+#: src/Volumes.svelte
+msgid "Failed to load volumes"
+msgstr "Failed to load volumes"
+
+#: src/Volumes.svelte
+msgid "NFS needs a server and export path"
+msgstr "NFS needs a server and export path"
+
+#: src/Volumes.svelte
+msgid "SMB needs a server and share name"
+msgstr "SMB needs a server and share name"
+
+#: src/Volumes.svelte
+msgid "Engine-managed storage — local and NFS shares. Attach one to a stack from that stack's <0>Resources</0> tab (podman stacks only)."
+msgstr "Engine-managed storage — local and NFS shares. Attach one to a stack from that stack's <0>Resources</0> tab (podman stacks only)."
+
+#: src/Volumes.svelte
+msgid "<0/> New Volume…"
+msgstr "<0/> New Volume…"
+
+#. 0: anonCount; 1: anonCount === 1 ? '' \\: 's'
+#: src/Volumes.svelte
+msgid "<0/> Show {0} anonymous volume{1} (container-managed)"
+msgstr "<0/> Show {0} anonymous volume{1} (container-managed)"
+
+#: src/Volumes.svelte
+msgid "Volumes Unavailable"
+msgstr "Volumes Unavailable"
+
+#: src/Volumes.svelte
+msgid "No Volumes"
+msgstr "No Volumes"
+
+#: src/Volumes.svelte
+msgid "Create a named volume to mount local or NFS storage into your stacks."
+msgstr "Create a named volume to mount local or NFS storage into your stacks."
+
+#: src/Volumes.svelte
+msgid "New Volume…"
+msgstr "New Volume…"
+
+#: src/Volumes.svelte
+msgid "Stacks mounting this volume"
+msgstr "Stacks mounting this volume"
+
+#. 0: v.usedBy.join(', ')
+#: src/Volumes.svelte
+msgid "In use by {0} — detach it from those stacks first"
+msgstr "In use by {0} — detach it from those stacks first"
+
+#: src/Volumes.svelte
+msgid "Remove even though a container has it mounted"
+msgstr "Remove even though a container has it mounted"
+
+#: src/Volumes.svelte
+msgid "Force Remove"
+msgstr "Force Remove"
+
+#: src/Volumes.svelte
+msgid "<0/> Local"
+msgstr "<0/> Local"
+
+#: src/Volumes.svelte
+msgid "<0/> NFS"
+msgstr "<0/> NFS"
+
+#: src/Volumes.svelte
+msgid "<0/> SMB"
+msgstr "<0/> SMB"
+
+#: src/Volumes.svelte
+msgid "mounts <0/> — leave the password empty to reuse one already stored for this user and server."
+msgstr "mounts <0/> — leave the password empty to reuse one already stored for this user and server."
+
+#: src/Volumes.svelte
+msgid "FreeBSD's built-in SMB client only speaks SMB1, which most servers refuse. If the server also exports NFS, use that instead."
+msgstr "FreeBSD's built-in SMB client only speaks SMB1, which most servers refuse. If the server also exports NFS, use that instead."
+
+#: src/Volumes.svelte
+#: src/Volumes.svelte
+msgid "<0/> Read-only"
+msgstr "<0/> Read-only"
+
+#: src/Volumes.svelte
+msgid "mounts <0/>"
+msgstr "mounts <0/>"
+
+#: src/Volumes.svelte
+msgid "New Volume"
+msgstr "New Volume"
+
+#: src/Settings.svelte
+msgid "Language"
+msgstr "Language"
+
+#. 0: updateInfo!.fromVersion
+#. 0: u.fromVersion
+#. 0: u.fromVersion
+#: src/App.svelte
+#: src/Dashboard.svelte
+#: src/ServiceResources.svelte
+msgid "v{0} → "
+msgstr "v{0} → "
+
+#: src/App.svelte
+msgid "Up to date — nothing to pull"
+msgstr "Up to date — nothing to pull"
+
+#: src/App.svelte
+msgid "Pinned to an exact image — nothing to pull"
+msgstr "Pinned to an exact image — nothing to pull"
+
+#. 0: updateInfo.toVersion
+#: src/App.svelte
+msgid "A newer version is published (v{0}) — set it in the compose editor"
+msgstr "A newer version is published (v{0}) — set it in the compose editor"
+
+#: src/App.svelte
+msgid "Checking it stays up — any action ends the check"
+msgstr "Checking it stays up — any action ends the check"
+
+#: src/App.svelte
+#: src/System.svelte
+msgid "Working…"
+msgstr "Working…"
+
+#: src/App.svelte
+msgid "director file and Makejail"
+msgstr "director file and Makejail"
+
+#: src/App.svelte
+msgid "— deleted with it:"
+msgstr "— deleted with it:"
+
+#: src/App.svelte
+msgid "— kept on disk unless you tick below:"
+msgstr "— kept on disk unless you tick below:"
+
+#: src/App.svelte
+#: src/System.svelte
+msgid "more than "
+msgstr "more than "
+
+#: src/App.svelte
+msgid "service has"
+msgstr "service has"
+
+#: src/App.svelte
+msgid "services have"
+msgstr "services have"
+
+#: src/App.svelte
+msgid "director file"
+msgstr "director file"
+
+#: src/InstallWizard.svelte
+msgid "Enter a valid stack name"
+msgstr "Enter a valid stack name"
+
+#: src/InstallWizard.svelte
+msgid "Checking the engines…"
+msgstr "Checking the engines…"
+
+#. 0: missingRequired.map((v) => v.name).join(', ')
+#: src/InstallWizard.svelte
+msgid "Fill in {0}"
+msgstr "Fill in {0}"
+
+#. 0: badUrls.map((v) => v.name).join(', ')
+#: src/InstallWizard.svelte
+msgid "Fix the address in {0}"
+msgstr "Fix the address in {0}"
+
+#. 0: needAddress.join(', ')
+#: src/InstallWizard.svelte
+msgid "Give an address: {0} (in Networking above)"
+msgstr "Give an address: {0} (in Networking above)"
+
+#: src/InstallWizard.svelte
+msgid "the default engine"
+msgstr "the default engine"
+
+#: src/InstallWizard.svelte
+msgid "checking engines…"
+msgstr "checking engines…"
+
+#: src/InstallWizard.svelte
+msgid "that segment"
+msgstr "that segment"
+
+#: src/Networks.svelte
+msgid "Name this network"
+msgstr "Name this network"
+
+#. 0: form.name.trim()
+#: src/Networks.svelte
+msgid "A network named {0} already exists"
+msgstr "A network named {0} already exists"
+
+#: src/Networks.svelte
+msgid "Pick a bridge"
+msgstr "Pick a bridge"
+
+#: src/Networks.svelte
+msgid "This network allocates its own addresses -- give it a subnet"
+msgstr "This network allocates its own addresses -- give it a subnet"
+
+#. 0: n.gateway
+#: src/Networks.svelte
+msgid " · gw {0}"
+msgstr " · gw {0}"
+
+#. 0: n.gateway6
+#: src/Networks.svelte
+msgid " gw {0}"
+msgstr " gw {0}"
+
+#: src/Networks.svelte
+msgid "— none"
+msgstr "— none"
+
+#: src/Networks.svelte
+msgid "+ add"
+msgstr "+ add"
+
+#. 0: netsOn(p.name); 1: netsOn(p.name) > 1 ? 's' \\: ''
+#: src/Networks.svelte
+msgid " ({0} network{1})"
+msgstr " ({0} network{1})"
+
+#: src/ServiceResources.svelte
+msgid "no container"
+msgstr "no container"
+
+#: src/ServiceResources.svelte
+msgid " — not on this engine"
+msgstr " — not on this engine"
+
+#: src/ServiceResources.svelte
+msgid "on create"
+msgstr "on create"
+
+#: src/ServiceResources.svelte
+msgid " (only on its own on this engine)"
+msgstr " (only on its own on this engine)"
+
+#: src/ServiceResources.svelte
+msgid " + IPv6"
+msgstr " + IPv6"
+
+#. 0: clash
+#: src/ServiceResources.svelte
+msgid " — same bridge as {0}"
+msgstr " — same bridge as {0}"
+
+#: src/ServiceResources.svelte
+msgid "this interface"
+msgstr "this interface"
+
+#: src/Settings.svelte
+msgid "Platform"
+msgstr "Platform"
+
+#: src/Settings.svelte
+msgid "Listen Address"
+msgstr "Listen Address"
+
+#: src/Settings.svelte
+msgid "seeded on disk — remove to stop serving it"
+msgstr "seeded on disk — remove to stop serving it"
+
+#: src/SetupReady.svelte
+msgid "not installed yet"
+msgstr "not installed yet"
+
+#: src/SetupReady.svelte
+#: src/SetupReady.svelte
+msgid "one thing"
+msgstr "one thing"
+
+#: src/System.svelte
+msgid "running directly on the host"
+msgstr "running directly on the host"
+
+#: src/System.svelte
+msgid "running in a container"
+msgstr "running in a container"
+
+#: src/System.svelte
+msgid "deployment mode unknown"
+msgstr "deployment mode unknown"
+
+#: src/VarsPanel.svelte
+msgid "all set"
+msgstr "all set"
+
+#: src/Account.svelte
+msgid "The two new passwords differ."
+msgstr "The two new passwords differ."
+
+#: src/Account.svelte
+msgid "Password changed. Other browsers are signed out."
+msgstr "Password changed. Other browsers are signed out."
+
+#. 0: (await r.text()).trim()
+#: src/Account.svelte
+msgid "Could not sign that browser out: {0}"
+msgstr "Could not sign that browser out: {0}"
+
+#: src/Account.svelte
+msgid "Every other browser is signed out."
+msgstr "Every other browser is signed out."
+
+#: src/Account.svelte
+msgid "Edge"
+msgstr "Edge"
+
+#: src/Account.svelte
+msgid "Firefox"
+msgstr "Firefox"
+
+#: src/Account.svelte
+msgid "Chrome"
+msgstr "Chrome"
+
+#: src/Account.svelte
+msgid "Safari"
+msgstr "Safari"
+
+#: src/Account.svelte
+msgid "Android"
+msgstr "Android"
+
+#: src/Account.svelte
+msgid "Windows"
+msgstr "Windows"
+
+#: src/Account.svelte
+msgid "FreeBSD"
+msgstr "FreeBSD"
+
+#: src/Account.svelte
+msgid "Linux"
+msgstr "Linux"
+
+#. 0: b; 1: os
+#: src/Account.svelte
+msgid "{0} on {1}"
+msgstr "{0} on {1}"
+
+#: src/Account.svelte
+msgid "Unknown browser"
+msgstr "Unknown browser"
+
+#. 0: mins
+#: src/Account.svelte
+msgid "{0} minutes ago"
+msgstr "{0} minutes ago"
+
+#. 0: Math.round(mins / 60)
+#: src/Account.svelte
+msgid "{0} hours ago"
+msgstr "{0} hours ago"
+
+#: src/Account.svelte
+msgid "Sign-in is off (<0/>): only this host and the proxy in front of it can reach fjord, with no password."
+msgstr "Sign-in is off (<0/>): only this host and the proxy in front of it can reach fjord, with no password."
+
+#: src/Account.svelte
+msgid "this browser"
+msgstr "this browser"
+
+#. 0: s.addr; 1: when(s.lastUsed)
+#: src/Account.svelte
+msgid "{0} · last used {1}"
+msgstr "{0} · last used {1}"
+
+#: src/Account.svelte
+#: src/App.svelte
+msgid "Sign out"
+msgstr "Sign out"
+
+#: src/Account.svelte
+#: src/Account.svelte
+msgid "Your password"
+msgstr "Your password"
+
+#~ msgid "{0} max-w-60"
+#~ msgstr "{0} max-w-60"
+
+#: src/Account.svelte
+msgid "Sign out everywhere else"
+msgstr "Sign out everywhere else"
+
+#: src/Account.svelte
+msgid "Sign out everywhere else…"
+msgstr "Sign out everywhere else…"
+
+#~ msgid "At least 12 characters"
+#~ msgstr "At least 12 characters"
+
+#: src/Account.svelte
+msgid "Changing…"
+msgstr "Changing…"
+
+#: src/Account.svelte
+msgid "Change password"
+msgstr "Change password"
+
+#: src/Account.svelte
+msgid "Current password"
+msgstr "Current password"
+
+#: src/Account.svelte
+#: src/SignIn.svelte
+msgid "User name"
+msgstr "User name"
+
+#: src/Account.svelte
+msgid "New password"
+msgstr "New password"
+
+#: src/Account.svelte
+msgid "New password again"
+msgstr "New password again"
+
+#: src/Account.svelte
+msgid "Nothing yet: failed sign-ins, password changes and sign-ins from new addresses show here."
+msgstr "Nothing yet: failed sign-ins, password changes and sign-ins from new addresses show here."
+
+#: src/Account.svelte
+msgid "Signed in"
+msgstr "Signed in"
+
+#: src/Account.svelte
+msgid "Browsers signed in as <0/>. A session ends after 30 days unused."
+msgstr "Browsers signed in as <0/>. A session ends after 30 days unused."
+
+#: src/Account.svelte
+msgid "User name and password"
+msgstr "User name and password"
+
+#: src/Account.svelte
+msgid "Every other browser is signed out when you change them. Forgot the password? On the host, as root: <0/>"
+msgstr "Every other browser is signed out when you change them. Forgot the password? On the host, as root: <0/>"
+
+#: src/Account.svelte
+msgid "Recent sign-in activity"
+msgstr "Recent sign-in activity"
+
+#. 0: c.name
+#: src/Adopt.svelte
+msgid "Imported {0} — fjord manages it now"
+msgstr "Imported {0} — fjord manages it now"
+
+#. 0: c.name
+#: src/Adopt.svelte
+msgid "Adopted {0} — stopped, as it was"
+msgstr "Adopted {0} — stopped, as it was"
+
+#~ msgid "Removes {0} containers and makes each a stack with the same mounts, network address and name; the running ones are started. Data stays where it is."
+#~ msgstr "Removes {0} containers and makes each a stack with the same mounts, network address and name; the running ones are started. Data stays where it is."
+
+#: src/Adopt.svelte
+msgid "no services"
+msgstr "no services"
+
+#. 0: (c.services ?? []).join(', ') || 'no services'
+#: src/Adopt.svelte
+msgid "compose project · {0} · <0/>"
+msgstr "compose project · {0} · <0/>"
+
+#: src/Adopt.svelte
+msgid "Make this project a stack, from its own compose file; its containers keep running"
+msgstr "Make this project a stack, from its own compose file; its containers keep running"
+
+#: src/Adopt.svelte
+msgid "<0/>Import"
+msgstr "<0/>Import"
+
+#~ msgid "Remove the container and make it a stack, running if it was"
+#~ msgstr "Remove the container and make it a stack, running if it was"
+
+#~ msgid "stopped, as it is now"
+#~ msgstr "stopped, as it is now"
+
+#~ msgid "Removes the container <0/> and makes it a stack with the same mounts, network address and name, {0}. Data stays where it is."
+#~ msgstr "Removes the container <0/> and makes it a stack with the same mounts, network address and name, {0}. Data stays where it is."
+
+#: src/Dashboard.svelte
+#: src/NamesPrompt.svelte
+msgid "Finish setup"
+msgstr "Finish setup"
+
+#: src/App.svelte
+msgid "Could not change the compose"
+msgstr "Could not change the compose"
+
+#: src/App.svelte
+msgid "Could not set the options"
+msgstr "Could not set the options"
+
+#: src/App.svelte
+msgid "This stack's files did not load, so there is nothing safe to save. Open it again."
+msgstr "This stack's files did not load, so there is nothing safe to save. Open it again."
+
+#. 0: name; 1: r.host.name; 2: p.domain
+#: src/App.svelte
+msgid "{0} is at {1}.{2}"
+msgstr "{0} is at {1}.{2}"
+
+#. 0: p.provider
+#: src/App.svelte
+msgid "{0} refused it"
+msgstr "{0} refused it"
+
+#. 0: name; 1: r?.error || `${p.provider} refused it`
+#. 0: name; 1: err?.message || err
+#: src/App.svelte
+#: src/App.svelte
+msgid "{0} has no name yet: {1}"
+msgstr "{0} has no name yet: {1}"
+
+#: src/App.svelte
+msgid "FJORD_AUTH=none: only this host and the proxy in front of it can reach fjord"
+msgstr "FJORD_AUTH=none: only this host and the proxy in front of it can reach fjord"
+
+#: src/App.svelte
+msgid "Sign-in is off"
+msgstr "Sign-in is off"
+
+#. 0: $auth.user
+#: src/App.svelte
+msgid "Signed in as {0}"
+msgstr "Signed in as {0}"
+
+#: src/App.svelte
+msgid "Menu"
+msgstr "Menu"
+
+#. 0: noAddress
+#: src/App.svelte
+msgid "A stack on its own IP publishes nothing on the host, so there is no link to open until the network gives it an address. {0}"
+msgstr "A stack on its own IP publishes nothing on the host, so there is no link to open until the network gives it an address. {0}"
+
+#: src/App.svelte
+msgid "<0/> Open <1/>"
+msgstr "<0/> Open <1/>"
+
+#: src/App.svelte
+msgid "Save or discard your edits first"
+msgstr "Save or discard your edits first"
+
+#: src/App.svelte
+msgid "Couldn't apply:"
+msgstr "Couldn't apply:"
+
+#: src/App.svelte
+msgid "The running services still use the old configuration. The Output below has the whole message."
+msgstr "The running services still use the old configuration. The Output below has the whole message."
+
+#. 0: unusedEnv.map((n) => `${n}=\\\\${${n}}`).join(', ')
+#: src/App.svelte
+msgid "Add {0} to the app's environment in the compose"
+msgstr "Add {0} to the app's environment in the compose"
+
+#. 0: unusedEnv.length === 1 ? 'it' \\: 'them'
+#: src/App.svelte
+msgid "Pass {0} to the app"
+msgstr "Pass {0} to the app"
+
+#: src/InstallCheckButton.svelte
+msgid "Installed"
+msgstr "Installed"
+
+#: src/InstallCheckButton.svelte
+msgid "Could not install"
+msgstr "Could not install"
+
+#: src/InstallCheckButton.svelte
+msgid "Could not fix"
+msgstr "Could not fix"
+
+#. 0: what
+#: src/LoginButton.svelte
+msgid "{0} copied"
+msgstr "{0} copied"
+
+#: src/LoginButton.svelte
+msgid "How to sign in to this app"
+msgstr "How to sign in to this app"
+
+#: src/LoginButton.svelte
+msgid "Copy the user name"
+msgstr "Copy the user name"
+
+#: src/LoginButton.svelte
+msgid "Show"
+msgstr "Show"
+
+#: src/LoginButton.svelte
+msgid "Copy the password"
+msgstr "Copy the password"
+
+#: src/LoginButton.svelte
+msgid "The app's default login, the same everywhere it is installed: change it in the app."
+msgstr "The app's default login, the same everywhere it is installed: change it in the app."
+
+#: src/LoginButton.svelte
+#: src/SignIn.svelte
+msgid "Sign in"
+msgstr "Sign in"
+
+#. 0: was; 1: t.heldBy; 2: was
+#: src/InstallWizard.svelte
+msgid "{0} is in use by {1}, and clients look for this app on {2}: give it its own address on a LAN network (Networking, below)."
+msgstr "{0} is in use by {1}, and clients look for this app on {2}: give it its own address on a LAN network (Networking, below)."
+
+#. 0: was; 1: t.heldBy; 2: t.free
+#: src/InstallWizard.svelte
+msgid "{0} is in use by {1}, so {2}."
+msgstr "{0} is in use by {1}, so {2}."
+
+#. 0: was; 1: t.heldBy
+#: src/InstallWizard.svelte
+msgid "{0} is in use by {1}."
+msgstr "{0} is in use by {1}."
+
+#: src/InstallWizard.svelte
+msgid "<0/> is installed already; this is another copy."
+msgstr "<0/> is installed already; this is another copy."
+
+#: src/InstallWizard.svelte
+msgid "Give it a name"
+msgstr "Give it a name"
+
+#: src/InstallWizard.svelte
+#: src/OpenMenu.svelte
+msgid "Open it at"
+msgstr "Open it at"
+
+#: src/InstallWizard.svelte
+#: src/OpenMenu.svelte
+msgid "https://"
+msgstr "https://"
+
+#. 0: nameOwnedBy?.split('/')[0]
+#: src/InstallWizard.svelte
+msgid "Saved as <0/>, which is {0}'s already."
+msgstr "Saved as <0/>, which is {0}'s already."
+
+#. 0: nameTaken
+#: src/InstallWizard.svelte
+msgid "{0}. Pick another first part."
+msgstr "{0}. Pick another first part."
+
+#: src/InstallWizard.svelte
+#: src/OpenMenu.svelte
+msgid "Saved as <0/>."
+msgstr "Saved as <0/>."
+
+#. 0: $names.provider
+#: src/InstallWizard.svelte
+msgid "{0} gives it this name once it is running, home network only."
+msgstr "{0} gives it this name once it is running, home network only."
+
+#: src/InstallWizard.svelte
+msgid "Only its address, no name. You can add one later from its page."
+msgstr "Only its address, no name. You can add one later from its page."
+
+#. 0: ownPorts.length > 1 ? 'ports' \\: 'port'
+#: src/InstallWizard.svelte
+msgid "It answers at its own address on <0/><1/>, on {0} <2/>. Nothing is published on this host."
+msgstr "It answers at its own address on <0/><1/>, on {0} <2/>. Nothing is published on this host."
+
+#: src/InstallWizard.svelte
+msgid "(optional)"
+msgstr "(optional)"
+
+#: src/InstallWizard.svelte
+msgid "With"
+msgstr "With"
+
+#: src/InstallWizard.svelte
+msgid "Download"
+msgstr "Download"
+
+#: src/InstallWizard.svelte
+msgid "Data"
+msgstr "Data"
+
+#: src/InstallWizard.svelte
+msgid "At boot"
+msgstr "At boot"
+
+#: src/InstallWizard.svelte
+msgid "This engine"
+msgstr "This engine"
+
+#. 0: engineChoice || 'This engine'
+#: src/InstallWizard.svelte
+msgid "{0} does not take a restart policy from fjord."
+msgstr "{0} does not take a restart policy from fjord."
+
+#: src/MountOptionsPicker.svelte
+msgid "Read-only"
+msgstr "Read-only"
+
+#: src/MountOptionsPicker.svelte
+msgid "Any other podman mount option, comma separated (nocopy, noexec, …)"
+msgstr "Any other podman mount option, comma separated (nocopy, noexec, …)"
+
+#: src/MountOptionsPicker.svelte
+msgid "Other mount options"
+msgstr "Other mount options"
+
+#. 0: made[0].host?.name; 1: $names.domain
+#. 0: made[0].host?.name; 1: $names.domain
+#: src/NamesPrompt.svelte
+#: src/OpenMenu.svelte
+msgid "{0}.{1} is ready"
+msgstr "{0}.{1} is ready"
+
+#. 0: made.length
+#. 0: made.length
+#: src/NamesPrompt.svelte
+#: src/OpenMenu.svelte
+msgid "{0} apps have names"
+msgstr "{0} apps have names"
+
+#. 0: what; 1: failed.length
+#. 0: what; 1: failed.length
+#: src/NamesPrompt.svelte
+#: src/OpenMenu.svelte
+msgid "{0} · {1} could not be reached"
+msgstr "{0} · {1} could not be reached"
+
+#: src/NamesPrompt.svelte
+#: src/OpenMenu.svelte
+#: src/OpenMenu.svelte
+#: src/OpenMenu.svelte
+msgid "Undo"
+msgstr "Undo"
+
+#: src/NamesPrompt.svelte
+msgid "Names removed"
+msgstr "Names removed"
+
+#. 0: stack.name
+#: src/NamesPrompt.svelte
+msgid "{0} could not reach any app"
+msgstr "{0} could not reach any app"
+
+#. 0: failed[0]?.error || `${stack.name} could not reach any app`
+#. 0: err?.message || err
+#: src/NamesPrompt.svelte
+#: src/NamesPrompt.svelte
+msgid "No names added: {0}"
+msgstr "No names added: {0}"
+
+#: src/NamesPrompt.svelte
+msgid "It disconnected fjord. Names you have still work; to add or change names, reconnect fjord in its Settings."
+msgstr "It disconnected fjord. Names you have still work; to add or change names, reconnect fjord in its Settings."
+
+#: src/NamesPrompt.svelte
+msgid "Open its Settings"
+msgstr "Open its Settings"
+
+#~ msgid "Waiting for it to answer. Then one step: finish its setup, and your apps get names."
+#~ msgstr "Waiting for it to answer. Then one step: finish its setup, and your apps get names."
+
+#: src/NamesPrompt.svelte
+msgid "Finish setting it up and your apps get names like <0>radarr.apps.lan</0>. The link opens its setup verified; you pick a password and the ending."
+msgstr "Finish setting it up and your apps get names like <0>radarr.apps.lan</0>. The link opens its setup verified; you pick a password and the ending."
+
+#: src/NamesPrompt.svelte
+msgid "One app has"
+msgstr "One app has"
+
+#. 0: todo.length
+#: src/NamesPrompt.svelte
+msgid "{0} apps have"
+msgstr "{0} apps have"
+
+#. 0: chosen.length
+#. 0: named.length
+#: src/NamesPrompt.svelte
+#: src/OpenMenu.svelte
+msgid "{0} names"
+msgstr "{0} names"
+
+#. 0: todo.length === 1 ? 'One app has' \\: `${todo.length} apps have`
+#: src/NamesPrompt.svelte
+msgid "{0} no name yet. Like <0/>, home network only."
+msgstr "{0} no name yet. Like <0/>, home network only."
+
+#. 0: chosen.length === 1 ? 'name' \\: `${chosen.length} names`
+#: src/NamesPrompt.svelte
+msgid "<0/> Add {0}"
+msgstr "<0/> Add {0}"
+
+#. 0: article(kind.parentLabel); 1: kind.parentLabel?.toLowerCase()
+#: src/Networks.svelte
+msgid "Select {0} {1}…"
+msgstr "Select {0} {1}…"
+
+#: src/Networks.svelte
+msgid "The DHCP server on this segment leases each stack an address, and reservations you already have for a MAC apply. A stack can still be given a fixed address instead."
+msgstr "The DHCP server on this segment leases each stack an address, and reservations you already have for a MAC apply. A stack can still be given a fixed address instead."
+
+#. 0: parents.length; 1: (kind?.parentLabel || 'bridge').toLowerCase(); 2: parents.length === 1 ? '' \\: 's'
+#: src/Networks.svelte
+msgid "{0} {1}{2} on this host"
+msgstr "{0} {1}{2} on this host"
+
+#. 0: was; 1: $names.domain; 2: host.name; 3: $names.domain
+#: src/OpenMenu.svelte
+msgid "{0}.{1} is now {2}.{3}"
+msgstr "{0}.{1} is now {2}.{3}"
+
+#. 0: err?.message || err
+#: src/OpenMenu.svelte
+msgid "Could not change the name back: {0}"
+msgstr "Could not change the name back: {0}"
+
+#. 0: err?.message || err
+#: src/OpenMenu.svelte
+msgid "Could not change the name: {0}"
+msgstr "Could not change the name: {0}"
+
+#. 0: $names.provider
+#: src/OpenMenu.svelte
+msgid "{0} refused them"
+msgstr "{0} refused them"
+
+#. 0: failed[0]?.error || `${$names.provider} refused them`
+#. 0: err?.message || err
+#: src/OpenMenu.svelte
+#: src/OpenMenu.svelte
+msgid "No names: {0}"
+msgstr "No names: {0}"
+
+#. 0: stack.displayName || stack.name; 1: was.length === 1 ? 'name' \\: 'names'
+#: src/OpenMenu.svelte
+msgid "{0} has no {1} now"
+msgstr "{0} has no {1} now"
+
+#. 0: err?.message || err
+#: src/OpenMenu.svelte
+msgid "Could not remove the names: {0}"
+msgstr "Could not remove the names: {0}"
+
+#: src/OpenMenu.svelte
+msgid "Open by name, or direct without the proxy"
+msgstr "Open by name, or direct without the proxy"
+
+#: src/OpenMenu.svelte
+msgid "Letters, digits and dashes."
+msgstr "Letters, digits and dashes."
+
+#: src/OpenMenu.svelte
+msgid "<0/> stops working."
+msgstr "<0/> stops working."
+
+#: src/OpenMenu.svelte
+msgid "The name it has now."
+msgstr "The name it has now."
+
+#. 0: $names.provider
+#: src/OpenMenu.svelte
+msgid "This device does not trust {0} yet: the browser will warn until it does"
+msgstr "This device does not trust {0} yet: the browser will warn until it does"
+
+#: src/OpenMenu.svelte
+msgid "By name"
+msgstr "By name"
+
+#: src/OpenMenu.svelte
+msgid "Direct"
+msgstr "Direct"
+
+#: src/OpenMenu.svelte
+msgid "Give it a name like <0/>"
+msgstr "Give it a name like <0/>"
+
+#: src/OpenMenu.svelte
+msgid "the other "
+msgstr "the other "
+
+#. 0: named.length ? 'the other ' \\: ''; 1: missing.length
+#: src/OpenMenu.svelte
+msgid "Give {0}{1} apps names like <0/>"
+msgstr "Give {0}{1} apps names like <0/>"
+
+#: src/OpenMenu.svelte
+msgid "<0/> Change name…"
+msgstr "<0/> Change name…"
+
+#. 0: named.length === 1 ? 'name' \\: `${named.length} names`
+#: src/OpenMenu.svelte
+msgid "<0/> Remove {0}"
+msgstr "<0/> Remove {0}"
+
+#: src/RestartChoice.svelte
+#: src/RestartPolicy.svelte
+msgid "Restarts after a crash"
+msgstr "Restarts after a crash"
+
+#: src/RestartChoice.svelte
+#: src/RestartPolicy.svelte
+msgid "How many times it is restarted after a crash before it is left down"
+msgstr "How many times it is restarted after a crash before it is left down"
+
+#: src/RestartChoice.svelte
+msgid "times"
+msgstr "times"
+
+#. 0: (await res.text()).trim()
+#: src/RestartPolicy.svelte
+msgid "Restart policy not saved: {0}"
+msgstr "Restart policy not saved: {0}"
+
+#: src/RestartPolicy.svelte
+msgid "Restart policy not saved: fjordd did not answer"
+msgstr "Restart policy not saved: fjordd did not answer"
+
+#: src/Root.svelte
+msgid "fjord is not answering."
+msgstr "fjord is not answering."
+
+#: src/ServiceResources.svelte
+msgid "No other network to add — make one on the Networks page."
+msgstr "No other network to add — make one on the Networks page."
+
+#: src/ServiceResources.svelte
+msgid "Mount options: read-only, SELinux label, …"
+msgstr "Mount options: read-only, SELinux label, …"
+
+#: src/ServiceResources.svelte
+msgid "Mount options"
+msgstr "Mount options"
+
+#: src/ServiceResources.svelte
+msgid "Relabel the folder at start so containers may use it (podman's :z)"
+msgstr "Relabel the folder at start so containers may use it (podman's :z)"
+
+#: src/ServiceResources.svelte
+msgid "SELinux will refuse this folder to the container (it is labelled <0/>)."
+msgstr "SELinux will refuse this folder to the container (it is labelled <0/>)."
+
+#: src/ServiceResources.svelte
+msgid "Add :z"
+msgstr "Add :z"
+
+#: src/SetupReady.svelte
+msgid "Apps run in containers, with podman:"
+msgstr "Apps run in containers, with podman:"
+
+#. 0: p.provider; 1: p.domain
+#: src/Settings.svelte
+msgid "Linked to {0}: your apps can get names like radarr.{1}"
+msgstr "Linked to {0}: your apps can get names like radarr.{1}"
+
+#: src/Settings.svelte
+msgid "Unlinked. Names it gave stay on the proxy; fjord no longer changes them."
+msgstr "Unlinked. Names it gave stay on the proxy; fjord no longer changes them."
+
+#. 0: err?.message || err
+#: src/Settings.svelte
+msgid "Could not unlink: {0}"
+msgstr "Could not unlink: {0}"
+
+#. 0: selfName
+#: src/Settings.svelte
+msgid "Proxies now list this fjord as \"fjord on {0}\""
+msgstr "Proxies now list this fjord as \"fjord on {0}\""
+
+#. 0: err?.message || err
+#: src/Settings.svelte
+msgid "Could not rename: {0}"
+msgstr "Could not rename: {0}"
+
+#. 0: engine
+#: src/Settings.svelte
+msgid "Restart for new {0} installs saved"
+msgstr "Restart for new {0} installs saved"
+
+#: src/Settings.svelte
+msgid "Names"
+msgstr "Names"
+
+#: src/Settings.svelte
+msgid "Account"
+msgstr "Account"
+
+#. 0: defaultCatalogName
+#. 0: defaultCatalogName
+#: src/Settings.svelte
+#: src/SetupWizard.svelte
+msgid "<0/> Re-add the {0} catalog"
+msgstr "<0/> Re-add the {0} catalog"
+
+#: src/Settings.svelte
+msgid "Everything else comes from the daemon's environment (<0/> variables — via rc.conf on FreeBSD, the systemd unit on Linux, or the container environment). Host readiness checks live on the <1>System</1> page."
+msgstr "Everything else comes from the daemon's environment (<0/> variables — via rc.conf on FreeBSD, the systemd unit on Linux, or the container environment). Host readiness checks live on the <1>System</1> page."
+
+#. 0.0: $names.domain
+#: src/Settings.svelte
+msgid "like <0>radarr.{0}</0>"
+msgstr "like <0>radarr.{0}</0>"
+
+#~ msgid "<0/>, installed here, gives your apps names<1/>. Nothing to set up here."
+#~ msgstr "<0/>, installed here, gives your apps names<1/>. Nothing to set up here."
+
+#. 0.0: $names.domain
+#: src/Settings.svelte
+msgid ": names like <0>radarr.{0}</0>"
+msgstr ": names like <0>radarr.{0}</0>"
+
+#: src/Settings.svelte
+msgid "Working. Apps get names from the ▾ beside Open, or at install."
+msgstr "Working. Apps get names from the ▾ beside Open, or at install."
+
+#: src/Settings.svelte
+#: src/Settings.svelte
+msgid "Not ready yet; finish its setup on its own page."
+msgstr "Not ready yet; finish its setup on its own page."
+
+#: src/Settings.svelte
+msgid "Linked to <0/><1/>"
+msgstr "Linked to <0/><1/>"
+
+#: src/Settings.svelte
+msgid "Unlink"
+msgstr "Unlink"
+
+#: src/Settings.svelte
+msgid "Linking…"
+msgstr "Linking…"
+
+#: src/Settings.svelte
+msgid "Link"
+msgstr "Link"
+
+#: src/Settings.svelte
+msgid "A reverse proxy gives your apps names and HTTPS, like <0>radarr.apps.lan</0>. Install one from the store and it links by itself. One on another machine: open its Settings, Connected apps, \"Connect a fjord…\", and paste the link here."
+msgstr "A reverse proxy gives your apps names and HTTPS, like <0>radarr.apps.lan</0>. Install one from the store and it links by itself. One on another machine: open its Settings, Connected apps, \"Connect a fjord…\", and paste the link here."
+
+#: src/Settings.svelte
+msgid "Reverse proxy"
+msgstr "Reverse proxy"
+
+#: src/Settings.svelte
+msgid "fjord on"
+msgstr "fjord on"
+
+#: src/Settings.svelte
+msgid "This fjord"
+msgstr "This fjord"
+
+#: src/Settings.svelte
+msgid "How a proxy lists it when more than one fjord is connected. Its id<0/> never changes."
+msgstr "How a proxy lists it when more than one fjord is connected. Its id<0/> never changes."
+
+#: src/Settings.svelte
+msgid "Restart for new installs"
+msgstr "Restart for new installs"
+
+#: src/Settings.svelte
+msgid "What a newly installed app does when it stops, and at boot, per engine: each offers what it can do. The install wizard starts from this under Options, and each stack's own setting is in its page's header."
+msgstr "What a newly installed app does when it stops, and at boot, per engine: each offers what it can do. The install wizard starts from this under Options, and each stack's own setting is in its page's header."
+
+#: src/Shell.svelte
+msgid ""
+"This image has no shell, so there is nothing to open here.\r\n"
+""
+msgstr ""
+"This image has no shell, so there is nothing to open here.\r\n"
+""
+
+#: src/Shell.svelte
+msgid "● podman's service needs a restart"
+msgstr "● podman's service needs a restart"
+
+#: src/Shell.svelte
+msgid "Restart it"
+msgstr "Restart it"
+
+#: src/Shell.svelte
+msgid "or, as root: <0/>"
+msgstr "or, as root: <0/>"
+
+#: src/Shell.svelte
+msgid "podman's API service is older than podman"
+msgstr "podman's API service is older than podman"
+
+#: src/Shell.svelte
+msgid "podman was updated under a service that kept running, and that service cannot open a shell any more. Everything else keeps working. Restarting the service fixes it and leaves the containers alone."
+msgstr "podman was updated under a service that kept running, and that service cannot open a shell any more. Everything else keeps working. Restarting the service fixes it and leaves the containers alone."
+
+#: src/SignIn.svelte
+msgid "The two passwords differ."
+msgstr "The two passwords differ."
+
+#~ msgid "{0} flex items-center justify-center px-4"
+#~ msgstr "{0} flex items-center justify-center px-4"
+
+#: src/SignIn.svelte
+msgid "Set up fjord"
+msgstr "Set up fjord"
+
+#: src/SignIn.svelte
+msgid "Sign in again"
+msgstr "Sign in again"
+
+#: src/SignIn.svelte
+msgid "Sign in to fjord"
+msgstr "Sign in to fjord"
+
+#: src/SignIn.svelte
+msgid "Choose the account that manages this host."
+msgstr "Choose the account that manages this host."
+
+#: src/SignIn.svelte
+msgid "Your session ended. What you had open is kept."
+msgstr "Your session ended. What you had open is kept."
+
+#~ msgid "{0} font-mono uppercase"
+#~ msgstr "{0} font-mono uppercase"
+
+#: src/SignIn.svelte
+msgid "Setup code"
+msgstr "Setup code"
+
+#: src/SignIn.svelte
+msgid "On the host, as root:"
+msgstr "On the host, as root:"
+
+#~ msgid "{0} mb-4"
+#~ msgstr "{0} mb-4"
+
+#~ msgid "{0} mb-1"
+#~ msgstr "{0} mb-1"
+
+#~ msgid "At least 12 characters."
+#~ msgstr "At least 12 characters."
+
+#: src/SignIn.svelte
+msgid "Password again"
+msgstr "Password again"
+
+#: src/SignIn.svelte
+msgid "Setting up…"
+msgstr "Setting up…"
+
+#: src/SignIn.svelte
+msgid "Signing in…"
+msgstr "Signing in…"
+
+#: src/SignIn.svelte
+msgid "Forgot it? On the host, as root: <0/>"
+msgstr "Forgot it? On the host, as root: <0/>"
+
+#. 0: $names.domain
+#. 0: $names.domain
+#: src/TrustMark.svelte
+#: src/TrustMark.svelte
+msgid "This device can't find {0} names yet"
+msgstr "This device can't find {0} names yet"
+
+#. 0: $names.provider
+#. 0: $names.provider
+#: src/TrustMark.svelte
+#: src/TrustMark.svelte
+msgid "This device doesn't trust {0} yet"
+msgstr "This device doesn't trust {0} yet"
+
+#. 0: $names.provider
+#: src/TrustMark.svelte
+msgid "Nothing on your network answers for <0/> yet, so names open direct here, without the proxy. One DNS record in your router fixes that for every device; {0}'s Settings shows it. <1>Add the DNS record</1>"
+msgstr "Nothing on your network answers for <0/> yet, so names open direct here, without the proxy. One DNS record in your router fixes that for every device; {0}'s Settings shows it. <1>Add the DNS record</1>"
+
+#. 0: $names.provider
+#: src/TrustMark.svelte
+msgid "This device doesn't trust {0}'s certificate, so <0/> names open here with a warning, or not at all. Trusting it is one step, once. <1>Set up this device</1>"
+msgstr "This device doesn't trust {0}'s certificate, so <0/> names open here with a warning, or not at all. Trusting it is one step, once. <1>Set up this device</1>"
+
+#: src/AppStore.svelte
+msgid "No catalogs are turned on"
+msgstr "No catalogs are turned on"
+
+#: src/AppStore.svelte
+msgid "Every catalog is switched off, so the store has nothing to show. Turn one on in Settings."
+msgstr "Every catalog is switched off, so the store has nothing to show. Turn one on in Settings."
+
+#: src/AppStore.svelte
+msgid "Open Catalogs settings"
+msgstr "Open Catalogs settings"
+
+#: src/App.svelte
+msgid "Refreshed"
+msgstr "Refreshed"
+
+#: src/Shortcuts.svelte
+#: src/Shortcuts.svelte
+msgid "Keyboard shortcuts"
+msgstr "Keyboard shortcuts"
+
+#: src/Shortcuts.svelte
+msgid "Docs"
+msgstr "Docs"
+
+#: src/Dashboard.svelte
+msgid "Partial"
+msgstr "Partial"
+
+#: src/Dashboard.svelte
+msgid "Checking"
+msgstr "Checking"
+
+#: src/Dashboard.svelte
+msgid "Unknown"
+msgstr "Unknown"
+
+#: src/NamesPrompt.svelte
+msgid "Add name…"
+msgstr "Add name…"
+
+#: src/NamesPrompt.svelte
+msgid "Add names…"
+msgstr "Add names…"
+
+#: src/NamesPrompt.svelte
+msgid "Choose names"
+msgstr "Choose names"
+
+#: src/NamesPrompt.svelte
+msgid "Pick the apps to give a name. Each is reachable at its name on your home network only."
+msgstr "Pick the apps to give a name. Each is reachable at its name on your home network only."
+
+#: src/Account.svelte
+#: src/SignIn.svelte
+msgid "Use it anyway"
+msgstr "Use it anyway"
+
+#. 0: strength(password).why.toLowerCase().replace(/\\\\.$/, '')
+#: src/Account.svelte
+msgid "This password is weak: {0}. Anyone who can open this page could guess it."
+msgstr "This password is weak: {0}. Anyone who can open this page could guess it."
+
+#. 0: strength(password).why.toLowerCase().replace(/\\\\.$/, '')
+#: src/SignIn.svelte
+msgid "This password is weak: {0}. Anyone who can open this page could guess it. Choose another, or use it anyway."
+msgstr "This password is weak: {0}. Anyone who can open this page could guess it. Choose another, or use it anyway."
+
+#. 0: $names.error
+#: src/NamesPrompt.svelte
+msgid "fjord can't reach it right now: {0}. Names you have still work; fjord keeps trying."
+msgstr "fjord can't reach it right now: {0}. Names you have still work; fjord keeps trying."
+
+#: src/Dashboard.svelte
+msgid "Not loaded"
+msgstr "Not loaded"
+
+#: src/App.svelte
+#: src/Dashboard.svelte
+msgid "Loading…"
+msgstr "Loading…"
+
+#: src/Dashboard.svelte
+msgid "Stacks Did Not Load"
+msgstr "Stacks Did Not Load"
+
+#~ msgid "This page could not get the list of stacks: {0}"
+#~ msgstr "This page could not get the list of stacks: {0}"
+
+#: src/Dashboard.svelte
+msgid "Try Again"
+msgstr "Try Again"
+
+#: src/Dashboard.svelte
+msgid "<0/> Loading your stacks…"
+msgstr "<0/> Loading your stacks…"
+
+#: src/App.svelte
+msgid "Stacks did not load."
+msgstr "Stacks did not load."
+
+#. 0: failed
+#: src/Dashboard.svelte
+msgid "This page could not get the list of stacks: fjord answered {0}."
+msgstr "This page could not get the list of stacks: fjord answered {0}."
+
+#: src/Dashboard.svelte
+msgid "This page could not get the list of stacks: fjord did not answer."
+msgstr "This page could not get the list of stacks: fjord did not answer."
+
+#: src/Settings.svelte
+msgid "Nothing to set up here."
+msgstr "Nothing to set up here."
+
+#: src/Settings.svelte
+msgid "<0/>, installed here, gives your apps names<1/>. <2/>"
+msgstr "<0/>, installed here, gives your apps names<1/>. <2/>"
+
+#. 0: list.filter((c) => !c.error && !isProject(c)).length
+#: src/Adopt.svelte
+msgid "Makes {0} containers stacks with the same mounts, network address and name. The running ones restart once. Data stays where it is."
+msgstr "Makes {0} containers stacks with the same mounts, network address and name. The running ones restart once. Data stays where it is."
+
+#: src/Adopt.svelte
+msgid "Adopt All"
+msgstr "Adopt All"
+
+#. 0: list.filter((c) => !c.error && !isProject(c)).length
+#: src/Adopt.svelte
+msgid "Adopt all ({0})"
+msgstr "Adopt all ({0})"
+
+#: src/Adopt.svelte
+msgid "Adopt & Restart"
+msgstr "Adopt & Restart"
+
+#: src/Adopt.svelte
+msgid "Make it a stack fjord manages, running if it was"
+msgstr "Make it a stack fjord manages, running if it was"
+
+#: src/Adopt.svelte
+msgid "<0/>Adopt"
+msgstr "<0/>Adopt"
+
+#: src/Adopt.svelte
+msgid "<0/> restarts once, as a stack with the same mounts, network address and name. Data stays where it is."
+msgstr "<0/> restarts once, as a stack with the same mounts, network address and name. Data stays where it is."
+
+#: src/Adopt.svelte
+msgid "<0/> becomes a stack with the same mounts, network address and name, stopped as it is now. Data stays where it is."
+msgstr "<0/> becomes a stack with the same mounts, network address and name, stopped as it is now. Data stays where it is."
+
+#: src/Dashboard.svelte
+msgid "1 container on this host isn't run by fjord yet."
+msgstr "1 container on this host isn't run by fjord yet."
+
+#. 0: adoptable.length
+#: src/Dashboard.svelte
+msgid "{0} containers on this host aren't run by fjord yet."
+msgstr "{0} containers on this host aren't run by fjord yet."
+
+#: src/Dashboard.svelte
+msgid "Hide until another one turns up"
+msgstr "Hide until another one turns up"
+
+#: src/Dashboard.svelte
+msgid "Adopt…"
+msgstr "Adopt…"
+
+#: src/App.svelte
+#: src/App.svelte
+msgid "Add a stack"
+msgstr "Add a stack"
+
+#: src/App.svelte
+msgid "Install from the store"
+msgstr "Install from the store"
+
+#: src/App.svelte
+msgid "Pick an app; fjord fills in the rest"
+msgstr "Pick an app; fjord fills in the rest"
+
+#: src/App.svelte
+msgid "Take over ones started outside fjord"
+msgstr "Take over ones started outside fjord"
+
+#: src/App.svelte
+msgid "New stack"
+msgstr "New stack"
+
+#: src/App.svelte
+msgid "Write the compose file yourself"
+msgstr "Write the compose file yourself"
+
+#. 0: loadError
+#: src/ChangeVersionModal.svelte
+msgid "Could not load the published versions: {0} <0>Try again</0>"
+msgstr "Could not load the published versions: {0} <0>Try again</0>"
+
+#. 0: r.network
+#: src/ServiceResources.svelte
+msgid "{0} — this stack's own network, made by its compose"
+msgstr "{0} — this stack's own network, made by its compose"

@@ -40,6 +40,9 @@ type Candidate struct {
 	// Dependency: other services in the stack depend on this one -- in
 	// practice its database, where a migration on startup is what bites.
 	Dependency bool
+	// DataMajor: a database whose data is tied to its major (DataTiedToMajor).
+	// A rolling "latest" moving from postgres 17 to 18 is a Major here.
+	DataMajor bool
 }
 
 // Verdict is what auto-update would do with a Candidate, and why.
@@ -63,6 +66,9 @@ func Decide(p Policy, c Candidate, now time.Time) Verdict {
 		return Verdict{false, "notify only"}
 	case c.Pinned:
 		return Verdict{false, "pinned to an exact image"}
+	}
+	if c.DataMajor && (c.Class == Major || c.Class == Unknown) {
+		return Verdict{false, "a new major of this database needs its data upgraded by hand"}
 	}
 	if c.Dependency && c.Class != Rebuild {
 		return Verdict{false, fmt.Sprintf("other services depend on this one, so it only takes rebuilds (this is %s)", article(c.Class))}

@@ -6,6 +6,9 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"runtime"
+	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -22,12 +25,69 @@ type libpodContainer struct {
 	Networks []string          `json:"Networks"`
 	Labels   map[string]string `json:"Labels"`
 	Created  time.Time         `json:"Created"`
-	Ports    []struct {
-		HostPort      int    `json:"host_port"`
-		ContainerPort int    `json:"container_port"`
-		Protocol      string `json:"protocol"`
-	} `json:"Ports"`
+	// StartedAt is when the container last started, in Unix seconds.
+	StartedAt int64       `json:"StartedAt"`
+	Ports     libpodPorts `json:"Ports"`
+	// ExposedPorts is "80": ["tcp"], the image's EXPOSE minus what is published.
+	ExposedPorts map[string][]string `json:"ExposedPorts"`
+	// reported is podman's own address per network, where podman knows it
+	// (podmanReportsAddresses), and reportedMAC the MAC on each.
+	reported    map[string]string
+	reportedMAC map[string]string
 }
+
+// libpodPort is one published port.
+type libpodPort struct {
+	HostPort      int    `json:"host_port"`
+	ContainerPort int    `json:"container_port"`
+	Protocol      string `json:"protocol"`
+}
+
+// libpodPorts holds one entry per port. podman folds consecutive ports into
+// one entry with a range: "3000-3001:3000-3001" is host_port 3000, range 2.
+// Reading host_port alone lost 3001, and a stack's own 3001 then counted as
+// "in use by a process on the host".
+type libpodPorts []libpodPort
+
+func (ps *libpodPorts) UnmarshalJSON(b []byte) error {
+	var raw []struct {
+		libpodPort
+		Range int `json:"range"`
+	}
+	if err := json.Unmarshal(b, &raw); err != nil {
+		return err
+	}
+	out := make(libpodPorts, 0, len(raw))
+	for _, r := range raw {
+		for i := 0; i < max(r.Range, 1); i++ {
+			p := r.libpodPort
+			if p.HostPort > 0 {
+				p.HostPort += i
+			}
+			p.ContainerPort += i
+			out = append(out, p)
+		}
+	}
+	*ps = out
+	return nil
+}
+
+func exposedTCP(c libpodContainer) []int {
+	var out []int
+	for port, protos := range c.ExposedPorts {
+		if n, err := strconv.Atoi(port); err == nil && slices.Contains(protos, "tcp") {
+			out = append(out, n)
+		}
+	}
+	slices.Sort(out)
+	return out
+}
+
+// podmanReportsAddresses: on Linux netavark knows every container's address
+// and podman reports it. On FreeBSD podman cannot parse a third-party CNI
+// plugin's conflist and reports none for an epair network, so the address is
+// read from CNI's own state instead (hostnet).
+var podmanReportsAddresses = runtime.GOOS == "linux"
 
 // Status queries the libpod REST API over the podman unix socket for
 // containers labeled with this stack's podman-compose project. The project
@@ -75,7 +135,63 @@ func (b *Backend) listStackContainers(ctx context.Context, name string) ([]libpo
 	if err := json.NewDecoder(resp.Body).Decode(&containers); err != nil {
 		return nil, fmt.Errorf("decode libpod response: %w", err)
 	}
+	if podmanReportsAddresses && len(containers) > 0 {
+		// The libpod list names a container's networks but not its addresses;
+		// the compat list carries both.
+		if addrs, macs, err := b.reportedAddresses(ctx, q); err == nil {
+			for i := range containers {
+				containers[i].reported = addrs[containers[i].ID]
+				containers[i].reportedMAC = macs[containers[i].ID]
+			}
+		}
+	}
 	return containers, nil
+}
+
+// reportedAddresses is podman's address and MAC for each container on each
+// network, by container ID, from the compat API's list.
+func (b *Backend) reportedAddresses(ctx context.Context, q url.Values) (addrs, macs map[string]map[string]string, err error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://d/v4.0.0/containers/json?"+q.Encode(), nil)
+	if err != nil {
+		return nil, nil, err
+	}
+	resp, err := b.http.Do(req)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, nil, fmt.Errorf("containers/json: unexpected status %s", resp.Status)
+	}
+	var list []struct {
+		ID              string `json:"Id"`
+		NetworkSettings struct {
+			Networks map[string]struct {
+				IPAddress  string `json:"IPAddress"`
+				MacAddress string `json:"MacAddress"`
+			} `json:"Networks"`
+		} `json:"NetworkSettings"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&list); err != nil {
+		return nil, nil, err
+	}
+	addrs, macs = map[string]map[string]string{}, map[string]map[string]string{}
+	put := func(m map[string]map[string]string, id, n, v string) {
+		if v == "" {
+			return
+		}
+		if m[id] == nil {
+			m[id] = map[string]string{}
+		}
+		m[id][n] = v
+	}
+	for _, c := range list {
+		for n, v := range c.NetworkSettings.Networks {
+			put(addrs, c.ID, n, v.IPAddress)
+			put(macs, c.ID, n, v.MacAddress)
+		}
+	}
+	return addrs, macs, nil
 }
 
 // UsedPorts maps "port/proto" -> container name for every container's
@@ -124,6 +240,17 @@ func (b *Backend) UsedPorts(ctx context.Context) (map[string]string, error) {
 	return out, nil
 }
 
+// composeService is the compose service a container runs. Older podman-compose
+// labels it io.podman.compose.service; 1.3.0 (Debian 13) writes only
+// com.docker.compose.service, and reading the first alone left every service
+// whose container_name differs from its name without a container.
+func composeService(labels map[string]string) string {
+	if s := labels["io.podman.compose.service"]; s != "" {
+		return s
+	}
+	return labels["com.docker.compose.service"]
+}
+
 // containerNames extracts the (de-slashed) names from a container list.
 func containerNames(cs []libpodContainer) []string {
 	var names []string
@@ -158,8 +285,8 @@ func aggregateStatus(containers []libpodContainer, health func(libpodContainer) 
 				ports = append(ports, engine.Port{HostPort: p.HostPort, ContainerPort: p.ContainerPort, Protocol: p.Protocol})
 			}
 		}
-		cs := engine.ContainerStatus{Name: name, ID: c.ID, Service: c.Labels["io.podman.compose.service"], State: c.State, Ports: ports,
-			Address: containerAddress(c), Addresses: containerAddresses(c)}
+		cs := engine.ContainerStatus{Name: name, ID: c.ID, Service: composeService(c.Labels), State: c.State, Ports: ports, Exposed: exposedTCP(c),
+			Address: containerAddress(c), Addresses: containerAddresses(c), MACs: c.reportedMAC}
 		if cs.State == "running" {
 			up++
 			if health != nil {
@@ -225,6 +352,10 @@ func containerAddresses(c libpodContainer) map[string]string {
 	out := map[string]string{}
 	needLease := false
 	for _, n := range c.Networks {
+		if addr := c.reported[n]; addr != "" {
+			out[n] = addr
+			continue
+		}
 		if addr := hostnet.AddressOf(n, c.ID); addr != "" {
 			out[n] = addr
 			continue
@@ -247,42 +378,7 @@ func containerAddresses(c libpodContainer) map[string]string {
 				}
 			}
 		}
-		addrs := hostnet.JailAddresses(ctx, c.ID)
-		claimed := map[string]bool{}
-		for _, a := range out {
-			claimed[a] = true
-		}
-		// First by subnet, where the network records one.
-		for _, n := range c.Networks {
-			if _, known := out[n]; known {
-				continue
-			}
-			def, ok := hostnet.Get(n)
-			if !ok || def.Subnet == "" {
-				continue
-			}
-			for _, a := range addrs {
-				if !claimed[a] && hostnet.InSubnet(a, def.Subnet) {
-					out[n], claimed[a] = a, true
-					break
-				}
-			}
-		}
-		// Then by elimination. A DHCP network records no subnet -- the lease
-		// carries it -- so there is nothing to match against; what is left
-		// after every subnet-bearing network has taken its own is its.
-		for _, n := range c.Networks {
-			if _, known := out[n]; known {
-				continue
-			}
-			for _, a := range addrs {
-				if claimed[a] || inAnyOther(a, c.Networks, n) {
-					continue
-				}
-				out[n], claimed[a] = a, true
-				break
-			}
-		}
+		hostnet.MatchAddresses(hostnet.JailAddresses(ctx, c.ID), c.Networks, out, hostnet.DefinedSubnet)
 	}
 	return out
 }
@@ -292,6 +388,9 @@ func containerAddress(c libpodContainer) string {
 		return ""
 	}
 	for _, n := range c.Networks {
+		if addr := c.reported[n]; addr != "" {
+			return addr
+		}
 		if addr := hostnet.AddressOf(n, c.ID); addr != "" {
 			return addr
 		}
@@ -309,14 +408,3 @@ func containerAddress(c libpodContainer) string {
 // inAnyOther reports whether addr belongs to one of the container's OTHER
 // networks by subnet, so elimination never hands a network an address that
 // demonstrably came from a different one.
-func inAnyOther(addr string, networks []string, self string) bool {
-	for _, n := range networks {
-		if n == self {
-			continue
-		}
-		if def, ok := hostnet.Get(n); ok && def.Subnet != "" && hostnet.InSubnet(addr, def.Subnet) {
-			return true
-		}
-	}
-	return false
-}

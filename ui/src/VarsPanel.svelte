@@ -8,6 +8,9 @@
 
   export let text = ''; // the compose or director file
   export let env = ''; // the .env's text
+  // What the engine sets itself (a director file's ${PWD}): resolved, but not
+  // listed -- they are not the .env's to set.
+  export let builtins: Record<string, string> = {};
   // A label clicked in the editor: that variable's field is focused.
   export let focus = '';
 
@@ -17,10 +20,10 @@
   // typing a value into a missing variable must not move the row away from
   // under the cursor. orderFor reads env without the $: seeing it.
   function orderFor(t: string) {
-    return usedVars(t, parseEnv(env)).map((v) => v.name);
+    return usedVars(t, { ...parseEnv(env), ...builtins }).map((v) => v.name).filter((n) => !(n in builtins));
   }
   $: order = orderFor(text);
-  $: current = new Map(usedVars(text, parseEnv(env)).map((v) => [v.name, v]));
+  $: current = new Map(usedVars(text, { ...parseEnv(env), ...builtins }).map((v) => [v.name, v]));
   $: vars = order.map((n) => current.get(n)).filter((v): v is NonNullable<typeof v> => !!v);
   $: missing = vars.filter((v) => v.state === 'unset').length;
   let rows: Record<string, HTMLInputElement> = {};

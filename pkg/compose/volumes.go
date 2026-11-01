@@ -3,6 +3,7 @@ package compose
 import (
 	"bytes"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -66,10 +67,10 @@ func serviceNode(root *yaml.Node, service string) (*yaml.Node, error) {
 }
 
 // AttachVolume mounts an existing named volume into service at containerPath:
-// adds "<name>:<path>[:ro]" to that service's volumes and declares the volume
+// adds "<name>:<path>[:opts]" to that service's volumes and declares the volume
 // external at the top level (fjord volumes are created via the engine, not by
 // compose). Pass FirstService when there is no service to name.
-func AttachVolume(composeYAML, service, volName, containerPath string, readOnly bool) (string, error) {
+func AttachVolume(composeYAML, service, volName, containerPath string, opts []string) (string, error) {
 	if volName == "" || !strings.HasPrefix(containerPath, "/") {
 		return "", fmt.Errorf("volume name and an absolute container path are required")
 	}
@@ -86,10 +87,7 @@ func AttachVolume(composeYAML, service, volName, containerPath string, readOnly 
 		return "", err
 	}
 
-	entry := volName + ":" + containerPath
-	if readOnly {
-		entry += ":ro"
-	}
+	entry := mountEntry(volName, containerPath, opts)
 	svcVols := mapGet(svc, "volumes")
 	if svcVols == nil {
 		svc.Content = append(svc.Content, scalar("volumes"),
@@ -134,9 +132,9 @@ func AttachVolume(composeYAML, service, volName, containerPath string, readOnly 
 }
 
 // AttachBindMount mounts a host path into service at containerPath as
-// a short-form "host:container[:ro]" entry. Unlike AttachVolume it declares no
+// a short-form "host:container[:opts]" entry. Unlike AttachVolume it declares no
 // top-level volume -- a bind references the host path directly.
-func AttachBindMount(composeYAML, service, hostPath, containerPath string, readOnly bool) (string, error) {
+func AttachBindMount(composeYAML, service, hostPath, containerPath string, opts []string) (string, error) {
 	if !strings.HasPrefix(hostPath, "/") || !strings.HasPrefix(containerPath, "/") {
 		return "", fmt.Errorf("both host and container paths must be absolute")
 	}
@@ -165,11 +163,7 @@ func AttachBindMount(composeYAML, service, hostPath, containerPath string, readO
 			return "", fmt.Errorf("%q is already mounted", containerPath)
 		}
 	}
-	entry := hostPath + ":" + containerPath
-	if readOnly {
-		entry += ":ro"
-	}
-	svcVols.Content = append(svcVols.Content, quotedScalar(entry))
+	svcVols.Content = append(svcVols.Content, quotedScalar(mountEntry(hostPath, containerPath, opts)))
 	return encodeRoot(root)
 }
 
@@ -328,11 +322,12 @@ func encodeRoot(root *yaml.Node) (string, error) {
 
 // Mount is one resolved storage mount of a stack, classified for the UI.
 type Mount struct {
-	Source   string `json:"source"` // host path (bind) or volume name
-	Dest     string `json:"dest"`   // container path
-	ReadOnly bool   `json:"readOnly"`
-	Kind     string `json:"kind"` // "bind" | "volume"
-	Service  string `json:"service"`
+	Source   string   `json:"source"` // host path (bind) or volume name
+	Dest     string   `json:"dest"`   // container path
+	ReadOnly bool     `json:"readOnly"`
+	Options  []string `json:"options,omitempty"` // all of them, ro included
+	Kind     string   `json:"kind"`              // "bind" | "volume"
+	Service  string   `json:"service"`
 }
 
 // Mounts lists every service mount, classifying each as a named volume (source
@@ -373,8 +368,9 @@ func Mounts(composeYAML string, env map[string]string) []Mount {
 				m.Kind = "volume"
 				m.Source = parts[0] // referenced by name, not a path
 			}
-			if len(parts) == 3 && strings.Contains(parts[2], "ro") {
-				m.ReadOnly = true
+			if len(parts) == 3 {
+				m.Options = MountOptions(parts[2])
+				m.ReadOnly = slices.Contains(m.Options, "ro")
 			}
 			out = append(out, m)
 		}
@@ -391,8 +387,9 @@ func quotedScalar(v string) *yaml.Node {
 
 // BindMount is one host-path bind mount a service declares.
 type BindMount struct {
-	Source string // absolute host path, ${VAR}s resolved
-	Dest   string
+	Source  string // absolute host path, ${VAR}s resolved
+	Dest    string
+	Options string // what follows the destination ("ro", "z", "ro,Z"), or ""
 }
 
 // BindMounts returns every service's host-path bind mounts (short-form
@@ -427,7 +424,7 @@ func BindMounts(composeYAML string, env map[string]string) []BindMount {
 			if len(parts) < 2 || !strings.HasPrefix(parts[0], "/") {
 				continue // named volume or unresolved -- not a host bind
 			}
-			out = append(out, BindMount{Source: parts[0], Dest: parts[1]})
+			out = append(out, BindMount{Source: parts[0], Dest: parts[1], Options: strings.Join(parts[2:], ":")})
 		}
 	}
 	return out

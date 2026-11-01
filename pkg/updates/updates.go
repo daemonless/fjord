@@ -5,6 +5,7 @@ package updates
 
 import (
 	"context"
+	"regexp"
 	"slices"
 	"strings"
 
@@ -182,13 +183,7 @@ func evalService(ctx context.Context, local LocalImages, sv Service, schemeFor S
 	}
 	// Compare only the digest portion, so repo-name spelling doesn't matter
 	// (bare "postgres:16" vs canonical "docker.io/library/postgres@...").
-	localDigests := make([]string, 0, len(digests))
-	for _, d := range digests {
-		if at := strings.LastIndex(d, "@"); at >= 0 {
-			localDigests = append(localDigests, d[at+1:])
-		}
-	}
-	if hasBytes(ctx, sv.Image, reg, localDigests) {
+	if hasBytes(ctx, sv.Image, reg, localDigestsOf(digests)) {
 		return with("current")
 	}
 	b := with("available")
@@ -202,6 +197,9 @@ func evalService(ctx context.Context, local LocalImages, sv Service, schemeFor S
 // platform is rebuilt, so on its own it flags an arm64-only rebuild as an
 // update on amd64 that pulls nothing new.
 func hasBytes(ctx context.Context, image, reg string, known []string) bool {
+	if len(known) == 0 {
+		return false // nothing to compare: known[0] below panicked (review 4.3)
+	}
 	if slices.Contains(known, reg) {
 		return true
 	}
@@ -220,8 +218,8 @@ func hasBytes(ctx context.Context, image, reg string, known []string) bool {
 }
 
 // newerVersion reports whether the train containing currentTag has a newer
-// pinned version. registry.Trains returns each train newest-first, so a train
-// whose newest tag differs from currentTag is an available upgrade.
+// version to move to. registry.Trains returns each train newest-first; the
+// offer is the newest that is a safe step from currentTag (see offerable).
 func newerVersion(ctx context.Context, repo, currentTag string, schemeFor SchemeFor) (Status, bool) {
 	var sch *registry.Scheme
 	if schemeFor != nil {
@@ -236,19 +234,107 @@ func newerVersion(ctx context.Context, repo, currentTag string, schemeFor Scheme
 			if v.Tag != currentTag {
 				continue
 			}
-			if len(versions) > 0 && versions[0].Tag != currentTag {
-				return Status{
-					State:       "upgrade",
-					Tag:         currentTag,
-					NewTag:      versions[0].Tag,
-					FromVersion: v.Version,
-					ToVersion:   versions[0].Version,
-				}, true
+			for _, n := range versions {
+				if n.Tag == currentTag {
+					return Status{}, false // already the newest it may move to
+				}
+				if offerable(v.Version, n.Version, versions, DataTiedToMajor(repo)) {
+					return Status{
+						State:       "upgrade",
+						Tag:         currentTag,
+						NewTag:      n.Tag,
+						FromVersion: v.Version,
+						ToVersion:   n.Version,
+					}, true
+				}
 			}
-			return Status{}, false // already the newest in its train
+			return Status{}, false
 		}
 	}
 	return Status{}, false
+}
+
+// offerable says whether a stack on version from may be moved to the newer
+// version to. Docker Hub's postgres files "17", "17.6" and "19rc1" in one
+// train; offering its newest moved a stack on 17 to a pre-release two majors
+// on, which will not start on the existing data directory.
+//   - A rolling tag ("17" while "17.6" exists) already follows its line, and
+//     pinning it to a version would stop its updates: no offer at all.
+//   - A pre-release is never offered to a stable version.
+//   - Nor is another flavour: "11.4.2" is not moved to "11.8.9-ubi9".
+//   - A database whose data files are tied to its major (dataMajor) is never
+//     offered one. Anything else moves at most one major: Nextcloud refuses
+//     to skip one. A calendar version ("2024.10" to "2025.1") is just the
+//     next release.
+func offerable(from, to string, train []registry.Version, dataMajor bool) bool {
+	for _, v := range train {
+		if strings.HasPrefix(v.Version, from+".") && !preRelease.MatchString(v.Version) {
+			return false // "2025.1.0.dev..." builds do not make 2025.1.0 rolling
+		}
+	}
+	if preRelease.MatchString(to) && !preRelease.MatchString(from) {
+		return false
+	}
+	if flavour(from) != flavour(to) {
+		return false
+	}
+	fm, tm := major(from), major(to)
+	if fm >= 1000 && tm >= 1000 {
+		return true
+	}
+	if dataMajor {
+		return fm == tm
+	}
+	return tm <= fm+1
+}
+
+// dataMajor names the databases whose data directory belongs to one major:
+// postgres 18 will not start on 17's files, mongo moves one major at a time
+// through its compatibility version, elasticsearch and opensearch need a
+// reindex across two. Matched on the repository's last part, so a fork or
+// a rebuild under another owner ("immich-app/postgres", "cnpg-postgres")
+// counts too.
+var dataMajor = regexp.MustCompile(`^(.*-)?(postgres|postgresql|postgis|timescaledb(-ha)?|pgvector|pgvecto-rs|mongo|mongodb(-.*)?|elasticsearch|opensearch)$`)
+
+// DataTiedToMajor reports whether repo is such a database: fjord never offers
+// it a new major, and auto-update never applies one.
+func DataTiedToMajor(repo string) bool {
+	return dataMajor.MatchString(strings.ToLower(repo[strings.LastIndex(repo, "/")+1:]))
+}
+
+// preRelease matches "19rc1", "18beta2", "2.1-rc1", "1.0.0-alpha.1",
+// "2026.12.0.dev2026...", and Python's "3.16.0a1" / "3.15.0b2".
+var preRelease = regexp.MustCompile(`(?i)[0-9][._-]?(alpha|beta|rc|pre|preview|dev|nightly|snapshot)|[0-9][ab][0-9]`)
+
+// flavour is what follows a version's first dash, numbers and pre-release
+// words aside: "ubi#" for "11.8.9-ubi9", "ls#" for "4.0.10-ls261", "" for
+// "11.4.2" and "2.1-rc1".
+func flavour(v string) string {
+	i := strings.Index(v, "-")
+	if i < 0 {
+		return ""
+	}
+	f := digits.ReplaceAllString(v[i+1:], "#")
+	f = preWord.ReplaceAllString(f, "")
+	return strings.Trim(f, "-.#")
+}
+
+var (
+	digits  = regexp.MustCompile(`[0-9]+`)
+	preWord = regexp.MustCompile(`(?i)(alpha|beta|rc|pre|preview|dev|nightly|snapshot)[.#]*`)
+)
+
+// major is a version's leading number ("v" aside), -1 when it has none.
+func major(v string) int {
+	v = strings.TrimPrefix(strings.TrimPrefix(v, "v"), "V")
+	n, i := 0, 0
+	for ; i < len(v) && v[i] >= '0' && v[i] <= '9'; i++ {
+		n = n*10 + int(v[i]-'0')
+	}
+	if i == 0 {
+		return -1
+	}
+	return n
 }
 
 // isVersionTag reports whether a tag is a pinned version (digit-leading), as
@@ -270,4 +356,19 @@ func imageTag(image string) string {
 		return ref[colon+1:]
 	}
 	return "latest"
+}
+
+// localDigestsOf is the digest part of each local repo digest -- "repo@sha256:..."
+// or a bare "sha256:..." as podman may report one -- so repo-name spelling
+// does not matter (bare "postgres:16" vs "docker.io/library/postgres@...").
+func localDigestsOf(digests []string) []string {
+	out := make([]string, 0, len(digests))
+	for _, d := range digests {
+		if at := strings.LastIndex(d, "@"); at >= 0 {
+			out = append(out, d[at+1:])
+		} else if strings.HasPrefix(d, "sha256:") {
+			out = append(out, d)
+		}
+	}
+	return out
 }

@@ -9,9 +9,16 @@ import (
 )
 
 // SetImageTag rewrites every service's image tag to tag (e.g. "pkg", "1.5.5").
-// A blank tag is a no-op. Used at install time so a catalog app can be deployed
-// on a chosen variant/version instead of the manifest's default.
+// A blank tag is a no-op.
 func SetImageTag(composeYAML, tag string) (string, error) {
+	return SetRepoTag(composeYAML, "", tag)
+}
+
+// SetRepoTag rewrites the tag of the images from repo only, every one when
+// repo is "". An install deploys the app on the variant picked in the wizard;
+// the rest of the stack keeps its own tags -- a database pinned to
+// postgres:17 moved to postgres:latest, a later major its data cannot follow.
+func SetRepoTag(composeYAML, repo, tag string) (string, error) {
 	if tag == "" {
 		return composeYAML, nil
 	}
@@ -32,6 +39,9 @@ func SetImageTag(composeYAML, tag string) (string, error) {
 			continue
 		}
 		if img := mapGet(svc, "image"); img != nil && img.Kind == yaml.ScalarNode {
+			if repo != "" && imageRepo(img.Value) != repo {
+				continue
+			}
 			img.Value = replaceTag(img.Value, tag)
 			img.Style = 0
 		}
@@ -200,6 +210,18 @@ func PinImageDigests(composeYAML string, resolve func(ref string) (string, error
 // replaceTag swaps the tag on an image reference, preserving the registry/repo
 // (and dropping any existing tag or @digest). e.g.
 // "ghcr.io/daemonless/radarr:latest" + "pkg" -> "ghcr.io/daemonless/radarr:pkg".
+// imageRepo is an image reference without its tag and digest.
+func imageRepo(image string) string {
+	ref := image
+	if at := strings.LastIndex(ref, "@"); at >= 0 {
+		ref = ref[:at]
+	}
+	if colon := strings.LastIndex(ref, ":"); colon > strings.LastIndex(ref, "/") {
+		ref = ref[:colon]
+	}
+	return ref
+}
+
 func replaceTag(image, tag string) string {
 	ref := image
 	if at := strings.LastIndex(ref, "@"); at >= 0 {
@@ -257,4 +279,10 @@ func ImageTag(image string) string {
 		return ref[colon+1:]
 	}
 	return ""
+}
+
+// DaemonlessImage reports whether an image reference is one of daemonless's
+// own, by its repository.
+func DaemonlessImage(image string) bool {
+	return strings.HasPrefix(image, "ghcr.io/daemonless/")
 }

@@ -55,6 +55,12 @@ type Attachment struct {
 	// eb_<name> on a virtual network. Showing "eth0" for a jail was simply
 	// wrong -- `ifconfig eth0` there answers "interface eth0 does not exist".
 	Iface string `json:"iface,omitempty"`
+	// Own marks a network the compose declares itself (top-level networks:,
+	// not external): compose makes it when the stack starts, under the
+	// project's name, so it is no network of the host's to pick from. Read,
+	// never written: InjectNetworks leaves a declared network's definition
+	// as it stands.
+	Own bool `json:"own,omitempty"`
 }
 
 // InjectNetwork attaches a stack to a single network. Thin wrapper over
@@ -593,6 +599,7 @@ func AttachedNetworks(composeYAML string) []Attachment {
 	// table cannot represent it, and writing one service's set back would
 	// silently move the others -- so report nothing and leave the compose to
 	// be edited by hand.
+	declared := ownNetworks(root)
 	var names []string
 	var pinned []Attachment
 	first := true
@@ -601,7 +608,7 @@ func AttachedNetworks(composeYAML string) []Attachment {
 		if svc.Kind != yaml.MappingNode || mapGet(svc, "network_mode") != nil {
 			return nil // host/none/container: -- not a named network
 		}
-		atts := serviceAttachments(mapGet(svc, "networks"))
+		atts := markOwn(serviceAttachments(mapGet(svc, "networks")), declared)
 		// A stack attached before per-network pins carries one service-level
 		// mac_address, which podman-compose applies to the first network. Read
 		// it the same way, or it vanishes from the UI and is dropped on save.
@@ -641,7 +648,37 @@ func AttachedNetworks(composeYAML string) []Attachment {
 	if len(out) == 0 {
 		return nil
 	}
+	return markOwn(out, declared)
+}
+
+// ownNetworks names the networks the compose defines itself: a top-level
+// networks: entry that is not external. Compose's "default" is the bridge.
+func ownNetworks(root *yaml.Node) map[string]bool {
+	out := map[string]bool{}
+	nets := mapGet(root, "networks")
+	if nets == nil || nets.Kind != yaml.MappingNode {
+		return out
+	}
+	for i := 0; i+1 < len(nets.Content); i += 2 {
+		name := fjordName(nets.Content[i].Value)
+		if name == Bridge {
+			continue
+		}
+		if v := nets.Content[i+1]; v != nil && v.Kind == yaml.MappingNode {
+			if ext := mapGet(v, "external"); ext != nil && ext.Value != "false" {
+				continue
+			}
+		}
+		out[name] = true
+	}
 	return out
+}
+
+func markOwn(atts []Attachment, declared map[string]bool) []Attachment {
+	for i := range atts {
+		atts[i].Own = declared[atts[i].Network]
+	}
+	return atts
 }
 
 // sameOrder reports whether two network lists are identical, order included:
@@ -929,12 +966,13 @@ func ServiceAttachments(composeYAML string) map[string][]Attachment {
 	if services == nil || services.Kind != yaml.MappingNode {
 		return out
 	}
+	declared := ownNetworks(root)
 	for i := 0; i+1 < len(services.Content); i += 2 {
 		name, svc := services.Content[i].Value, services.Content[i+1]
 		if svc.Kind != yaml.MappingNode {
 			continue
 		}
-		atts := serviceAttachments(mapGet(svc, "networks"))
+		atts := markOwn(serviceAttachments(mapGet(svc, "networks")), declared)
 		for j := range atts {
 			atts[j].Service = name
 		}
@@ -956,6 +994,38 @@ func attachmentsForService(atts []Attachment, service string) []Attachment {
 		}
 	}
 	return out
+}
+
+// SeedPublished notes port as what service publishes once it is off the
+// host's network, when nothing says so yet: a host-networked app has no
+// ports entry (its port is a host port already), so a move to the bridge
+// or a LAN segment had nothing to bring back. Stashed, not published:
+// on the host's network it stays as it ships.
+func SeedPublished(composeYAML, service, port string) (string, error) {
+	var doc yaml.Node
+	if err := yaml.Unmarshal([]byte(composeYAML), &doc); err != nil {
+		return "", fmt.Errorf("parse compose: %w", err)
+	}
+	if len(doc.Content) == 0 || doc.Content[0].Kind != yaml.MappingNode {
+		return "", fmt.Errorf("compose is not a YAML mapping")
+	}
+	services := mapGet(doc.Content[0], "services")
+	if services == nil || services.Kind != yaml.MappingNode {
+		return composeYAML, nil
+	}
+	svc := mapGet(services, service)
+	if svc == nil || svc.Kind != yaml.MappingNode || mapGet(svc, "ports") != nil || mapGet(svc, "x-fjord-published") != nil {
+		return composeYAML, nil
+	}
+	mapSet(svc, "x-fjord-published", &yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq", Content: []*yaml.Node{scalar(port + ":" + port)}})
+	var buf bytes.Buffer
+	enc := yaml.NewEncoder(&buf)
+	enc.SetIndent(2)
+	if err := enc.Encode(doc.Content[0]); err != nil {
+		return "", err
+	}
+	enc.Close()
+	return buf.String(), nil
 }
 
 // SetServiceModes puts named services on a built-in mode, one service at a
@@ -991,12 +1061,20 @@ func SetServiceModes(composeYAML string, modes map[string]string) (string, error
 			continue
 		}
 		// A mode and a network are mutually exclusive; the stash lets a trip
-		// through one come back to what it was on.
+		// through one come back to what it was on. Ports mean nothing on
+		// host or none and are stashed with the networks; bridge is reached
+		// through them, so there they come back (a host-networked app moved
+		// to the bridge used to land with nothing published and answer
+		// nowhere).
 		stashNetworks(svc)
 		mapDelete(svc, "networks")
 		clearMode(svc)
 		if mode != Bridge {
+			stashPorts(svc)
 			mapSet(svc, "network_mode", scalar(mode))
+		} else if p := mapGet(svc, "x-fjord-published"); p != nil && mapGet(svc, "ports") == nil {
+			mapSet(svc, "ports", p)
+			mapDelete(svc, "x-fjord-published")
 		}
 	}
 	var buf bytes.Buffer

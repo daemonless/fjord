@@ -1,11 +1,16 @@
 package main
 
 import (
+	"cmp"
 	"fmt"
+	"os"
+	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
 	composepkg "github.com/daemonless/fjord/pkg/compose"
+	"github.com/daemonless/fjord/pkg/stack"
 
 	"gopkg.in/yaml.v3"
 )
@@ -97,15 +102,50 @@ func setServiceArgument(svc *yaml.Node, name, value string) {
 	args.Content = append(args.Content, entry)
 }
 
-// composeImageTag is the tag a stack's compose asks for, when every service
-// agrees on one. A multi-image stack has no single answer, and its services
-// name their own images anyway.
-func composeImageTag(composeYAML string) string {
+// composeImageTag is the tag a stack's compose asks for the image the
+// Makejail builds from. With one image, its tag; with more (a database a
+// choice added), the one whose repository the Makejail's `from=` names.
+func composeImageTag(composeYAML, makejail string) string {
 	images, err := composepkg.ServiceImages(composeYAML)
-	if err != nil || len(images) != 1 {
+	if err != nil || len(images) == 0 {
 		return ""
 	}
-	return composepkg.ImageTag(images[0])
+	if len(images) == 1 {
+		return composepkg.ImageTag(images[0])
+	}
+	repo := makejailRepo(makejail)
+	if repo == "" {
+		return ""
+	}
+	tag := ""
+	for _, img := range images {
+		if t := composepkg.ImageTag(img); imageRepo(img) == repo && t != "" {
+			if tag != "" && tag != t {
+				return ""
+			}
+			tag = t
+		}
+	}
+	return tag
+}
+
+// makejailRepo is the repository in a Makejail's `OPTION from=<repo>:...`.
+func makejailRepo(makejail string) string {
+	for _, line := range strings.Split(makejail, "\n") {
+		if ref, ok := strings.CutPrefix(strings.TrimSpace(line), "OPTION from="); ok {
+			return imageRepo(strings.TrimSpace(ref))
+		}
+	}
+	return ""
+}
+
+// imageRepo is an image reference without its tag or digest.
+func imageRepo(image string) string {
+	image, _, _ = strings.Cut(image, "@")
+	if t := composepkg.ImageTag(image); t != "" {
+		image = strings.TrimSuffix(image, ":"+t)
+	}
+	return image
 }
 
 // setDirectorModes puts named services on a built-in, in the director.
@@ -283,4 +323,151 @@ func cloneSeq(seq *yaml.Node) *yaml.Node {
 		out.Content = append(out.Content, &c)
 	}
 	return out
+}
+
+// setDirectorImage makes one director service run image. A service naming its
+// own `from:` gets that; one built from the Makejail gets the tag argument its
+// `OPTION from=<repo>:${tag}` reads, digest and all: a tag of
+// 'latest@sha256:...' builds that digest, and director rebuilds only that
+// service (netlab, 2026-10-15). An image of another repository than the
+// Makejail's cannot be said there, so it is refused rather than half-written.
+func setDirectorImage(directorYML, service, image, makejailRepo string) (string, error) {
+	var doc yaml.Node
+	if err := yaml.Unmarshal([]byte(directorYML), &doc); err != nil {
+		return "", fmt.Errorf("parse director: %w", err)
+	}
+	if len(doc.Content) == 0 || doc.Content[0].Kind != yaml.MappingNode {
+		return "", fmt.Errorf("director is not a YAML mapping")
+	}
+	svc := directorService(doc.Content[0], service)
+	if svc == nil {
+		return "", fmt.Errorf("the director has no service %q", service)
+	}
+	if serviceHasOwnImage(svc) {
+		forEachOption(svc, func(key string, val *yaml.Node) {
+			if key == "from" {
+				val.Value, val.Style, val.Tag = image, 0, "!!str"
+			}
+		})
+	} else {
+		if makejailRepo == "" || imageRepo(image) != makejailRepo {
+			return "", fmt.Errorf("%s is built from %s; it cannot run %s", service, cmp.Or(makejailRepo, "its Makejail"), image)
+		}
+		setServiceArgument(svc, "tag", tagRef(image))
+	}
+	var sb strings.Builder
+	enc := yaml.NewEncoder(&sb)
+	enc.SetIndent(2)
+	if err := enc.Encode(doc.Content[0]); err != nil {
+		return "", err
+	}
+	enc.Close()
+	return sb.String(), nil
+}
+
+// tagRef is what follows an image's repository, as the Makejail's ${tag}
+// takes it: "latest", "pkg@sha256:...". A digest with no tag gets latest in
+// front, since the Makejail writes the colon.
+func tagRef(image string) string {
+	ref := strings.TrimPrefix(strings.TrimPrefix(image, imageRepo(image)), ":")
+	if ref == "" || strings.HasPrefix(ref, "@") {
+		ref = "latest" + ref
+	}
+	return ref
+}
+
+// directorFollowsCompose writes the compose's image for each named service
+// (every one when none) into the director, so the version fjord shows and
+// the one the jail runs are the same. A service the director does not have
+// is left alone.
+func directorFollowsCompose(st *stack.Stack, services []string) error {
+	if strings.TrimSpace(st.Director) == "" {
+		return nil
+	}
+	repo := makejailRepoOf(st)
+	var doc yaml.Node
+	if err := yaml.Unmarshal([]byte(st.Director), &doc); err != nil || len(doc.Content) == 0 {
+		return fmt.Errorf("parse director: %v", err)
+	}
+	have := map[string]bool{}
+	for _, n := range directorServiceNames(doc.Content[0]) {
+		have[n] = true
+	}
+	list, err := composepkg.ServiceImageList(st.Compose)
+	if err != nil {
+		return err
+	}
+	env := st.EnvMap()
+	sort.Slice(list, func(i, j int) bool { return list[i].Service < list[j].Service })
+	for _, im := range list {
+		if !have[im.Service] || (len(services) > 0 && !slices.Contains(services, im.Service)) {
+			continue
+		}
+		if st.Director, err = setDirectorImage(st.Director, im.Service, composepkg.ExpandEnv(im.Image, env), repo); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// makejailRepoOf is the repository a director stack's Makejail builds from.
+func makejailRepoOf(st *stack.Stack) string {
+	mj := st.Makejail
+	if mj == "" {
+		b, _ := os.ReadFile(filepath.Join(st.Dir, "Makejail"))
+		mj = string(b)
+	}
+	return makejailRepo(mj)
+}
+
+// directorImage is the image a director service runs: its own from:, or the
+// Makejail's repository at its tag argument (the Makejail's ARG default when
+// it has none). "" when the director has no such service.
+func directorImage(st *stack.Stack, service string) string {
+	var doc yaml.Node
+	if err := yaml.Unmarshal([]byte(st.Director), &doc); err != nil || len(doc.Content) == 0 {
+		return ""
+	}
+	svc := directorService(doc.Content[0], service)
+	if svc == nil {
+		return ""
+	}
+	from := ""
+	forEachOption(svc, func(key string, val *yaml.Node) {
+		if key == "from" {
+			from = val.Value
+		}
+	})
+	if from != "" {
+		return from
+	}
+	repo := makejailRepoOf(st)
+	if repo == "" {
+		return ""
+	}
+	tag := makejailTagDefault(st)
+	if args := mapKey(svc, "arguments"); args != nil && args.Kind == yaml.SequenceNode {
+		for _, item := range args.Content {
+			if item.Kind == yaml.MappingNode && len(item.Content) >= 2 && item.Content[0].Value == "tag" {
+				tag = item.Content[1].Value
+			}
+		}
+	}
+	return repo + ":" + tag
+}
+
+// makejailTagDefault is the Makejail's `ARG tag=<default>`, latest when it
+// gives none.
+func makejailTagDefault(st *stack.Stack) string {
+	mj := st.Makejail
+	if mj == "" {
+		b, _ := os.ReadFile(filepath.Join(st.Dir, "Makejail"))
+		mj = string(b)
+	}
+	for _, line := range strings.Split(mj, "\n") {
+		if def, ok := strings.CutPrefix(strings.TrimSpace(line), "ARG tag="); ok && strings.TrimSpace(def) != "" {
+			return strings.TrimSpace(def)
+		}
+	}
+	return "latest"
 }

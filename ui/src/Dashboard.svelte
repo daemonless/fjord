@@ -1,11 +1,16 @@
 <script lang="ts">
   import { problem } from './stackHealth';
+  import { statusKey } from './staleNote';
   import { onMount, createEventDispatcher } from 'svelte';
   import Icon from './Icon.svelte';
   import EngineMark from './EngineMark.svelte';
   import EmptyState from './EmptyState.svelte';
+  import Spinner from './Spinner.svelte';
   import { expandVars } from './expand';
-  import { appUrl } from './appUrl';
+  import { names, openBy, deviceTrust, openUrl, opensByName, setupUrl } from './names';
+  import TrustMark from './TrustMark.svelte';
+  import { serviceLinks } from './serviceLinks';
+  import { restartShort, restartTitle, type StackRestart } from './restartPolicy';
 
   type ContainerStatus = {
     name: string;
@@ -14,8 +19,11 @@
     address?: string; // the container's own IP on an attachable network
   };
   type StackStatus = { state: string; containers: ContainerStatus[] };
-  type Stack = { name: string; displayName?: string; icon?: string; compose?: string; env?: string; status?: StackStatus; state?: { origin?: { type?: string; app_id?: string }; engine?: string; desired_state?: string } };
+  type Stack = { name: string; displayName?: string; icon?: string; compose?: string; env?: string; services?: { name: string; address?: string }[]; status?: StackStatus; state?: { origin?: { type?: string; app_id?: string }; engine?: string; desired_state?: string }; restart?: StackRestart };
   export let stacks: Stack[] = [];
+  export let loaded = true;
+  // Set when the list did not arrive: 0 = fjord did not answer, else its HTTP status.
+  export let failed: number | null = null;
   // Fleet-wide update state, fetched once by the app shell (server-cached).
   export let fleet: Record<string, any> = {};
   export let fleetRefreshing = false;
@@ -29,15 +37,27 @@
   import { appIcons, loadAppIcons, iconFor, tile } from './appIcons';
   // Resolve a stack's catalog icon: by its stored app_id first (stable), then by
   $: iconOf = (s: Stack) => iconFor($appIcons, s);
-  let info: Record<string, { tag?: string; link?: string }> = {};
+  let info: Record<string, { tag?: string; link?: string; byName?: boolean; more?: string[] }> = {};
 
   const DOT: Record<string, string> = {
     running: 'bg-fjord-success',
     partial: 'bg-fjord-warning',
     stopped: 'bg-fjord-neutral',
-    unknown: 'bg-fjord-danger',
+    checking: 'bg-fjord-neutral animate-pulse', // not known yet is not broken
+    unknown: 'bg-fjord-warning',
   };
-  const label = (s?: StackStatus) => s?.state ?? 'unknown';
+  // The state as a word; inside a function so the catalog carries it.
+  function stateWord(k: string): string {
+    switch (k) {
+      case 'running': return 'Running';
+      case 'stopped': return 'Stopped';
+      case 'partial': return 'Partial';
+      case 'checking': return 'Checking';
+      case 'unknown': return 'Unknown';
+      default: return k;
+    }
+  }
+  const label = (s?: StackStatus) => stateWord(statusKey(s));
   const running = (s?: StackStatus) => s?.state === 'running' || s?.state === 'partial';
 
   $: runningCount = stacks.filter((s) => running(s.status)).length;
@@ -70,12 +90,19 @@
   // The list carries compose + .env, so tags and links come from the data
   // already here -- one request for the whole dashboard, not one per tile.
   $: {
-    const next: Record<string, { tag?: string; link?: string }> = {};
+    const next: Record<string, { tag?: string; link?: string; byName?: boolean; more?: string[] }> = {};
     for (const s of stacks) {
       // Resolve ${VAR:-default} tags (e.g. immich's ${IMMICH_TAG:-latest})
       // before splitting, or the tag reads back as "-latest}".
       const img = expandVars(firstImage(s.compose || ''), envMap(s.env || ''));
-      next[s.name] = { tag: img ? imgTag(img) : '', link: appUrl(s) };
+      // A stack of several apps: the rest are named in the "+N" beside the link.
+      const all = serviceLinks(s.compose || '', envMap(s.env || ''), s.services || [], location.hostname);
+      next[s.name] = {
+        tag: img ? imgTag(img) : '',
+        link: openUrl(s, $names, $openBy, $deviceTrust),
+        byName: opensByName(s, $names, $openBy),
+        more: all.length > 1 ? all.map((l) => `${l.service}  ${l.url.replace(/^https?:\/\//, '')}`) : [],
+      };
     }
     info = next;
   }
@@ -84,15 +111,42 @@
     loadAppIcons();
   });
 
+  // Containers on this host that Adopt could take over, asked once the list
+  // is in (the list comes first). Hidden is per browser and by name: a new
+  // container brings the line back.
+  const HIDDEN = 'fjord.adoptHidden';
+  let adoptable: string[] = [];
+  let hidden: string[] = [];
+  let askedAdoptable = false;
+  try {
+    hidden = JSON.parse(localStorage.getItem(HIDDEN) || '[]');
+  } catch {}
+  $: if (loaded && stacks.length && !askedAdoptable) {
+    askedAdoptable = true;
+    fetch('/api/adopt/names')
+      .then((r) => (r.ok ? r.json() : { names: [] }))
+      .then((j) => (adoptable = j.names || []))
+      .catch(() => {});
+  }
+  $: unseen = adoptable.filter((n) => !hidden.includes(n));
+  function hideAdoptable() {
+    hidden = adoptable;
+    try {
+      localStorage.setItem(HIDDEN, JSON.stringify(adoptable));
+    } catch {}
+  }
+
   const act = (name: string, action: string) => dispatch('action', { name, action });
 </script>
 
 <div class="h-full flex flex-col">
-  <div class="flex items-center justify-between mb-4 shrink-0">
+  <div class="flex items-center justify-between mb-4 shrink-0 flex-wrap gap-2">
     <div>
       <h2 class="text-2xl font-bold text-fjord-fg">Stacks</h2>
       <div class="text-sm text-fjord-fg-dim">
-        {#if !stacks.length}
+        {#if !loaded}
+          {failed !== null ? 'Not loaded' : 'Loading…'}
+        {:else if !stacks.length}
           No stacks yet
         {:else if problems.length}
           <span class="text-fjord-danger font-medium">{problems[0].s.displayName || problems[0].s.name} {problems[0].p}</span>
@@ -105,7 +159,7 @@
           · <span class="text-fjord-warning">{updateCount} update{updateCount === 1 ? '' : 's'} available</span>{/if}
       </div>
     </div>
-    <div class="flex items-center gap-2">
+    <div class="flex items-center gap-2 flex-wrap">
       <button
         on:click={() => dispatch('adopt')}
         title="Turn containers started outside fjord into stacks"
@@ -121,7 +175,19 @@
   </div>
 
   <div class="flex-1 overflow-y-auto">
-    {#if stacks.length === 0}
+    {#if !loaded && failed !== null}
+      <EmptyState
+        icon="alert"
+        title="Stacks Did Not Load"
+        description={failed ? `This page could not get the list of stacks: fjord answered ${failed}.` : 'This page could not get the list of stacks: fjord did not answer.'}
+        actionLabel="Try Again"
+        on:action={() => dispatch('retry')}
+      />
+    {:else if !loaded}
+      <div class="h-full flex items-center justify-center gap-2 text-sm text-fjord-fg-dim">
+        <Spinner size={16} /> Loading your stacks…
+      </div>
+    {:else if stacks.length === 0}
       <EmptyState
         icon="stack"
         title="No Stacks"
@@ -132,6 +198,21 @@
         on:secondary={() => dispatch('adopt')}
       />
     {:else}
+      {#if unseen.length}
+        <div class="flex items-center gap-3 mb-3 px-4 py-2.5 rounded-xl border border-fjord-border bg-fjord-card text-sm text-fjord-fg-secondary">
+          <Icon name="download" size={14} />
+          <span class="flex-1 min-w-0"
+            >{#if adoptable.length === 1}1 container on this host isn't run by fjord yet.{:else}{adoptable.length} containers on this host aren't run by fjord yet.{/if}</span
+          >
+          <button on:click={() => dispatch('adopt')} class="text-fjord-accent hover:underline font-medium shrink-0">Adopt…</button>
+          <button
+            on:click={hideAdoptable}
+            title="Hide until another one turns up"
+            aria-label="Hide"
+            class="p-1 rounded text-fjord-fg-dim hover:text-fjord-fg hover:bg-fjord-border shrink-0"><Icon name="close" size={12} /></button
+          >
+        </div>
+      {/if}
       <div class="border border-fjord-border rounded-xl overflow-hidden divide-y divide-fjord-border bg-fjord-card">
         {#each stacks as s (s.name)}
           {@const u = fleet[s.name]}
@@ -170,6 +251,12 @@
               <span class="w-2 h-2 rounded-full {DOT[label(s.status)]}"></span>
               <span class="capitalize">{label(s.status)}</span>
             </div>
+            <!-- restart policy, as the stack page's chip says it -->
+            <div class="flex items-center gap-1 text-xs text-fjord-fg-dim w-36 shrink-0 truncate" title={restartTitle(s.restart)}>
+              {#if s.restart}<Icon name={s.restart.onExit || !s.restart.policies.length ? 'restart' : 'power'} size={11} /><span class="truncate"
+                  >{restartShort(s.restart)}</span
+                >{/if}
+            </div>
             <!-- update badge -->
             <div class="w-32 shrink-0 text-center">
               {#if !u && fleetRefreshing}
@@ -199,9 +286,20 @@
                 >
               {/if}
             </div>
-            <!-- open link -->
-            <div class="w-40 shrink-0">
-              {#if info[s.name]?.link}
+            <!-- open link: the name once the app has one; the provider's own
+                 row says Finish setup until it is ready -->
+            <!-- Wide enough for a name like spike-web.apps.lan with its shield. -->
+            <div class="w-52 shrink-0 flex items-center gap-1.5">
+              {#if s.name === $names.provider && !$names.ready && $names.setupToken}
+                <a
+                  href={setupUrl($names, stacks)}
+                  target="_blank"
+                  rel="noreferrer"
+                  on:click|stopPropagation
+                  class="text-xs font-semibold px-2.5 py-1 rounded-lg bg-fjord-accent text-white hover:bg-fjord-accent-hover">Finish setup</a
+                >
+              {:else if info[s.name]?.link}
+                {#if info[s.name]?.byName}<TrustMark {stacks} />{/if}
                 <a
                   href={info[s.name].link}
                   target="_blank"
@@ -213,6 +311,11 @@
                   ><span class="truncate">{(info[s.name]?.link || '').replace(/^https?:\/\//, '')}</span>
                   <Icon name="external" size={11} /></a
                 >
+                {#if info[s.name]?.more?.length}
+                  <span class="text-[11px] text-fjord-fg-muted" title={info[s.name].more?.join('\n')}
+                    >+{(info[s.name].more?.length ?? 1) - 1} more apps</span
+                  >
+                {/if}
               {/if}
             </div>
             <!-- actions -->

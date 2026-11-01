@@ -27,6 +27,9 @@ import (
 // option instead of leaking the runtime's raw response.
 var ErrInUse = errors.New("resource in use")
 
+// ErrNotSupported: the engine cannot do this on this host.
+var ErrNotSupported = errors.New("not supported on this host")
+
 // Port is one published port mapping of a running container.
 type Port struct {
 	HostPort      int    `json:"hostPort"`
@@ -47,6 +50,9 @@ type ContainerStatus struct {
 	Service string `json:"service,omitempty"`
 	State   string `json:"state"` // running | stopped | starting | crashed | ...
 	Ports   []Port `json:"ports,omitempty"`
+	// Exposed is the TCP ports the image declares and nothing publishes: the
+	// only port there is for an app on its own address that maps none.
+	Exposed []int `json:"exposed,omitempty"`
 	// Detail explains a non-running state in one line (e.g. "crash-looping:
 	// see Logs") -- shown as a hint, never parsed.
 	Detail string `json:"detail,omitempty"`
@@ -56,6 +62,10 @@ type ContainerStatus struct {
 	// segment over the LAN, so the link offered to open the app pointed at an
 	// address no browser can reach.
 	Addresses map[string]string `json:"addresses,omitempty"`
+	// MACs is the container's MAC on each network, where the engine reports
+	// it (podman on Linux). keepAddresses pins it on a DHCP network so the
+	// lease follows the container across recreates.
+	MACs map[string]string `json:"macs,omitempty"`
 	// Address is the container's own IP on an attachable network, when it has
 	// one. Reported by the backend because the compose records an address only
 	// when the user pinned it: an auto-assigned one exists solely at runtime.
@@ -204,7 +214,10 @@ type NetworkKind struct {
 	// instead of a range podman's IPAM allocates from. When available it is
 	// the better
 	// default: one allocator instead of two on the same wire.
-	SupportsDHCP        bool `json:"supportsDhcp,omitempty"`
+	SupportsDHCP bool `json:"supportsDhcp,omitempty"`
+	// NoStatic: this kind cannot make a network where nothing hands out
+	// addresses and every stack brings its own (Linux macvlan, for now).
+	NoStatic            bool `json:"noStatic,omitempty"`
 	SupportsMTU         bool `json:"supportsMtu,omitempty"`
 	SupportsRange       bool `json:"supportsRange,omitempty"`
 	SupportsDescription bool `json:"supportsDescription,omitempty"`
@@ -300,6 +313,9 @@ type NetworkParent struct {
 // Apply uses it so a Save's changes land even when podman-compose would
 // quietly keep the old container.
 type Recreator interface {
+	// Recreate replaces services' containers, brings up the rest of the
+	// stack without replacing it, and watches the replaced ones stay up --
+	// last, so an action taken meanwhile can end the watch.
 	Recreate(ctx context.Context, s *stack.Stack, services []string) (io.ReadCloser, error)
 }
 
@@ -372,6 +388,9 @@ type Descriptor struct {
 	Name        string
 	Description string
 	Package     string // OS package that provides it (for host-mode install)
+	// OS is the GOOS the engine runs on, "" for any. An engine for another
+	// OS is not listed at all, rather than offered with an Install button.
+	OS string
 	// Available reports whether the engine can run here: ok, a reason when it
 	// can't, and a non-fatal warning when it can but with caveats (e.g. an old
 	// version). ok=false with reason means unavailable; ok=true with warning
@@ -387,14 +406,22 @@ type Descriptor struct {
 // is possible. Project names a runtime-side grouping made outside fjord (a
 // director project), so the handler can tell fjord's own jails apart.
 type Unmanaged struct {
-	ID          string     `json:"id"`
-	Name        string     `json:"name"`
-	Image       string     `json:"image"`
-	State       string     `json:"state"`
-	Project     string     `json:"project,omitempty"`
-	RunArgs     []string   `json:"-"`
-	Spec        *AdoptSpec `json:"-"`
-	Unadoptable string     `json:"-"`
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+	Image   string `json:"image"`
+	State   string `json:"state"`
+	Project string `json:"project,omitempty"`
+	// A compose project started outside fjord (podman-compose by hand, a
+	// systemd unit): imported whole, from its own compose file, rather than
+	// adopted container by container. Services lists its containers' services;
+	// Unit names the systemd unit that runs it, when one does.
+	ComposeFiles []string   `json:"composeFiles,omitempty"`
+	WorkDir      string     `json:"workDir,omitempty"`
+	Services     []string   `json:"services,omitempty"`
+	Unit         string     `json:"unit,omitempty"`
+	RunArgs      []string   `json:"-"`
+	Spec         *AdoptSpec `json:"-"`
+	Unadoptable  string     `json:"-"`
 }
 
 // AdoptSpec is the stack an unmanaged container becomes: a compose file and
@@ -455,13 +482,10 @@ type Capabilities struct {
 	// RemoteVolumes: the engine can mount nfs:// / smb:// folders as named
 	// volumes (and store SMB credentials for them).
 	RemoteVolumes bool `json:"remoteVolumes"`
-	// NetworkKinds are the networks this engine can create. Empty means
-	// CreateNetwork/RemoveNetwork are unsupported and the UI offers neither.
-	NetworkKinds []NetworkKind `json:"networkKinds,omitempty"`
 	// NetworkRemove: this engine can delete a network. False where networks
 	// are defined elsewhere -- offering Delete would only ever error.
 	NetworkRemove bool `json:"networkRemove"`
-	// NetworkNote says why NetworkKinds is empty, so the UI can explain the
+	// NetworkNote says why NetworkKinds() is empty, so the UI can explain the
 	// absence instead of silently hiding a button. Empty when creating works.
 	NetworkNote string `json:"networkNote,omitempty"`
 	// UpdateServices: Update can pull and recreate a subset of a stack's
@@ -474,6 +498,18 @@ type Capabilities struct {
 	// pin written there takes effect -- an image digest (rollback, a
 	// service's own version) or an address.
 	PinServices bool `json:"pinServices"`
+	// KeepsAddresses: a rebuilt service gets the address it had without fjord
+	// pinning it. AppJail's epairs keep their names, so their generated MACs
+	// and DHCP leases, and its virtualnet keeps a jail's reservation; podman's
+	// host-local hands out the next address and its epairs are numbered.
+	KeepsAddresses bool `json:"keepsAddresses"`
+	// RestartPolicies are the restart policies a stack on this engine can
+	// take, as compose spells them (unless-stopped, always, on-failure, no);
+	// none means fjord sets none. RestartOnExit: the engine itself restarts a
+	// service that exits, from the compose's `restart:`. Without it a policy
+	// only decides what fjord starts at boot, and lives in the stack's state.
+	RestartPolicies []string `json:"restartPolicies,omitempty"`
+	RestartOnExit   bool     `json:"restartOnExit,omitempty"`
 }
 
 // PruneReport summarizes a prune run: a human total and the raw command output.
@@ -484,6 +520,38 @@ type PruneReport struct {
 
 // Backend defines the execution engine interface.
 // By coding to this interface, FJORD can easily swap out Podman for Docker or AppJail later.
+// InstallWatcher is an engine that can bring a fresh install up and watch
+// its services stay up, as after an update; install uses it when there.
+type InstallWatcher interface {
+	UpWatched(ctx context.Context, s *stack.Stack) (io.ReadCloser, error)
+}
+
+// A health watch -- the check that containers stay up after an update or an
+// install -- is the last thing such an operation does, and nothing needs it to
+// finish: an action taken meanwhile ends it, as Ctrl-C would on a terminal.
+type watchHookKey struct{}
+
+// WithWatchHook puts on ctx what to call when a watch starts, given the
+// function that ends that watch early.
+func WithWatchHook(ctx context.Context, hook func(stop func())) context.Context {
+	return context.WithValue(ctx, watchHookKey{}, hook)
+}
+
+// WatchStarted tells ctx's hook, if it has one, that a watch began.
+func WatchStarted(ctx context.Context, stop func()) {
+	if hook, ok := ctx.Value(watchHookKey{}).(func(stop func())); ok {
+		hook(stop)
+	}
+}
+
+// WatchEndedLine is what a watch ended early prints. Not an [error]: the
+// operation worked, and the check was stopped by whoever took over.
+const WatchEndedLine = "[fjord] stopped checking: another action took over"
+
+// WatchStartPrefix starts the line a watch prints as it begins. Pages read it
+// as "only the check is left", so actions come back: a contract, like [error].
+const WatchStartPrefix = "[fjord] checking "
+
 type Backend interface {
 	// Up spins up a stack and returns an io.ReadCloser streaming the terminal output.
 	Up(ctx context.Context, s *stack.Stack) (io.ReadCloser, error)
@@ -506,8 +574,13 @@ type Backend interface {
 	Status(ctx context.Context, s *stack.Stack) (StackStatus, error)
 	// Networks lists container networks a stack can attach to for its own IP.
 	Networks(ctx context.Context) ([]Network, error)
+	// NetworkKinds are the networks this engine can create. Empty means
+	// CreateNetwork/RemoveNetwork are unsupported and the UI offers neither.
+	// Not part of Capabilities: answering inspects the host's interfaces,
+	// which the many callers that want a flag should not pay for.
+	NetworkKinds() []NetworkKind
 	// CreateNetwork creates a network per spec. Supported only for the kinds
-	// in Capabilities().NetworkKinds.
+	// in NetworkKinds.
 	CreateNetwork(ctx context.Context, spec NetworkSpec) (Network, error)
 	// RemoveNetwork deletes a network. It returns ErrInUse when containers are
 	// still attached, unless force is set -- deleting a network out from under

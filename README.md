@@ -9,46 +9,34 @@ FreeBSD OCI containers a first-class experience, but engine-neutral by
 design: the same compose runs on **podman** or **AppJail**, and the catalog
 format carries nothing vendor-specific.
 
-> **Tech preview — no authentication.** Anyone who can reach the port can
-> run containers as root on the host. Keep it on a trusted LAN, or bind it
-> to loopback (`FJORD_LISTEN=127.0.0.1:3567`) and reach it over SSH.
+> **fjord is root on its host.** Whoever signs in can run anything there.
+> It speaks plain HTTP, so the password crosses your network unencrypted:
+> keep it on a trusted LAN, or put a reverse proxy with HTTPS in front.
+> Never forward port 3567 to the internet.
 
-## What's new in 0.3
+## What's new in 0.4
 
-- **Updates you can see into and undo.** The Update panel lists what each
-  service would get, in plain words ("New build of the same version —
-  3 packages changed"), and lets you tick which ones to update, version bumps
-  included. After an update fjord watches the new container and marks the
-  update failed if it crash-loops; **Roll back** returns to the previous image.
-  A version with no build for this host is refused before it is pulled.
-- **Networks that work.** A service gets an address of its own on your LAN,
-  by DHCP, from a pool or typed in; it keeps that address through updates,
-  restarts and reboots, and an address another stack has is refused. Each
-  service picks its **Type**: networks, host or none. **New Network** asks the
-  wire what subnet it is and refuses one that is not on it.
-- **Setup gets a host ready.** One screen, one thing at a time: an Install
-  button for what fjord can do itself, the exact commands for what it leaves
-  to you. **Adopt** takes over containers and jails you started by hand.
-- **Nothing lies.** Apply confirms the containers were really recreated; a
-  failed install or update stays on the stack page with its reason; a busy
-  stack says so. The lesson of this release: judge by the outcome, not the
-  exit code.
-- **Delete says what it removes.** App data is kept unless you tick it, and
-  **System → Left-over app data** finds folders earlier deletes left behind.
-- The compose tab explains its `${VAR}`s; stack list filters; a one-line
-  health summary; upgrades of fjord itself can be undone
-  (`/var/db/fjord/backups/`).
-
-Not in 0.3, said plainly: no authentication (0.4); AppJail stacks update as a
-whole, without rollback (0.3.5); private networks are not isolated from other
-stacks on the host (0.3.6); no Linux hosts. The full list is in
-[CHANGELOG.md](CHANGELOG.md).
+- **Linux.** fjord runs on Fedora and Debian (and Ubuntu) with rootful
+  podman. Each release has a .deb and an .rpm that start fjord and say where
+  to open it; LAN networks work there too, and Setup checks the firewall
+  and SELinux.
+- **Sign in.** fjord has an account. The first visit asks for a setup code
+  printed on the host; `fjordd passwd` resets the password.
+- **Names and HTTPS for your apps.** With the reverse proxy from the store,
+  apps get names like `radarr.apps.lan` over HTTPS, given from the page.
+  A second fjord joins the same proxy by pasting one link.
+- **A Linux app store.** 183 apps, each installed and checked on Linux
+  before it is offered.
+- **AppJail:** roll back, pin or change one service's version.
+- Apply recreates only what changed; a restart policy per stack; the
+  sidebar is a drawer on phones. The full list is in
+  [CHANGELOG.md](CHANGELOG.md).
 
 ## Install a release (FreeBSD host)
 
 ```sh
 pkg install podman sysutils/podman-compose conmon ocijail
-V=0.3.0   # or a pre-release: https://github.com/daemonless/fjord/releases
+V=0.4.0   # or a pre-release: https://github.com/daemonless/fjord/releases
 fetch -o /usr/local/sbin/fjordd https://github.com/daemonless/fjord/releases/download/v$V/fjordd-freebsd-$(uname -m)
 fetch -o /usr/local/etc/rc.d/fjordd https://github.com/daemonless/fjord/releases/download/v$V/fjordd.rc
 chmod 755 /usr/local/sbin/fjordd /usr/local/etc/rc.d/fjordd
@@ -56,6 +44,10 @@ sysrc fjordd_enable=YES podman_service_enable=YES
 service podman_service start
 service fjordd start
 ```
+
+Then open `http://<host>:3567` and set up the account with the setup code
+fjord made on the host ([Signing in](#signing-in)):
+`cat /var/db/fjord/setup-code`.
 
 LAN networks (a container with its own address) need the
 [cni-epair](https://github.com/daemonless/cni-epair) plugin; the **System**
@@ -65,6 +57,63 @@ AppJail stacks need appjail 5.5 or newer, and containers finding each other
 by name needs `cni-dnsname`. Until the 2026Q4 quarterly packages are built,
 both come from the `latest` package set
 (`/usr/local/etc/pkg/repos/FreeBSD.conf`: `url: "pkg+https://pkg.FreeBSD.org/${ABI}/latest"`).
+
+## Install a release (Linux host)
+
+fjord runs on Linux with rootful podman (Fedora, Debian, Ubuntu). Each
+release has a package for both, which pulls in podman and podman-compose,
+starts podman's API socket and fjord, and says where to open it:
+
+```sh
+V=0.4.0 A=$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
+# Fedora
+dnf install -y https://github.com/daemonless/fjord/releases/download/v$V/fjord-$V-linux-$A.rpm
+# Debian/Ubuntu
+curl -fsSLO https://github.com/daemonless/fjord/releases/download/v$V/fjord-$V-linux-$A.deb && apt install -y ./fjord-$V-linux-$A.deb
+```
+
+Updating is the same command with the new version: fjord restarts and the
+apps keep running. Removing the package keeps `/var/db/fjord` (your apps
+and their data). A package installed over the installer's copy below moves
+that copy aside (`*.install-linux`).
+
+Or the installer, which checks podman, installs `fjordd` and its systemd
+unit in /usr/local, and starts podman's API socket and fjord:
+
+```sh
+# Fedora: dnf install -y podman podman-compose   Debian/Ubuntu: apt install -y podman podman-compose
+curl -fsSL https://github.com/daemonless/fjord/releases/latest/download/install-linux.sh | sudo sh
+```
+
+Or by hand:
+
+```sh
+V=0.4.0
+curl -fsSLo /usr/local/sbin/fjordd https://github.com/daemonless/fjord/releases/download/v$V/fjordd-linux-$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
+curl -fsSLo /etc/systemd/system/fjordd.service https://github.com/daemonless/fjord/releases/download/v$V/fjordd.service
+chmod 755 /usr/local/sbin/fjordd
+systemctl daemon-reload
+systemctl enable --now podman.socket fjordd
+```
+
+On Linux:
+- Set up the account with the code fjord made on the host:
+  `sudo cat /var/db/fjord/setup-code` ([Signing in](#signing-in)). Keep
+  port 3567 on your LAN; never forward it to the internet.
+- A host firewall (firewalld on Fedora Server, ufw) blocks the page from the
+  LAN until port 3567 is let in; the **System** page says how. Apps'
+  published ports need nothing: podman opens those.
+- With SELinux enforcing, fjord labels the folders it makes for an app (App
+  data) for containers. A folder of your own (a media library) needs `:z` on
+  the mount, or `chcon -R -t container_file_t <dir>`; fjord says which.
+- LAN networks (a container with its own address) are macvlan on a host
+  interface. DHCP on them needs netavark's proxy:
+  `systemctl enable --now netavark-dhcp-proxy.socket`. The DHCP server sees
+  each container by its own id, so a recreated app keeps its address only
+  through a reservation for the MAC fjord pins -- or use a range network,
+  where fjord pins the address itself.
+- The App Store shows apps for Linux (the linuxserver.io catalog); FreeBSD
+  images are left out.
 
 ## Build from source (FreeBSD host)
 
@@ -87,7 +136,8 @@ service podman_service start
 service fjordd start
 ```
 
-Open `http://<host>:3567`. The **System** page runs host-readiness checks
+Open `http://<host>:3567` and set up the account with the code in
+`/var/db/fjord/setup-code`. The **System** page runs host-readiness checks
 (missing tools, dead podman socket, pf rules) with copyable fixes — start
 there if anything misbehaves.
 
@@ -100,6 +150,30 @@ there if anything misbehaves.
 - **Automated Host Diagnostics** — Built-in pre-flight checks inspect the Libpod API socket, Packet Filter redirection anchors (`cni-rdr` / `appjail-nat`), container init tools, and port conflicts before deployment.
 - **Structured Storage & Folder Sets** — Clean architectural separation between internal application state and persistent user data pools (local ZFS datasets, NFS exports, or SMB shares) mapped with reusable Folder Sets.
 - **Single Self-Contained Binary** — Written in Go with an embedded Svelte SPA frontend. Zero background Python runtimes, Node daemons, or database dependencies.
+
+## Signing in
+
+fjord has one account: a user name and a password.
+
+- **First run.** A fresh fjord has no account. It writes a setup code to
+  `/var/db/fjord/setup-code` (readable by root only) and the page asks for
+  it, so only someone with root on the host can claim fjord. Or create the
+  account before the first start, and there is no setup page:
+  `fjordd passwd` (or `echo "$PW" | fjordd passwd --password-stdin` from a
+  playbook).
+- **Forgot the password?** On the host, as root: `fjordd passwd`. It also
+  signs every browser out. If fjordd keeps its stacks somewhere other than
+  `/var/db/fjord/stacks`, add `--stacks-dir <that dir>`.
+- **Sessions** last 30 days from last use and survive restarts and upgrades.
+  **Settings → Account** lists where you are signed in, signs a browser out,
+  and changes the user name and password.
+- **No HTTPS yet.** fjord speaks plain HTTP. For HTTPS, put a reverse proxy
+  in front; tell fjord its address with `FJORD_TRUSTED_PROXY` so sign-ins
+  are recorded from the real address and cookies are marked Secure.
+- **A login of your own in front** (authelia, authentik, a Tailscale-only
+  proxy): `FJORD_AUTH=none` turns fjord's sign-in off, but only when
+  nothing else can reach it -- fjordd listens on loopback only, or
+  `FJORD_TRUSTED_PROXY` names the proxy and everything else is refused.
 
 ## Configuration
 
@@ -114,6 +188,9 @@ Environment variables (via `fjordd_env` in rc.conf):
 | `FJORD_ENGINE` | `podman` | default engine for new installs until one is set in Settings |
 | `FJORD_PODMAN_SOCKET` | `/var/run/podman/podman.sock` | libpod API socket |
 | `FJORD_HOST_ADDR` | `127.0.0.1` | address probed for host port conflicts |
+| `FJORD_ALLOWED_HOSTS` | *(unset)* | more names fjord answers to, comma-separated (a reverse proxy's) |
+| `FJORD_TRUSTED_PROXY` | *(unset)* | reverse proxy addresses or ranges, comma-separated: their `X-Forwarded-For` / `X-Forwarded-Proto` are believed |
+| `FJORD_AUTH` | `password` | `none` turns sign-in off; refused unless `FJORD_LISTEN` is loopback or `FJORD_TRUSTED_PROXY` is set |
 
 Everything else — App data locations, folder sets, catalogs, engines,
 plugins — lives in Settings and is persisted in `<fjord root>/settings.json`.
@@ -130,6 +207,10 @@ plugins — lives in Settings and is persisted in `<fjord root>/settings.json`.
   x-fjord:
     web_port: "8080"
   ```
+- An app that gives the other apps names (`radarr.apps.lan`), such as the
+  daemonless reverse proxy, declares `x-fjord.provides.names` in its
+  catalog manifest; fjord pairs with it at install. The contract any such
+  app serves is in [docs/names-provider.md](docs/names-provider.md).
 - FreeBSD's built-in SMB client speaks SMB1 only, which most servers refuse:
   `smb://` folders and volumes work from Linux hosts; use NFS on FreeBSD.
 - On AppJail a jail can sit on a LAN network with its own address (DHCP or

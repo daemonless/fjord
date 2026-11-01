@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"os/exec"
+	"strings"
 
 	"github.com/daemonless/fjord/pkg/engine"
 )
@@ -16,7 +17,7 @@ import (
 // for each (.Config.CreateCommand). On FreeBSD inspect reports no IP or
 // MAC for a macvlan container, so that run line is the only faithful
 // source of its network address. Storage-only records are skipped.
-func (b *Backend) UnmanagedContainers(ctx context.Context) ([]engine.Unmanaged, error) {
+func (b *Backend) UnmanagedContainers(ctx context.Context, skip func(name, project string) bool) ([]engine.Unmanaged, error) {
 	q := url.Values{}
 	q.Set("all", "true")
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://d/v4.0.0/libpod/containers/json?"+q.Encode(), nil)
@@ -42,8 +43,40 @@ func (b *Backend) UnmanagedContainers(ctx context.Context) ([]engine.Unmanaged, 
 		return nil, fmt.Errorf("decode containers: %w", err)
 	}
 	var out []engine.Unmanaged
+	projects := map[string]*engine.Unmanaged{}
+	var order []string
 	for _, c := range list {
-		if c.Labels["io.podman.compose.project"] != "" || c.Labels["com.docker.compose.project"] != "" || len(c.Names) == 0 {
+		if p := c.Labels["io.podman.compose.project"]; p != "" || c.Labels["com.docker.compose.project"] != "" {
+			// One candidate per compose project, imported from its own file.
+			// Skipped one by one, Plex (podman-compose under systemd) was
+			// simply missing from the list.
+			if p == "" {
+				p = c.Labels["com.docker.compose.project"]
+			}
+			if skip(p, p) {
+				continue
+			}
+			u := projects[p]
+			if u == nil {
+				u = &engine.Unmanaged{ID: "project:" + p, Name: p, Project: p, Image: c.Image, State: c.State,
+					WorkDir: c.Labels["com.docker.compose.project.working_dir"], Unit: c.Labels["PODMAN_SYSTEMD_UNIT"]}
+				for _, f := range strings.Split(c.Labels["com.docker.compose.project.config_files"], ",") {
+					if f = strings.TrimSpace(f); f != "" {
+						u.ComposeFiles = append(u.ComposeFiles, f)
+					}
+				}
+				projects[p] = u
+				order = append(order, p)
+			}
+			if svc := composeService(c.Labels); svc != "" {
+				u.Services = append(u.Services, svc)
+			}
+			if c.State == "running" {
+				u.State = "running"
+			}
+			continue
+		}
+		if len(c.Names) == 0 || skip(c.Names[0], "") {
 			continue
 		}
 		u := engine.Unmanaged{ID: c.ID, Name: c.Names[0], Image: c.Image, State: c.State}
@@ -52,6 +85,16 @@ func (b *Backend) UnmanagedContainers(ctx context.Context) ([]engine.Unmanaged, 
 			u.Unadoptable = "podman kept no run command for this container"
 		}
 		out = append(out, u)
+	}
+	for _, p := range order {
+		u := projects[p]
+		switch {
+		case u.WorkDir == "" || len(u.ComposeFiles) == 0:
+			u.Unadoptable = "podman did not record where this project's compose file is"
+		case len(u.ComposeFiles) > 1:
+			u.Unadoptable = "made from several compose files (" + strings.Join(u.ComposeFiles, ", ") + "); import takes one"
+		}
+		out = append(out, *u)
 	}
 	return out, nil
 }

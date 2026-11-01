@@ -1,21 +1,23 @@
 // While an install pulls, the stack reads as busy, not as a problem, and a
 // second up is refused -- through the pages.
+// needs: freebsd
 const { chromium } = require('playwright-core');
+const { signedIn, openPage } = require('./session');
 const BASE = 'http://127.0.0.1:3567';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const note = (id, ok, msg) => console.log(`${ok ? 'PASS' : 'FAIL'} ${id}: ${msg}`);
 (async () => {
   const b = await chromium.launch({ args: ['--no-sandbox'] });
-  const ctx = await b.newContext({ viewport: { width: 1400, height: 1000 } });
+  const ctx = await b.newContext(signedIn({ viewport: { width: 1400, height: 1000 } }));
   const page = await ctx.newPage();
   page.setDefaultTimeout(20000);
   try {
-    await page.goto(BASE + '/', { waitUntil: 'networkidle' });
+    await openPage(page, BASE + '/');
     await page.getByText('App Store', { exact: true }).first().click();
     await page.getByPlaceholder(/Search apps/).fill('openspeedtest');
     await page.getByRole('button', { name: /^Install/ }).first().click();
     await page.getByRole('button', { name: 'Install', exact: true }).waitFor();
-    await page.getByLabel('Name').fill('t-busy');
+    await page.getByLabel('Name', { exact: true }).fill('t-busy');
     if (!(await page.locator('#type-openspeedtest').isVisible().catch(() => false))) await page.getByRole('button', { name: /^Options/ }).first().click();
     await page.locator('#WEB_PORT').fill('3108');
     await page.locator('table select').first().selectOption('bridge');

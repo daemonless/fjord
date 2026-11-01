@@ -28,11 +28,11 @@ import (
 // the conflist is written directly rather than shelling out to podman.
 const epairPlugin = "epair"
 
-// NetworkKinds is podman's contribution to Capabilities: what it can create
+// NetworkKinds: what podman can create
 // on this host. A private network works anywhere podman does; a LAN network
 // needs the epair plugin, so it is FreeBSD-only (on Linux the mechanism is
 // kernel macvlan, a different code path).
-func (b *Backend) networkKinds() []engine.NetworkKind {
+func (b *Backend) NetworkKinds() []engine.NetworkKind {
 	// A private network is just `podman network create`: no plugin, no
 	// bridge of the user's, nothing platform-specific. It is offered
 	// wherever podman runs, so the two engines describe the same two
@@ -45,6 +45,9 @@ func (b *Backend) networkKinds() []engine.NetworkKind {
 		SupportsMTU:         true,
 		SupportsDescription: false,
 	}}
+	if k, ok := lanKind(); ok { // Linux: kernel macvlan
+		return append([]engine.NetworkKind{k}, kinds...)
+	}
 	if runtime.GOOS != "freebsd" || !pluginInstalled() {
 		return kinds
 	}
@@ -56,7 +59,7 @@ func (b *Backend) networkKinds() []engine.NetworkKind {
 // CreateNetwork writes the network's conflist. podman picks it up by reading
 // the directory, so there is nothing to restart.
 func (b *Backend) CreateNetwork(ctx context.Context, spec engine.NetworkSpec) (engine.Network, error) {
-	if len(b.networkKinds()) == 0 {
+	if len(b.NetworkKinds()) == 0 {
 		// networkNote knows every reason -- wrong platform, missing plugin --
 		// so it cannot go stale the way a hand-written message did.
 		return engine.Network{}, errors.New(b.networkNote())
@@ -66,6 +69,9 @@ func (b *Backend) CreateNetwork(ctx context.Context, spec engine.NetworkSpec) (e
 	}
 	if spec.Kind != "" && spec.Kind != "lan" {
 		return engine.Network{}, fmt.Errorf("unknown network kind %q", spec.Kind)
+	}
+	if runtime.GOOS == "linux" {
+		return b.createMacvlan(ctx, spec)
 	}
 	if spec.AddressSource == "static" && !cniPlugin("static") {
 		return engine.Network{}, errors.New("the CNI static IPAM plugin is not installed at /usr/local/libexec/cni/static, so a network that assigns no addresses cannot be created here")
@@ -212,8 +218,8 @@ func (b *Backend) networkUsersAll(ctx context.Context) (map[string][]string, err
 // runtimes' own bridges are excluded: podman's and appjail's are managed by
 // those tools, and putting a LAN network on one would cross the two.
 func (b *Backend) NetworkParents(ctx context.Context) ([]engine.NetworkParent, error) {
-	if len(b.networkKinds()) == 0 {
-		return nil, nil
+	if runtime.GOOS == "linux" {
+		return linuxParents(), nil
 	}
 	return lannet.Parents(ctx)
 }
@@ -221,6 +227,10 @@ func (b *Backend) NetworkParents(ctx context.Context) ([]engine.NetworkParent, e
 // ProbeSegment asks a bridge's wire which segment it is. Implements
 // engine.SegmentProber.
 func (b *Backend) ProbeSegment(ctx context.Context, parent string) (engine.Segment, error) {
+	if runtime.GOOS == "linux" {
+		// The probe is FreeBSD's: dhclient on a throwaway epair.
+		return engine.Segment{}, engine.ErrNotSupported
+	}
 	return lannet.ProbeSegment(ctx, parent)
 }
 
@@ -269,8 +279,11 @@ func pluginSupports(feature string) bool {
 // installed produces a network that accepts containers and then fails every
 // one of them at start.
 func (b *Backend) networkNote() string {
+	if runtime.GOOS == "linux" {
+		return "" // macvlan and bridge networks: lanKind
+	}
 	if runtime.GOOS != "freebsd" {
-		return "Creating networks is only supported on FreeBSD hosts; on Linux use podman network create."
+		return "Creating LAN networks is supported on FreeBSD and Linux hosts."
 	}
 	if !pluginInstalled() {
 		// Deliberately not just "pkg install cni-epair": the port is not in

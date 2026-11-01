@@ -70,4 +70,5 @@ func (u unavailable) RunningImages(context.Context, *stack.Stack) ([]RunningImag
 	return nil, u.err()
 }
 func (u unavailable) Capabilities() Capabilities                                  { return Capabilities{} }
+func (u unavailable) NetworkKinds() []NetworkKind                                 { return nil }
 func (u unavailable) StoreSMBCredentials(server, username, password string) error { return u.err() }

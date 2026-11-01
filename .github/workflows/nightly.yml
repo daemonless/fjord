@@ -1,0 +1,207 @@
+name: Nightly
+
+# A rolling pre-release of main, for anyone who wants what is merged before the
+# next tag: one GitHub release named "nightly", replaced each night, never
+# marked Latest (ports and "the latest fjord" stay on real releases).
+#
+# It publishes only a commit whose Test workflow passed -- that run already
+# booted the FreeBSD VM for the Go tests, so this one reads its result instead
+# of repeating it -- and skips a night when main has not moved.
+on:
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Publish even if main has not changed since the last nightly"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: nightly
+  cancel-in-progress: false
+
+jobs:
+  nightly:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+          fetch-depth: 0 # tags, and the commits since the last release
+
+      - name: Decide
+        id: decide
+        run: |
+          SHA="$(git rev-parse HEAD)"
+          SHORT="$(git rev-parse --short HEAD)"
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "short=$SHORT" >> "$GITHUB_OUTPUT"
+          # Unchanged since the last nightly: nothing to publish.
+          LAST="$(git rev-parse -q --verify 'refs/tags/nightly^{commit}' || true)"
+          if [ "$LAST" = "$SHA" ] && [ "${{ inputs.force }}" != "true" ]; then
+            echo "main is still $SHORT, the last nightly; skipping."
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Only a commit the Test workflow passed. Still running (a run
+          # started right after a merge): wait for it rather than skip.
+          TEST="$(gh run list --repo "$REPO" --workflow test.yml --branch main --commit "$SHA" \
+            --json databaseId,status --jq '.[0] | "\(.databaseId) \(.status)"')"
+          if [ -n "$TEST" ] && [ "${TEST#* }" != "completed" ]; then
+            echo "Test on $SHORT is still running (run ${TEST% *}); waiting for it."
+            gh run watch "${TEST% *}" --repo "$REPO" --interval 30 > /dev/null || true
+          fi
+          RESULT="$(gh run list --repo "$REPO" --workflow test.yml --branch main --commit "$SHA" \
+            --json conclusion,status --jq '.[0] | "\(.status)/\(.conclusion)"')"
+          if [ "$RESULT" != "completed/success" ]; then
+            echo "Test on $SHORT is '${RESULT:-no run}', not a pass; nothing published."
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # 0.4.0-nightly.20261028+accf089: the version main is heading for,
+          # the date, the commit. After an rc (v0.4.0-rc1) that is the rc's
+          # release; after a real release (v0.4.0), its next patch. Counting
+          # from real releases alone called 0.4.0's nightlies 0.3.3.
+          # versionsort.suffix puts v0.4.0-rc1 before v0.4.0.
+          BASE="$(git tag -l 'v[0-9]*' --sort=-v:refname | grep -v '[-]' | head -1)"
+          BASE="${BASE#v}"
+          NEWEST="$(git -c versionsort.suffix=-rc tag -l 'v[0-9]*' --sort=-v:refname | head -1)"
+          NEWEST="${NEWEST#v}"
+          case "$NEWEST" in
+            *-*) NEXT="${NEWEST%%-*}" ;;
+            *) NEXT="${NEWEST%.*}.$(( ${NEWEST##*.} + 1 ))" ;;
+          esac
+          VERSION="${NEXT}-nightly.$(date -u +%Y%m%d)+${SHORT}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "base=v$BASE" >> "$GITHUB_OUTPUT"
+          echo "publish=true" >> "$GITHUB_OUTPUT"
+          echo "Publishing $VERSION"
+
+      - if: steps.decide.outputs.publish == 'true'
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - if: steps.decide.outputs.publish == 'true'
+        name: Build UI
+        working-directory: ui
+        run: |
+          npm ci
+          npm run build
+
+      - if: steps.decide.outputs.publish == 'true'
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - if: steps.decide.outputs.publish == 'true'
+        name: Cross-compile binaries (freebsd/amd64, freebsd/arm64)
+        env:
+          GOOS: freebsd
+          CGO_ENABLED: "0"
+          VERSION: ${{ steps.decide.outputs.version }}
+        run: |
+          for arch in amd64 arm64; do
+            GOARCH=$arch go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" \
+              -o "fjordd-freebsd-${arch}" ./cmd/fjordd
+          done
+          cp packaging/fjordd.rc fjordd.rc
+
+      # Linux as the release has it: binaries, unit, installer, and the
+      # .deb/.rpm under fixed names (fjord-nightly-linux-<arch>.deb|rpm), so
+      # the links in the notes stay the same night after night.
+      - if: steps.decide.outputs.publish == 'true'
+        name: Cross-compile and package for Linux
+        env:
+          VERSION: ${{ steps.decide.outputs.version }}
+        run: |
+          for arch in amd64 arm64; do
+            GOOS=linux GOARCH=$arch CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" \
+              -o "fjordd-linux-${arch}" ./cmd/fjordd
+          done
+          cp packaging/fjordd.service fjordd.service
+          cp packaging/install-linux.sh install-linux.sh
+          # nfpm needs a newer Go than go.mod; setup-go pins GOTOOLCHAIN=local.
+          GOTOOLCHAIN=auto go install github.com/goreleaser/nfpm/v2/cmd/nfpm@v2.48.0
+          PATH="$(go env GOPATH)/bin:$PATH" packaging/linux/build-packages.sh "$VERSION"
+          for f in fjord-"$VERSION"-linux-*; do mv "$f" "fjord-nightly-linux-${f##*-linux-}"; done
+          sha256sum fjordd-freebsd-amd64 fjordd-freebsd-arm64 fjordd.rc \
+            fjordd-linux-amd64 fjordd-linux-arm64 fjordd.service install-linux.sh fjord-nightly-linux-* > SHA256SUMS
+          cat SHA256SUMS
+
+      # One "nightly" release, updated in place: move the tag, then new title,
+      # notes and files on the same release. Deleting it and creating a new
+      # one seconds after its tag was deleted and pushed again left the new
+      # one a draft (2026-10-06).
+      - if: steps.decide.outputs.publish == 'true'
+        name: Publish
+        env:
+          VERSION: ${{ steps.decide.outputs.version }}
+          SHA: ${{ steps.decide.outputs.sha }}
+          BASE: ${{ steps.decide.outputs.base }}
+        run: |
+          {
+            echo "Built from main at ${SHA}: **fjordd ${VERSION}**."
+            echo
+            echo "A nightly build for testing what is merged before the next release. Not for a host you depend on."
+            echo
+            echo "Install (as root):"
+            echo '```sh'
+            echo 'fetch -o /usr/local/sbin/fjordd https://github.com/'"${REPO}"'/releases/download/nightly/fjordd-freebsd-$(uname -m)'
+            echo 'chmod 755 /usr/local/sbin/fjordd && service fjordd restart'
+            echo '```'
+            echo
+            echo "On Linux (as root):"
+            echo '```sh'
+            echo 'A=$(uname -m | sed "s/x86_64/amd64/;s/aarch64/arm64/")'
+            echo '# Fedora'
+            echo 'dnf install -y https://github.com/'"${REPO}"'/releases/download/nightly/fjord-nightly-linux-$A.rpm'
+            echo '# Debian/Ubuntu'
+            echo 'curl -fsSLO https://github.com/'"${REPO}"'/releases/download/nightly/fjord-nightly-linux-$A.deb && apt install -y ./fjord-nightly-linux-$A.deb'
+            echo '```'
+            echo
+            echo "### Since ${BASE}"
+            git log --format='- %s' "${BASE}..${SHA}"
+          } > notes.md
+          ASSETS="fjordd-freebsd-amd64 fjordd-freebsd-arm64 fjordd.rc fjordd-linux-amd64 fjordd-linux-arm64 fjordd.service install-linux.sh $(ls fjord-nightly-linux-*) SHA256SUMS"
+          # The tag moves last: "Decide" skips a commit the tag already names,
+          # so a tag moved before a failed upload left a half-published
+          # nightly that no later run would fix.
+          if ! gh release view nightly --repo "$REPO" >/dev/null 2>&1; then
+            gh release create nightly --repo "$REPO" --target "$SHA" \
+              --title "fjord nightly ${VERSION}" --notes-file notes.md \
+              --prerelease --latest=false
+          fi
+          gh release edit nightly --repo "$REPO" \
+            --title "fjord nightly ${VERSION}" --notes-file notes.md \
+            --prerelease --latest=false --draft=false
+          # GitHub answers an upload with a 502 now and then.
+          for try in 1 2 3; do
+            gh release upload nightly --repo "$REPO" --clobber $ASSETS && break
+            [ "$try" = 3 ] && exit 1
+            sleep 20
+          done
+          have="$(gh release view nightly --repo "$REPO" --json assets --jq '.assets[].name')"
+          for a in $ASSETS; do
+            echo "$have" | grep -qx "$a" || { echo "missing on the release: $a"; exit 1; }
+          done
+          git tag -f nightly "$SHA"
+          git push -f origin refs/tags/nightly
+          # Published, not a draft: checked, not assumed.
+          if [ "$(gh release view nightly --repo "$REPO" --json isDraft --jq .isDraft)" != "false" ]; then
+            gh release edit nightly --repo "$REPO" --draft=false
+          fi
+          gh release view nightly --repo "$REPO" --json name,isDraft,isPrerelease \
+            --jq '"\(.name): draft=\(.isDraft) prerelease=\(.isPrerelease)"'

@@ -1,19 +1,24 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
+	"maps"
 	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"time"
 
 	composepkg "github.com/daemonless/fjord/pkg/compose"
+	"github.com/daemonless/fjord/pkg/engine"
 	"github.com/daemonless/fjord/pkg/manifest"
 	"github.com/daemonless/fjord/pkg/stack"
 )
@@ -55,8 +60,8 @@ func chooseAppData(requested string, locations []string) string {
 	return locations[0]
 }
 
-// storageSlug is the App data folder name for a stack: its display name
-// slugged, the id as fallback (see stack.Slug).
+// storageSlug is a name slugged, the id as fallback (see stack.Slug); a new
+// stack's App data folder is its id.
 func storageSlug(name, id string) string { return stack.Slug(name, id) }
 
 // installRequest is the /api/apps/install payload: a catalog manifest plus the
@@ -110,6 +115,38 @@ func (r installRequest) networkAction() string {
 	return netActionNothing
 }
 
+// requestOrigin is the address the browser reached fjord at: scheme from
+// the connection (or the proxy in front), host as sent.
+func requestOrigin(r *http.Request) string {
+	scheme := "http"
+	if r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https") {
+		scheme = "https"
+	}
+	if r.Host == "" {
+		return ""
+	}
+	return scheme + "://" + r.Host
+}
+
+// seedHostPort stashes webPort as what the one host-networked service of a
+// stack publishes once it is off the host's network. Several host-networked
+// services would all claim the same port, so those are left alone.
+func seedHostPort(composeYAML, webPort string, env map[string]string) (string, error) {
+	if webPort == "" {
+		return composeYAML, nil
+	}
+	var hosted []string
+	for _, svc := range composepkg.ParseServices(composeYAML, env) {
+		if svc.NetworkHost {
+			hosted = append(hosted, svc.Name)
+		}
+	}
+	if len(hosted) != 1 {
+		return composeYAML, nil
+	}
+	return composepkg.SeedPublished(composeYAML, hosted[0], webPort)
+}
+
 // installNetworkPlan is the service -> spec map this install should apply, or
 // nil when the request already answered per service.
 //
@@ -160,6 +197,8 @@ type installRequest struct {
 	// choice left out takes its default, so an older client answers nothing
 	// and gets the compose as it stands.
 	Choices map[string]string `json:"choices,omitempty"`
+	// Restart is the stack's restart policy; nil takes the Settings default.
+	Restart *composepkg.Restart `json:"restart,omitempty"`
 }
 
 // handleInstall installs a catalog app end-to-end: resolve wizard input,
@@ -198,7 +237,9 @@ func (s *server) handleInstall(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	id := s.manager.AllocateName(req.Name, req.AppID)
+	id, release := s.manager.AllocateName(req.Name, req.AppID)
+	defer release()
+	installed := false // saved for good; see the network cleanup below
 	m, err := manifest.Parse(req.Manifest)
 	if err != nil {
 		http.Error(w, "manifest: "+err.Error(), 400)
@@ -208,25 +249,39 @@ func (s *server) handleInstall(w http.ResponseWriter, r *http.Request) {
 		req.Values = map[string]string{}
 	}
 	// The answers first: they add and drop services and set variables that
-	// everything below resolves. AppJail runs the bundle dbuild rendered,
-	// which is the default answer, so it takes nothing else yet.
+	// everything below resolves. On AppJail the bundle gets the same change
+	// from each option's AppJail form, further down.
+	// A data folder an option seeds says {{base}}/{{stack}}/...: this stack's
+	// own directory, so two installs of one app never share a database dir.
+	// Named by the id, unique among stacks: by display name, a second
+	// "zensical" shared the first one's folder.
+	slug, base := id, chooseAppData(req.AppData, s.appDataLocations())
+	// Data kept from an earlier install under this name was set up with that
+	// install's secrets; new made-up ones lock the app out of its database.
+	dataDir := filepath.Join(base, slug)
+	reused := reuseSecrets(s.fjordRoot, dataDir, m, req.Values)
 	answers, err := m.ApplyChoices(req.Choices, req.Values)
 	if err != nil {
 		http.Error(w, err.Error(), 400)
 		return
 	}
-	// A data folder an option seeds says {{base}}/{{stack}}/...: this stack's
-	// own directory, so two installs of one app never share a database dir.
-	slug, base := storageSlug(req.Name, id), chooseAppData(req.AppData, s.appDataLocations())
+	// After the kept ones: a required secret still empty is made up, never
+	// the catalog's placeholder.
+	madeUp := m.MakeUpSecrets(req.Values)
 	for k, v := range req.Values {
 		if strings.Contains(v, "{{") {
 			req.Values[k] = expandPathTemplate(v, slug, base)
 		}
 	}
 	if req.Engine == "appjail" {
-		for _, c := range m.Choices {
-			if answers[c.ID] != c.Default {
-				http.Error(w, c.Label+": only the default ("+c.Option(c.Default).Label+") can be installed on AppJail for now", 400)
+		if msg := appjailRefusal(m); msg != "" {
+			http.Error(w, msg, 400)
+			return
+		}
+		if b := m.Appjail(); b != nil {
+			if missing := appjailShort(b, m.Picked(), m.Compose()); len(missing) > 0 {
+				http.Error(w, fmt.Sprintf("%s can't run on AppJail yet: its AppJail bundle has no jail for %s. Install it on podman.",
+					req.AppID, strings.Join(missing, ", ")), 400)
 				return
 			}
 		}
@@ -282,32 +337,60 @@ func (s *server) handleInstall(w http.ResponseWriter, r *http.Request) {
 	// stack to match. Identity stays the numeric id; this path never moves on a
 	// later rename.
 	res, err := m.Resolve(req.Values, slug, base)
+	if err == nil && m.Names != nil {
+		// The address fjord is opened at, as this request saw it: the
+		// provider shows "Back to fjord" with it. The daemon has no better
+		// idea of its own address than the browser that reached it.
+		if name := varName(m.Names.ClientURL); name != "" {
+			res.Env[name] = requestOrigin(r)
+		}
+		// Who this fjord is, so the provider can tell several apart.
+		self := s.instance()
+		if name := varName(m.Names.ClientID); name != "" {
+			res.Env[name] = self.ID
+		}
+		if name := varName(m.Names.ClientName); name != "" {
+			res.Env[name] = self.Label()
+		}
+	}
 	if err != nil {
 		http.Error(w, "invalid input: "+err.Error(), 400)
 		return
 	}
 	res.Dirs = append(res.Dirs, perStackDirs...)
-	if err := manifest.Provision(res.Dirs); err != nil {
-		http.Error(w, "provision: "+err.Error(), 500)
-		return
-	}
 	composeYAML, err := composepkg.DropVolumesReferencing(m.Compose(), res.EmptyOptional)
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
 	}
-	// Optional ports left blank (an unused HTTPS listener) go the same way.
+	// Optional ports left blank (an unused HTTPS listener) go the same way,
+	// and settings, which reach the app unset rather than set to nothing.
 	composeYAML, err = composepkg.DropPortsReferencing(composeYAML, res.EmptyOptional)
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
 	}
+	composeYAML, err = composepkg.DropEnvReferencing(composeYAML, res.EmptyOptional)
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
 	if req.Tag != "" {
-		composeYAML, err = composepkg.SetImageTag(composeYAML, req.Tag)
+		// The tag is a variant of the app's own image; a database a choice
+		// added keeps the tag it is pinned to.
+		composeYAML, err = composepkg.SetRepoTag(composeYAML, s.cat.AppImage(req.AppID), req.Tag)
 		if err != nil {
 			http.Error(w, err.Error(), 500)
 			return
 		}
+	}
+	// A host-networked app (actual) publishes nothing: on the host's stack
+	// its port is a host port. Taken off it, by the wizard's row or the
+	// Services editor later, nothing reached it. Its web port is stashed
+	// now, so every move off the host brings it back as ports.
+	if composeYAML, err = seedHostPort(composeYAML, m.WebContainerPort(), res.Env); err != nil {
+		http.Error(w, err.Error(), 500)
+		return
 	}
 	// Built-ins chosen per service, carried to the appjail bundle below:
 	// the compose is not where an appjail stack's networking lives.
@@ -322,6 +405,15 @@ func (s *server) handleInstall(w http.ResponseWriter, r *http.Request) {
 		composeYAML, err = composepkg.DisableNetwork(composeYAML)
 	case netActionHost:
 		composeYAML, err = composepkg.HostNetwork(composeYAML)
+		// Every service shares the host's network: no container DNS, so a
+		// part is found at 127.0.0.1, not by its name. Vikunja's MariaDB
+		// choice sets VIKUNJA_DATABASE_HOST=mariadb -- right on a compose
+		// network, unresolvable here.
+		if err == nil {
+			for k, v := range loopbackHostnames(m.Hostnames, composepkg.ParseServices(composeYAML, res.Env)) {
+				res.Env[k] = v
+			}
+		}
 	case netActionAttach:
 		// Only when a stack-level network was named. An install that lists its
 		// interfaces per service sends none, and checking the empty string
@@ -351,7 +443,16 @@ func (s *server) handleInstall(w http.ResponseWriter, r *http.Request) {
 		for _, svc := range composepkg.ParseServices(composeYAML, res.Env) {
 			names = append(names, svc.Name)
 		}
-		plan := installNetworkPlan(req, m.Networking)
+		// A refusal from here on leaves no stack, so the private network made
+		// for it goes too.
+		defer func() {
+			if !installed {
+				if be, ok := s.backend(cmp.Or(req.Engine, s.defaultEngine())); ok {
+					s.dropPrivateNetwork(be, id)
+				}
+			}
+		}()
+		plan := withoutDropped(installNetworkPlan(req, m.Networking), m.Picked())
 		atts, modes, planErr := planServiceNetworks(r.Context(), plan, req.attachments(), names,
 			func() (string, error) { return s.ensurePrivateNetwork(r.Context(), req.Engine, id) })
 		if planErr != nil {
@@ -457,7 +558,7 @@ func (s *server) handleInstall(w http.ResponseWriter, r *http.Request) {
 			if nested {
 				at = strings.TrimRight(dest, "/") + "/" + names[len(locals)+i]
 			}
-			composeYAML, err = composepkg.AttachVolume(composeYAML, composepkg.FirstService, vol, at, false)
+			composeYAML, err = composepkg.AttachVolume(composeYAML, composepkg.FirstService, vol, at, nil)
 			if err != nil {
 				http.Error(w, "attach "+vol+": "+err.Error(), 500)
 				return
@@ -465,13 +566,68 @@ func (s *server) handleInstall(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// A new install takes one policy, the wizard's or the Settings default,
+	// whatever the catalog wrote: its composes say always or unless-stopped
+	// by habit, and a database a choice added says always beside an app that
+	// says unless-stopped. One answer per stack, changed on the stack page.
+	// On an engine that restarts on exit it goes in the compose; on one that
+	// does not, in the state below.
+	var restartState string
+	if be, ok := s.backend(cmp.Or(req.Engine, s.defaultEngine())); ok && len(be.Capabilities().RestartPolicies) > 0 {
+		caps := be.Capabilities()
+		policy := defaultRestartFor(loadSettings(s.fjordRoot), cmp.Or(req.Engine, s.defaultEngine()), caps)
+		if req.Restart != nil {
+			r, err := checkRestart(*req.Restart, caps)
+			if err != nil {
+				http.Error(w, err.Error(), 400)
+				return
+			}
+			policy = r
+		}
+		if !caps.RestartOnExit {
+			restartState = policy.String()
+		} else if set, err := composepkg.SetRestart(composeYAML, policy); err == nil {
+			composeYAML = set
+		}
+	}
+	// Bind the stack to its engine (chosen or default), honored only if it's
+	// actually available; falls back to the default otherwise.
+	eng := req.Engine
+	if _, ok := s.backend(eng); !ok {
+		eng = s.defaultEngine()
+	}
+	// The color startup banner of daemonless images (see banner.go). The
+	// value goes in the compose's .env here; a director bundle writes its
+	// own .env below (directorEnv), and a default put in res.Env now would
+	// override one the bundle carries.
+	if composeYAML, err = bannerCompose(composeYAML, res.Env); err != nil {
+		http.Error(w, "banner: "+err.Error(), 500)
+		return
+	}
+	if eng != "appjail" && res.Env[bannerVar] == "" && strings.Contains(composeYAML, "${"+bannerVar+"}") {
+		res.Env[bannerVar] = bannerDefault
+	}
 	// Persist the catalog's web-endpoint hint in the saved compose (compose on
 	// disk is the source of truth; podman-compose ignores x-* keys). Without it
 	// host-net stacks have no discoverable web link -- nothing is published.
-	if m.WebPort != "" {
-		composeYAML += fmt.Sprintf("\nx-fjord:\n  web_port: %q\n", m.WebPort)
+	if m.WebPort != "" || len(m.NameEnv) > 0 {
+		composeYAML += "\nx-fjord:\n"
+		if m.WebPort != "" {
+			composeYAML += fmt.Sprintf("  web_port: %q\n", m.WebPort)
+		}
 		if m.WebHTTPS {
 			composeYAML += "  web_https: true\n"
+		}
+		if m.OwnOrigin {
+			composeYAML += "  own_origin: true\n"
+		}
+		// Kept with the stack, like own_origin: the names it gets later are
+		// filled into these (see applyNameEnv).
+		if len(m.NameEnv) > 0 {
+			composeYAML += "  name_env:\n"
+			for _, k := range slices.Sorted(maps.Keys(m.NameEnv)) {
+				composeYAML += fmt.Sprintf("    %s: %q\n", k, m.NameEnv[k])
+			}
 		}
 	}
 	// So the stack's parts can find each other: each service's consumers get
@@ -480,15 +636,21 @@ func (s *server) handleInstall(w http.ResponseWriter, r *http.Request) {
 		res.Env[k] = v
 	}
 	st := &stack.Stack{Name: id, Compose: composeYAML, Env: buildEnv(res.Env)}
+	// A taken address or port is refused before anything is written, with
+	// the reason on one line: refused after the save, the stack was left
+	// saved and stopped, and the wizard showed only "pre-flight failed".
+	if c := s.conflicts(r.Context(), st, fixInWizard); len(c) > 0 {
+		http.Error(w, "not installed: "+strings.Join(c, "; "), http.StatusConflict)
+		return
+	}
+	// Made only now, so a refusal above leaves no empty folders behind.
+	if err := manifest.Provision(res.Dirs); err != nil {
+		http.Error(w, "provision: "+err.Error(), 500)
+		return
+	}
 	if err := s.manager.Save(st); err != nil {
 		http.Error(w, err.Error(), 500)
 		return
-	}
-	// Bind the stack to its engine (chosen or default), honored only if it's
-	// actually available; falls back to the default otherwise.
-	eng := req.Engine
-	if _, ok := s.backend(eng); !ok {
-		eng = s.defaultEngine()
 	}
 	// On appjail with a director bundle, materialize it into the stack dir:
 	// appjail-director.yml + Makejail + template.conf + a director-filled .env
@@ -505,8 +667,34 @@ func (s *server) handleInstall(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "this app's catalog entry has no AppJail bundle (the catalog was built without dbuild, or the app opts out with appjail: false); install it on podman, or refresh the catalog", 400)
 			return
 		}
-		env, err := writeAppjailBundle(st.Dir, id, b, res.Env, composeYAML, req.attachments(), svcModes, req.Network)
+		b, err := withAppjailChoices(b, m.Picked())
 		if err != nil {
+			_ = s.manager.Delete(id)
+			http.Error(w, "appjail bundle: "+err.Error(), 500)
+			return
+		}
+		// A picked option's jail is found by its name on the project's
+		// network -- on host networking 127.0.0.1, set above.
+		if req.networkAction() != netActionHost {
+			for k, v := range appjailHostnames(id, m.Picked()) {
+				res.Env[k] = v
+			}
+		}
+		// Written whether or not the bundle's .env lists them: the director
+		// substitutes its 127.0.0.1 default for a variable that is missing.
+		hostEnv := jailHostnames(id, serviceHostnames(m.Hostnames, plannedAtts, svcModes))
+		// What the plan made of the request, as the compose got: one network
+		// named for the whole stack is per service by now (immich's database
+		// private), and the raw request put every jail on the LAN.
+		atts := plannedAtts
+		if len(atts) == 0 {
+			atts = req.attachments()
+		}
+		env, err := writeAppjailBundle(st.Dir, id, b, res.Env, hostEnv, composeYAML, atts, svcModes, req.Network)
+		if err != nil {
+			// Gone again, as above: a stack left with a compose and no bundle
+			// is listed with no engine and can never start.
+			_ = s.manager.Delete(id)
 			http.Error(w, "appjail bundle: "+err.Error(), 500)
 			return
 		}
@@ -519,8 +707,10 @@ func (s *server) handleInstall(w http.ResponseWriter, r *http.Request) {
 		Origin:       stack.OriginInfo{Type: "catalog", AppID: req.AppID},
 		DesiredState: "running",
 		Engine:       eng,
+		Restart:      restartState,
 		DisplayName:  strings.TrimSpace(req.Name),
 		Choices:      answers,
+		SecretSums:   installSecretSums(m, res.Env),
 		InstalledAt:  now,
 		UpdatedAt:    now,
 	}
@@ -528,6 +718,10 @@ func (s *server) handleInstall(w http.ResponseWriter, r *http.Request) {
 	if err := s.manager.SaveState(id, st.State); err != nil {
 		log.Printf("install %s: persist state: %v", id, err)
 	}
+	if err := saveSecrets(s.fjordRoot, dataDir, m, res.Env); err != nil {
+		log.Printf("install %s: keep secrets with the data: %v", id, err)
+	}
+	installed = true
 	// Held for the whole bring-up, pull included: a Start pressed meanwhile is
 	// refused instead of running a second up that races this one (jellyfin on
 	// army got two, one of which died on "name already in use").
@@ -551,12 +745,66 @@ func (s *server) handleInstall(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "pre-flight failed (stack saved, not started):\n  "+strings.Join(problems, "\n  "), 409)
 		return
 	}
-	stream, err := s.backendFor(st).Up(ctx, st)
+	// Watched where the engine can: a crash loop at install raises the
+	// failure banner, as it does after an update.
+	be := s.backendFor(st)
+	up := be.Up
+	if iw, ok := be.(engine.InstallWatcher); ok {
+		up = iw.UpWatched
+	}
+	chose := s.chooseAddresses(ctx, st)
+	stream, err := up(watchable(ctx, id), st)
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
 	}
+	if chose != "" {
+		stream = struct {
+			io.Reader
+			io.Closer
+		}{io.MultiReader(strings.NewReader(chose), stream), stream}
+	}
+	if note := secretsNote(m, dataDir, reused, madeUp); note != "" {
+		stream = struct {
+			io.Reader
+			io.Closer
+		}{io.MultiReader(strings.NewReader(note), stream), stream}
+	}
 	streamOutput(w, s.recordOutcome(id, "install", s.keepAfter(ctx, st, stream)))
+}
+
+// secretsNote is the first lines of an install's output: which passwords
+// were kept or made up. A names provider's key and setup token are fjord's
+// own, not the person's: they are left out, and the line says what comes
+// next instead. "See the stack's .env" sent people digging for the setup
+// token that the Finish setup row carries.
+func secretsNote(m *manifest.Manifest, dataDir string, reused, madeUp []string) string {
+	own := map[string]bool{}
+	if m.Names != nil {
+		own[varName(m.Names.Key)] = true
+		own[varName(m.Names.SetupToken)] = true
+		own[varName(m.Names.ClientURL)] = true
+		own[varName(m.Names.ClientID)] = true
+		own[varName(m.Names.ClientName)] = true
+	}
+	var theirs []string
+	for _, v := range madeUp {
+		if !own[v] {
+			theirs = append(theirs, v)
+		}
+	}
+	var note string
+	if len(reused) > 0 {
+		note = fmt.Sprintf("[fjord] Existing data in %s: kept the passwords it was set up with (%s).\n",
+			dataDir, strings.Join(reused, ", "))
+	}
+	if len(theirs) > 0 {
+		note += fmt.Sprintf("[fjord] Made up %s (see the stack's .env).\n", strings.Join(theirs, ", "))
+	}
+	if m.Names != nil {
+		note += "[fjord] Paired with fjord. Next: Finish setup, on its page, and your apps get names.\n"
+	}
+	return note
 }
 
 // pathExpansion is a host-path variable whose folder list has more than one
@@ -617,6 +865,12 @@ func expandPathTemplates(values map[string]string, exps []pathExpansion, pathVar
 	var dirs []manifest.ProvisionDir
 	seen := map[string]bool{}
 	own := func(p string) {
+		// Cleaned, and never with "..": "/containers/app/../../etc" starts
+		// with /containers/ and was provisioned as the app's (review 1.3).
+		if strings.Contains("/"+p+"/", "/../") {
+			return
+		}
+		p = filepath.Clean(p)
 		if strings.HasPrefix(p, strings.TrimRight(base, "/")+"/") && !seen[p] {
 			seen[p] = true
 			dirs = append(dirs, manifest.ProvisionDir{Path: p, Uid: 1000, Gid: 1000, Mode: 0o755})
@@ -694,20 +948,40 @@ func anotherStacksFolder(dirs []manifest.ProvisionDir, base, slug string, existi
 		if st.State != nil && st.State.DisplayName != "" {
 			display = st.State.DisplayName
 		}
-		if s := storageSlug(display, st.Name); s != slug {
-			owner[s] = display
+		// Its id, and its display name (how older installs named the folder).
+		for _, s := range []string{st.Name, storageSlug(display, st.Name)} {
+			if s != slug {
+				owner[s] = display
+			}
 		}
 	}
 	root := strings.TrimRight(base, "/") + "/"
 	for _, d := range dirs {
-		rel := strings.TrimPrefix(d.Path, root)
-		if rel == d.Path {
+		// Cleaned first: "/containers/app/../other/data" is other's.
+		path := filepath.Clean(d.Path)
+		rel := strings.TrimPrefix(path, root)
+		if rel == path {
 			continue
 		}
 		top, _, _ := strings.Cut(rel, "/")
 		if name, ok := owner[top]; ok {
-			return fmt.Sprintf("%s is inside %s's folder (%s%s) -- give this install a folder of its own", d.Path, name, root, top)
+			return fmt.Sprintf("%s is inside %s's folder (%s%s) -- give this install a folder of its own", path, name, root, top)
 		}
 	}
 	return ""
+}
+
+// installSecretSums are the sums of the secrets an install sets up with: the
+// baseline a later Save is compared against (see secretChangeWarnings).
+func installSecretSums(m *manifest.Manifest, env map[string]string) map[string]string {
+	out := map[string]string{}
+	for _, v := range m.Variables {
+		if v.Type == "secret" && env[v.Name] != "" {
+			out[v.Name] = secretSum(env[v.Name])
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }

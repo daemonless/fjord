@@ -21,6 +21,9 @@ var validName = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
 // ErrInvalidName is returned when a stack name fails validName.
 var ErrInvalidName = fmt.Errorf("invalid stack name")
 
+// ErrDeleting is Replace refusing a stack whose delete has begun.
+var ErrDeleting = fmt.Errorf("stack is being deleted")
+
 // ValidName reports whether name is safe to use as a stack directory / volume
 // path component (no traversal, no separators). Callers that build host paths
 // from a caller-supplied name must check this first.
@@ -50,7 +53,7 @@ type State struct {
 	Variables     map[string]string `json:"variables,omitempty"`
 	ComposeSHA256 string            `json:"compose_sha256"`
 	Modified      bool              `json:"modified"`
-	DesiredState  string            `json:"desired_state"`          // "running" | "stopped"
+	DesiredState  string            `json:"desired_state"`          // "running" | "stopped" | "deleting" (a delete in progress)
 	Engine        string            `json:"engine,omitempty"`       // runtime this stack runs on; "" = podman
 	DisplayName   string            `json:"display_name,omitempty"` // friendly label; identity stays the dir id
 	Group         string            `json:"group,omitempty"`        // optional sidebar grouping label
@@ -58,6 +61,9 @@ type State struct {
 	AppVersion    string            `json:"app_version,omitempty"`
 	InstalledAt   string            `json:"installed_at"`
 	UpdatedAt     string            `json:"updated_at"`
+	// Restart is the restart policy of a stack whose engine does not read the
+	// compose's `restart:` (AppJail): only start on boot follows it.
+	Restart string `json:"restart,omitempty"`
 	// Rollback is, per service, the image the last update replaced -- what
 	// "Roll back" returns to, and what "Unpin" restores the compose from.
 	Rollback map[string]RollbackImage `json:"rollback,omitempty"`
@@ -69,6 +75,11 @@ type State struct {
 	// Choices are the stack's answers at install (choice id -> option id),
 	// the default included: what the install was told to run with.
 	Choices map[string]string `json:"choices,omitempty"`
+	// SecretSums are SHA-256 sums of the secrets the stack was set up with
+	// (never the secrets): a database keeps the password it was created with,
+	// so a Save that changes one is warned about, and one that puts it back
+	// is not.
+	SecretSums map[string]string `json:"secret_sums,omitempty"`
 	// PendingServices were changed by a Save and not yet recreated: the next
 	// start or Apply replaces exactly these, and clears them once it is sure
 	// it did. On disk, so "not applied yet" survives a reload.
@@ -135,6 +146,12 @@ func IconFile(dir string) string {
 // EngineName is the runtime this stack runs on, as recorded in state.json.
 // Empty only for a stack with no state at all (see MigrateEngine); the
 // daemon treats that as an unavailable engine rather than guessing.
+// LeftStopped reports whether the stack was stopped on purpose: Stop, not a
+// crash or an install that failed, which still want to run.
+func (s *Stack) LeftStopped() bool {
+	return s.State != nil && s.State.DesiredState == "stopped"
+}
+
 func (s *Stack) EngineName() string {
 	if s.State != nil {
 		return s.State.Engine
@@ -167,6 +184,13 @@ type Manager struct {
 	// records its rollback) otherwise both load the old file and the second
 	// save drops the first one's field.
 	locks sync.Map
+	// fileLocks holds a *sync.Mutex per stack, taken across each write of
+	// its files, so Update's read-change-write cannot interleave with a Save
+	// or a Delete.
+	fileLocks sync.Map
+	// reserved holds the ids AllocateName has handed out whose stack is not
+	// saved yet.
+	reserved sync.Map
 }
 
 // NewManager initializes a new stack manager.
@@ -257,6 +281,48 @@ func (m *Manager) Save(stack *Stack) error {
 	if !ValidName(stack.Name) {
 		return ErrInvalidName
 	}
+	defer lockIn(&m.fileLocks, stack.Name)()
+	return m.save(stack)
+}
+
+// Replace is Save for a stack that is already there: it writes nothing once
+// the stack's delete has begun (desired state "deleting", set before the
+// teardown) or its directory is gone. Save there brought a deleted stack
+// back: a delete stops the stack first, which can take minutes, and an
+// editor's save in that time wrote compose.yaml after the delete removed it.
+//
+// check, when set, gets the stack as it is on disk, under the same lock as
+// Update, and refuses with an error: the caller read the stack before slow
+// work, and a change made since (a rollback's pin) would be written over.
+func (m *Manager) Replace(stack *Stack, check func(cur *Stack) error) error {
+	if !ValidName(stack.Name) {
+		return ErrInvalidName
+	}
+	defer lockIn(&m.fileLocks, stack.Name)()
+	if _, err := os.Stat(filepath.Join(m.StacksDir, stack.Name)); err != nil {
+		return err
+	}
+	st, err := m.LoadState(stack.Name)
+	if err != nil {
+		return err
+	}
+	if st != nil && st.DesiredState == "deleting" {
+		return ErrDeleting
+	}
+	if check != nil {
+		cur, err := m.Get(stack.Name)
+		if err != nil {
+			return err
+		}
+		if err := check(cur); err != nil {
+			return err
+		}
+	}
+	return m.save(stack)
+}
+
+// save is Save without the lock, for callers that hold it.
+func (m *Manager) save(stack *Stack) error {
 	dir := filepath.Join(m.StacksDir, stack.Name)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return fmt.Errorf("failed to create stack directory: %w", err)
@@ -296,8 +362,14 @@ func (m *Manager) Save(stack *Stack) error {
 		// unterminated final line (an `OPTION from=` lost that way builds an
 		// empty jail instead of the OCI container).
 		body := strings.TrimRight(stack.Makejail, "\n") + "\n"
-		if err := writeFileAtomic(filepath.Join(dir, "Makejail"), []byte(body), 0644); err != nil {
-			return fmt.Errorf("failed to write Makejail: %w", err)
+		// Only when it changed: director rebuilds every service built from
+		// the Makejail when the file is newer than its last run, so a save of
+		// anything else (a rollback pinning one sidecar) rebuilt them all.
+		path := filepath.Join(dir, "Makejail")
+		if old, err := os.ReadFile(path); err != nil || string(old) != body {
+			if err := writeFileAtomic(path, []byte(body), 0644); err != nil {
+				return fmt.Errorf("failed to write Makejail: %w", err)
+			}
 		}
 	}
 
@@ -314,6 +386,7 @@ func (m *Manager) Delete(name string) error {
 	if !validName.MatchString(name) {
 		return ErrInvalidName
 	}
+	defer lockIn(&m.fileLocks, name)()
 	dir := filepath.Join(m.StacksDir, name)
 	if _, err := os.Stat(dir); err != nil {
 		return err // NotExist bubbles up so the handler can 404
@@ -352,16 +425,24 @@ func Slug(name, fallback string) string {
 // like `compose down` then `up`, picks up any named volumes it left (Delete
 // keeps data on purpose). Ghost container records can't collide: Down and Up
 // sweep the stack's namespace.
-func (m *Manager) AllocateName(name, fallback string) string {
+//
+// The id stays taken until release, which the caller defers past its Save:
+// "exists" alone left it free until then, so two installs at once both got
+// "radarr" and the second wrote over the first.
+func (m *Manager) AllocateName(name, fallback string) (id string, release func()) {
 	base := Slug(name, fallback)
 	if !ValidName(base) || base == "" {
 		base = "stack"
 	}
-	id := base
-	for n := 2; m.exists(id); n++ {
+	id = base
+	for n := 2; ; n++ {
+		if !m.exists(id) {
+			if _, taken := m.reserved.LoadOrStore(id, struct{}{}); !taken {
+				return id, func() { m.reserved.Delete(id) }
+			}
+		}
 		id = fmt.Sprintf("%s-%d", base, n)
 	}
-	return id
 }
 
 func (m *Manager) exists(id string) bool {
@@ -509,9 +590,40 @@ func (m *Manager) UpdateState(name string, change func(st *State) *State) error 
 	return m.saveState(name, st)
 }
 
+// Update changes a stack as it is on disk now, under the lock Save and
+// Delete take: change gets the stack read inside the lock and edits it in
+// place; an error from change writes nothing and is returned as is, and so
+// does a change that leaves the files as they were. Every edit to an
+// existing stack goes through here rather than Get then Save: a copy loaded
+// before a slow step (an install's stay-up watch, a registry call) and saved
+// whole afterwards put back whatever was saved meanwhile.
+//
+// change must not call Save, Update or Delete: the lock is not reentrant.
+func (m *Manager) Update(name string, change func(st *Stack) error) (*Stack, error) {
+	if !ValidName(name) {
+		return nil, ErrInvalidName
+	}
+	defer lockIn(&m.fileLocks, name)()
+	st, err := m.Get(name)
+	if err != nil {
+		return nil, err
+	}
+	before := *st
+	if err := change(st); err != nil {
+		return nil, err
+	}
+	if st.Compose == before.Compose && st.Env == before.Env && st.Director == before.Director && st.Makejail == before.Makejail {
+		return st, nil
+	}
+	return st, m.save(st)
+}
+
 // lock takes the stack's state lock and returns its release.
-func (m *Manager) lock(name string) func() {
-	mu, _ := m.locks.LoadOrStore(name, &sync.Mutex{})
+func (m *Manager) lock(name string) func() { return lockIn(&m.locks, name) }
+
+// lockIn takes name's mutex in locks and returns its release.
+func lockIn(locks *sync.Map, name string) func() {
+	mu, _ := locks.LoadOrStore(name, &sync.Mutex{})
 	mu.(*sync.Mutex).Lock()
 	return mu.(*sync.Mutex).Unlock
 }

@@ -3,6 +3,7 @@
 package doctor
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"io"
@@ -19,16 +20,24 @@ import (
 	"github.com/daemonless/fjord/pkg/engine/appjail"
 )
 
+// hostMode is "container" when fjordd runs in a jail (an OCI-deployed
+// fjordd is one), else "host". On its own: building the checks reads the
+// interfaces and runs appjail to write their fixes.
+func hostMode() string {
+	if engine.Jailed() {
+		return "container"
+	}
+	return "host"
+}
+
 // platform describes FreeBSD: mode via the jail sysctl (an OCI-deployed fjordd
 // is a jail), installs via pkg(8). A Python package is named by its port
 // origin (sysutils/podman-compose): its package name carries the Python
 // flavor (py312-) and changes on every flavor bump.
 func platform(cfg Config) platformInfo {
-	mode := "host"
-	if engine.Jailed() {
-		mode = "container"
-	}
+	mode := hostMode()
 	_, pkgErr := exec.LookPath("pkg")
+	zone := hostZone("/usr/share/zoneinfo", cfg.TimeZone)
 	checks := []Check{
 		{
 			ID: "podman", Name: "podman CLI", Engine: "podman",
@@ -48,9 +57,12 @@ func platform(cfg Config) platformInfo {
 		},
 		{
 			ID: "podman-stale", Name: "podman API service is current", Engine: "podman", HostOnly: true,
-			Probe: podmanServiceStaleProbe,
-			Why:   "`pkg upgrade` replaces podman and its runtime under a service that keeps running, and the old process cannot spawn an exec with binaries that moved. Everything keeps working except the shell, which fails with \"no such file or directory\" -- on a host where the CLI works perfectly, so it reads as a fjord bug. Nothing else notices, because starting and stopping stacks is unaffected.",
-			Fix:   "service podman_service restart",
+			Probe:    podmanServiceStaleProbe,
+			Action:   "Restart podman's API service",
+			Install:  restartService("podman_service"),
+			Commands: []string{"service podman_service restart"},
+			Why:      "`pkg upgrade` replaces podman and its runtime under a service that keeps running, and the old process cannot spawn an exec with binaries that moved. Everything keeps working except the shell, which fails with \"no such file or directory\" -- on a host where the CLI works perfectly, so it reads as a fjord bug. Nothing else notices, because starting and stopping stacks is unaffected.",
+			Fix:      "service podman_service restart",
 		},
 		{
 			ID: "compose", Name: "podman-compose", Engine: "podman",
@@ -65,6 +77,15 @@ func platform(cfg Config) platformInfo {
 			Why:   "The per-container monitor podman starts everything through. It holds a container's I/O and exit status while podman itself isn't running.",
 			Fix:   "pkg install -y conmon",
 			Pkg:   map[string]string{"freebsd": "conmon"},
+		},
+		{
+			ID: "fdescfs", Name: "crash restarts with published ports (fdescfs on /dev/fd)", Engine: "podman", HostOnly: true,
+			Probe:    fdescProbe("/dev/fd"),
+			Install:  mountFdesc("/dev/fd", "/etc/fstab"),
+			Commands: fdescCommands,
+			Action:   "Mount fdescfs on /dev/fd",
+			Why:      "conmon holds a container's published ports and closes them when the container exits, finding them through /dev/fd. Without fdescfs mounted there, a crashed container that publishes a port is never restarted: the restart finds its own port still taken.",
+			Fix:      strings.Join(fdescCommands, "\n"),
 		},
 		{
 			ID: "ocijail", Name: "ocijail runtime", Engine: "podman", HostOnly: true,
@@ -96,16 +117,13 @@ func platform(cfg Config) platformInfo {
 			Pkg:   map[string]string{"freebsd": "cni-dnsname"},
 		},
 		{
-			ID: "appjail-dns", Name: "jail name resolution (appjail-dns + dnsmasq)", Engine: "appjail", HostOnly: true,
+			ID: "dhcp-default", Name: "host DHCP stays off container interfaces", HostOnly: true,
 			Group: "networking",
-			Probe: appjailDNSProbe,
-			// No Install button: this reconfigures the host's dnsmasq (appjail's
-			// config answers on every interface, with its own upstream servers),
-			// which is the operator's call to make by hand until 0.3.5 can prove
-			// the full setup.
-			Why: "Jails on one network find each other by name only when appjail-dns writes the names and dnsmasq answers with appjail's config. appjail-dns alone only keeps a hosts file, so it \"runs\" while no jail finds another and a director project's services have to address each other by IP. Note appjail's dnsmasq config listens on every interface and uses its own upstream resolvers.",
-			Fix: "pkg install -y dnsmasq\nsysrc dnsmasq_enable=YES\nsysrc dnsmasq_conf=" + appjailDNSMasqConf + "\nservice dnsmasq start\nsysrc appjail_dns_enable=YES\nservice appjail-dns restart",
+			Probe: defaultDHCPProbe,
+			Why:   "With ifconfig_DEFAULT=\"DHCP\" in rc.conf (FreeBSD's VM images ship it), devd runs dhclient on every interface that appears -- each container's and jail's epair too. The host then takes LAN leases on them, and the router hands out addresses nobody is using.",
+			Fix:   "# name the host's own NIC instead of DEFAULT (vtnet0 here; see `route -n get default`):\nsysrc ifconfig_vtnet0=\"DHCP\"\nsysrc -x ifconfig_DEFAULT",
 		},
+		appjailDNSCheck(),
 		{
 			ID: "appjail-git", Name: "git, for makejails on GitHub", Engine: "appjail", HostOnly: true,
 			Group: "extras", Optional: true,
@@ -122,9 +140,13 @@ func platform(cfg Config) platformInfo {
 		},
 		{
 			ID: "timezone", Name: "host timezone", Engine: "appjail", HostOnly: true,
-			Probe: localtimeProbe("/etc/localtime"),
-			Why:   "AppJail copies the host's /etc/localtime into every jail, and FreeBSD's VM images ship without one: every AppJail app then fails to start.",
-			Fix:   "# pick your zone from the menu\ntzsetup\n# or set it directly, e.g.: tzsetup America/New_York",
+			Probe:    localtimeProbe("/etc/localtime"),
+			Install:  setZone(zone),
+			Commands: []string{"tzsetup " + zone},
+			Action:   "Set the timezone to " + zone,
+			Why:      "AppJail copies the host's /etc/localtime into every jail, and FreeBSD's VM images ship without one: every AppJail app then fails to start. For another zone, run `tzsetup` on its own and pick from its menu.",
+			// Never the bare tzsetup: its menu eats the rest of a pasted block.
+			Fix: "tzsetup " + zone,
 		},
 		{
 			ID: "pf", Name: "pf firewall", Engine: "podman",
@@ -257,13 +279,26 @@ func pfInsertSnippet(rules []string, path string) string {
 const pfValidate = "kldload -n pf\n" +
 	"pfctl -nf /etc/pf.conf   # validate before loading\n"
 
+// kldLoaded asks kldstat whether a module is loaded. A kldstat the doctor's
+// deadline killed is no answer: it read as "pf is not loaded" on a host
+// whose pf was up.
+func kldLoaded(ctx context.Context, mod string) (bool, error) {
+	err := exec.CommandContext(ctx, "kldstat", "-q", "-m", mod).Run()
+	if ctx.Err() != nil {
+		return false, fmt.Errorf("could not check %s in time", mod)
+	}
+	return err == nil, nil
+}
+
 // appjailPfProbe checks pf carries AppJail's NAT/rdr anchors, which its
 // virtual-network jails need (the appjail-director default). Mirrors pfProbe.
 func appjailPfProbe(ctx context.Context) (Status, string) {
 	if _, err := exec.LookPath("kldstat"); err != nil {
 		return Unknown, "kldstat not available here to check pf"
 	}
-	if exec.CommandContext(ctx, "kldstat", "-q", "-m", "pf").Run() != nil {
+	if pfLoaded, err := kldLoaded(ctx, "pf"); err != nil {
+		return Unknown, err.Error()
+	} else if !pfLoaded {
 		return Warn, "pf is not loaded -- virtual-network jails cannot be created; host-network jails are unaffected"
 	}
 	out, err := exec.CommandContext(ctx, "pfctl", "-s", "nat").Output()
@@ -436,7 +471,9 @@ func pfProbe(ctx context.Context) (Status, string) {
 	if _, err := exec.LookPath("kldstat"); err != nil {
 		return Unknown, "kldstat not available here to check pf"
 	}
-	if exec.CommandContext(ctx, "kldstat", "-q", "-m", "pf").Run() != nil {
+	if pfLoaded, err := kldLoaded(ctx, "pf"); err != nil {
+		return Unknown, err.Error()
+	} else if !pfLoaded {
 		return Warn, "pf is not loaded -- bridge-network stacks will fail; host-network stacks are unaffected"
 	}
 	out, err := exec.CommandContext(ctx, "pfctl", "-s", "nat").Output()
@@ -541,8 +578,87 @@ func dnsnameProbe(ctx context.Context) (Status, string) {
 }
 
 // appjailDNSMasqConf is the dnsmasq config appjail ships: addn-hosts on the
-// file appjail-dns writes, so jail names resolve.
-const appjailDNSMasqConf = "/usr/local/share/appjail/files/dnsmasq.conf"
+// file appjail-dns writes, so jail names resolve -- but on every interface,
+// and only through OpenDNS. fjord writes its own (appjail.DNSConf).
+const appjailDNSMasqConf = appjail.StockDNSConf
+
+// runsWith says dnsmasq is set to (rc var) or running with (command line)
+// the given config.
+func runsWith(conf, rcConf, args string) bool {
+	return rcConf == conf || strings.Contains(args, conf)
+}
+
+// appjailDNSCheck is jail name resolution. Its button installs dnsmasq if it
+// must, writes fjord's config for the AppJail networks there are, points
+// dnsmasq at it and starts appjail-dns: one click on a bare host. A dnsmasq
+// running with a config fjord did not write is someone's, and left alone
+// (no button; the fix says what fjord would do).
+func appjailDNSCheck() Check {
+	return Check{
+		ID: "appjail-dns", Name: "jail name resolution (appjail-dns + dnsmasq)", Engine: "appjail", HostOnly: true,
+		Group:    "networking",
+		Probe:    appjailDNSProbe,
+		Install:  setupJailDNS,
+		Commands: jailDNSCommands,
+		Action:   "Set up jail name resolution",
+		Installed: func() bool {
+			ctx := context.Background()
+			conf := strings.TrimSpace(firstLine(run(ctx, "sysrc", "-n", "dnsmasq_conf")))
+			return exec.CommandContext(ctx, "service", "dnsmasq", "status").Run() == nil && foreignDNSConf(conf)
+		},
+		Why: "Jails on one network find each other by name only when appjail-dns writes the names and dnsmasq answers them. appjail-dns alone only keeps a hosts file, so it \"runs\" while no jail finds another. fjord's dnsmasq config answers only on the AppJail networks (appjail's own answers on every interface, the LAN included) and asks this host's resolvers for everything else, so jails keep the LAN's names.",
+		FixFunc: func() string {
+			return "pkg install -y dnsmasq\nmkdir -p " + filepath.Dir(appjail.DNSConf) + "\ncat > " + appjail.DNSConf + " <<'EOF'\n" +
+				appjail.DNSConfBody(context.Background()) + "EOF\n" + strings.Join(jailDNSCommands[2:], "\n")
+		},
+	}
+}
+
+// jailDNSCommands are what the button runs, for the setup page.
+var jailDNSCommands = []string{
+	"pkg install -y dnsmasq",
+	"# write " + appjail.DNSConf + " (the AppJail networks' bridges)",
+	"sysrc dnsmasq_enable=YES",
+	"sysrc dnsmasq_conf=" + appjail.DNSConf,
+	"service dnsmasq restart",
+	"sysrc appjail_dns_enable=YES",
+	"service appjail-dns restart",
+}
+
+// foreignDNSConf says a dnsmasq config is neither appjail's nor fjord's: the
+// operator's own, which fjord does not touch. Empty is dnsmasq's default
+// file, also the operator's.
+func foreignDNSConf(conf string) bool {
+	return conf != appjailDNSMasqConf && conf != appjail.DNSConf
+}
+
+func setupJailDNS(ctx context.Context, w io.Writer) error {
+	conf := strings.TrimSpace(firstLine(run(ctx, "sysrc", "-n", "dnsmasq_conf")))
+	if exec.CommandContext(ctx, "service", "dnsmasq", "status").Run() == nil && foreignDNSConf(conf) {
+		return fmt.Errorf("dnsmasq here runs with %s, not a config fjord or appjail wrote: fjord leaves it alone", cmp.Or(conf, "its default config"))
+	}
+	if _, err := os.Stat("/usr/local/sbin/dnsmasq"); err != nil {
+		if err := pkgInstall(ctx, "dnsmasq", w); err != nil {
+			return err
+		}
+	}
+	fmt.Fprintf(w, "$ cat > %s\n", appjail.DNSConf)
+	if _, err := appjail.WriteDNSConf(ctx); err != nil {
+		return err
+	}
+	for _, args := range [][]string{
+		{"sysrc", "dnsmasq_enable=YES"},
+		{"sysrc", "dnsmasq_conf=" + appjail.DNSConf},
+		{"service", "dnsmasq", "restart"},
+		{"sysrc", "appjail_dns_enable=YES"},
+		{"service", "appjail-dns", "restart"},
+	} {
+		if err := runShown(ctx, w, nil, args[0], args[1:]...); err != nil {
+			return err
+		}
+	}
+	return nil
+}
 
 // appjailDNSProbe reports whether appjail's name resolution WORKS, which
 // takes two services. appjail-dns(8) only keeps /var/tmp/appjail-hosts and
@@ -561,6 +677,32 @@ func appjailDNSProbe(ctx context.Context) (Status, string) {
 	return appjailDNSStatus(rcErr == nil, dnsmasqErr == nil, dnsmasqRunning, conf, args, appjailRunning)
 }
 
+// defaultDHCPProbe reads ifconfig_DEFAULT and the NIC the default route
+// leaves by, so the fix can name it.
+func defaultDHCPProbe(ctx context.Context) (Status, string) {
+	value := strings.TrimSpace(firstLine(run(ctx, "sysrc", "-n", "ifconfig_DEFAULT")))
+	nic := ""
+	for _, line := range strings.Split(run(ctx, "route", "-n", "get", "default"), "\n") {
+		if k, v, ok := strings.Cut(strings.TrimSpace(line), ":"); ok && k == "interface" {
+			nic = strings.TrimSpace(v)
+		}
+	}
+	return defaultDHCPStatus(value, nic)
+}
+
+// defaultDHCPStatus: DHCP (or SYNCDHCP) on DEFAULT reaches every new
+// interface; anything else, or nothing, is fine.
+func defaultDHCPStatus(value, nic string) (Status, string) {
+	if !strings.Contains(strings.ToUpper(value), "DHCP") {
+		return OK, "ifconfig_DEFAULT does not use DHCP"
+	}
+	msg := fmt.Sprintf("rc.conf has ifconfig_DEFAULT=%q: the host runs dhclient on every container interface", value)
+	if nic != "" {
+		msg += fmt.Sprintf(" -- name %s instead: sysrc ifconfig_%s=%q; sysrc -x ifconfig_DEFAULT", nic, nic, value)
+	}
+	return Warn, msg
+}
+
 // appjailDNSStatus is the verdict from the facts, in the order an operator
 // would fix them.
 func appjailDNSStatus(installed, dnsmasqInstalled, dnsmasqRunning bool, dnsmasqConf, dnsmasqArgs string, appjailRunning bool) (Status, string) {
@@ -571,12 +713,14 @@ func appjailDNSStatus(installed, dnsmasqInstalled, dnsmasqRunning bool, dnsmasqC
 		return Warn, "dnsmasq is not installed -- appjail-dns only writes a hosts file, dnsmasq is what answers; jails cannot find each other by name"
 	case !dnsmasqRunning:
 		return Warn, "dnsmasq is not running -- appjail-dns only writes a hosts file, dnsmasq is what answers; jails cannot find each other by name"
-	case dnsmasqConf != appjailDNSMasqConf && !strings.Contains(dnsmasqArgs, appjailDNSMasqConf):
-		return Warn, "dnsmasq is running, but not with appjail's config (" + appjailDNSMasqConf + ") -- the jail names are not in what it answers"
+	case runsWith(appjailDNSMasqConf, dnsmasqConf, dnsmasqArgs):
+		return Warn, "dnsmasq answers with appjail's stock config: on every interface, your LAN included, and only through OpenDNS, so jails lose your LAN's names -- Install switches it to fjord's"
+	case !runsWith(appjail.DNSConf, dnsmasqConf, dnsmasqArgs):
+		return Warn, "dnsmasq is running with another config (" + cmp.Or(dnsmasqConf, "its default") + "), so the jail names are not in what it answers; fjord leaves a dnsmasq it did not set up alone"
 	case !appjailRunning:
 		return Warn, "dnsmasq is ready, but appjail-dns is not running -- nothing writes the jail names for it"
 	}
-	return OK, "running: appjail-dns writes the names, dnsmasq answers with appjail's config"
+	return OK, "running: appjail-dns writes the names, dnsmasq answers them on the AppJail networks only"
 }
 
 // podmanServiceStaleProbe reports a podman API service older than the podman
@@ -596,6 +740,9 @@ func podmanServiceStaleProbe(ctx context.Context) (Status, string) {
 	pid := strings.TrimSpace(firstLine(run(ctx, "pgrep", "-f", "podman.*system service")))
 	if pid == "" {
 		return OK, "" // not running: the socket check is the one that says so
+	}
+	if !podmanInstalled() {
+		return OK, "" // podman removed: the podman and socket checks say so, and an install date to compare with is gone
 	}
 	// etimes is elapsed SECONDS, which needs no date parsing and no locale.
 	etimes, err := strconv.Atoi(strings.TrimSpace(firstLine(run(ctx, "ps", "-o", "etimes=", "-p", pid))))
@@ -722,9 +869,55 @@ func enableService(service, rcvar string) func(context.Context, io.Writer) error
 	}
 }
 
+// restartService restarts a running rc.d service: the fix for an API
+// service older than the binaries under it. Containers are untouched;
+// podman is daemonless and the service only answers the socket.
+func restartService(service string) func(context.Context, io.Writer) error {
+	return func(ctx context.Context, w io.Writer) error {
+		// "restart" from a daemon has left podman_service stopped on FreeBSD
+		// (jupiter, 2026-10-08; netlab, 2026-10-25): the stop lands, the
+		// start does not. So: restart, then make sure it runs, and say so.
+		_ = runShown(ctx, w, nil, "service", service, "onerestart")
+		for i := 0; i < 10; i++ {
+			if run(ctx, "service", service, "onestatus") != "" && !strings.Contains(run(ctx, "service", service, "onestatus"), "not running") {
+				return nil
+			}
+			time.Sleep(500 * time.Millisecond)
+		}
+		if err := runShown(ctx, w, nil, "service", service, "onestart"); err != nil {
+			return err
+		}
+		if strings.Contains(run(ctx, "service", service, "onestatus"), "not running") {
+			return fmt.Errorf("%s did not come back; start it by hand: service %s onestart", service, service)
+		}
+		return nil
+	}
+}
+
 // serviceCommands are enableService's commands, for the setup page.
 func serviceCommands(service, rcvar string) []string {
 	return []string{"sysrc " + rcvar + "=YES", "service " + service + " onerestart"}
+}
+
+// hostZone is the zone the timezone check sets: the one asked for when this
+// host has it, else UTC. Only plain zone names pass, so nothing reaches
+// tzsetup as an option or a path outside zoneinfo.
+func hostZone(zoneinfo, want string) string {
+	if zoneName.MatchString(want) {
+		if fi, err := os.Stat(filepath.Join(zoneinfo, want)); err == nil && fi.Mode().IsRegular() {
+			return want
+		}
+	}
+	return "UTC"
+}
+
+var zoneName = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_+-]*(/[A-Za-z0-9_+-]+)*$`)
+
+// setZone installs a zone by name, which skips tzsetup's menu.
+func setZone(zone string) func(context.Context, io.Writer) error {
+	return func(ctx context.Context, w io.Writer) error {
+		return runShown(ctx, w, nil, "tzsetup", zone)
+	}
 }
 
 // localtimeProbe: a dangling localtime symlink counts as none (os.Stat follows it).
@@ -738,4 +931,84 @@ func localtimeProbe(path string) func(context.Context) (Status, string) {
 		}
 		return OK, "set"
 	}
+}
+
+// fdescCommands mount fdescfs on /dev/fd now and at every boot.
+var fdescCommands = []string{
+	"mount -t fdescfs fdesc /dev/fd",
+	"echo 'fdesc /dev/fd fdescfs rw 0 0' >> /etc/fstab",
+}
+
+// fdescProbe asks /dev/fd what conmon asks it: does it list a file this
+// process has open? Without fdescfs it lists only 0-2. Looking for fdescfs in
+// the mount table is not enough: one mounted elsewhere (/compat/linux/dev/fd)
+// does not help.
+func fdescProbe(dir string) func(context.Context) (Status, string) {
+	return func(context.Context) (Status, string) {
+		f, err := os.Open(os.DevNull)
+		if err != nil {
+			return Unknown, err.Error()
+		}
+		defer f.Close()
+		ents, err := os.ReadDir(dir)
+		if err != nil {
+			return Unknown, err.Error()
+		}
+		want := strconv.Itoa(int(f.Fd()))
+		for _, e := range ents {
+			if e.Name() == want {
+				return OK, "fdescfs is mounted on " + dir
+			}
+		}
+		return Warn, dir + " lists only stdin, stdout and stderr: fdescfs is not mounted there"
+	}
+}
+
+// mountFdesc mounts fdescfs on dir when it is not already, and adds the
+// fstab line when it is missing.
+func mountFdesc(dir, fstab string) func(context.Context, io.Writer) error {
+	return func(ctx context.Context, w io.Writer) error {
+		if st, _ := fdescProbe(dir)(ctx); st != OK {
+			if err := runShown(ctx, w, nil, "mount", "-t", "fdescfs", "fdesc", dir); err != nil {
+				return err
+			}
+		}
+		return addFdescFstab(w, dir, fstab)
+	}
+}
+
+// addFdescFstab adds the fstab line mounting fdescfs on dir, once.
+func addFdescFstab(w io.Writer, dir, fstab string) error {
+	b, err := os.ReadFile(fstab)
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	if fstabMounts(string(b), dir, "fdescfs") {
+		return nil
+	}
+	line := "fdesc\t" + dir + "\t\tfdescfs\trw\t0\t0\n"
+	if len(b) > 0 && b[len(b)-1] != '\n' {
+		line = "\n" + line
+	}
+	fmt.Fprintf(w, "$ echo 'fdesc %s fdescfs rw 0 0' >> %s\n", dir, fstab)
+	f, err := os.OpenFile(fstab, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0o644)
+	if err != nil {
+		return err
+	}
+	if _, err := f.WriteString(line); err != nil {
+		f.Close()
+		return err
+	}
+	return f.Close()
+}
+
+// fstabMounts reports whether fstab has an active line mounting fstype on dir.
+func fstabMounts(fstab, dir, fstype string) bool {
+	for _, l := range strings.Split(fstab, "\n") {
+		f := strings.Fields(l)
+		if len(f) >= 3 && !strings.HasPrefix(f[0], "#") && f[1] == dir && f[2] == fstype {
+			return true
+		}
+	}
+	return false
 }

@@ -2,16 +2,18 @@
 // card opens on Enter, the stack name is a button that opens the rename box,
 // and the two resize sashes are focusable sliders. Read-only; needs a
 // running stack on the host to open (any).
+// needs: freebsd
 const { chromium } = require('playwright-core');
+const { signedIn, openPage } = require('./session');
 const BASE = 'http://127.0.0.1:3567';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const note = (id, ok, msg) => console.log(`${ok ? 'PASS' : 'FAIL'} ${id}: ${msg}`);
 (async () => {
   const b = await chromium.launch({ args: ['--no-sandbox'] });
-  const page = await (await b.newContext({ viewport: { width: 1400, height: 1000 } })).newPage();
+  const page = await (await b.newContext(signedIn({ viewport: { width: 1400, height: 1000 } }))).newPage();
   page.setDefaultTimeout(20000);
   try {
-    await page.goto(BASE + '/#/store', { waitUntil: 'networkidle' });
+    await openPage(page, BASE + '/#/store');
     await page.getByPlaceholder(/Search apps/).fill('openspeedtest');
     await sleep(800);
     const card = page.locator('[role="button"]').filter({ hasText: 'OpenSpeedTest' }).first();
@@ -25,7 +27,7 @@ const note = (id, ok, msg) => console.log(`${ok ? 'PASS' : 'FAIL'} ${id}: ${msg}
 
     const stacks = (await (await page.request.get(BASE + '/api/stacks')).json()).map((s) => s.name);
     if (!stacks.length) { note('stack page', true, 'no stack on the host to open (nothing to judge)'); await b.close(); return; }
-    await page.goto(BASE + '/?t=' + Date.now() + '#/stacks/' + stacks[0], { waitUntil: 'networkidle' });
+    await openPage(page, BASE + '/?t=' + Date.now() + '#/stacks/' + stacks[0]);
     await sleep(1500);
     const rename = page.locator('h2 button', { hasText: stacks[0] }).first();
     note('stack page: the name is a button inside the heading', (await rename.count()) === 1, `${await rename.count()} found`);

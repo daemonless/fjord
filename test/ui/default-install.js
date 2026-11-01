@@ -2,18 +2,20 @@
 // the name, on each engine, and open it. No network picked, no Options: the
 // engine's default network. This is the path #44 broke on AppJail for three
 // days while every other test picked a LAN network.
+// needs: freebsd appjail
 const { chromium } = require('playwright-core');
+const { signedIn, openPage } = require('./session');
 const BASE = 'http://127.0.0.1:3567';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const note = (id, ok, msg) => console.log(`${ok ? 'PASS' : 'FAIL'} ${id}: ${msg}`);
 async function install(page, name, engine, port) {
-  await page.goto(BASE + '/?t=' + Date.now() + '#/store', { waitUntil: 'networkidle' });
+  await openPage(page, BASE + '/?t=' + Date.now() + '#/store');
   await page.getByPlaceholder(/Search apps/).fill('openspeedtest');
   await sleep(800);
   await page.getByRole('button', { name: /^Install/ }).first().click();
   const install = page.getByRole('button', { name: 'Install', exact: true });
   await install.waitFor();
-  await page.getByLabel('Name').fill(name);
+  await page.getByLabel('Name', { exact: true }).fill(name);
   // Only what two copies on one host need: a free port. Everything else stays
   // as the wizard offers it.
   if (!(await page.locator('#WEB_PORT').isVisible().catch(() => false))) await page.getByRole('button', { name: /^Options/ }).first().click();
@@ -37,7 +39,7 @@ async function install(page, name, engine, port) {
   for (let i = 0; i < 80; i++) { d = await (await page.request.get(BASE + '/api/stacks/' + name)).json().catch(() => ({})); if (!d?.busy && (d?.status?.state === 'running' || d?.state?.last_failure)) break; await sleep(3000); }
   const f = (d?.state || {}).last_failure;
   note(`${engine}: installed on the default network, running`, d?.status?.state === 'running' && !f, `state ${d?.status?.state}${f ? ', failed: ' + f.message : ''}`);
-  await page.goto(BASE + '/?t=' + Date.now() + '#/stacks/' + name, { waitUntil: 'networkidle' });
+  await openPage(page, BASE + '/?t=' + Date.now() + '#/stacks/' + name);
   await sleep(1500);
   const open = await page.getByRole('link', { name: /Open/ }).first().getAttribute('href').catch(() => '');
   await page.screenshot({ path: `/out/default-install-${engine}-stack.png`, fullPage: true });
@@ -46,7 +48,7 @@ async function install(page, name, engine, port) {
 }
 (async () => {
   const b = await chromium.launch({ args: ['--no-sandbox'] });
-  const page = await (await b.newContext({ viewport: { width: 1400, height: 1100 } })).newPage();
+  const page = await (await b.newContext(signedIn({ viewport: { width: 1400, height: 1100 } }))).newPage();
   page.setDefaultTimeout(30000);
   try {
     await install(page, 't-def-podman', 'podman', '3120');

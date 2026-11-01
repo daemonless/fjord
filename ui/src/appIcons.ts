@@ -4,6 +4,9 @@
 import { writable, get } from 'svelte/store';
 
 export const appIcons = writable<Record<string, string>>({});
+// The same icons by image repo, for a stack's services: each of
+// crafting-apps' ten is an app of its own in the catalog.
+export const imageIcons = writable<Record<string, string>>({});
 
 let loaded = false;
 export async function loadAppIcons() {
@@ -16,6 +19,7 @@ export async function loadAppIcons() {
       const m: Record<string, string> = {};
       for (const a of d.apps || []) m[a.id] = a.icon;
       appIcons.set(m);
+      imageIcons.set(iconsByImage(d.apps || []));
     }
   } catch {
     loaded = false; // let a later caller retry
@@ -32,6 +36,29 @@ export function iconFor(
 ): string {
   if (s.icon) return `/api/stacks/${encodeURIComponent(s.name)}/icon?v=${encodeURIComponent(s.icon)}`;
   return icons[s.state?.origin?.app_id ?? ''] || icons[(s.displayName ?? '').toLowerCase()] || '';
+}
+
+// iconsByImage maps each catalog image repo to its app's icon. A stack's
+// entry names its first service's image (crafting-apps -> photocraft), so
+// when two apps claim one image the app named like the image wins.
+export function iconsByImage(apps: { id: string; image?: string; icon?: string }[]): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const a of apps) {
+    if (!a.image || !a.icon) continue;
+    const named = a.image.split('/').pop() === a.id;
+    if (!out[a.image] || named) out[a.image] = a.icon;
+  }
+  return out;
+}
+
+// serviceIcon is the icon of the app a service runs, by its image without
+// tag or digest; "" for an image no catalog knows (a database).
+export function serviceIcon(byImage: Record<string, string>, image?: string): string {
+  if (!image) return '';
+  let ref = image.split('@')[0];
+  const colon = ref.lastIndexOf(':');
+  if (colon > ref.lastIndexOf('/')) ref = ref.slice(0, colon);
+  return byImage[ref] || '';
 }
 
 // Deterministic tile colour for stacks with no catalog logo (GNOME palette).

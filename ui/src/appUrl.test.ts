@@ -26,6 +26,15 @@ describe('appUrl', () => {
     expect(appUrl({ ...midUpdate, linkHost: '192.168.4.142' })).toBe('http://192.168.4.142:8384');
   });
 
+  // spike-lan: whoami on lan, nothing published, no web port. The header
+  // said "no address on lan yet" with the address in the Services panel.
+  it('links an app on its own address that maps no port', () => {
+    const compose = 'services:\n  web:\n    image: docker.io/traefik/whoami:v1.10\n';
+    const lan = { compose, ownAddress: true, linkHost: '192.168.4.185' };
+    expect(appUrl({ ...lan, status: { containers: [{ exposed: [8080] }] } })).toBe('http://192.168.4.185:8080');
+    expect(appUrl({ ...lan, status: { containers: [{}] } })).toBe('http://192.168.4.185');
+  });
+
   it('uses the host port when the link goes to the host', () => {
     vi.stubGlobal('location', { hostname: 'netlab' });
     const compose = 'services:\n  web:\n    ports:\n      - "8001:8000"\n';

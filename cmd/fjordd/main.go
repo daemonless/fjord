@@ -3,6 +3,7 @@ package main
 import (
 	"compress/gzip"
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -11,6 +12,8 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
+	"slices"
 	"strings"
 	"time"
 
@@ -39,9 +42,20 @@ func envOr(key, def string) string {
 // engineDescriptors is the registry of known engines, in default-preference
 // order. Adding an engine is adding its Descriptor here -- no engine-specific
 // code lives in the generic daemon; each engine describes and detects itself.
-var engineDescriptors = []engine.Descriptor{
+var engineDescriptors = enginesFor([]engine.Descriptor{
 	podman.Descriptor,
 	appjail.Descriptor,
+}, runtime.GOOS)
+
+// enginesFor keeps the engines that run on goos.
+func enginesFor(all []engine.Descriptor, goos string) []engine.Descriptor {
+	var out []engine.Descriptor
+	for _, d := range all {
+		if d.OS == "" || d.OS == goos {
+			out = append(out, d)
+		}
+	}
+	return out
 }
 
 // engineNames joins the registered engine names for help text.
@@ -98,17 +112,21 @@ func buildBackends(fjordRoot string) (map[string]engine.Backend, string) {
 	return backends, def
 }
 
-// cacheControl makes the SPA shell always revalidate so a redeployed binary's
-// new content-hashed bundle is picked up on the next load, while letting the
-// hashed assets themselves cache forever. The embedded FS sends no ETag or
-// Last-Modified (embed files have zero modtime), so without this a browser will
-// keep serving a stale index.html that points at a bundle no longer present.
+// cacheControl keeps the SPA shell out of the browser's cache altogether,
+// while letting the content-hashed assets cache forever. The embedded FS
+// sends no ETag or Last-Modified (embed files have zero modtime), so a
+// cached index.html would point at a bundle no longer present after a
+// redeploy. "no-cache" (revalidate) was not enough: Chrome restores a tab
+// after a restart without validating, ran the old bundle from before the
+// sign-in work, and that bundle's cached "no account" answer put Set up in
+// front of someone with an account (netlab, 2026-10-26). "no-store" leaves
+// nothing to restore from; the page is a few KB.
 func cacheControl(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(r.URL.Path, "/assets/") {
 			w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
 		} else {
-			w.Header().Set("Cache-Control", "no-cache")
+			w.Header().Set("Cache-Control", "no-store")
 		}
 		next.ServeHTTP(w, r)
 	})
@@ -159,25 +177,38 @@ type gzipWriter struct {
 
 func (g gzipWriter) Write(b []byte) (int, error) { return g.w.Write(b) }
 
+const defaultStacksDir = "/var/db/fjord/stacks"
+
 func main() {
 	// Config comes from FJORD_* env vars; each is also a flag that overrides
 	// its env var. Flags default to the env value (or the built-in default),
 	// and the resolved value is written back to the env so every consumer --
 	// some deep in the engine packages -- reads one source of truth.
+	if len(os.Args) > 1 && os.Args[1] == "passwd" {
+		if err := runPasswd(os.Args[2:], os.Stdin, os.Stdout); err != nil {
+			if !errors.Is(err, flag.ErrHelp) {
+				fmt.Fprintf(os.Stderr, "fjordd passwd: %v\n", err)
+			}
+			os.Exit(1)
+		}
+		return
+	}
 	var (
 		fVersion      = flag.Bool("version", false, "print version and exit")
 		fVersionV     = flag.Bool("v", false, "print version and exit (alias)")
 		fListen       = flag.String("listen", envOr("FJORD_LISTEN", ":3567"), "listen address")
-		fStacksDir    = flag.String("stacks-dir", envOr("FJORD_STACKS_DIR", "/var/db/fjord/stacks"), "stacks directory")
+		fStacksDir    = flag.String("stacks-dir", envOr("FJORD_STACKS_DIR", defaultStacksDir), "stacks directory")
 		fStorageBase  = flag.String("storage-base", os.Getenv("FJORD_STORAGE_BASE"), "default App data location")
 		fEngine       = flag.String("engine", os.Getenv("FJORD_ENGINE"), "default engine ("+engineNames()+")")
 		fPodmanSocket = flag.String("podman-socket", os.Getenv("FJORD_PODMAN_SOCKET"), "podman API socket")
 		fHostAddr     = flag.String("host-addr", os.Getenv("FJORD_HOST_ADDR"), "host address advertised to the UI")
 		fCatalogURL   = flag.String("catalog-url", os.Getenv("FJORD_CATALOG_URL"), "bootstrap catalog on first run")
 		fAllowedHosts = flag.String("allowed-hosts", os.Getenv("FJORD_ALLOWED_HOSTS"), "more names this host answers to, comma-separated (a reverse proxy's)")
+		fAuth         = flag.String("auth", os.Getenv("FJORD_AUTH"), "sign-in: password (default), or none when only loopback or --trusted-proxy can connect")
+		fTrustedProxy = flag.String("trusted-proxy", os.Getenv("FJORD_TRUSTED_PROXY"), "reverse proxy addresses or ranges, comma-separated (their X-Forwarded-For is believed)")
 	)
 	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "fjordd %s\n\nUsage: fjordd [flags]\n\n"+
+		fmt.Fprintf(os.Stderr, "fjordd %s\n\nUsage: fjordd [flags]\n       fjordd passwd [--user NAME] [--password-stdin]\n\n"+
 			"Each flag can also be set with its FJORD_* env var; the flag wins.\n\nFlags:\n", version)
 		flag.PrintDefaults()
 	}
@@ -190,18 +221,21 @@ func main() {
 	// engine packages that read os.Getenv directly) honor flag overrides.
 	os.Setenv("FJORD_LISTEN", *fListen)
 	os.Setenv("FJORD_STACKS_DIR", *fStacksDir)
+	os.Setenv("FJORD_LISTEN", *fListen) // the doctor checks the firewall lets this port in
 	os.Setenv("FJORD_STORAGE_BASE", *fStorageBase)
 	os.Setenv("FJORD_ENGINE", *fEngine)
 	os.Setenv("FJORD_PODMAN_SOCKET", *fPodmanSocket)
 	os.Setenv("FJORD_HOST_ADDR", *fHostAddr)
 	os.Setenv("FJORD_CATALOG_URL", *fCatalogURL)
 	os.Setenv("FJORD_ALLOWED_HOSTS", *fAllowedHosts)
+	os.Setenv("FJORD_AUTH", *fAuth)
+	os.Setenv("FJORD_TRUSTED_PROXY", *fTrustedProxy)
 
 	fmt.Printf("Starting fjordd %s - Compose Manager MVP\n", version)
 
 	stacksDir := os.Getenv("FJORD_STACKS_DIR")
 	if stacksDir == "" {
-		stacksDir = "/var/db/fjord/stacks"
+		stacksDir = defaultStacksDir
 	}
 	// The fjord root (parent of stacks) is where provisioned volumes live.
 	fjordRoot := filepath.Dir(stacksDir)
@@ -224,20 +258,29 @@ func main() {
 	// only bootstraps a first entry on a fresh install. Any source added but
 	// never fetched (e.g. added while offline) is fetched in the background
 	// at startup.
+	instanceID = ensureInstance(fjordRoot).ID
 	settings := loadSettings(fjordRoot)
 	sources := settings.Catalogs
-	if len(sources) == 0 && !settings.CatalogBootstrapped {
-		// Fresh install: the app store should not be empty out of the box.
-		// Add the default catalog (FJORD_CATALOG_URL overrides which) as an
-		// ordinary, removable source and remember that we did, so a user who
-		// deletes it later doesn't get it back on every restart.
-		id, url := "daemonless", defaultCatalogURL
-		if env := os.Getenv("FJORD_CATALOG_URL"); env != "" {
-			id, url = "default", env
+	defaults := defaultCatalogs(runtime.GOOS)
+	if env := os.Getenv("FJORD_CATALOG_URL"); env != "" && len(sources) == 0 && !settings.CatalogBootstrapped {
+		// FJORD_CATALOG_URL replaces the defaults on a fresh install.
+		sources = []catalog.Source{{ID: "default", Name: "default", URL: env}}
+		var ids []string
+		for _, d := range defaults {
+			ids = append(ids, d.ID)
 		}
-		sources = []catalog.Source{{ID: id, Name: id, URL: url}}
-		if err := updateSettings(fjordRoot, func(st *savedSettings) { st.Catalogs = sources }); err != nil {
+		if err := updateSettings(fjordRoot, func(st *savedSettings) { st.Catalogs, st.CatalogDefaults = sources, ids }); err != nil {
 			log.Printf("catalog: could not persist default source: %v", err)
+		}
+		settings.CatalogDefaults = ids
+	}
+	// Fresh install: the app store should not be empty out of the box. The
+	// defaults are ordinary, removable sources, each added once (see
+	// CatalogDefaults), so one deleted later doesn't come back on restart.
+	if added, given := newDefaults(sources, settings.CatalogDefaults, settings.CatalogBootstrapped, defaults); len(added) != len(sources) || !slices.Equal(given, settings.CatalogDefaults) {
+		sources = added
+		if err := updateSettings(fjordRoot, func(st *savedSettings) { st.Catalogs, st.CatalogDefaults = sources, given }); err != nil {
+			log.Printf("catalog: could not persist default sources: %v", err)
 		}
 	}
 	// Once any catalog has ever been configured -- bootstrapped here or added
@@ -248,6 +291,8 @@ func main() {
 		}
 	}
 	cat := catalog.New(filepath.Join(fjordRoot, "catalog"), sources)
+	// The store offers only what this OS can run.
+	cat.RunsOn = func(os []string) bool { return slices.Contains(os, runtime.GOOS) }
 	if unfetched := cat.Unfetched(); len(unfetched) > 0 {
 		go func() {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
@@ -268,6 +313,12 @@ func main() {
 	if addr == "" {
 		addr = ":3567"
 	}
+
+	gate, err := newAuthGate(fjordRoot, addr, authEnv(), os.Getenv("FJORD_TRUSTED_PROXY"))
+	if err != nil {
+		log.Fatal(err)
+	}
+	gate.logAuthStart()
 
 	podman.SMBCredDir = filepath.Join(fjordRoot, "smb") // Linux cifs credential files (root-only)
 	backends, defEngine := buildBackends(fjordRoot)
@@ -315,6 +366,7 @@ func main() {
 	http.HandleFunc("/healthz", srv.handleHealthz)
 	api := http.NewServeMux()
 	srv.routes(api)
+	gate.routes(api)
 	http.Handle("/api/", guardMutations(api)) // same-origin + JSON on every mutation
 	http.Handle("/catalog/", api)
 
@@ -332,11 +384,22 @@ func main() {
 
 	// Default binds all interfaces so container port publishing reaches it; a
 	// host daemon can narrow it to loopback via FJORD_LISTEN.
-	closeShellsOnExit()
+	stopOnSignal()
 	fmt.Printf("Web UI listening on %s\n", addr)
 	hostname, _ := os.Hostname()
 	resolv, _ := os.ReadFile("/etc/resolv.conf")
-	log.Fatal(http.ListenAndServe(addr, guardHost(newHostAllow(hostname, string(resolv), *fAllowedHosts), http.DefaultServeMux)))
+	httpd := &http.Server{
+		Addr:    addr,
+		Handler: guardHost(newHostAllow(hostname, string(resolv), *fAllowedHosts), gate.wrap(http.DefaultServeMux)),
+		// A client that opens connections and never finishes its headers
+		// holds them forever otherwise. No read or write timeout: the event
+		// stream, logs, action output and the shell stay open for as long
+		// as they are watched (a read deadline would survive into the
+		// shell's hijacked connection).
+		ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout:       2 * time.Minute,
+	}
+	log.Fatal(httpd.ListenAndServe())
 }
 
 // logKept logs what start-on-boot pinned, and what it would not pin.
@@ -351,14 +414,35 @@ func logKept(name string, kept, skipped []string) {
 
 // startOnBoot brings up every stack whose recorded desired_state is "running",
 // one at a time, so running stacks survive a fjordd or host restart.
+// finishDelete completes a delete that a fjordd restart cut short. Its app
+// data is kept: whether the delete was to take it is not recorded, and data
+// left behind can still be removed by hand where data removed cannot come back.
+func finishDelete(srv *server, name string) {
+	unlock, ok := lockStackAs(name, "deleting")
+	if !ok {
+		return
+	}
+	defer unlock()
+	if code, msg := srv.removeStack(name, false); code != 0 {
+		log.Printf("start-on-boot: %s: finishing its delete: %s", name, msg)
+		return
+	}
+	log.Printf("start-on-boot: %s: finished a delete that a restart cut short (its app data, if any, is kept)", name)
+}
+
 func startOnBoot(srv *server) {
 	stacks, err := srv.manager.List()
 	if err != nil {
 		log.Printf("start-on-boot: list stacks: %v", err)
 		return
 	}
+	booted := hostBooted()
 	for _, s := range stacks {
-		if s.State == nil || s.State.DesiredState != "running" {
+		if s.State != nil && s.State.DesiredState == desiredDeleting {
+			finishDelete(srv, s.Name)
+			continue
+		}
+		if s.State == nil || (s.State.DesiredState != "running" && s.State.DesiredState != "stopped") {
 			continue
 		}
 		full, err := srv.manager.Get(s.Name)
@@ -366,7 +450,30 @@ func startOnBoot(srv *server) {
 			log.Printf("start-on-boot: load %s: %v", s.Name, err)
 			continue
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		// A stack with no policy keeps the old rule: up when it was running.
+		restarts := srv.bootRestarts(full)
+		if !bootStart(s.State.DesiredState, restarts, booted) {
+			if booted && s.State.DesiredState == "running" {
+				// Left down by its policy (Don't restart), not broken: say it
+				// is stopped, or the page reads it as a stack that failed.
+				log.Printf("start-on-boot: %s: not started, its restart policy is no", s.Name)
+				srv.manager.SetDesiredState(s.Name, "stopped")
+			}
+			continue
+		}
+		if s.State.DesiredState == "stopped" {
+			// restart: always comes back at a host boot even after a Stop.
+			log.Printf("start-on-boot: %s: stopped, but its restart policy is always", s.Name)
+			srv.manager.UpdateState(s.Name, func(st *stack.State) *stack.State {
+				if st != nil {
+					st.DesiredState = "running"
+				}
+				return st
+			})
+		}
+		// Long enough for a pull: two minutes cut immich's install off
+		// mid-pull and left it half made (netlab, 2026-10-04).
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 		// A fjordd restart is not a host boot: a stack that is already running
 		// must be left alone. `podman-compose up` recreates its containers when
 		// the compose file has changed (killing open shells and restarting the
@@ -379,17 +486,47 @@ func startOnBoot(srv *server) {
 			cancel()
 			continue
 		}
+		// Held like any action: the page shows it starting, and a Start
+		// pressed meanwhile is refused instead of racing this one.
+		unlock, ok := lockStackAs(s.Name, "up")
+		if !ok {
+			cancel()
+			continue // something else is already acting on it
+		}
+		if chose := srv.chooseAddresses(ctx, full); chose != "" {
+			log.Printf("start-on-boot: %s: %s", s.Name, strings.TrimSpace(chose))
+		}
 		stream, err := srv.backendFor(full).Up(ctx, full)
 		if err != nil {
 			log.Printf("start-on-boot: up %s: %v", s.Name, err)
+			unlock()
 			cancel()
 			continue
 		}
-		io.Copy(io.Discard, stream) // wait for the bring-up to finish before the next
+		// Judged like any action: an [error] becomes the stack's failure
+		// banner. It used to be thrown away and "brought up" logged anyway --
+		// for a stack with nothing running (immich, 2026-10-05).
+		watch := &errorWatch{}
+		io.Copy(watch, srv.recordOutcome(s.Name, "start on boot", stream)) // wait before the next
 		stream.Close()
+		unlock()
 		kept, skipped := srv.keepAddresses(ctx, full)
 		logKept(s.Name, kept, skipped)
+		state := "unknown"
+		if st, err := srv.backendFor(full).Status(ctx, full); err == nil {
+			state = st.State
+		}
+		timedOut := ctx.Err() != nil
 		cancel()
-		log.Printf("start-on-boot: brought up %s", s.Name)
+		switch {
+		case watch.seen:
+			log.Printf("start-on-boot: %s did not come up: %s", s.Name, watch.Message())
+		case timedOut:
+			log.Printf("start-on-boot: %s: gave up after 10m (now %s)", s.Name, state)
+		case state != "running":
+			log.Printf("start-on-boot: %s is %s after its bring-up", s.Name, state)
+		default:
+			log.Printf("start-on-boot: brought up %s", s.Name)
+		}
 	}
 }

@@ -23,8 +23,15 @@ import (
 )
 
 // ConfDir is where podman reads network definitions from. Every file here is
-// a live network.
+// a live network. On Linux it is netavark's (hostnet_linux.go).
 var ConfDir = "/usr/local/etc/cni/net.d"
+
+// confExt and parseDef are the file name suffix and format of a definition in
+// ConfDir: CNI conflists here, netavark JSON on Linux.
+var (
+	confExt  = ".conflist"
+	parseDef = parse
+)
 
 // NameRe bounds a network name: it becomes a filename and an interface name
 // component, so neither path separators nor exotic characters are allowed.
@@ -38,7 +45,10 @@ type Network struct {
 	Bridge  string // the host bridge it hangs off
 	Subnet  string
 	Gateway string
-	MTU     int
+	// RangeStart/RangeEnd: the part of Subnet a pool hands out ("" = all of
+	// it), IPv4.
+	RangeStart, RangeEnd string
+	MTU                  int
 	// DHCP: addresses come from the segment's own server, so there is no
 	// subnet here to read. Without this a DHCP network looks like a broken one.
 	DHCP bool
@@ -64,7 +74,7 @@ type Network struct {
 }
 
 // Path returns the conflist path for a network name.
-func Path(name string) string { return filepath.Join(ConfDir, name+".conflist") }
+func Path(name string) string { return filepath.Join(ConfDir, name+confExt) }
 
 // Get reads one network's definition. ok is false when the name is invalid or
 // no such network is defined.
@@ -76,7 +86,7 @@ func Get(name string) (Network, bool) {
 	if err != nil {
 		return Network{}, false
 	}
-	return parse(name, data)
+	return parseDef(name, data)
 }
 
 // List returns every defined network, ordered by name.
@@ -87,7 +97,7 @@ func List() []Network {
 	}
 	var out []Network
 	for _, e := range entries {
-		name, ok := strings.CutSuffix(e.Name(), ".conflist")
+		name, ok := strings.CutSuffix(e.Name(), confExt)
 		if !ok || !NameRe.MatchString(name) {
 			continue
 		}
@@ -121,8 +131,10 @@ func parse(name string, data []byte) (Network, bool) {
 			IPAM   struct {
 				Type   string `json:"type"`
 				Ranges [][]struct {
-					Subnet  string `json:"subnet"`
-					Gateway string `json:"gateway"`
+					Subnet     string `json:"subnet"`
+					Gateway    string `json:"gateway"`
+					RangeStart string `json:"rangeStart"`
+					RangeEnd   string `json:"rangeEnd"`
 				} `json:"ranges"`
 			} `json:"ipam"`
 		} `json:"plugins"`
@@ -150,6 +162,7 @@ func parse(name string, data []byte) (Network, bool) {
 		}
 		if n.Subnet == "" {
 			n.Subnet, n.Gateway = r[0].Subnet, r[0].Gateway
+			n.RangeStart, n.RangeEnd = r[0].RangeStart, r[0].RangeEnd
 		}
 	}
 	// A DHCP network has no ipam ranges; the segment is recorded beside them.
@@ -436,4 +449,105 @@ func NoAddressReason(network string) string {
 	default:
 		return "no address: " + network + " should have assigned one, so attaching it failed"
 	}
+}
+
+// ReleaseFailedAdds frees reservations a failed network setup left behind on
+// the very container that will retry: a start that failed in the bridge
+// plugin's add keeps host-local's reservation but caches no result, so every
+// later start runs add again and host-local refuses the address it already
+// gave that same container ("duplicate allocation"). Nothing undoes it --
+// teardown needs the cached result -- and the stack cannot start again until
+// the file is removed by hand (immich_database_1 on netlab, 2026-09-21).
+//
+// Freed only when the reservation names a container stopped (one of the
+// caller's, not running) and libcni has no result for it on this network: a
+// container that really holds the address always has its result cached.
+func ReleaseFailedAdds(network string, stopped func(id string) bool) []string {
+	if !NameRe.MatchString(network) {
+		return nil
+	}
+	dir := filepath.Join(ipamStateDir, network)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+	var freed []string
+	for _, e := range entries {
+		addr := e.Name()
+		if net.ParseIP(addr) == nil {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(dir, addr))
+		if err != nil {
+			continue
+		}
+		id, _, _ := strings.Cut(strings.TrimSpace(string(data)), "\n")
+		if id = strings.TrimSpace(id); id == "" || !stopped(id) {
+			continue
+		}
+		if cached, _ := filepath.Glob(filepath.Join(cniResultsDir, network+"-"+id+"-*")); len(cached) > 0 {
+			continue // the add completed: the address is really its
+		}
+		if os.Remove(filepath.Join(dir, addr)) == nil {
+			freed = append(freed, addr)
+		}
+	}
+	return freed
+}
+
+// MatchAddresses assigns a jail's addresses to the networks it is on, given
+// the ones already known (out, changed in place). A jail lists its addresses
+// and not which interface each came from: first each network takes the
+// address in its own subnet (subnetOf, "" when it records none), then a
+// network with no subnet (DHCP: the lease carries it) takes what is left.
+func MatchAddresses(addrs, networks []string, out map[string]string, subnetOf func(string) string) {
+	claimed := map[string]bool{}
+	for _, a := range out {
+		claimed[a] = true
+	}
+	for _, n := range networks {
+		if _, known := out[n]; known {
+			continue
+		}
+		sub := subnetOf(n)
+		if sub == "" {
+			continue
+		}
+		for _, a := range addrs {
+			if !claimed[a] && InSubnet(a, sub) {
+				out[n], claimed[a] = a, true
+				break
+			}
+		}
+	}
+	inOther := func(a, self string) bool {
+		for _, n := range networks {
+			if n != self {
+				if sub := subnetOf(n); sub != "" && InSubnet(a, sub) {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	for _, n := range networks {
+		if _, known := out[n]; known {
+			continue
+		}
+		for _, a := range addrs {
+			if claimed[a] || inOther(a, n) {
+				continue
+			}
+			out[n], claimed[a] = a, true
+			break
+		}
+	}
+}
+
+// DefinedSubnet is the subnet a network fjord defines records, "" when none.
+func DefinedSubnet(network string) string {
+	if def, ok := Get(network); ok {
+		return def.Subnet
+	}
+	return ""
 }

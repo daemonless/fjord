@@ -1,6 +1,7 @@
-# One service of an AppJail stack updated from the panel: the jail of the
-# service that was behind is replaced and runs the new image, the other
-# jail is never stopped (same jid).
+# One service of an AppJail stack updated from the panel, then rolled back:
+# the jail of the service that was behind is replaced and runs the new image,
+# then is rebuilt from the image it had; the other jail is never stopped
+# (same jid throughout).
 #
 # The stack is a director project written here, not a catalog app: `sync`
 # names its image (`from:`), as every sidecar of a catalog bundle does, and
@@ -36,23 +37,27 @@ OPTION overwrite=force
 OPTION from=ghcr.io/daemonless/openspeedtest:${tag}
 """
 print(json.dumps({"engine": "appjail", "director": director, "makejail": makejail, "compose": "", "env": ""}))')
-  code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 -X POST -H "Origin: $FJORD" -H 'Content-Type: application/json' -d "$body" "$FJORD/api/stacks/t-aju/save")
+  code=$(curl -s -b "$FJORD_COOKIE" -o /dev/null -w '%{http_code}' --max-time 30 -X POST -H "Origin: $FJORD" -H 'Content-Type: application/json' -d "$body" "$FJORD/api/stacks/t-aju/save")
   [ "$code" = 200 ] || { say "FAIL t-aju: creating the stack answered $code"; return; }
-  curl -s -o /dev/null --max-time 600 -X POST -H "Origin: $FJORD" "$FJORD/api/stacks/t-aju/up"
+  curl -s -b "$FJORD_COOKIE" -o /dev/null --max-time 600 -X POST -H "Origin: $FJORD" "$FJORD/api/stacks/t-aju/up"
   AJU_WEB=$(aju_jid t_aju_web); AJU_SYNC=$(aju_jid t_aju_sync); AJU_OLD=$(aju_image t_aju_sync)
   if [ -n "$AJU_WEB" ] && [ -n "$AJU_SYNC" ]; then say "PASS t-aju: both jails up (web jid $AJU_WEB, sync jid $AJU_SYNC)"
   else say "FAIL t-aju: jails not up after Start (web '$AJU_WEB', sync '$AJU_SYNC')"; return; fi
   run_js appjail-update
+  sync=$(aju_jid t_aju_sync); AJU_NEW=$(aju_image t_aju_sync)
+  if [ -n "$sync" ] && [ "$sync" != "$AJU_SYNC" ]; then say "PASS t-aju: sync's jail was replaced (jid $AJU_SYNC -> $sync)"
+  else say "FAIL t-aju: sync jid $AJU_SYNC -> ${sync:-<no jail>}, want a new jail"; fi
+  if [ -n "$AJU_NEW" ] && [ "$AJU_NEW" != "$AJU_OLD" ]; then say "PASS t-aju: sync runs a newer image than it was built from"
+  else say "FAIL t-aju: sync still runs image ${AJU_NEW:-<none>}, the one it had"; fi
+  run_js appjail-update -e STEP=rollback
 }
 after() {
-  for _ in $(seq 1 30); do curl -s --max-time 10 "$FJORD/api/stacks/t-aju" | grep -q '"busy"' || break; sleep 5; done
-  web=$(aju_jid t_aju_web); sync=$(aju_jid t_aju_sync); new=$(aju_image t_aju_sync)
-  if [ -n "$web" ] && [ "$web" = "${AJU_WEB:-}" ]; then echo "PASS t-aju: web was left running (jid $web before and after)"
+  for _ in $(seq 1 30); do curl -s --max-time 10 -b "$FJORD_COOKIE" "$FJORD/api/stacks/t-aju" | grep -q '"busy"' || break; sleep 5; done
+  web=$(aju_jid t_aju_web); now=$(aju_image t_aju_sync)
+  if [ -n "$web" ] && [ "$web" = "${AJU_WEB:-}" ]; then echo "PASS t-aju: web was left running through the update and the rollback (jid $web)"
   else echo "FAIL t-aju: web jid ${AJU_WEB:-?} -> ${web:-<no jail>}, it was not updated and must not restart"; fi
-  if [ -n "$sync" ] && [ "$sync" != "${AJU_SYNC:-}" ]; then echo "PASS t-aju: sync's jail was replaced (jid ${AJU_SYNC:-?} -> $sync)"
-  else echo "FAIL t-aju: sync jid ${AJU_SYNC:-?} -> ${sync:-<no jail>}, want a new jail"; fi
-  if [ -n "$new" ] && [ "$new" != "${AJU_OLD:-}" ]; then echo "PASS t-aju: sync runs a newer image than it was built from"
-  else echo "FAIL t-aju: sync still runs image ${new:-<none>}, the one it had"; fi
+  if [ -n "$now" ] && [ "$now" = "${AJU_OLD:-}" ]; then echo "PASS t-aju: after Roll back, sync runs the image it had before the update"
+  else echo "FAIL t-aju: after Roll back sync runs ${now:-<none>}, want ${AJU_OLD:-?} (before the update)"; fi
   del_stack t-aju
   left=$(on 'jls name | grep "^t_aju_"' | tr '\n' ' ')
   [ -z "$left" ] || echo "FAIL t-aju: jails left behind: $left"

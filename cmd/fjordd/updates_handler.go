@@ -44,9 +44,15 @@ func (s *server) updateServices(ctx context.Context, st *stack.Stack) []updates.
 	// A service the compose names no image for, but whose engine knows what
 	// it runs: an appjail director stack names makejails, not images, so the
 	// ref the jail was built from is the only image there is to check.
+	// What the director says it runs wins over what the jail was built from:
+	// a rollback pins the director to a digest, and buildah reports the tag.
 	for _, ri := range running {
 		if !seen[ri.Service] && ri.Ref != "" {
-			out = append(out, updates.Service{Name: ri.Service, Image: ri.Ref, Running: ri.Digest, Known: ri.Digests})
+			img := ri.Ref
+			if d := directorImage(st, ri.Service); d != "" {
+				img = composepkg.ExpandEnv(d, env)
+			}
+			out = append(out, updates.Service{Name: ri.Service, Image: img, Running: ri.Digest, Known: ri.Digests})
 		}
 	}
 	extra := out[len(list):] // map order is random; keep the panel's rows stable

@@ -3,6 +3,7 @@ package manifest
 import (
 	"fmt"
 	composepkg "github.com/daemonless/fjord/pkg/compose"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -20,7 +21,7 @@ type ProvisionDir struct {
 type Resolved struct {
 	Env           map[string]string // VAR -> value, written to .env
 	Dirs          []ProvisionDir    // host dirs to mkdir + chown
-	EmptyOptional []string          // optional vars left empty; drop their ${VAR} volume mounts
+	EmptyOptional []string          // optional vars left empty; drop their mounts, ports and settings
 }
 
 // Resolve maps user-supplied values (falling back to defaults) to .env entries
@@ -39,6 +40,11 @@ func (m *Manifest) Resolve(values map[string]string, slug, storageBase string) (
 		val := v.Default
 		if got, ok := values[v.Name]; ok && got != "" {
 			val = got
+		} else if v.Given {
+			// Only its owner has it, so the catalog's default is a
+			// placeholder: cloudflared's YOUR_CLOUDFLARE_TOKEN_HERE was
+			// installed and crash-looped with nothing said.
+			val = ""
 		} else {
 			// A DEFAULT that is still a compose reference is not a value. A
 			// manifest derived from a variabilized compose can carry
@@ -57,7 +63,12 @@ func (m *Manifest) Resolve(values map[string]string, slug, storageBase string) (
 		case "zfs_dataset":
 			var abs string
 			if filepath.IsAbs(val) {
-				abs = val // explicit override: bind an existing/chosen host path
+				// explicit override: bind an existing/chosen host path -- one
+				// that names where it goes ("/containers/x/../../etc" does not)
+				if strings.Contains("/"+val+"/", "/../") {
+					return nil, fmt.Errorf("%s must not climb out with .., got %q", v.Name, val)
+				}
+				abs = filepath.Clean(val)
 			} else {
 				name := val
 				if name == "" {
@@ -98,13 +109,34 @@ func (m *Manifest) Resolve(values map[string]string, slug, storageBase string) (
 			}
 			res.Env[v.Name] = val
 
-		default: // port, string, secret
+		case "public_url":
 			if val == "" && !v.Optional {
 				return nil, fmt.Errorf("required value %q is empty", v.Name)
 			}
-			// An optional port left blank must not stay as "${VAR}:443" in the
-			// compose; record it so the install drops that publish line.
-			if val == "" && v.Type == "port" {
+			if val != "" {
+				if u, err := url.Parse(val); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+					return nil, fmt.Errorf("%s must be an address like http://host:port, got %q", v.Name, val)
+				}
+			}
+			res.Env[v.Name] = val
+
+		default: // port, string, secret
+			// A names provider's pairing values are fjord's to fill after
+			// Resolve (install_handler): empty here is expected, not missing.
+			if val == "" && m.fjordFills(v.Name) {
+				res.Env[v.Name] = ""
+				continue
+			}
+			if val == "" && !v.Optional && v.Given {
+				return nil, fmt.Errorf("%s is empty: it is yours to enter (fjord does not make it up)", v.Name)
+			}
+			if val == "" && !v.Optional {
+				return nil, fmt.Errorf("required value %q is empty", v.Name)
+			}
+			// An optional value left blank is dropped where it is the whole of
+			// something: a port must not stay as "${VAR}:443", and a setting
+			// must not reach the app as set-to-nothing (see DropEnvReferencing).
+			if val == "" && v.Optional {
 				res.EmptyOptional = append(res.EmptyOptional, v.Name)
 			}
 			res.Env[v.Name] = val
@@ -118,18 +150,26 @@ func (m *Manifest) Resolve(values map[string]string, slug, storageBase string) (
 func Provision(dirs []ProvisionDir) error {
 	for _, d := range dirs {
 		// Adopt an existing dir as-is: don't chown someone's migrated data out
-		// from under them. Only freshly-created dirs get the ownership spec.
-		_, err := os.Stat(d.Path)
-		existed := err == nil
-		if err := os.MkdirAll(d.Path, d.Mode); err != nil {
-			return fmt.Errorf("mkdir %s: %w", d.Path, err)
-		}
-		if existed {
-			continue
-		}
-		if err := os.Chown(d.Path, d.Uid, d.Gid); err != nil {
-			return fmt.Errorf("chown %s: %w", d.Path, err)
+		// from under them. Only freshly-created levels get the ownership spec,
+		// and never through a link a container could have planted.
+		if _, err := MkdirOwned(d.Path, d.Mode, d.Uid, d.Gid); err != nil {
+			return err
 		}
 	}
 	return nil
+}
+
+// fjordFills reports whether name is one of the ${VAR}s a names provider
+// declares for fjord to fill: its address, id and name (the key and setup
+// token are secrets fjord makes up anyway).
+func (m *Manifest) fjordFills(name string) bool {
+	if m.Names == nil {
+		return false
+	}
+	for _, ref := range []string{m.Names.ClientURL, m.Names.ClientID, m.Names.ClientName, m.Names.Key, m.Names.SetupToken} {
+		if strings.TrimSuffix(strings.TrimPrefix(ref, "${"), "}") == name && strings.HasPrefix(ref, "${") {
+			return true
+		}
+	}
+	return false
 }

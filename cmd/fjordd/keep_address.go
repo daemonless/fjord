@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"runtime"
 	"sort"
 	"strings"
 
@@ -35,8 +36,8 @@ import (
 // by name).
 func (s *server) keepAddresses(ctx context.Context, st *stack.Stack) (kept, skipped []string) {
 	be := s.backendFor(st)
-	if !be.Capabilities().PinServices || st.Compose == "" {
-		return nil, nil // appjail's director names no compose networks
+	if caps := be.Capabilities(); !caps.PinServices || caps.KeepsAddresses || st.Compose == "" {
+		return nil, nil
 	}
 	status, err := be.Status(ctx, st)
 	if err != nil {
@@ -50,7 +51,11 @@ func (s *server) keepAddresses(ctx context.Context, st *stack.Stack) (kept, skip
 	}
 	held := map[string]map[string]string{} // service -> network -> address
 	ids := map[string]string{}             // service -> container
+	macs := map[string]map[string]string{} // service -> network -> MAC, where reported
 	for _, c := range status.Containers {
+		if c.Service != "" && c.MACs != nil {
+			macs[c.Service] = c.MACs
+		}
 		if c.Service != "" && c.Addresses != nil {
 			held[c.Service] = c.Addresses
 		}
@@ -58,70 +63,85 @@ func (s *server) keepAddresses(ctx context.Context, st *stack.Stack) (kept, skip
 			ids[c.Service] = c.ID
 		}
 	}
-	compose := st.Compose
 	// What other stacks have, worked out once and only if something is to be
 	// pinned: an address another stack has is never pinned here (see
 	// takenAddresses), it is reported.
 	var taken map[string]addrHolder
-	per := composepkg.ServiceAttachments(compose)
-	svcs := make([]string, 0, len(per))
-	for svc := range per {
-		svcs = append(svcs, svc)
-	}
-	sort.Strings(svcs)
-	for _, svc := range svcs {
-		for _, a := range per[svc] {
-			if private[a.Network] {
-				continue
-			}
-			n, ok := hostnet.Get(a.Network)
-			if !ok || n.Static {
-				continue
-			}
-			if n.DHCP {
-				if a.MAC != "" {
+	// Pinned into the compose as it is on disk now, not st's copy: st was
+	// loaded when the action started, and an install's stream runs on through
+	// its stay-up watch. Saving that copy at the end undid a Save made
+	// meanwhile -- host networking set during the watch came back as the old
+	// networks with this MAC pinned (netlab, type test).
+	pin := func(compose string) string {
+		kept, skipped = nil, nil
+		per := composepkg.ServiceAttachments(compose)
+		svcs := make([]string, 0, len(per))
+		for svc := range per {
+			svcs = append(svcs, svc)
+		}
+		sort.Strings(svcs)
+		for _, svc := range svcs {
+			for _, a := range per[svc] {
+				if private[a.Network] {
 					continue
 				}
-				mac := hostnet.MACOf(a.Network, ids[svc])
-				if mac == "" {
+				n, ok := hostnet.Get(a.Network)
+				if !ok || n.Static {
 					continue
 				}
-				out, err := composepkg.PinMAC(compose, svc, a.Network, mac)
+				if n.DHCP {
+					if a.MAC != "" {
+						continue
+					}
+					mac := macs[svc][a.Network] // podman's report (Linux)
+					if mac == "" {
+						mac = hostnet.MACOf(a.Network, ids[svc]) // CNI's state (FreeBSD)
+					}
+					if mac == "" {
+						continue
+					}
+					out, err := composepkg.PinMAC(compose, svc, a.Network, mac)
+					if err != nil || out == compose {
+						continue
+					}
+					compose = out
+					kept = append(kept, fmt.Sprintf("kept %s's MAC %s on %s, %s", svc, mac, a.Network, macLeaseNote))
+					continue
+				}
+				if a.IP != "" {
+					continue
+				}
+				ip := held[svc][a.Network]
+				if parsed := net.ParseIP(ip); parsed == nil || parsed.To4() == nil {
+					continue
+				}
+				if taken == nil {
+					taken = s.takenAddresses(ctx, st.Name)
+				}
+				if h, ok := taken[a.Network+"|"+ip]; ok {
+					skipped = append(skipped, clashText(svc, ip, a.Network, h, fixOnStackPage))
+					continue
+				}
+				out, err := composepkg.PinAddress(compose, svc, a.Network, ip)
 				if err != nil || out == compose {
 					continue
 				}
 				compose = out
-				kept = append(kept, fmt.Sprintf("kept %s's MAC %s on %s, which its DHCP lease follows", svc, mac, a.Network))
-				continue
+				kept = append(kept, fmt.Sprintf("kept %s on %s (%s)", svc, ip, a.Network))
 			}
-			if a.IP != "" {
-				continue
-			}
-			ip := held[svc][a.Network]
-			if parsed := net.ParseIP(ip); parsed == nil || parsed.To4() == nil {
-				continue
-			}
-			if taken == nil {
-				taken = s.takenAddresses(ctx, st.Name)
-			}
-			if h, ok := taken[a.Network+"|"+ip]; ok {
-				skipped = append(skipped, clashText(svc, ip, a.Network, h))
-				continue
-			}
-			out, err := composepkg.PinAddress(compose, svc, a.Network, ip)
-			if err != nil || out == compose {
-				continue
-			}
-			compose = out
-			kept = append(kept, fmt.Sprintf("kept %s on %s (%s)", svc, ip, a.Network))
 		}
+		return compose
 	}
+	saved, err := s.manager.Update(st.Name, func(fresh *stack.Stack) error {
+		fresh.Compose = pin(fresh.Compose)
+		return nil
+	})
+	if err != nil {
+		return []string{"could not keep addresses: " + err.Error()}, skipped
+	}
+	st.Compose = saved.Compose
 	if len(kept) == 0 {
 		return nil, skipped
-	}
-	st.Compose = compose
-	if err := s.manager.Save(st); err != nil {
-		return []string{"could not keep addresses: " + err.Error()}, skipped
 	}
 	return kept, skipped
 }
@@ -167,3 +187,12 @@ func (t *thenReader) Read(p []byte) (int, error) {
 }
 
 func (t *thenReader) Close() error { return t.c.Close() }
+
+// macLeaseNote is what a pinned MAC does for a DHCP lease. On Linux netavark
+// names each container to the DHCP server by its own id (option 61), which a
+// recreate changes: the server hands out a new address unless it holds a
+// reservation for the MAC (netlab-linux: .183 -> .184 with the MAC kept).
+var macLeaseNote = map[bool]string{
+	true:  "which its DHCP lease follows",
+	false: "so a reservation for it on your DHCP server keeps its address (podman names each container to the server by its own id)",
+}[runtime.GOOS != "linux"]

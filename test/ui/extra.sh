@@ -3,7 +3,8 @@
 # wedged podman mid-run once, so the run refuses to start without room.
 ONLY=${ONLY:-setup,pl,pj,adopt}
 MIN_GB=${MIN_GB:-8}
-UI_ENV="-e ONLY=$ONLY -e KEEP=t-adopt"
+# KEEP=t-pj leaves that stack for a look (deleted by hand after).
+UI_ENV="-e ONLY=$ONLY -e KEEP=${KEEP:-t-adopt}"
 
 before() {
   free=$(on 'zfs list -Hpo avail zroot' 2>/dev/null)

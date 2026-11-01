@@ -34,7 +34,7 @@ func TestMaterializeDirectorExpandsMultiFolder(t *testing.T) {
 		"/movies/other": "/mnt/other/movies",
 		// /tv unresolved -> pruned
 	}
-	out, placeholders, allVol, err := materializeDirector(testDirector, "7", container2host)
+	out, placeholders, allVol, err := materializeDirector(testDirector, "7", container2host, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,7 +83,7 @@ func TestWriteAppjailBundleWritesExtras(t *testing.T) {
 		TemplateConf: "persist\n",
 		Extras:       map[string]string{"immich-postgres-template.conf": tmpl},
 	}
-	if _, err := writeAppjailBundle(dir, "immich", b, map[string]string{}, "services:\n  bazarr:\n    image: x\n", nil, nil, ""); err != nil {
+	if _, err := writeAppjailBundle(dir, "immich", b, map[string]string{}, nil, "services:\n  bazarr:\n    image: x\n", nil, nil, ""); err != nil {
 		t.Fatal(err)
 	}
 	got, err := os.ReadFile(filepath.Join(dir, "immich-postgres-template.conf"))
@@ -109,7 +109,7 @@ func TestWriteAppjailBundleRefusesEscapingExtra(t *testing.T) {
 			Director: testDirector,
 			Extras:   map[string]string{bad: "x\n"},
 		}
-		if _, err := writeAppjailBundle(t.TempDir(), "immich", b, map[string]string{}, "services:\n  bazarr:\n    image: x\n", nil, nil, ""); err == nil {
+		if _, err := writeAppjailBundle(t.TempDir(), "immich", b, map[string]string{}, nil, "services:\n  bazarr:\n    image: x\n", nil, nil, ""); err == nil {
 			t.Errorf("accepted extra named %q", bad)
 		}
 	}
@@ -124,7 +124,7 @@ func TestWriteAppjailBundleRefusesEscapingExtra(t *testing.T) {
 // date", restarting forever.
 func TestDirectorEnvKeepsDeclaredKeys(t *testing.T) {
 	const defaults = "DIRECTOR_PROJECT=\nDB_USERNAME=\nTZ=\nUNSET_ON_PURPOSE=\n"
-	out := directorEnv(defaults, "immich", map[string]string{"DB_USERNAME": "postgres"}, map[string]string{}, map[string]bool{})
+	out := directorEnv(defaults, "immich", map[string]string{"DB_USERNAME": "postgres"}, nil, map[string]string{}, map[string]bool{})
 
 	if !strings.Contains(out, "\nUNSET_ON_PURPOSE=\n") {
 		t.Errorf("a declared-but-empty key was dropped:\n%s", out)
@@ -146,4 +146,116 @@ func TestDirectorEnvKeepsDeclaredKeys(t *testing.T) {
 		}
 	}
 	t.Errorf("no TZ line at all:\n%s", out)
+}
+
+// Every kept volume is nullfs, sub-mounts included; appjail's default
+// <pseudofs> fails on an image folder that is empty (MariaDB's log/mysql).
+func TestMaterializeDirectorNullfs(t *testing.T) {
+	out, _, _, err := materializeDirector(testDirector, "7", map[string]string{
+		"/config": "/c", "/movies/a": "/m/a", "/movies/b": "/m/b"}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := strings.Count(out, "type: nullfs"); n != 3 {
+		t.Fatalf("want 3 nullfs volumes, got %d:\n%s", n, out)
+	}
+}
+
+// An app and its database both mount /config: two folders, not one.
+func TestMaterializeDirectorSameContainerPath(t *testing.T) {
+	director := `services:
+  vikunja:
+    volumes:
+      - VIKUNJA_CONFIG_PATH: /config
+  vikunja-mariadb:
+    volumes:
+      - database: /config
+volumes:
+  VIKUNJA_CONFIG_PATH:
+    device: !ENV '${VIKUNJA_CONFIG_PATH}'
+  database:
+    device: !ENV '${DATABASE_LOCATION}'
+`
+	bySvc := map[string]map[string]string{
+		"vikunja": {"/config": "/s/config"},
+		"mariadb": {"/config": "/s/mariadb"},
+	}
+	_, ph, _, err := materializeDirector(director, "7", map[string]string{"/config": "/s/mariadb"},
+		bySvc, map[string]string{"DATABASE_LOCATION": "/s/mariadb"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ph["VIKUNJA_CONFIG_PATH"] != "/s/config" || ph["DATABASE_LOCATION"] != "/s/mariadb" {
+		t.Fatalf("got %v", ph)
+	}
+}
+
+// Where the parts find each other is written even when the bundle's .env does
+// not list it: missing, the director's default is 127.0.0.1, and immich-server
+// looked for its database there.
+func TestDirectorEnvWritesHostnames(t *testing.T) {
+	defaults := "DB_USERNAME=postgres\n"
+	host := jailHostnames("immich", map[string]string{"DB_HOSTNAME": "database", "REDIS_HOSTNAME": "redis"})
+	out := directorEnv(defaults, "immich", map[string]string{}, host, map[string]string{}, map[string]bool{})
+	for _, want := range []string{"DB_HOSTNAME=immich_database\n", "REDIS_HOSTNAME=immich_redis\n", "DB_USERNAME=postgres\n"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("%q missing from:\n%s", want, out)
+		}
+	}
+}
+
+// A hostname goes into .env only when a jail reads it: immich without its
+// public proxy has no reader for IMMICH_SERVER_HOST, and the .env tab said so.
+func TestWriteAppjailBundleOnlyReadHostnames(t *testing.T) {
+	dir := t.TempDir()
+	b := &manifest.AppjailBundle{Director: "services:\n  server:\n    name: s\n    oci:\n      environment:\n        - DB_HOSTNAME: !ENV '${DB_HOSTNAME:127.0.0.1}'\n"}
+	host := map[string]string{"DB_HOSTNAME": "immich_database", "IMMICH_SERVER_HOST": "immich_immich_server"}
+	env, err := writeAppjailBundle(dir, "immich", b, map[string]string{}, host, "services:\n  server:\n    image: x\n", nil, nil, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(env, "DB_HOSTNAME=immich_database\n") || strings.Contains(env, "IMMICH_SERVER_HOST") {
+		t.Errorf(".env:\n%s", env)
+	}
+}
+
+// A hostname named inside another value counts as read: grimmory's jail reads
+// DATABASE_URL, which names MARIADB_HOSTNAME. Dropped, the expand baked in the
+// 127.0.0.1 default and grimmory looked for MariaDB in its own jail.
+func TestWriteAppjailBundleHostnameInsideAValue(t *testing.T) {
+	dir := t.TempDir()
+	b := &manifest.AppjailBundle{
+		Director:    "services:\n  grimmory:\n    name: g\n    oci:\n      environment:\n        - DATABASE_URL: !ENV '${DATABASE_URL}'\n",
+		EnvDefaults: "DATABASE_URL=jdbc:mariadb://${MARIADB_HOSTNAME:-127.0.0.1}:${MARIADB_PORT:-3306}/grimmory\n",
+	}
+	host := map[string]string{"MARIADB_HOSTNAME": "t-grimmory_mariadb", "IMMICH_SERVER_HOST": "nobody_reads_this"}
+	env, err := writeAppjailBundle(dir, "t-grimmory", b, map[string]string{}, host, "services:\n  grimmory:\n    image: x\n", nil, nil, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(env, "DATABASE_URL=jdbc:mariadb://t-grimmory_mariadb:3306/grimmory\n") {
+		t.Errorf("DATABASE_URL should reach the database jail:\n%s", env)
+	}
+	if strings.Contains(env, "IMMICH_SERVER_HOST") {
+		t.Errorf("a hostname nothing reads is still left out:\n%s", env)
+	}
+}
+
+// A wizard value left empty does not let the bundle's placeholder through:
+// "<PASS>" written was transmission's password. A real default stays, and a
+// key the wizard does not ask about is kept as declared.
+func TestDirectorEnvDropsPlaceholdersLeftEmpty(t *testing.T) {
+	const defaults = "DIRECTOR_PROJECT=\nPASS=<PASS>\nTS_AUTHKEY=tskey-auth-xxxx\nRPC_SECRET=${RPC_SECRET}\nMAXMEM=512\nOTHER=<OTHER>\n"
+	resolved := map[string]string{"PASS": "", "TS_AUTHKEY": "", "RPC_SECRET": "", "MAXMEM": ""}
+	out := directorEnv(defaults, "t", resolved, nil, map[string]string{}, map[string]bool{})
+	for _, gone := range []string{"PASS=", "TS_AUTHKEY=", "RPC_SECRET="} {
+		if strings.Contains(out, "\n"+gone) || strings.HasPrefix(out, gone) {
+			t.Errorf("%s placeholder written:\n%s", gone, out)
+		}
+	}
+	for _, kept := range []string{"MAXMEM=512\n", "OTHER=<OTHER>\n"} {
+		if !strings.Contains(out, kept) {
+			t.Errorf("%s lost:\n%s", kept, out)
+		}
+	}
 }

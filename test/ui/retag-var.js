@@ -1,7 +1,9 @@
 // Change Version on an image whose tag is a variable ("${TAG:-latest}") sets
 // the variable in .env and leaves the compose line as written; the container
 // comes back on the new tag. Through the pages, on a stack made for it.
+// needs: freebsd
 const { chromium } = require('playwright-core');
+const { signedIn, openPage } = require('./session');
 const BASE = 'http://127.0.0.1:3567';
 const NAME = 't-var';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -9,7 +11,7 @@ const note = (id, ok, msg) => console.log(`${ok ? 'PASS' : 'FAIL'} ${id}: ${msg}
 const detail = async (page) => (await page.request.get(BASE + '/api/stacks/' + NAME)).json();
 (async () => {
   const b = await chromium.launch({ args: ['--no-sandbox'] });
-  const page = await (await b.newContext({ viewport: { width: 1400, height: 1000 } })).newPage();
+  const page = await (await b.newContext(signedIn({ viewport: { width: 1400, height: 1000 } }))).newPage();
   page.setDefaultTimeout(30000);
   try {
     // The stack, the way the editor saves one: a tag that is a variable.
@@ -21,7 +23,7 @@ const detail = async (page) => (await page.request.get(BASE + '/api/stacks/' + N
     for (let i = 0; i < 60; i++) { d = await detail(page); if (d?.status?.state === 'running' && !d.busy) break; await sleep(3000); }
     note('running on the variable\'s value', d?.status?.state === 'running', `state ${d?.status?.state}`);
 
-    await page.goto(BASE + '/?t=' + Date.now() + '#/stacks/' + NAME, { waitUntil: 'networkidle' });
+    await openPage(page, BASE + '/?t=' + Date.now() + '#/stacks/' + NAME);
     await sleep(1500);
     await page.getByRole('button', { name: 'More Actions' }).click();
     await page.getByRole('button', { name: /Change Version/ }).click();
@@ -31,7 +33,9 @@ const detail = async (page) => (await page.request.get(BASE + '/api/stacks/' + N
     await page.getByPlaceholder(/Custom tag/).fill('2.0.5');
     await sleep(1500);
     await page.getByRole('button', { name: /Change & Redeploy/ }).click();
-    for (let i = 0; i < 80; i++) { d = await detail(page); if (!d.busy && d.status?.state === 'running') break; await sleep(3000); }
+    // Not busy and running is also true in the moment before the update
+    // starts; the rollback entry the update records says it has happened.
+    for (let i = 0; i < 80; i++) { d = await detail(page); if (d.state?.rollback?.speed && !d.busy && d.status?.state === 'running') break; await sleep(3000); }
     await sleep(2000);
     d = await detail(page);
     const line = (d.compose.match(/^\s*image:.*$/m) || [''])[0].trim();

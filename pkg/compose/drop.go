@@ -170,3 +170,65 @@ func referencesAny(s string, vars []string) bool {
 	}
 	return false
 }
+
+// bareRef matches a value that is one variable and nothing else: "${VAR}" or
+// "$VAR", never "${VAR:-x}" (which has its own default) or "a-${VAR}".
+var bareRef = regexp.MustCompile(`^\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))$`)
+
+// DropEnvReferencing removes the service environment entries whose whole
+// value is one of vars -- an optional setting the user left empty. Written
+// as "X=" it would be set to nothing, which is not the same as unset:
+// gitea's GITEA__database__DB_TYPE= is not "sqlite". An entry that builds a
+// longer value from the variable (a database URL) is kept.
+func DropEnvReferencing(composeYAML string, vars []string) (string, error) {
+	if len(vars) == 0 {
+		return composeYAML, nil
+	}
+	want := make(map[string]bool, len(vars))
+	for _, v := range vars {
+		want[v] = true
+	}
+	bare := func(value string) bool {
+		m := bareRef.FindStringSubmatch(strings.TrimSpace(value))
+		return m != nil && want[m[1]+m[2]]
+	}
+	var doc yaml.Node
+	if err := yaml.Unmarshal([]byte(composeYAML), &doc); err != nil {
+		return "", fmt.Errorf("parse compose: %w", err)
+	}
+	if len(doc.Content) == 0 || doc.Content[0].Kind != yaml.MappingNode {
+		return "", fmt.Errorf("compose is not a YAML mapping")
+	}
+	root := doc.Content[0]
+	services := mapGet(root, "services")
+	if services == nil || services.Kind != yaml.MappingNode {
+		return composeYAML, nil
+	}
+	for i := 1; i < len(services.Content); i += 2 {
+		env := mapGet(services.Content[i], "environment")
+		if env == nil {
+			continue
+		}
+		switch env.Kind {
+		case yaml.SequenceNode: // - X=${VAR}
+			kept := env.Content[:0:0]
+			for _, it := range env.Content {
+				if _, value, ok := strings.Cut(it.Value, "="); it.Kind == yaml.ScalarNode && ok && bare(value) {
+					continue
+				}
+				kept = append(kept, it)
+			}
+			env.Content = kept
+		case yaml.MappingNode: // X: ${VAR}
+			kept := env.Content[:0:0]
+			for j := 0; j+1 < len(env.Content); j += 2 {
+				if v := env.Content[j+1]; v.Kind == yaml.ScalarNode && bare(v.Value) {
+					continue
+				}
+				kept = append(kept, env.Content[j], env.Content[j+1])
+			}
+			env.Content = kept
+		}
+	}
+	return encodeRoot(root)
+}

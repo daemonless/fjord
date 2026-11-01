@@ -42,11 +42,28 @@ type savedSettings struct {
 	// to decide per row whether "Default" meant the shared one or this
 	// engine's, which is two meanings on one button.
 	DefaultNetworkFor map[string]string `json:"defaultNetworkFor,omitempty"`
+	// DefaultRestartFor is the restart policy new installs take, per engine
+	// (each offers its own; see engine.Capabilities), as compose spells it;
+	// none = unless-stopped.
+	DefaultRestartFor map[string]string `json:"defaultRestartFor,omitempty"`
 	CatalogRefresh    string            `json:"catalogRefresh,omitempty"` // automatic catalog refresh: off | 1h | 6h (default) | 24h
 	SetupDone         bool              `json:"setupDone,omitempty"`      // first-run setup wizard finished (or skipped)
 	// The default catalog was added once on first run. Never re-added after
 	// that, so removing it in Settings sticks across restarts.
 	CatalogBootstrapped bool `json:"catalogBootstrapped,omitempty"`
+	// CatalogDefaults are the default catalogs this install has been given,
+	// by id. A default added in a later version (daemonless on Linux, 0.4.0)
+	// is added once, like the first; removing it sticks the same way.
+	CatalogDefaults []string `json:"catalogDefaults,omitempty"`
+	// Instance is this fjord's own identity: a permanent random id and a
+	// name (the host's, until changed). A names provider shows the name
+	// ("fjord on netlab") and keys this fjord's names by the id, so a
+	// rename or a move changes nothing there.
+	Instance *Instance `json:"instance,omitempty"`
+	// NamesLink is a names provider linked by hand (Settings, Names): a
+	// reverse proxy on another machine. A stack of this fjord that provides
+	// names wins over it.
+	NamesLink *NamesLink `json:"namesLink,omitempty"`
 }
 
 func settingsPath(fjordRoot string) string {

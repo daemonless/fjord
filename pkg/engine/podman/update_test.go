@@ -29,18 +29,31 @@ func TestOfServices(t *testing.T) {
 // --no-deps b` deletes a's container, because a service left off the list
 // counts as an orphan. A partial update must never carry the flag.
 func TestUpArgsPartialNeverRemovesOrphans(t *testing.T) {
-	for _, a := range upArgs(true, []string{"database"}) {
+	for _, a := range upArgs(recreateAll, []string{"database"}) {
 		if a == "--remove-orphans" {
-			t.Fatalf("partial update carries --remove-orphans: %v", upArgs(true, []string{"database"}))
+			t.Fatalf("partial update carries --remove-orphans: %v", upArgs(recreateAll, []string{"database"}))
 		}
 	}
-	got := upArgs(true, []string{"database"})
+	got := upArgs(recreateAll, []string{"database"})
 	want := []string{"--in-pod=false", "up", "-d", "--force-recreate", "--no-deps", "database"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("partial: %v, want %v", got, want)
 	}
 	// The whole stack still clears services dropped from the compose.
-	if got := upArgs(false, nil); !reflect.DeepEqual(got, []string{"--in-pod=false", "up", "-d", "--remove-orphans"}) {
+	if got := upArgs(recreateChanged, nil); !reflect.DeepEqual(got, []string{"--in-pod=false", "up", "-d", "--remove-orphans"}) {
 		t.Errorf("whole stack: %v", got)
+	}
+}
+
+// Read in podman-compose 1.5.0 (compose_up): a plain `up` tears down EVERY
+// container when any one's config hash differs from the file's -- which is
+// the case for all the others once Apply recreated one. Starting the rest
+// after it must not recreate: crafting-apps' 12 other apps were all re-made
+// for a change to photocraft.
+func TestUpArgsTheRestRecreatesNothing(t *testing.T) {
+	got := upArgs(recreateNone, nil)
+	want := []string{"--in-pod=false", "up", "-d", "--remove-orphans", "--no-recreate"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("the rest: %v, want %v", got, want)
 	}
 }

@@ -8,6 +8,19 @@ const expand = (plan: Record<string, string>) =>
   Object.fromEntries(services.map((s) => [s, plan[s] ?? plan['*'] ?? '']));
 
 describe('resolveDefault', () => {
+  // A built-in default is the operator saying "no LAN network for new
+  // installs": the app goes as it ships. It used to fall to the first LAN
+  // network, because a mode once seeded no rows at all; seedInterfaces now
+  // gives a mode its one row.
+  it('installs as the app ships when the default is a built-in', () => {
+    const out = resolveDefault(expand(immich), [{ name: 'lan' }], 'bridge', 'host');
+    expect(Object.values(out).every((v) => v === 'host')).toBe(true);
+    const out2 = resolveDefault(expand(immich), [{ name: 'lan' }], 'bridge');
+    expect(Object.values(out2).every((v) => v === 'bridge')).toBe(true);
+    // ...and every service still gets a row to change: no empty screen.
+    const rows = seedInterfaces(Object.keys(out2), out2);
+    expect(Object.values(rows).every((r) => r.length === 1 && r[0].network === 'bridge')).toBe(true);
+  });
   it('picks the configured default when the host has it', () => {
     const out = resolveDefault(expand(immich), [{ name: 'lan' }, { name: 'vlan5' }], 'vlan5');
     expect(out['immich-server']).toBe('vlan5');
@@ -15,15 +28,6 @@ describe('resolveDefault', () => {
 
   it('falls back to the first real network when the configured one is gone', () => {
     const out = resolveDefault(expand(immich), [{ name: 'lan' }], 'vlan5');
-    expect(out['immich-server']).toBe('lan');
-  });
-
-  // The bug: the configured default can be a MODE, and a mode is not a
-  // network. Taking it left the exposed service on a built-in, which the seed
-  // turned into no interfaces at all -- the screen said "no network" with
-  // nothing to change.
-  it('prefers a real network over a configured mode', () => {
-    const out = resolveDefault(expand(immich), [{ name: 'lan' }], 'bridge');
     expect(out['immich-server']).toBe('lan');
   });
 
@@ -38,6 +42,13 @@ describe('seedInterfaces', () => {
   it('a one-service app on a LAN gets that network only, no private segment', () => {
     expect(seedInterfaces(['zensical'], { zensical: 'lan-dhcp' })).toEqual({
       zensical: [{ network: 'lan-dhcp', ip: '', mac: '' }],
+    });
+  });
+  it('adds no private segment when no service is private', () => {
+    const crafting = ['photocraft', 'vectorcraft'];
+    expect(seedInterfaces(crafting, { photocraft: 'lan', vectorcraft: 'lan' })).toEqual({
+      photocraft: [{ network: 'lan', ip: '', mac: '' }],
+      vectorcraft: [{ network: 'lan', ip: '', mac: '' }],
     });
   });
   it('gives the exposed service its network AND the private one', () => {
@@ -81,9 +92,9 @@ describe('splitPlan', () => {
     expect(modes).toEqual({ redis: 'host' });
   });
 
-  it('drops empty rows rather than sending a nameless network', () => {
+  it('never sends a nameless network: an unnamed row is bridge, as drawn', () => {
     const { networks } = splitPlan({ web: [{ network: '' }, { network: 'lan' }] });
-    expect(networks).toHaveLength(1);
+    expect(networks.map((n) => n.network)).toEqual(['bridge', 'lan']);
   });
 });
 
@@ -125,9 +136,9 @@ describe('splitPlan: a service emptied on screen', () => {
     expect(modes).toEqual({ database: 'none' });
   });
 
-  it('treats a row with a blank network the same way', () => {
+  it('reads a row with a blank network as the bridge it is drawn as', () => {
     const { modes } = splitPlan({ database: [{ network: '' }] });
-    expect(modes).toEqual({ database: 'none' });
+    expect(modes).toEqual({ database: 'bridge' });
   });
 });
 
@@ -378,5 +389,21 @@ describe('addressesNeeded', () => {
   });
   it('built-in modes and unknown networks are not its business', () => {
     expect(addressesNeeded({ web: [{ network: 'bridge' }, { network: 'host' }] }, nets, 'appjail')).toEqual([]);
+  });
+});
+
+// A row with no network named is drawn as "bridge" (the picker's own rule),
+// so it saves as bridge: two such rows -- a stack on the default network,
+// plus "+ interface" where nothing else could be picked -- saved as
+// network_mode: none and took the service off every network.
+describe('splitPlan: what is drawn is what is saved', () => {
+  it('saves an unnamed row as bridge, never none', () => {
+    expect(splitPlan({ web: [{ network: '' }] })).toEqual({ networks: [], modes: { web: 'bridge' } });
+    const two = splitPlan({ web: [{ network: '' }, { network: 'lan' }] });
+    expect(two.modes.web).toBeUndefined();
+    expect(two.networks.map((n) => n.network)).toEqual(['bridge', 'lan']);
+  });
+  it('still says none for a service left with no rows', () => {
+    expect(splitPlan({ web: [] })).toEqual({ networks: [], modes: { web: 'none' } });
   });
 });

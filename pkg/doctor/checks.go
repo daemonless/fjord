@@ -39,6 +39,23 @@ func socketProbe(ctx context.Context) (Status, string) {
 	if err := podman.Ping(ctx); err != nil {
 		return Fail, fmt.Sprintf("socket %s exists but is not answering (stale service from before a podman upgrade?): %v", path, err)
 	}
+	return answeringSocket(path, podmanInstalled())
+}
+
+// podmanInstalled says whether the podman command is there; a variable so
+// the leftover-service verdict can be tested without removing podman.
+var podmanInstalled = func() bool {
+	_, err := exec.LookPath("podman")
+	return err == nil
+}
+
+// answeringSocket is the verdict on a socket that answers. With podman gone
+// it is a leftover: the API service outlives `pkg delete podman`, keeps
+// answering, and Setup said "ok" for an engine that could not run a thing.
+func answeringSocket(path string, installed bool) (Status, string) {
+	if !installed {
+		return Fail, fmt.Sprintf("socket %s answers, but podman is not installed: it is an API service left running from before podman was removed -- stop it, or reinstall podman", path)
+	}
 	return OK, path
 }
 

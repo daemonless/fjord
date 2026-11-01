@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { checkSession } from './auth';
+  import InstallCheckButton from './InstallCheckButton.svelte';
   import { onMount, onDestroy } from 'svelte';
   import { onThemeChange } from './theme';
   import { xtermTheme } from './termTheme';
@@ -15,7 +17,17 @@
   let ws: WebSocket | null = null;
   let ro: ResizeObserver;
   let unwatchTheme: () => void;
-  let state: 'connecting' | 'connected' | 'closed' | 'error' = 'connecting';
+  let state: 'connecting' | 'connected' | 'closed' | 'error' | 'stale' = 'connecting';
+  // 4002: podman's API service predates podman; the reason is the doctor's
+  // detail. The panel offers the restart and tries the shell again after.
+  let staleDetail = '';
+  function retry() {
+    staleDetail = '';
+    attempts = 0;
+    state = 'connecting';
+    term?.reset();
+    connect();
+  }
 
   function sendResize() {
     if (ws?.readyState === WebSocket.OPEN && term) {
@@ -33,6 +45,8 @@
     const url = `${proto}://${location.host}/api/stacks/${encodeURIComponent(stack)}/exec?container=${encodeURIComponent(container)}`;
     ws = new WebSocket(url);
     ws.binaryType = 'arraybuffer';
+    // A refused upgrade (401: the session ended) looks like any close.
+    ws.addEventListener('close', () => checkSession());
     ws.onopen = () => {
       state = 'connected';
       // Do NOT reset the backoff here: an exec that fails right after the
@@ -50,7 +64,10 @@
     let dropped = 0;
     const MAX_PENDING = 2 * 1024 * 1024;
     ws.onmessage = (e) => {
-      attempts = 0; // a shell that talks is a healthy one
+      // A shell that talks is a healthy one. Text frames are fjordd's own
+      // ("exec failed: ..."), not the shell's: resetting on those retried a
+      // shell that could not start forever.
+      if (typeof e.data !== 'string') attempts = 0;
       const data = typeof e.data === 'string' ? e.data : new Uint8Array(e.data);
       const size = typeof data === 'string' ? data.length : data.byteLength;
       if (pending > MAX_PENDING) {
@@ -66,8 +83,22 @@
         }
       });
     };
-    ws.onclose = () => {
+    ws.onclose = (e) => {
       if (destroyed) return;
+      // 4001: fjordd says the image has no shell; a fresh one would fail
+      // the same way. The runtime's own line is noise here: one sentence.
+      if (e.code === 4001) {
+        state = 'closed';
+        term?.reset();
+        term?.write('This image has no shell, so there is nothing to open here.\r\n');
+        return;
+      }
+      if (e.code === 4002) {
+        state = 'stale';
+        staleDetail = e.reason || '';
+        term?.reset();
+        return;
+      }
       // The exec session drops fairly often on FreeBSD; auto-reconnect (a fresh
       // shell) instead of leaving a dead terminal. Backoff, capped.
       if (attempts < MAX_ATTEMPTS) {
@@ -136,9 +167,28 @@
       <span>connecting…</span>
     {:else if state === 'error'}
       <span class="text-fjord-danger">● connection error</span>
+    {:else if state === 'stale'}
+      <span class="text-fjord-warning">● podman's service needs a restart</span>
     {:else}
       <span class="text-fjord-fg-dim">● closed</span>
     {/if}
   </div>
-  <div bind:this={el} class="flex-1 min-h-0 p-1.5"></div>
+  <!-- Padded around, not on, xterm's parent: fit counts that padding as room
+       for rows and the bottom line was cut off. -->
+  <div class="flex-1 min-h-0 relative">
+    <div bind:this={el} class="absolute inset-1.5"></div>
+    {#if state === 'stale'}
+      <div class="absolute inset-0 flex items-center justify-center p-6 bg-fjord-card/95">
+        <div class="max-w-md flex flex-col gap-3">
+          <div class="text-sm font-semibold text-fjord-fg">podman's API service is older than podman</div>
+          <p class="text-sm text-fjord-fg-secondary">podman was updated under a service that kept running, and that service cannot open a shell any more. Everything else keeps working. Restarting the service fixes it and leaves the containers alone.</p>
+          {#if staleDetail}<p class="text-xs text-fjord-fg-dim font-mono">{staleDetail}</p>{/if}
+          <div class="flex items-center gap-3 flex-wrap">
+            <InstallCheckButton id="podman-stale" name="podman's API service" label="Restart it" busyLabel="Restarting…" on:installed={retry} />
+            <span class="text-xs text-fjord-fg-dim">or, as root: <code class="font-mono">service podman_service restart</code></span>
+          </div>
+        </div>
+      </div>
+    {/if}
+  </div>
 </div>

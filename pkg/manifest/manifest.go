@@ -20,6 +20,17 @@ type Var struct {
 	Optional bool
 	Uid, Gid int    // host_permissions for zfs_dataset (0 -> default 1000)
 	Mode     string // octal, e.g. "755"
+	// Given marks a secret only its owner has (a tunnel token, a WireGuard
+	// key): typed, never made up. Manifest `generate: false`.
+	Given bool
+}
+
+// MadeUp reports whether fjord makes the value up when it is left empty: a
+// required secret nobody has to bring. The catalog default is a placeholder
+// ("changeme", "your-encryption-key-here") and was what got installed. An
+// optional one stays empty: empty can mean "off" (paperless makes no admin).
+func (v Var) MadeUp() bool {
+	return v.Type == "secret" && !v.Optional && !v.Given
 }
 
 // A Choice is a question the stack asks at install (x-fjord.choices):
@@ -50,6 +61,21 @@ type Option struct {
 	DependsOn map[string][]string
 	Drop      []string
 	Ask       []Ask
+	// Hostnames is the option's share of the stack's hostnames: a service it
+	// adds -> the variable that carries its host name.
+	Hostnames map[string]string
+	// Appjail is the option's AppJail form, nil when it adds no jails.
+	Appjail *OptionAppjail
+}
+
+// OptionAppjail is what an option adds to the AppJail bundle: director
+// services and volumes (YAML, as the bundle's director writes them), files
+// they reference beside director.yml, and director service -> the variable
+// that carries its host name.
+type OptionAppjail struct {
+	Director  string
+	Files     map[string]string
+	Hostnames map[string]string
 }
 
 // Ask is a value an option needs from the person: shown only when the
@@ -82,6 +108,15 @@ type Manifest struct {
 	Variables []Var
 	WebPort   string
 	WebHTTPS  bool
+	// OwnOrigin (info.own_origin): the app checks Origin and Referer against
+	// its own address, so a names provider sends them as that (UniFi).
+	OwnOrigin bool
+	// NameEnv (info.name_env): variables fjord fills with the names a
+	// names provider gives the app, by template: {name} is the main name
+	// (sabnzbd.home.example.com), {names} every name, comma-separated. For
+	// apps that refuse a name they were not told (SABnzbd's host_whitelist)
+	// or need their own address (a base URL).
+	NameEnv map[string]string
 	// Networking is the app's own answer to "which service goes where": a map
 	// of service name to a network SPEC, with "*" standing for every service
 	// not named. The specs are Default (whatever the install was told to use)
@@ -104,7 +139,19 @@ type Manifest struct {
 	Hostnames map[string]string
 	// Choices are the questions the stack asks; empty for most apps.
 	Choices []Choice
+	// Login is how to sign in to the app, nil when it says nothing.
+	Login *Login
+	// Names is set when the app gives other apps names (x-fjord.provides
+	// .names): fjord pairs with it at install and creates names through
+	// its API.
+	Names *NamesProvider
+	// picked are the options ApplyChoices chose, one per choice.
+	picked []*Option
 }
+
+// Picked are the options the last ApplyChoices chose, one per choice, in the
+// order of Choices.
+func (m *Manifest) Picked() []*Option { return m.picked }
 
 // Network specs a manifest may give a service.
 const (
@@ -183,6 +230,7 @@ type xfVar struct {
 	Type            string `yaml:"type"`
 	Default         string `yaml:"default"`
 	Optional        bool   `yaml:"optional"`
+	Generate        *bool  `yaml:"generate"`
 	HostPermissions *struct {
 		Uid  int    `yaml:"uid"`
 		Gid  int    `yaml:"gid"`
@@ -232,14 +280,20 @@ func Parse(manifestYAML string) (*Manifest, error) {
 
 	var xf struct {
 		Info struct {
-			WebPort  string `yaml:"web_port"`
-			WebHTTPS bool   `yaml:"web_https"`
+			WebPort   string            `yaml:"web_port"`
+			WebHTTPS  bool              `yaml:"web_https"`
+			OwnOrigin bool              `yaml:"own_origin"`
+			NameEnv   map[string]string `yaml:"name_env"`
 		} `yaml:"info"`
 		Variables  []xfVar           `yaml:"variables"`
 		Appjail    *AppjailBundle    `yaml:"appjail"`
 		Networking map[string]string `yaml:"networking"`
 		Hostnames  map[string]string `yaml:"hostnames"`
-		Choices    []struct {
+		Login      *Login            `yaml:"login"`
+		Provides   *struct {
+			Names *NamesProvider `yaml:"names"`
+		} `yaml:"provides"`
+		Choices []struct {
 			ID      string `yaml:"id"`
 			Kind    string `yaml:"kind"`
 			Label   string `yaml:"label"`
@@ -255,7 +309,13 @@ func Parse(manifestYAML string) (*Manifest, error) {
 				Services  string              `yaml:"services"`
 				DependsOn map[string][]string `yaml:"depends_on"`
 				Drop      []string            `yaml:"drop"`
-				Ask       []struct {
+				Hostnames map[string]string   `yaml:"hostnames"`
+				Appjail   *struct {
+					Director  string            `yaml:"director"`
+					Files     map[string]string `yaml:"files"`
+					Hostnames map[string]string `yaml:"hostnames"`
+				} `yaml:"appjail"`
+				Ask []struct {
 					Name    string            `yaml:"name"`
 					Label   string            `yaml:"label"`
 					Default string            `yaml:"default"`
@@ -270,7 +330,8 @@ func Parse(manifestYAML string) (*Manifest, error) {
 	}
 	vars := make([]Var, 0, len(xf.Variables))
 	for _, v := range xf.Variables {
-		nv := Var{Name: v.Name, Type: v.Type, Default: v.Default, Optional: v.Optional}
+		nv := Var{Name: v.Name, Type: v.Type, Default: v.Default, Optional: v.Optional,
+			Given: v.Generate != nil && !*v.Generate}
 		if v.HostPermissions != nil {
 			nv.Uid, nv.Gid, nv.Mode = v.HostPermissions.Uid, v.HostPermissions.Gid, v.HostPermissions.Mode
 		}
@@ -290,7 +351,10 @@ func Parse(manifestYAML string) (*Manifest, error) {
 		ch := Choice{ID: c.ID, Kind: c.Kind, Label: c.Label, Doc: c.Doc, Default: c.Default}
 		for _, o := range c.Options {
 			op := Option{ID: o.ID, Label: o.Label, Doc: o.Doc, Env: o.Env, Defaults: o.Defaults, Secrets: o.Secrets,
-				Services: o.Services, DependsOn: o.DependsOn, Drop: o.Drop}
+				Services: o.Services, DependsOn: o.DependsOn, Drop: o.Drop, Hostnames: o.Hostnames}
+			if o.Appjail != nil && o.Appjail.Director != "" {
+				op.Appjail = &OptionAppjail{Director: o.Appjail.Director, Files: o.Appjail.Files, Hostnames: o.Appjail.Hostnames}
+			}
 			for _, a := range o.Ask {
 				op.Ask = append(op.Ask, Ask{Name: a.Name, Label: a.Label, Default: a.Default, Type: a.Type, Values: a.Values})
 			}
@@ -299,9 +363,59 @@ func Parse(manifestYAML string) (*Manifest, error) {
 		choices = append(choices, ch)
 	}
 
-	return &Manifest{compose: buf.String(), appjail: xf.Appjail, Variables: vars,
-		WebPort: xf.Info.WebPort, WebHTTPS: xf.Info.WebHTTPS,
-		Networking: xf.Networking, Hostnames: xf.Hostnames, Choices: choices}, nil
+	m := &Manifest{compose: buf.String(), appjail: xf.Appjail, Variables: vars,
+		WebPort: xf.Info.WebPort, WebHTTPS: xf.Info.WebHTTPS, OwnOrigin: xf.Info.OwnOrigin,
+		NameEnv:    xf.Info.NameEnv,
+		Networking: xf.Networking, Hostnames: xf.Hostnames, Choices: choices, Login: xf.Login,
+	}
+	if xf.Provides != nil {
+		m.Names = xf.Provides.Names
+	}
+	for k := range m.NameEnv {
+		if !EnvName(k) {
+			return nil, fmt.Errorf("info.name_env: %q is not a variable name", k)
+		}
+	}
+	return m, nil
+}
+
+var envNameRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
+// EnvName reports whether s can name an environment variable.
+func EnvName(s string) bool { return envNameRe.MatchString(s) }
+
+// Login is x-fjord.login. User and Password are each a ${VAR}, filled from
+// the stack's .env (a password fjord made up at install), or a literal: the
+// app's own default login.
+type Login struct {
+	User     string `yaml:"user"`
+	Password string `yaml:"password"`
+	Note     string `yaml:"note"`
+}
+
+// NamesProvider is x-fjord.provides.names: an app that puts names in front
+// of other apps (radarr.apps.lan) and lets fjord manage them through the
+// names API (docs/names-provider.md). A reverse proxy is one; anything
+// serving the same calls may declare it. Nothing in fjord is specific to one.
+type NamesProvider struct {
+	// Port is the container port its HTTPS API answers on (the same one
+	// its own page is served on). fjord reaches it where a browser would:
+	// the published port on the host, or the container's own address.
+	Port int `yaml:"port"`
+	// Key is the ${VAR} holding the bearer key fjord sends; a secret fjord
+	// makes up at install and the app registers on first start.
+	Key string `yaml:"key"`
+	// SetupToken, a ${VAR}, is opened as #token=<value> on the app's own
+	// page until its setup is done. Optional.
+	SetupToken string `yaml:"setup_token"`
+	// ClientURL, a ${VAR}, gets the address fjord is opened at (as the
+	// install request saw it), so the app can offer a way back. Optional.
+	ClientURL string `yaml:"client_url"`
+	// ClientID and ClientName, ${VAR}s, get this fjord's permanent id and
+	// its name ("fjord on netlab"): the app tells several fjords apart by
+	// them. Optional.
+	ClientID   string `yaml:"client_id"`
+	ClientName string `yaml:"client_name"`
 }
 
 // stripContainerNames removes container_name from every service mapping.

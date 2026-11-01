@@ -1,0 +1,28 @@
+# fjord's daemon on Linux. Installed by install-linux.sh, or by hand:
+#   install -m 644 fjordd.service /etc/systemd/system/
+#   systemctl enable --now podman.socket fjordd
+# The .deb and .rpm ship it with ExecStart=/usr/sbin/fjordd.
+# Configuration is FJORD_* variables (FJORD_LISTEN, FJORD_STACKS_DIR,
+# FJORD_CATALOG_URL, FJORD_ALLOWED_HOSTS ...) in /etc/default/fjordd.
+# fjord is root on this machine and speaks plain HTTP: keep its port on your
+# LAN, never on the internet.
+[Unit]
+Description=fjord stack manager
+Documentation=https://github.com/daemonless/fjord
+Wants=network-online.target podman.socket
+After=network-online.target podman.socket
+
+[Service]
+EnvironmentFile=-/etc/default/fjordd
+ExecStart=/usr/local/sbin/fjordd
+Restart=on-failure
+# A stop signals fjordd alone. Every container's conmon sits in this
+# unit's cgroup (podman is run from here), so "mixed" or the default
+# killed every running app at each restart of fjordd (Fedora, 2026-10-26).
+# "process" leaves conmon, the containers and a podman-compose in flight
+# alone; fjordd itself waits up to 60s for an install or up to finish.
+KillMode=process
+TimeoutStopSec=90
+
+[Install]
+WantedBy=multi-user.target

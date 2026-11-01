@@ -84,3 +84,40 @@ func TestImageTagVar(t *testing.T) {
 		t.Errorf("SetImageTag rewrote a variable tag:\n%s", out)
 	}
 }
+
+// The variant picked at install is the app's: a database a choice added,
+// pinned to mariadb:11.4, came up as mariadb:latest (MariaDB 12.3; uptime-kuma
+// on netlab, 2026-10-11). Only the app's repo moves, every service of it.
+func TestSetRepoTag(t *testing.T) {
+	in := `services:
+  app:
+    image: ghcr.io/x/app:latest
+  agent:
+    image: ghcr.io/x/app:latest@sha256:abc
+  db:
+    image: ghcr.io/x/mariadb:11.4
+  cache:
+    image: ghcr.io/x/redis
+`
+	out, err := SetRepoTag(in, "ghcr.io/x/app", "pkg")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"image: ghcr.io/x/app:pkg\n",
+		"image: ghcr.io/x/mariadb:11.4\n",
+		"image: ghcr.io/x/redis\n",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q in:\n%s", want, out)
+		}
+	}
+	if strings.Count(out, "ghcr.io/x/app:pkg") != 2 {
+		t.Errorf("both services of the app's image move:\n%s", out)
+	}
+	// No repo known: every image, as SetImageTag always did.
+	all, _ := SetRepoTag(in, "", "pkg")
+	if !strings.Contains(all, "ghcr.io/x/mariadb:pkg") {
+		t.Errorf("repo \"\" left the db alone:\n%s", all)
+	}
+}

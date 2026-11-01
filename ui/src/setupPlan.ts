@@ -58,9 +58,19 @@ export function stepOrder(c: Check, engineNames: string[]): number {
   return e * 100 + (c.optional ? 10 : 0) + kind;
 }
 
+// The zone the browser runs in: the timezone check offers to set the host to
+// it. "" when the browser won't say; the daemon then falls back to UTC.
+export function browserZone(): string {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || '';
+  } catch {
+    return '';
+  }
+}
+
 export async function fetchChecks(engine: string | string[]): Promise<{ checks: Check[]; host: boolean }> {
   const q = (Array.isArray(engine) ? engine : [engine]).join(',');
-  const r = await fetch(`/api/setup?engine=${encodeURIComponent(q)}`);
+  const r = await fetch(`/api/setup?engine=${encodeURIComponent(q)}&tz=${encodeURIComponent(browserZone())}`);
   if (!r.ok) throw new Error((await r.text()).trim() || `HTTP ${r.status}`);
   const rep = await r.json();
   return { checks: rep.checks || [], host: rep.mode === 'host' };
@@ -82,7 +92,7 @@ export async function installStream(id: string, out: (text: string) => void): Pr
     const r = await fetch('/api/setup/install?stream=1', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id }),
+      body: JSON.stringify({ id, timezone: browserZone() }),
     });
     if (!r.ok) {
       const msg = (await r.text()).trim() || `HTTP ${r.status}`;

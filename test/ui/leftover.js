@@ -1,6 +1,7 @@
 // A private network whose stack is gone reads as left over on the Networks
 // page, and Delete removes it -- through the page.
 const { chromium } = require('playwright-core');
+const { signedIn, openPage } = require('./session');
 const BASE = 'http://127.0.0.1:3567';
 const NET = process.env.NET || 't-left_priv';
 const note = (id, ok, msg) => console.log(`${ok ? 'PASS' : 'FAIL'} ${id}: ${msg}`);
@@ -8,10 +9,10 @@ const rowOf = (page, name) =>
   page.locator('span.font-mono', { hasText: new RegExp('^' + name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '$') }).first().locator('xpath=ancestor::div[contains(@class,"gap-3") and contains(@class,"px-4")][1]');
 (async () => {
   const b = await chromium.launch({ args: ['--no-sandbox'] });
-  const page = await (await b.newContext({ viewport: { width: 1400, height: 1000 } })).newPage();
+  const page = await (await b.newContext(signedIn({ viewport: { width: 1400, height: 1000 } }))).newPage();
   page.setDefaultTimeout(20000);
   try {
-    await page.goto(BASE + '/#/networks', { waitUntil: 'networkidle' });
+    await openPage(page, BASE + '/#/networks');
     const disclosure = page.getByRole('button', { name: /not reachable from your LAN/ }).first();
     const summary = await disclosure.innerText();
     await disclosure.click();

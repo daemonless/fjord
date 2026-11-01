@@ -171,3 +171,38 @@ func TestResolveExpandsReferenceDefaults(t *testing.T) {
 		}
 	}
 }
+
+// A public_url is the address the app is opened at: an http(s) URL, or empty when optional.
+// "f/" got through as a string and crash-looped Vikunja.
+func TestResolvePublicURL(t *testing.T) {
+	m := &Manifest{Variables: []Var{{Name: "PUBLIC_URL", Type: "public_url", Optional: true}}}
+	for _, ok := range []string{"", "http://192.168.4.103:3456/", "https://tasks.example.com"} {
+		if _, err := m.Resolve(map[string]string{"PUBLIC_URL": ok}, "x", "/root"); err != nil {
+			t.Errorf("%q refused: %v", ok, err)
+		}
+	}
+	for _, bad := range []string{"f/", "tasks.example.com", "ftp://x/", "http://"} {
+		if _, err := m.Resolve(map[string]string{"PUBLIC_URL": bad}, "x", "/root"); err == nil {
+			t.Errorf("%q accepted", bad)
+		}
+	}
+}
+
+func TestParseLogin(t *testing.T) {
+	m, err := Parse(`services:
+  app:
+    image: x
+x-fjord:
+  info:
+    id: app
+  login:
+    user: ${CUSTOM_USER}
+    password: ${PASSWORD}
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.Login == nil || m.Login.User != "${CUSTOM_USER}" || m.Login.Password != "${PASSWORD}" {
+		t.Errorf("login %+v", m.Login)
+	}
+}

@@ -50,6 +50,16 @@ jobs:
         working-directory: ui
         run: npm ci
 
+      # Extract and compile the catalogs (svelte-check needs the compiled
+      # ones, which are gitignored), fail if the committed .po files missed
+      # text the code now has, then check every placeholder.
+      - name: Translations
+        working-directory: ui
+        run: |
+          npx wuchale
+          git diff --exit-code -- src/locales
+          npx wuchale check --full
+
       - name: svelte-check / tsc
         working-directory: ui
         run: npm run check
@@ -67,6 +77,11 @@ jobs:
 
       - name: go vet
         run: go vet ./...
+
+      # fjord runs on Linux too (0.4.0): the tests run here as well as in the
+      # FreeBSD VM below, so a FreeBSD-only assumption fails a PR.
+      - name: go test (Linux)
+        run: go test ./...
 
       # Hand the built UI to the FreeBSD lane so it doesn't need node at all.
       - name: Upload UI assets
@@ -95,7 +110,7 @@ jobs:
           path: ui/dist
 
       - name: go test ./...
-        uses: vmactions/freebsd-vm@a2f9a41fa97f6848b8c3b791087dfcdaa5b473ff # v1.5.8
+        uses: vmactions/freebsd-vm@c46abacb49f09938ca4e1702d15d836285d694cc # v1.5.9
         with:
           release: "15"
           usesh: true

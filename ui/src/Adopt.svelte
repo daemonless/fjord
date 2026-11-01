@@ -4,13 +4,14 @@
   import Spinner from './Spinner.svelte';
   import EngineMark from './EngineMark.svelte';
   import { toast } from './toast';
-  import { listCandidates, adoptContainer, startStack, type Candidate } from './adopt';
+  import { listCandidates, adoptContainer, startStack, type Candidate, isProject, startsAfterReplace } from './adopt';
 
   // Containers and jails no stack owns, and the stack each would become. The
   // daemon builds the preview from what the engine recorded (podman's run
   // line, appjail's jail settings), so what you see is exactly what gets
   // written.
-  const dispatch = createEventDispatcher<{ adopted: string; back: void }>();
+  // adopted: the new stack to open ('' for none), and whether to start it.
+  const dispatch = createEventDispatcher<{ adopted: { id: string; start: boolean }; back: void }>();
 
   // embedded: inside the setup wizard -- its own title, no way "back" to a
   // Stacks page it came from. initial: a list the caller already looked up,
@@ -36,21 +37,22 @@
   });
 
   // replace: remove the old container so the stack takes its name; the
-  // stack is then started like any other. Without replace the stack is
-  // created stopped and the old container keeps running.
-  // Everything adoptable, one after another: adopt+replace, then start, so
-  // a host built by hand becomes stacks in one go. Failures are reported and
+  // stack is then started if the old container was running. Without replace
+  // (a compose project's Import) its containers are already the stack's.
+  // Everything adoptable, one after another: adopt+replace, then start the
+  // ones that were running, so a host built by hand becomes stacks in one go. Failures are reported and
   // the run continues with the next container.
   let allBusy = false;
   let progress = '';
-  // Replacing removes a running container, so it takes two clicks in place --
-  // the same shape as every other destructive button, not the browser's
-  // confirm(), which was the last one left.
+  // Adopt restarts a running container once, so it takes two clicks in
+  // place -- the same shape as every other such button, not the browser's
+  // confirm(). Adopting without replacing left a stopped copy beside the
+  // still-running container, which is not what anyone means by Adopt.
   let confirmReplace = '';
   let confirmAll = false;
   async function adoptAll() {
     confirmAll = false;
-    const todo = list.filter((c) => !c.error);
+    const todo = list.filter((c) => !c.error && !isProject(c));
     if (!todo.length) return;
     allBusy = true;
     let failed = 0;
@@ -58,7 +60,7 @@
       progress = `${i + 1} / ${todo.length}: ${c.name}`;
       try {
         const id = await adoptContainer(c, true);
-        await startStack(id);
+        if (startsAfterReplace(c)) await startStack(id);
       } catch (e: any) {
         failed++;
         toast(`${c.name}: ${e.message}`, { kind: 'error' });
@@ -67,7 +69,7 @@
     allBusy = false;
     progress = '';
     toast(failed ? `Adopted ${todo.length - failed}, ${failed} failed` : `Adopted ${todo.length} containers`, { kind: failed ? 'error' : 'success' });
-    dispatch('adopted', '');
+    dispatch('adopted', { id: '', start: false });
     await load();
   }
 
@@ -76,7 +78,8 @@
     busy = c.name;
     try {
       const id = await adoptContainer(c, replace);
-      if (replace && embedded) {
+      const start = replace && startsAfterReplace(c);
+      if (start && embedded) {
         // Nothing around the wizard starts it (the app opens the stack and
         // starts it there), so start it here and say if it did not.
         try {
@@ -86,9 +89,16 @@
           toast(`Adopted ${c.name}, but it did not start: ${e.message}. Open it on the Stacks page.`, { kind: 'error', timeout: 12000 });
         }
       } else {
-        toast(replace ? `Adopted ${c.name} — starting` : `Created stack ${id} (stopped)`, { kind: 'success' });
+        toast(
+          isProject(c)
+            ? `Imported ${c.name} — fjord manages it now`
+            : start
+              ? `Adopted ${c.name} — starting`
+              : `Adopted ${c.name} — stopped, as it was`,
+          { kind: 'success' },
+        );
       }
-      dispatch('adopted', replace ? id : '');
+      dispatch('adopted', { id: replace ? id : '', start: start && !embedded });
       // The app moves on to the new stack; the wizard stays on this list.
       if (!replace || embedded) await load();
     } catch (e: any) {
@@ -113,21 +123,21 @@
       {#if list.filter((c) => !c.error).length > 1}
         {#if confirmAll}
           <span class="text-xs text-fjord-fg-secondary max-w-xs">
-            Removes {list.filter((c) => !c.error).length} containers and starts each as a stack with the same mounts,
-            network address and name. Data stays where it is.
+            Makes {list.filter((c) => !c.error && !isProject(c)).length} containers stacks with the same mounts,
+            network address and name. The running ones restart once. Data stays where it is.
           </span>
           <button
             on:click={adoptAll}
-            class="whitespace-nowrap bg-fjord-danger hover:bg-fjord-danger-hover text-white font-medium py-2 px-4 rounded-lg text-sm"
-            >Replace all</button
+            class="whitespace-nowrap bg-fjord-accent hover:bg-fjord-accent-hover text-white font-medium py-2 px-4 rounded-lg text-sm"
+            >Adopt All</button
           >
           <button on:click={() => (confirmAll = false)} class="text-sm text-fjord-fg-muted hover:text-fjord-fg">Cancel</button>
         {:else}
           <button
             on:click={() => (confirmAll = true)}
             disabled={working}
-            class="flex items-center gap-2 whitespace-nowrap bg-fjord-accent hover:bg-fjord-accent-hover text-white font-medium py-2 px-4 rounded-lg text-sm disabled:opacity-50"
-            >{#if allBusy}<Spinner size={13} /> {progress}{:else}Adopt &amp; replace all ({list.filter((c) => !c.error).length}){/if}</button
+            class="flex items-center gap-2 whitespace-nowrap bg-fjord-border hover:bg-fjord-accent hover:text-white text-fjord-fg-secondary font-medium py-2 px-4 rounded-lg text-sm disabled:opacity-50"
+            >{#if allBusy}<Spinner size={13} /> {progress}{:else}Adopt all ({list.filter((c) => !c.error && !isProject(c)).length}){/if}</button
           >
         {/if}
       {/if}
@@ -151,36 +161,49 @@
                   <span class="font-semibold text-fjord-fg">{c.name}</span>
                   <span class="text-[10px] font-semibold uppercase tracking-wide {c.state === 'running' ? 'text-fjord-success' : 'text-fjord-fg-dim'}">{c.state}</span>
                 </div>
-                <div class="text-xs text-fjord-fg-dim font-mono truncate">{c.image}</div>
+                {#if isProject(c)}
+                  <div class="text-xs text-fjord-fg-dim truncate">
+                    compose project · {(c.services ?? []).join(', ') || 'no services'} · <span class="font-mono">{c.workDir}</span>
+                  </div>
+                {:else}
+                  <div class="text-xs text-fjord-fg-dim font-mono truncate">{c.image}</div>
+                {/if}
                 {#if c.error}<div class="text-xs text-fjord-danger mt-1">{c.error}</div>{/if}
                 {#each c.notes || [] as n}<div class="text-xs text-fjord-warning mt-1">{n}</div>{/each}
               </div>
               <button on:click={() => (open[c.name] = !open[c.name])} class="text-xs text-fjord-fg-muted hover:text-fjord-fg px-2 py-1">
                 {open[c.name] ? 'Hide' : 'Preview'}
               </button>
-              <button
-                on:click={() => adopt(c, false)}
-                disabled={!!c.error || working}
-                title="Create the stack (stopped); the container keeps running"
-                class="text-sm px-3 py-1.5 rounded-lg bg-fjord-border hover:bg-fjord-accent hover:text-white disabled:opacity-40">Adopt</button>
+              {#if isProject(c)}
+                <button
+                  on:click={() => adopt(c, false)}
+                  disabled={!!c.error || working}
+                  title="Make this project a stack, from its own compose file; its containers keep running"
+                  class="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg bg-fjord-accent hover:bg-fjord-accent-hover text-white disabled:opacity-40"
+                  >{#if busy === c.name}<Spinner size={13} />{/if}Import</button>
+              {:else}
               {#if confirmReplace === c.name}
                 <button
                   on:click={() => adopt(c, true)}
-                  class="text-sm px-3 py-1.5 rounded-lg bg-fjord-danger hover:bg-fjord-danger-hover text-white">Replace</button>
+                  class="text-sm px-3 py-1.5 rounded-lg bg-fjord-accent hover:bg-fjord-accent-hover text-white">{startsAfterReplace(c) ? 'Adopt & Restart' : 'Adopt'}</button>
                 <button on:click={() => (confirmReplace = '')} class="text-sm px-2 py-1.5 text-fjord-fg-muted hover:text-fjord-fg">Cancel</button>
               {:else}
                 <button
                   on:click={() => (confirmReplace = c.name)}
                   disabled={!!c.error || working}
-                  title="Remove the container and start it as a stack"
+                  title="Make it a stack fjord manages, running if it was"
                   class="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg bg-fjord-accent hover:bg-fjord-accent-hover text-white disabled:opacity-40"
-                  >{#if busy === c.name}<Spinner size={13} />{/if}Adopt &amp; replace</button>
+                  >{#if busy === c.name}<Spinner size={13} />{/if}Adopt</button>
+              {/if}
               {/if}
             </div>
             {#if confirmReplace === c.name}
               <div class="text-xs text-fjord-fg-secondary mt-2">
-                Removes the container <b>{c.name}</b> and starts it as a stack with the same mounts, network address and name.
-                Data stays where it is.
+                {#if startsAfterReplace(c)}
+                  <b>{c.name}</b> restarts once, as a stack with the same mounts, network address and name. Data stays where it is.
+                {:else}
+                  <b>{c.name}</b> becomes a stack with the same mounts, network address and name, stopped as it is now. Data stays where it is.
+                {/if}
               </div>
             {/if}
             {#if open[c.name] && c.compose}

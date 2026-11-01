@@ -1,16 +1,24 @@
 // A second copy of an app gets folders of its own: the wizard's defaults
 // follow the stack name, and fjordd refuses a folder inside another stack's.
-// immich is installed on netlab, so /containers/immich/... is someone's.
+// The other stack is t-own, saved (never started) by this test.
+// needs: freebsd
 const { chromium } = require('playwright-core');
+const { signedIn, openPage } = require('./session');
 const BASE = 'http://127.0.0.1:3567';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const note = (id, ok, msg) => console.log(`${ok ? 'PASS' : 'FAIL'} ${id}: ${msg}`);
 (async () => {
   const b = await chromium.launch({ args: ['--no-sandbox'] });
-  const page = await (await b.newContext({ viewport: { width: 1400, height: 1100 } })).newPage();
+  const page = await (await b.newContext(signedIn({ viewport: { width: 1400, height: 1100 } }))).newPage();
   page.setDefaultTimeout(30000);
   try {
-    await page.goto(BASE + '/#/store', { waitUntil: 'networkidle' });
+    // Someone else's stack: saved, never started, so it costs nothing.
+    const own = await page.request.post(BASE + '/api/stacks/t-own/save', { headers: { Origin: BASE, 'Content-Type': 'application/json' }, data: { compose: 'services:\n  web:\n    image: ghcr.io/daemonless/openspeedtest:latest\n', env: '' } });
+    if (!own.ok()) throw new Error(`saving t-own: ${own.status()}`);
+    // The default App data folder: /containers on one host, /var/db/fjord/containers on another.
+    const R = (await (await page.request.get(BASE + '/api/settings/storage')).json()).default;
+    const esc = (v) => v.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&');
+    await openPage(page, BASE + '/#/store');
     await page.getByPlaceholder(/Search apps/).fill('librenms');
     await sleep(1000);
     await page.getByRole('button', { name: /^Install/ }).first().click();
@@ -20,29 +28,29 @@ const note = (id, ok, msg) => console.log(`${ok ? 'PASS' : 'FAIL'} ${id}: ${msg}
     const cfg = page.locator('#CONFIG_LOCATION');
     const db = page.locator('#DB_DATA_LOCATION');
     await cfg.waitFor();
-    note('first copy: the catalog folders as they are', (await cfg.inputValue()) === '/containers/librenms/config' && (await db.inputValue()) === '/containers/librenms/mariadb', `${await cfg.inputValue()}, ${await db.inputValue()}`);
-    await page.getByLabel('Name').fill('t-lnms');
+    note('first copy: the catalog folders as they are', (await cfg.inputValue()) === R + '/librenms/config' && (await db.inputValue()) === R + '/librenms/mariadb', `${await cfg.inputValue()}, ${await db.inputValue()}`);
+    await page.getByLabel('Name', { exact: true }).fill('t-lnms');
     await sleep(500);
-    note('renamed to t-lnms: folders follow', (await cfg.inputValue()) === '/containers/t-lnms/config' && (await db.inputValue()) === '/containers/t-lnms/mariadb', `${await cfg.inputValue()}, ${await db.inputValue()}`);
-    await page.getByLabel('Name').fill('Photo Box 2');
+    note('renamed to t-lnms: folders follow', (await cfg.inputValue()) === R + '/t-lnms/config' && (await db.inputValue()) === R + '/t-lnms/mariadb', `${await cfg.inputValue()}, ${await db.inputValue()}`);
+    await page.getByLabel('Name', { exact: true }).fill('Photo Box 2');
     await sleep(500);
-    note('a name with spaces: slugged', (await cfg.inputValue()) === '/containers/photo-box-2/config', await cfg.inputValue());
+    note('a name with spaces: slugged', (await cfg.inputValue()) === R + '/photo-box-2/config', await cfg.inputValue());
     await page.screenshot({ path: '/out/folders-wizard.png', fullPage: true });
     // A folder typed by hand stays put through a rename.
     await cfg.fill('/mnt/lnms-config');
-    await page.getByLabel('Name').fill('t-lnms');
+    await page.getByLabel('Name', { exact: true }).fill('t-lnms');
     await sleep(500);
-    note('a folder typed by hand is kept through a rename', (await cfg.inputValue()) === '/mnt/lnms-config' && (await db.inputValue()) === '/containers/t-lnms/mariadb', `${await cfg.inputValue()}, ${await db.inputValue()}`);
-    // fjordd's own guard: point it into immich's folder and try to install.
-    await cfg.fill('/containers/immich/config');
+    note('a folder typed by hand is kept through a rename', (await cfg.inputValue()) === '/mnt/lnms-config' && (await db.inputValue()) === R + '/t-lnms/mariadb', `${await cfg.inputValue()}, ${await db.inputValue()}`);
+    // fjordd's own guard: point it into t-own's folder and try to install.
+    await cfg.fill(R + '/t-own/config');
     await page.locator('#DB_PASSWORD').fill('lnms-db-t3st');
     await page.locator('#ADMIN_PASSWORD').fill('Fjord-t3st-9d7c2a41');
     await install.click();
-    const refusal = page.getByText(/is inside immich's folder/).first();
+    const refusal = page.getByText(/is inside t-own's folder/).first();
     await refusal.waitFor({ timeout: 30000 }).catch(() => {});
     const text = await refusal.innerText().catch(() => '');
     await page.screenshot({ path: '/out/folders-refused.png', fullPage: true });
-    note("fjordd refuses a folder inside another stack's, on the wizard", /\/containers\/immich\/config is inside immich's folder \(\/containers\/immich\) -- give this install a folder of its own/.test(text), `"${text}"`);
+    note("fjordd refuses a folder inside another stack's, on the wizard", new RegExp(`${esc(R)}/t-own/config is inside t-own's folder \\(${esc(R)}/t-own\\) -- give this install a folder of its own`).test(text), `"${text}"`);
     const stacks = (await (await page.request.get(BASE + '/api/stacks')).json()).map((s) => s.name);
     note('nothing was created', !stacks.includes('t-lnms'), `stacks: ${stacks.join(', ')}`);
   } catch (e) {

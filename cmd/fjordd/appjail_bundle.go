@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"os"
@@ -14,6 +15,10 @@ import (
 	"github.com/daemonless/fjord/pkg/manifest"
 	"gopkg.in/yaml.v3"
 )
+
+// directorVarRe matches a ${VAR} reference in a director file, with or
+// without its default (${VAR:default}), capturing the name.
+var directorVarRe = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)[:}]`)
 
 // varRefRe matches a ${VAR} reference, capturing the name.
 var varRefRe = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)\}`)
@@ -34,7 +39,7 @@ func directorJailName(stackID, service string) string {
 // switch; stacks without it stay on the legacy `appjail oci run` path). Returns
 // the .env text written, so the caller records it on the stack. stackMode is
 // the install's stack-wide network: only none and host change anything here.
-func writeAppjailBundle(dir, stackID string, b *manifest.AppjailBundle, resolvedEnv map[string]string, composeYAML string, atts []composepkg.Attachment, modes map[string]string, stackMode string) (string, error) {
+func writeAppjailBundle(dir, stackID string, b *manifest.AppjailBundle, resolvedEnv, hostEnv map[string]string, composeYAML string, atts []composepkg.Attachment, modes map[string]string, stackMode string) (string, error) {
 	if b.Director == "" {
 		return "", fmt.Errorf("appjail bundle has no director file")
 	}
@@ -44,24 +49,34 @@ func writeAppjailBundle(dir, stackID string, b *manifest.AppjailBundle, resolved
 	// BAZARR_CONFIG_PATH), but both derive the container path from the same
 	// x-daemonless volumes, so it is the one stable identifier.
 	container2host := map[string]string{}
+	bySvc := map[string]map[string]string{} // compose service -> container path -> host path
 	for _, svc := range composepkg.ParseServices(composeYAML, resolvedEnv) {
 		for _, vm := range svc.Volumes {
 			if vm.Source != "" {
 				container2host[vm.Dest] = vm.Source
+				if bySvc[svc.Name] == nil {
+					bySvc[svc.Name] = map[string]string{}
+				}
+				bySvc[svc.Name][vm.Dest] = vm.Source
 			}
 		}
 	}
 
-	directorYML, volPlaceholders, allVolVars, err := materializeDirector(b.Director, stackID, container2host)
+	directorYML, volPlaceholders, allVolVars, err := materializeDirector(b.Director, stackID, container2host, bySvc, resolvedEnv)
 	if err != nil {
 		return "", fmt.Errorf("director.yml: %w", err)
 	}
 	// The version the user chose, put where appjail reads it. The compose
 	// carries it too, but nothing builds a jail from the compose.
-	if tag := composeImageTag(composeYAML); tag != "" {
+	if tag := composeImageTag(composeYAML, b.Makejail); tag != "" {
 		if directorYML, err = setDirectorTag(directorYML, tag); err != nil {
 			return "", fmt.Errorf("director tag: %w", err)
 		}
+	}
+	// The color startup banner (see banner.go): the jail reads the variable
+	// only if its service names it.
+	if directorYML, err = setDirectorBanner(directorYML, b); err != nil {
+		return "", fmt.Errorf("director banner: %w", err)
 	}
 	// Place the project's jails on a host bridge or an appjail virtual network
 	// instead of appjail's NAT virtualnet, or on nothing at all. Done after
@@ -89,8 +104,46 @@ func writeAppjailBundle(dir, stackID string, b *manifest.AppjailBundle, resolved
 	if directorYML, err = setDirectorModes(directorYML, modes); err != nil {
 		return "", fmt.Errorf("network mode: %w", err)
 	}
+	if directorYML, err = setDirectorResolv(context.Background(), directorYML, dir); err != nil {
+		return "", err
+	}
+	// Last, with the networking settled: a jail left with no virtualnet
+	// cannot have expose lines.
+	if directorYML, err = dropExposeOffVirtualnet(directorYML); err != nil {
+		return "", fmt.Errorf("director expose: %w", err)
+	}
 
-	env := directorEnv(b.EnvDefaults, stackID, resolvedEnv, volPlaceholders, allVolVars)
+	// Only the hostnames a jail reads: immich without its public proxy has no
+	// reader for IMMICH_SERVER_HOST, and the .env tab listed it as unused.
+	used := map[string]bool{}
+	for _, m := range directorVarRe.FindAllStringSubmatch(directorYML, -1) {
+		used[m[1]] = true
+	}
+	// A jail also reads what a value it reads names: grimmory's DATABASE_URL
+	// is jdbc:mariadb://${MARIADB_HOSTNAME:-127.0.0.1}:..., and with the
+	// hostname dropped the expand below baked in 127.0.0.1 -- the jail's own
+	// loopback, not the database's.
+	defaults, _ := parseEnvOrdered(b.EnvDefaults)
+	for grew := true; grew; {
+		grew = false
+		for k, v := range defaults {
+			if !used[k] {
+				continue
+			}
+			for _, m := range directorVarRe.FindAllStringSubmatch(v, -1) {
+				if !used[m[1]] {
+					used[m[1]], grew = true, true
+				}
+			}
+		}
+	}
+	read := map[string]string{}
+	for k, v := range hostEnv {
+		if used[k] {
+			read[k] = v
+		}
+	}
+	env := directorEnv(b.EnvDefaults, stackID, resolvedEnv, read, volPlaceholders, allVolVars)
 
 	writes := []struct {
 		name string
@@ -141,7 +194,7 @@ func writeAppjailBundle(dir, stackID string, b *manifest.AppjailBundle, resolved
 // user left empty -- the same drop the compose path does, so director does not
 // try to mount a bogus default). Returns the rewritten YAML and the set of
 // volume placeholder -> host path that survived, for the .env.
-func materializeDirector(directorYML, stackID string, container2host map[string]string) (string, map[string]string, map[string]bool, error) {
+func materializeDirector(directorYML, stackID string, container2host map[string]string, bySvc map[string]map[string]string, env map[string]string) (string, map[string]string, map[string]bool, error) {
 	var doc yaml.Node
 	if err := yaml.Unmarshal([]byte(directorYML), &doc); err != nil {
 		return "", nil, nil, err
@@ -174,6 +227,7 @@ func materializeDirector(directorYML, stackID string, container2host map[string]
 
 	// volume name -> container path, from services.<svc>.volumes: [{name: path}]
 	volContainer := map[string]string{}
+	volSvc := map[string]string{} // volume name -> director service mounting it
 	if services := mapValue(root, "services"); services != nil {
 		for i := 1; i < len(services.Content); i += 2 {
 			svc := services.Content[i]
@@ -184,6 +238,7 @@ func materializeDirector(directorYML, stackID string, container2host map[string]
 			for _, item := range vols.Content {
 				if item.Kind == yaml.MappingNode && len(item.Content) >= 2 {
 					volContainer[item.Content[0].Value] = item.Content[1].Value
+					volSvc[item.Content[0].Value] = services.Content[i-1].Value
 				}
 			}
 		}
@@ -211,7 +266,7 @@ func materializeDirector(directorYML, stackID string, container2host map[string]
 				allVol[placeholder] = true
 			}
 			cpath := volContainer[volName]
-			host, resolved := container2host[cpath]
+			host, resolved := volumeHost(cpath, placeholder, volSvc[volName], container2host, bySvc, env)
 			if placeholder != "" && resolved {
 				placeholders[placeholder] = host
 				kept = append(kept, nameNode, body)
@@ -243,6 +298,15 @@ func materializeDirector(directorYML, stackID string, container2host map[string]
 			drop[volName] = true
 		}
 		volumes.Content = kept
+		// nullfs, as podman bind-mounts: appjail's default <pseudofs> copies the
+		// image's files out first and fails on an empty image folder.
+		for i := 1; i < len(kept); i += 2 {
+			if body := kept[i]; body.Kind == yaml.MappingNode && mapValue(body, "type") == nil {
+				body.Content = append(body.Content,
+					&yaml.Node{Kind: yaml.ScalarNode, Value: "type"},
+					&yaml.Node{Kind: yaml.ScalarNode, Value: "nullfs"})
+			}
+		}
 	}
 
 	// Rewrite each service's volume list: dropped volumes go, expanded ones are
@@ -286,6 +350,26 @@ func materializeDirector(directorYML, stackID string, container2host map[string]
 	return buf.String(), placeholders, allVol, nil
 }
 
+// volumeHost is the host folder for a director volume. The service's own
+// mount first: an app and its database both mounting /config are two folders,
+// and the container path alone gave both the same one.
+func volumeHost(cpath, placeholder, svc string, container2host map[string]string, bySvc map[string]map[string]string, env map[string]string) (string, bool) {
+	if src, ok := bySvc[svc][cpath]; ok {
+		return src, true
+	}
+	// Named differently in the compose ("vikunja-mariadb" is "mariadb"): the
+	// volume's own variable, if the compose mounts it at this path.
+	if v := env[placeholder]; v != "" && placeholder != "" {
+		for _, m := range bySvc {
+			if m[cpath] == v {
+				return v, true
+			}
+		}
+	}
+	src, ok := container2host[cpath]
+	return src, ok
+}
+
 // deviceVar returns the placeholder name in a volume body's `device: !ENV
 // '${VAR}'`, or "" if the device is not a single ${VAR} reference.
 func deviceVar(volBody *yaml.Node) string {
@@ -308,7 +392,9 @@ func deviceVar(volBody *yaml.Node) string {
 // resolved wizard value (WEB_PORT, PUID, PGID, TZ, DB_* -- dbuild's deploy mode
 // names these to line up on purpose), and volume-device placeholders (from the
 // container-path join). Placeholders for pruned volumes are omitted.
-func directorEnv(envDefaults, stackID string, resolvedEnv, volPlaceholders map[string]string, allVolVars map[string]bool) string {
+// hostEnv is written whatever the defaults list: where the stack's parts
+// find each other (jailHostnames).
+func directorEnv(envDefaults, stackID string, resolvedEnv, hostEnv, volPlaceholders map[string]string, allVolVars map[string]bool) string {
 	env, order := parseEnvOrdered(envDefaults)
 
 	setOrdered := func(k, v string) {
@@ -334,6 +420,12 @@ func directorEnv(envDefaults, stackID string, resolvedEnv, volPlaceholders map[s
 		}
 		if v, ok := resolvedEnv[key]; ok && v != "" {
 			env[key] = v // scalar name-match override
+		} else if ok && placeholderValue(env[key]) {
+			// Left empty in the wizard, and the bundle's value is only a
+			// placeholder: written, it was the setting -- transmission's
+			// password "<PASS>", tailscale's key "tskey-auth-xxxx".
+			delete(env, key)
+			continue
 		}
 		kept = append(kept, key)
 	}
@@ -347,6 +439,14 @@ func directorEnv(envDefaults, stackID string, resolvedEnv, volPlaceholders map[s
 		}
 	}
 
+	hostKeys := make([]string, 0, len(hostEnv))
+	for k := range hostEnv {
+		hostKeys = append(hostKeys, k)
+	}
+	sort.Strings(hostKeys)
+	for _, k := range hostKeys {
+		setOrdered(k, hostEnv[k])
+	}
 	setOrdered("DIRECTOR_PROJECT", stackID)
 
 	// TZ is a fact about the host, not something the wizard asks for, so
@@ -359,6 +459,12 @@ func directorEnv(envDefaults, stackID string, resolvedEnv, volPlaceholders map[s
 		if tz := hostTimezone(); tz != "" {
 			setOrdered("TZ", tz)
 		}
+	}
+
+	// The color startup banner (see banner.go): the wizard's value, else the
+	// bundle's, else color.
+	if env[bannerVar] == "" {
+		setOrdered(bannerVar, cmp.Or(resolvedEnv[bannerVar], bannerDefault))
 	}
 
 	// Values may reference other values (DATABASE_URL=postgresql://x:${DB_PASSWORD}@...).
@@ -443,4 +549,14 @@ func mapValue(m *yaml.Node, key string) *yaml.Node {
 		}
 	}
 	return nil
+}
+
+// placeholderValue: an env_defaults value that stands for one the user
+// gives, never a setting itself: "<PASS>", an unexpanded "${RPC_SECRET}",
+// "tskey-auth-xxxx".
+func placeholderValue(v string) bool {
+	v = strings.TrimSpace(v)
+	return (strings.HasPrefix(v, "<") && strings.HasSuffix(v, ">")) ||
+		(strings.HasPrefix(v, "${") && strings.HasSuffix(v, "}")) ||
+		strings.Contains(strings.ToLower(v), "xxxx")
 }

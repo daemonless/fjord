@@ -56,7 +56,10 @@ type Check struct {
 	// reported when not ok. It must paste into a root shell as-is: no prose,
 	// no "(optional)" asides -- those belong in Why.
 	Fix string
-	Pkg map[string]string // GOOS -> package name: installed by Install when set
+	// FixFunc, when set, writes Fix at the time the check fails: for a fix
+	// that depends on the host (the networks a config must name).
+	FixFunc func() string
+	Pkg     map[string]string // GOOS -> package name: installed by Install when set
 	// Install puts what the check wants in place, for the Install button,
 	// writing what it does to w as it goes; nil with a Pkg entry means "pkg
 	// install" that package.
@@ -111,6 +114,9 @@ type Config struct {
 	// the default, on a host where stacks could be installed on either.
 	Engines   []string
 	FjordRoot string
+	// TimeZone is the zone the operator's browser reports: the timezone
+	// check's fix and installer set it. "" or unknown here = UTC.
+	TimeZone string
 }
 
 // forEngine reports whether a check tied to an engine should run.
@@ -138,7 +144,7 @@ type platformInfo struct {
 // running the full check suite -- for features that only apply on the host
 // (e.g. the host filesystem browser).
 func Mode() string {
-	return platform(Config{}).mode
+	return hostMode()
 }
 
 // Run executes every check applicable to this platform and the engines named.
@@ -149,30 +155,7 @@ func Run(ctx context.Context, cfg Config) Report {
 		if !cfg.forEngine(c.Engine) {
 			continue
 		}
-		var st Status
-		var detail string
-		if c.HostOnly && p.mode != "host" {
-			st = Unknown
-			detail = "fjordd is not running directly on the host and cannot verify this -- check manually"
-		} else {
-			st, detail = c.Probe(ctx)
-		}
-		r := Result{ID: c.ID, Name: c.Name, Engine: c.Engine, Group: c.Group, Optional: c.Optional, Status: st, Detail: detail, Why: c.Why}
-		// What fjord would run, reported even when there is nothing to do:
-		// the setup page lists every check in the order it sets things up.
-		r.Action, r.Commands = c.Action, c.Commands
-		if pkg := c.Pkg[p.os]; c.Install == nil && pkg != "" {
-			if r.Action == "" {
-				r.Action = "Install " + strings.Join(strings.Fields(pkg), " and ")
-			}
-			r.Commands = []string{pkgCommand(pkg)}
-		}
-		if st != OK {
-			r.Fix = c.Fix
-			r.Installable = p.canInstall && p.mode == "host" && (c.Install != nil || c.Pkg[p.os] != "") &&
-				(c.Installed == nil || !c.Installed())
-		}
-		results = append(results, r)
+		results = append(results, p.run(ctx, c))
 	}
 	return Report{
 		OS:         p.os,
@@ -180,6 +163,49 @@ func Run(ctx context.Context, cfg Config) Report {
 		CanInstall: p.canInstall && p.mode == "host",
 		Checks:     results,
 	}
+}
+
+// RunOne executes the single check id, for a feature that hit the failure
+// that check explains. ok is false when this platform has no such check.
+func RunOne(ctx context.Context, cfg Config, id string) (r Result, ok bool) {
+	p := platform(cfg)
+	for _, c := range p.checks {
+		if c.ID == id {
+			return p.run(ctx, c), true
+		}
+	}
+	return Result{}, false
+}
+
+// run executes one check and reports it in wire form.
+func (p platformInfo) run(ctx context.Context, c Check) Result {
+	var st Status
+	var detail string
+	if c.HostOnly && p.mode != "host" {
+		st = Unknown
+		detail = "fjordd is not running directly on the host and cannot verify this -- check manually"
+	} else {
+		st, detail = c.Probe(ctx)
+	}
+	r := Result{ID: c.ID, Name: c.Name, Engine: c.Engine, Group: c.Group, Optional: c.Optional, Status: st, Detail: detail, Why: c.Why}
+	// What fjord would run, reported even when there is nothing to do:
+	// the setup page lists every check in the order it sets things up.
+	r.Action, r.Commands = c.Action, c.Commands
+	if pkg := c.Pkg[p.os]; c.Install == nil && pkg != "" {
+		if r.Action == "" {
+			r.Action = "Install " + strings.Join(strings.Fields(pkg), " and ")
+		}
+		r.Commands = []string{pkgCommand(pkg)}
+	}
+	if st != OK {
+		r.Fix = c.Fix
+		if c.FixFunc != nil {
+			r.Fix = c.FixFunc()
+		}
+		r.Installable = p.canInstall && p.mode == "host" && (c.Install != nil || c.Pkg[p.os] != "") &&
+			(c.Installed == nil || !c.Installed())
+	}
+	return r
 }
 
 // Install runs the installer of check id: its own, or "pkg install" of its

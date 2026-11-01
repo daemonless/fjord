@@ -301,3 +301,27 @@ func TestAttachStatusPrefersServiceLabel(t *testing.T) {
 		}
 	}
 }
+
+// A jail reports one address and no per-network map. On one network that
+// address is its address there: zensical-2's DHCP lease on vlan6 gave no
+// link, and the page said "no address on lan yet".
+func TestStackServicesJailLease(t *testing.T) {
+	seedNetwork(t)
+	st := &stack.Stack{Name: "zensical-2", Director: `services:
+  zensical:
+    name: zensical_2_zensical
+    options:
+      - bridge: 'epair:zensical2 bridge:vlan6bridge'
+      - dhcp: 'sb_zensical2'
+`}
+	status := engine.StackStatus{State: "running", Containers: []engine.ContainerStatus{
+		{Name: "zensical_2_zensical", State: "running", Address: "192.168.6.137"},
+	}}
+	views := stackServices(st, status)
+	if len(views) != 1 || views[0].Live["vlan6"] != "192.168.6.137" {
+		t.Fatalf("views = %+v", views)
+	}
+	if got := linkHost(views, func(n string) bool { return n == "vlan6" }); got != "192.168.6.137" {
+		t.Fatalf("linkHost = %q", got)
+	}
+}

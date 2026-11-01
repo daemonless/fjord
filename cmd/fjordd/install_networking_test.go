@@ -10,6 +10,7 @@ import (
 
 	composepkg "github.com/daemonless/fjord/pkg/compose"
 	"github.com/daemonless/fjord/pkg/engine"
+	"github.com/daemonless/fjord/pkg/manifest"
 )
 
 // immich's declaration: the server on whatever the install chose, everything
@@ -411,5 +412,29 @@ func TestLabelPrivateNetworks(t *testing.T) {
 		if n.Private != w.private || n.Leftover != w.leftover || n.OwnedBy != w.owner {
 			t.Errorf("%s: private=%v leftover=%v owner=%q, want %+v", n.Name, n.Private, n.Leftover, n.OwnedBy, w)
 		}
+	}
+}
+
+// Vikunja on MariaDB, installed on host networking: VIKUNJA_DATABASE_HOST is
+// "mariadb" from the choice, which no container DNS answers there.
+func TestLoopbackHostnames(t *testing.T) {
+	hostnames := map[string]string{"mariadb": "VIKUNJA_DATABASE_HOST", "postgres": "VIKUNJA_DATABASE_HOST", "redis": "REDIS_HOST"}
+	got := loopbackHostnames(hostnames, []composepkg.Service{{Name: "vikunja"}, {Name: "mariadb"}})
+	if len(got) != 1 || got["VIKUNJA_DATABASE_HOST"] != "127.0.0.1" {
+		t.Fatalf("got %v, want only VIKUNJA_DATABASE_HOST=127.0.0.1 (no redis: the stack has none)", got)
+	}
+}
+
+// A part switched off is gone from the stack; the plan naming it is not a typo.
+func TestPlanSkipsDroppedParts(t *testing.T) {
+	plan := map[string]string{"immich-server": "default", "immich-public-proxy": "default", "*": "private"}
+	off := []*manifest.Option{{ID: "off", Drop: []string{"immich-public-proxy"}}}
+	got := withoutDropped(plan, off)
+	if _, ok := got["immich-public-proxy"]; ok || len(plan) != 3 {
+		t.Fatalf("got %v, plan %v", got, plan)
+	}
+	if _, _, err := planServiceNetworks(context.Background(), got, nil, immichServices,
+		func() (string, error) { return "immich_private", nil }); err != nil {
+		t.Fatal(err)
 	}
 }

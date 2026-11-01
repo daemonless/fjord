@@ -1,6 +1,7 @@
 // fjord UI tests beyond the network matrix: Setup, a multi-service stack on
 // both engines, and Adopt. Same rules: through the real pages, checked by outcome.
 const { chromium } = require('playwright-core');
+const { signedIn, openPage } = require('./session');
 const BASE = process.env.FJORD || 'http://127.0.0.1:3567';
 
 const results = [];
@@ -31,12 +32,12 @@ async function answers(page, url, secs) {
 }
 
 async function openWizard(page, search, name) {
-  await page.goto(BASE + '/', { waitUntil: 'networkidle' });
+  await openPage(page, BASE + '/');
   await page.getByText('App Store', { exact: true }).first().click();
   await page.getByPlaceholder(/Search apps/).fill(search);
   await page.getByRole('button', { name: /^Install/ }).first().click();
   await page.getByRole('button', { name: 'Install', exact: true }).waitFor();
-  await page.getByLabel('Name').fill(name);
+  await page.getByLabel('Name', { exact: true }).fill(name);
 }
 async function openOptions(page) {
   const net = page.getByText('Networking', { exact: true });
@@ -53,7 +54,7 @@ async function pickEngine(page, engine) {
 
 // ---------- Setup ----------
 async function setupScreen(page) {
-  await page.goto(BASE + '/#/setup', { waitUntil: 'networkidle' });
+  await openPage(page, BASE + '/#/setup');
   await sleep(2000);
   const fold = page.getByText(/Everything fjord checked \((\d+)\)/);
   const label = await fold.innerText();
@@ -81,7 +82,10 @@ async function setupScreen(page) {
 }
 
 // ---------- multi-service stack ----------
-// paperless-ngx: paperless + redis, both network_mode: host, redis at localhost.
+// paperless-ngx: paperless + redis. The catalog runs both on host networking;
+// on a host with a LAN network the wizard's plan puts paperless there and
+// redis on a private segment instead. Either way it must answer on :8000,
+// wherever fjordd says it is.
 async function paperless(page, name, engine) {
   await openWizard(page, 'paperless', name);
   await page.getByLabel('PAPERLESS_ADMIN_PASSWORD').fill('t-pass-1234').catch(() => {});
@@ -105,30 +109,36 @@ async function paperless(page, name, engine) {
   if (d?.status?.state !== 'running') { await shot(page, `fail-${name}`); note(`${name}: install`, false, `stack state ${d?.status?.state}`); return; }
   const compose = d.compose || '';
   const hostModes = (compose.match(/network_mode:\s*host/g) || []).length;
-  // Host networking: the app is on this host's own addresses, so loopback works.
-  const code = await answers(page, 'http://127.0.0.1:8000/', 300);
+  // On host networking it is on this host's own addresses, so loopback;
+  // with an address of its own, that address.
+  const app = (d.status?.containers || []).find((c) => /paperless/.test(c.service || c.name));
+  const where = hostModes ? '127.0.0.1' : app?.address || '127.0.0.1';
+  const code = await answers(page, `http://${where}:8000/`, 300);
   await shot(page, `${name}-stack`);
-  note(`${name}: install`, code === 200, `running on ${engine}; network_mode host on ${hostModes}/2 services; :8000 -> ${code}`);
+  note(`${name}: install`, code === 200, `running on ${engine}; network_mode host on ${hostModes}/2 services; ${where}:8000 -> ${code}`);
 }
 
 // ---------- Adopt ----------
 // run.sh starts t-adopt by hand (openspeedtest, -p 3102:3000) before this runs.
 async function adopt(page) {
-  await page.goto(BASE + '/', { waitUntil: 'networkidle' });
-  await page.goto(BASE + '/#/adopt', { waitUntil: 'networkidle' });
-  await sleep(2000);
+  await openPage(page, BASE + '/');
+  await openPage(page, BASE + '/#/adopt');
+  // A hash change: networkidle does not wait for the list, which asks both
+  // engines about every container and jail.
+  await page.getByText('Looking for containers').waitFor({ state: 'hidden', timeout: 60000 }).catch(() => {});
+  await sleep(500);
   // The smallest block holding t-adopt and a Preview button (it stays while
-  // Adopt & replace turns into Replace): not the list, which also holds the
+  // Adopt turns into Adopt & Restart): not the list, which also holds the
   // playwright container running this test.
   const row = page.locator('div').filter({ hasText: 't-adopt' }).filter({ hasNotText: 'playwright' }).filter({ has: page.getByRole('button', { name: 'Preview', exact: true }) }).last();
   if (!(await row.count())) { await shot(page, 'fail-adopt'); note('Adopt: t-adopt listed', false, 'not on the Adopt page'); return; }
   note('Adopt: t-adopt listed', true, 'hand-started container shows on the Adopt page');
-  await row.getByRole('button', { name: 'Adopt & replace', exact: true }).click();
-  // It asks once more, in the same row, naming the container it removes.
-  const replace = row.getByRole('button', { name: 'Replace', exact: true });
+  await row.getByRole('button', { name: 'Adopt', exact: true }).click();
+  // It asks once more, in the same row, saying the container restarts.
+  const replace = row.getByRole('button', { name: 'Adopt & Restart', exact: true });
   await replace.waitFor();
   const warns = await page.locator('body').innerText(); // the line sits under the row block
-  note('Adopt & replace: says what it removes before doing it', /Removes the container t-adopt/.test(warns), warns.split('\n').find((l) => /Removes/.test(l)) || 'no warning shown');
+  note('Adopt: says it restarts the container before doing it', /t-adopt restarts once/.test(warns), warns.split('\n').find((l) => /restarts once/.test(l)) || 'no warning shown');
   await replace.click();
   const d2 = await stackUp(page, 't-adopt', 240);
   const compose = d2?.compose || '';
@@ -136,14 +146,14 @@ async function adopt(page) {
   await shot(page, 'adopt-stack');
   // "replace" means compose re-created it: the container must be fjord's now.
   const cname = (d2?.services || [])[0]?.container || '';
-  note('Adopt & replace: container re-created by the stack', cname !== '' , `container now "${cname}"`);
+  note('Adopt: container re-created by the stack', cname !== '' , `container now "${cname}"`);
   note('Adopt: t-adopt becomes a running stack', d2?.status?.state === 'running' && kept,
     `state ${d2?.status?.state}; compose ${kept ? 'keeps' : 'LOST'} the 3102:3000 publish`);
 }
 
 (async () => {
   const browser = await chromium.launch({ args: ['--no-sandbox', '--disable-setuid-sandbox'] });
-  const page = await (await browser.newContext({ viewport: { width: 1400, height: 1100 } })).newPage();
+  const page = await (await browser.newContext(signedIn({ viewport: { width: 1400, height: 1100 } }))).newPage();
   page.setDefaultTimeout(20000);
   const errs = [];
   page.on('pageerror', (e) => errs.push(e.message));
@@ -157,16 +167,22 @@ async function adopt(page) {
       await page.getByRole('button', { name: 'Cancel', exact: true }).click({ timeout: 3000 }).catch(() => {});
     }
   };
+  const keep = (process.env.KEEP || '').split(',');
+  // A refused delete leaves jails behind; say so here, with fjordd's reason.
+  const drop = async (name) => {
+    if (keep.includes(name) || !made.includes(name)) return;
+    const r = await api(page, `/api/stacks/${name}?data=1`, { method: 'DELETE' });
+    if (r.status !== 200) note(`${name}: delete`, false, `${r.status} ${String(r.body).slice(0, 200)}`);
+  };
   try {
     await step('setup', () => setupScreen(page));
     // Both paperless installs use host :8000, so one at a time.
     await step('pl', async () => { made.push('t-pl'); await paperless(page, 't-pl', 'podman'); });
-    await api(page, '/api/stacks/t-pl?data=1', { method: 'DELETE' });
+    await drop('t-pl');
     await step('pj', async () => { made.push('t-pj'); await paperless(page, 't-pj', 'appjail'); });
-    await api(page, '/api/stacks/t-pj?data=1', { method: 'DELETE' });
+    await drop('t-pj');
     await step('adopt', () => adopt(page));
   } finally {
-    const keep = (process.env.KEEP || '').split(',');
     for (const s of made.filter((x) => !keep.includes(x))) await api(page, `/api/stacks/${s}?data=1`, { method: 'DELETE' });
     note('no page errors', errs.length === 0, errs.length ? errs.join(' | ') : 'none');
     const pass = results.filter((r) => r.ok).length;

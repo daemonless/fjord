@@ -2,18 +2,18 @@ package podman
 
 import (
 	"context"
+	"encoding/binary"
 	"testing"
+	"time"
+
+	"github.com/daemonless/fjord/pkg/engine"
 )
 
 // A container podman reports as running, with one published port.
 func upContainer(name string) libpodContainer {
 	c := libpodContainer{ID: name + "-id", Names: []string{"/" + name}, State: "running",
 		Labels: map[string]string{"io.podman.compose.service": name}}
-	c.Ports = append(c.Ports, struct {
-		HostPort      int    `json:"host_port"`
-		ContainerPort int    `json:"container_port"`
-		Protocol      string `json:"protocol"`
-	}{HostPort: 3456, ContainerPort: 3456, Protocol: "tcp"})
+	c.Ports = append(c.Ports, libpodPort{HostPort: 3456, ContainerPort: 3456, Protocol: "tcp"})
 	return c
 }
 
@@ -74,5 +74,46 @@ func TestNoPortsAndNoJailStayRunning(t *testing.T) {
 	jailID = func(context.Context, string) string { return "" }
 	if state, _ := serviceHealth(context.Background(), upContainer("linux")); state != "running" {
 		t.Errorf("not a jail: got %q, want running", state)
+	}
+}
+
+// Vikunja on PostgreSQL, first boot: it restarts under s6 while the database
+// initialises -- in the log, a crash loop. Within startGrace of the container
+// starting the page says starting; past it, and for the watches (no grace),
+// the same log is a crash.
+func TestRestartsWhileStartingAreNotCrashed(t *testing.T) {
+	stubProbes(t, false, faultTail)
+	c := upContainer("vikunja")
+	c.StartedAt = time.Now().Add(-20 * time.Second).Unix()
+	if st, detail := serviceHealth(context.Background(), c); st != "starting" || detail == "" {
+		t.Fatalf("20 s after start: %q %q, want starting with a reason", st, detail)
+	}
+	if st, _ := serviceHealthWithin(context.Background(), c, 0); st != "crashed" {
+		t.Fatalf("no grace (the watches): %q, want crashed", st)
+	}
+	c.StartedAt = time.Now().Add(-2 * time.Minute).Unix()
+	if st, _ := serviceHealth(context.Background(), c); st != "crashed" {
+		t.Fatalf("2 min after start: %q, want crashed", st)
+	}
+}
+
+// The API's log stream for a container without a terminal is framed; the
+// crash check must see the text, not the headers.
+func TestDemuxLogs(t *testing.T) {
+	frame := func(stream byte, text string) []byte {
+		h := []byte{stream, 0, 0, 0, 0, 0, 0, 0}
+		binary.BigEndian.PutUint32(h[4:], uint32(len(text)))
+		return append(h, text...)
+	}
+	b := append(frame(1, "[INFO] Starting vikunja...\n"), frame(2, "[s6] Service 'vikunja' crashed (Exit: 1, Signal: 0)\n")...)
+	got := demuxLogs(b)
+	if got != "[INFO] Starting vikunja...\n[s6] Service 'vikunja' crashed (Exit: 1, Signal: 0)\n" {
+		t.Fatalf("framed: %q", got)
+	}
+	if !engine.CrashedInLog(got) {
+		t.Error("the crash line is not seen through the frames")
+	}
+	if got := demuxLogs([]byte("plain text from a tty\n")); got != "plain text from a tty\n" {
+		t.Errorf("tty: %q", got)
 	}
 }

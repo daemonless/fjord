@@ -97,6 +97,13 @@ func TestDeletePlanSymlink(t *testing.T) {
 // without it, the data stays.
 func TestDeleteWithData(t *testing.T) {
 	s, root := deleteFixture(t)
+	keep := func() string { // the secrets kept for notes' data folder
+		p := secretsPath(s.fjordRoot, filepath.Join(root, "apps/notes"))
+		os.MkdirAll(filepath.Dir(p), 0o700)
+		os.WriteFile(p, []byte("P=x\n"), 0o600)
+		return p
+	}
+	kept := keep()
 	rec := httptest.NewRecorder()
 	s.stackDelete(rec, "notes", false)
 	if rec.Code != 200 {
@@ -105,10 +112,17 @@ func TestDeleteWithData(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(root, "apps/notes/db/ibdata1")); err != nil {
 		t.Errorf("plain delete removed app data")
 	}
+	if _, err := os.Stat(kept); err != nil {
+		t.Errorf("plain delete removed the secrets kept with the data")
+	}
 
 	s, root = deleteFixture(t)
+	kept = keep()
 	rec = httptest.NewRecorder()
 	s.stackDelete(rec, "notes", true)
+	if _, err := os.Stat(kept); err == nil {
+		t.Errorf("delete with data left its secrets")
+	}
 	if rec.Code != 200 {
 		t.Fatalf("delete with data: %d %s", rec.Code, rec.Body)
 	}
@@ -121,5 +135,47 @@ func TestDeleteWithData(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(root, stays)); err != nil {
 			t.Errorf("%s was removed", stays)
 		}
+	}
+}
+
+// A delete cut short by a restart is finished at start, not brought back up;
+// its app data stays, since whether to take it was not recorded.
+func TestStartFinishesCutShortDelete(t *testing.T) {
+	s, root := deleteFixture(t)
+	if err := s.manager.SetDesiredState("notes", desiredDeleting); err != nil {
+		t.Fatal(err)
+	}
+	old := bootMarker
+	bootMarker = filepath.Join(root, "fjordd.booted")
+	defer func() { bootMarker = old }()
+	startOnBoot(s)
+	if _, err := os.Stat(filepath.Join(root, "stacks/notes")); err == nil {
+		t.Error("stack still listed after start")
+	}
+	if _, err := os.Stat(filepath.Join(root, "apps/notes/db/ibdata1")); err != nil {
+		t.Error("app data removed")
+	}
+	if _, err := os.Stat(filepath.Join(root, "stacks/pair-a")); err != nil {
+		t.Error("another stack was removed")
+	}
+}
+
+// A single AppJail app's .env names its folder only as the director does
+// (heimdall on netlab): the plan reads the director, so the folder is offered,
+// and another stack's plan sees it in use.
+func TestDeletePlanDirectorStack(t *testing.T) {
+	s, root := deleteFixture(t)
+	apps := filepath.Join(root, "apps")
+	os.MkdirAll(filepath.Join(apps, "heim/config"), 0o755)
+	dir := filepath.Join(root, "stacks/heim")
+	writeFile(t, filepath.Join(dir, "compose.yaml"), "services:\n  heimdall:\n    image: x\n    volumes:\n      - \"${CONFIG_DATA}:/config\"\n")
+	writeFile(t, filepath.Join(dir, "appjail-director.yml"), "services:\n  heimdall:\n    name: heim_heimdall\n    volumes:\n      - HEIMDALL_CONFIG_PATH: /config\nvolumes:\n  HEIMDALL_CONFIG_PATH:\n    device: !ENV '${HEIMDALL_CONFIG_PATH}'\n    type: nullfs\n")
+	writeFile(t, filepath.Join(dir, ".env"), "DIRECTOR_PROJECT=heim\nHEIMDALL_CONFIG_PATH="+apps+"/heim/config\n")
+	p := plan(t, s, "heim")
+	if len(p.AppData) != 1 || p.AppData[0].Path != filepath.Join(apps, "heim") {
+		t.Fatalf("app data: %+v", p.AppData)
+	}
+	if !anyInside(s.otherStacksBinds("notes"), filepath.Join(apps, "heim")) {
+		t.Error("another stack's plan does not see the folder in use")
 	}
 }

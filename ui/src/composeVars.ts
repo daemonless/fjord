@@ -40,24 +40,22 @@ export function refs(text: string, env: Record<string, string>): VarRef[] {
     const ref = m[1];
     const from = m.index ?? 0;
     const to = from + m[0].length;
-    let name = ref;
-    let def: string | undefined;
-    let emptyUsesDefault = false;
-    const iCol = ref.indexOf(':-');
-    const iDash = ref.indexOf('-');
-    if (iCol >= 0) {
-      name = ref.slice(0, iCol);
-      def = ref.slice(iCol + 2);
-      emptyUsesDefault = true;
-    } else if (iDash >= 0) {
-      name = ref.slice(0, iDash);
-      def = ref.slice(iDash + 1);
-    }
+    // The name, then an operator: compose's :- - :? ? :+ +, or a director
+    // file's ${VAR:default} (pyaml-env), which read as one long name and put
+    // DB_HOSTNAME:127.0.0.1 on the missing list beside a set DB_HOSTNAME.
+    const m2 = /^([A-Za-z_][A-Za-z0-9_]*)(:?[-?+]|:)?([\s\S]*)$/.exec(ref);
+    const name = m2 ? m2[1] : ref;
+    const op = m2?.[2] ?? '';
+    const arg = m2?.[3] ?? '';
     const has = name in env;
     const v = env[name] ?? '';
+    const emptyUsesDefault = op.startsWith(':') && op !== ':';
     let r: Pick<VarRef, 'state' | 'value'>;
-    if (has && (v !== '' || !emptyUsesDefault)) r = v === '' ? { state: 'empty', value: '' } : { state: 'set', value: v };
-    else if (def !== undefined) r = { state: 'default', value: def };
+    if (op === '+' || op === ':+') {
+      // The alternate: its text when the variable is set, else nothing.
+      r = has && (v !== '' || op === '+') ? { state: 'set', value: arg } : { state: 'default', value: '' };
+    } else if (has && (v !== '' || !emptyUsesDefault)) r = v === '' ? { state: 'empty', value: '' } : { state: 'set', value: v };
+    else if (op === '-' || op === ':-' || op === ':') r = { state: 'default', value: arg };
     else r = { state: 'unset', value: '' };
     out.push({ from, to, name, ...r });
   }
@@ -101,4 +99,30 @@ export function usedVars(text: string, env: Record<string, string>): VarRef[] {
   for (const r of refs(text, env)) if (!byName.has(r.name)) byName.set(r.name, r);
   const all = [...byName.values()];
   return [...all.filter((r) => r.state === 'unset'), ...all.filter((r) => r.state !== 'unset')];
+}
+
+/**
+ * unusedVars: .env variables nothing the engine runs refers to -- WEB_PORT
+ * on a stack with its own LAN address, where no port is published. fjord's
+ * own x-fjord keys are notes, not config, so a mention there does not count.
+ * A compose with env_file hands the whole .env to a container: all used.
+ */
+export function unusedVars(text: string, env: Record<string, string>): string[] {
+  if (/^\s*env_file:/m.test(text)) return [];
+  const kept: string[] = [];
+  let skip = -1;
+  for (const line of text.split('\n')) {
+    const indent = line.search(/\S/);
+    if (skip >= 0 && (indent < 0 || indent > skip)) continue;
+    skip = -1;
+    if (/^\s*x-fjord[\w-]*:/.test(line)) {
+      skip = indent;
+      continue;
+    }
+    kept.push(line);
+  }
+  const used = new Set(refs(kept.join('\n'), env).map((r) => r.name));
+  // Read by the tools themselves, not through ${...}.
+  for (const n of ['DIRECTOR_PROJECT', 'COMPOSE_PROJECT_NAME', 'COMPOSE_PROFILES']) used.add(n);
+  return Object.keys(env).filter((n) => !used.has(n));
 }
