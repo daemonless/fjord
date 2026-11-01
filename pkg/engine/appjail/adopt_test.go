@@ -2,6 +2,7 @@ package appjail
 
 import (
 	"context"
+	"gopkg.in/yaml.v3"
 	"os"
 	"path/filepath"
 	"strings"
@@ -36,7 +37,7 @@ func TestConvertJail(t *testing.T) {
 	for _, want := range []string{
 		"  - virtualnet: 'ajnet:<random> default address:10.0.0.3'\n", "  - nat:\n",
 		"    name: uptime_kuma_uptime_kuma\n", "      - expose: '3001:3001 proto:tcp'\n",
-		"      user: root\n", "        - PUID: !ENV '${PUID}'\n", "        - DATA_DIR: /config\n",
+		"      user: root\n", "        - PUID: !ENV '${PUID}'\n", "        - DATA_DIR: '/config'\n",
 		"      - UPTIME_KUMA_CONFIG_PATH: /config\n", "    device: !ENV '${UPTIME_KUMA_CONFIG_PATH}'\n",
 	} {
 		if !strings.Contains(spec.Director, want) {
@@ -147,5 +148,51 @@ func TestConvertJailQuotesLiteralEnv(t *testing.T) {
 	}
 	if !strings.Contains(spec.Compose, "      - PUID=${PUID}\n") {
 		t.Errorf("reference was quoted:\n%s", spec.Compose)
+	}
+}
+
+// Env literals must reach the jail as the same STRING. Unquoted, YAML 1.1 (PyYAML, which
+// appjail-director uses) types them: true -> bool -> "True", 1.10 -> 1.1, 0755 -> 493.
+func TestConvertJailQuotesTypedLookingEnv(t *testing.T) {
+	vals := map[string]string{
+		"A_BOOL": "true", "B_YES": "yes", "C_OFF": "off", "D_NULL": "~",
+		"E_FLOAT": "1.10", "F_OCTAL": "0755", "G_INT": "1000", "H_QUOTE": "it's",
+	}
+	spec := convertJail(jailInfo{Name: "app", Image: "ghcr.io/x/app:latest", State: "running", Env: vals})
+	for k, v := range vals {
+		want := "        - " + k + ": '" + strings.ReplaceAll(v, "'", "''") + "'\n"
+		if !strings.Contains(spec.Director, want) {
+			t.Errorf("%s not emitted as a quoted string; want %q in:\n%s", k, want, spec.Director)
+		}
+	}
+}
+
+// Line breaks and control characters cannot live in a single-quoted scalar; they must
+// round-trip too. Checked by loading the generated YAML, not by substring.
+func TestConvertJailEnvRoundTripsAwkwardValues(t *testing.T) {
+	vals := map[string]string{"NL": "a\nb", "CRLF": "x\r\ny", "ESC": "\x1b[0m", "Q": `it's "q"`, "TAB": "a\tb"}
+	spec := convertJail(jailInfo{Name: "app", Image: "ghcr.io/x/app:latest", State: "running", Env: vals})
+	var doc struct {
+		Services map[string]struct {
+			OCI struct {
+				Environment []map[string]string `yaml:"environment"`
+			} `yaml:"oci"`
+		} `yaml:"services"`
+	}
+	if err := yaml.Unmarshal([]byte(spec.Director), &doc); err != nil {
+		t.Fatalf("director does not parse: %v\n%s", err, spec.Director)
+	}
+	got := map[string]string{}
+	for _, svc := range doc.Services {
+		for _, e := range svc.OCI.Environment {
+			for k, v := range e {
+				got[k] = v
+			}
+		}
+	}
+	for k, v := range vals {
+		if got[k] != v {
+			t.Errorf("%s: got %q, want %q", k, got[k], v)
+		}
 	}
 }
