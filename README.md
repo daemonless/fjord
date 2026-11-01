@@ -36,7 +36,7 @@ format carries nothing vendor-specific.
 
 ```sh
 pkg install podman sysutils/podman-compose conmon ocijail
-V=0.4.0   # or a pre-release: https://github.com/daemonless/fjord/releases
+V=0.4.1   # or a pre-release: https://github.com/daemonless/fjord/releases
 fetch -o /usr/local/sbin/fjordd https://github.com/daemonless/fjord/releases/download/v$V/fjordd-freebsd-$(uname -m)
 fetch -o /usr/local/etc/rc.d/fjordd https://github.com/daemonless/fjord/releases/download/v$V/fjordd.rc
 chmod 755 /usr/local/sbin/fjordd /usr/local/etc/rc.d/fjordd
@@ -65,7 +65,7 @@ release has a package for both, which pulls in podman and podman-compose,
 starts podman's API socket and fjord, and says where to open it:
 
 ```sh
-V=0.4.0 A=$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
+V=0.4.1 A=$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
 # Fedora
 dnf install -y https://github.com/daemonless/fjord/releases/download/v$V/fjord-$V-linux-$A.rpm
 # Debian/Ubuntu
@@ -88,7 +88,7 @@ curl -fsSL https://github.com/daemonless/fjord/releases/latest/download/install-
 Or by hand:
 
 ```sh
-V=0.4.0
+V=0.4.1
 curl -fsSLo /usr/local/sbin/fjordd https://github.com/daemonless/fjord/releases/download/v$V/fjordd-linux-$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
 curl -fsSLo /etc/systemd/system/fjordd.service https://github.com/daemonless/fjord/releases/download/v$V/fjordd.service
 chmod 755 /usr/local/sbin/fjordd
