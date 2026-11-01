@@ -24,9 +24,15 @@ const (
 	StockDNSConf = "/usr/local/share/appjail/files/dnsmasq.conf"
 )
 
-// dnsConfBody is the config for these AppJail network bridges. With none yet
-// it listens on loopback only: bind-dynamic with no interface would answer
-// everywhere.
+// dnsConfBody is the config for these AppJail network bridges. dnsmasq binds
+// the wildcard address and answers only what arrives on a named interface,
+// so a bridge that is not there yet is no error at start and is answered the
+// moment it appears: appjail makes a network's bridge when its first jail
+// starts and drops it with the last, and dnsmasq starts long before appjail
+// at boot. (bind-dynamic was here before; on FreeBSD that is bind-interfaces,
+// which binds only what exists at start and refuses a name that does not, so
+// dnsmasq failed at every boot and on any host whose jails were all down.)
+// With no network yet it listens on loopback only.
 func dnsConfBody(bridges []string) string {
 	var b strings.Builder
 	b.WriteString("# Written by fjord: AppJail jail names, for jails. Rewritten when fjord\n")
@@ -36,8 +42,8 @@ func dnsConfBody(bridges []string) string {
 	// LAN's resolver, and neither is a bare name with no dot in it.
 	b.WriteString("local=/appjail/\n")
 	b.WriteString("domain-needed\n")
-	b.WriteString("# Only on the AppJail networks, never on the LAN.\n")
-	b.WriteString("bind-dynamic\n")
+	b.WriteString("# Only on the AppJail networks, never on the LAN: checked per query, so\n")
+	b.WriteString("# the bridges can come and go with the jails.\n")
 	if len(bridges) == 0 {
 		b.WriteString("listen-address=127.0.0.1\n")
 	}
@@ -101,11 +107,11 @@ func restartDNS(ctx context.Context) {
 // Virtualnets are appjail's own networks (name, subnet, gateway).
 func Virtualnets(ctx context.Context) []engine.Network { return listVirtualnets(ctx) }
 
-// followNewBridges restarts dnsmasq when an AppJail network's bridge came up
-// after it started. appjail makes a network's bridge when its first jail
-// joins, and dnsmasq on FreeBSD binds only to the interfaces there at start
-// (bind-dynamic falls back to bind-interfaces): the first jails on a new
-// network could not resolve anything until something restarted it.
+// followNewBridges makes sure dnsmasq answers on every AppJail network's
+// bridge after a stack came up. fjord's config binds the wildcard address, so
+// a bridge that appeared after dnsmasq started is already covered; this
+// restarts a dnsmasq that is not listening for a gateway at all: stopped, or
+// still running an older config that bound only the bridges of its day.
 func followNewBridges(ctx context.Context) {
 	if !DNSConfInUse(ctx) {
 		return
@@ -122,11 +128,12 @@ func followNewBridges(ctx context.Context) {
 	}
 }
 
-// listensOn says sockstat output has a dnsmasq socket on addr:53.
+// listensOn says sockstat output has a dnsmasq socket on addr:53, or on the
+// wildcard *:53, which covers every address.
 func listensOn(sockstat, addr string) bool {
 	for _, l := range strings.Split(sockstat, "\n") {
 		f := strings.Fields(l)
-		if len(f) >= 6 && f[1] == "dnsmasq" && f[5] == addr+":53" {
+		if len(f) >= 6 && f[1] == "dnsmasq" && (f[5] == addr+":53" || f[5] == "*:53") {
 			return true
 		}
 	}
