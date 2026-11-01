@@ -20,3 +20,19 @@ updates:
       prefix: "ci"
     labels: ["dependencies"]
     open-pull-requests-limit: 3
+
+  # Go modules: one PR a week for all of them; the FreeBSD test job proves
+  # each bump before it lands, and build.yml vendors them into the release
+  # tarball the port builds from.
+  - package-ecosystem: "gomod"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    groups:
+      go-dependencies:
+        patterns: ["*"]
+    commit-message:
+      prefix: "chore"
+    labels: ["dependencies"]
+    open-pull-requests-limit: 3
