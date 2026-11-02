@@ -235,6 +235,48 @@ const shot = (page, n) => page.screenshot({ path: `/out/names-${n}.png`, fullPag
       await c2.close();
     }
     note('installed again under its name, the name points at the new app', !!two.rec?.url && [200, 302, 404].includes(via), two.rec?.url ? `${two.rec.url} -> ${two.rec.target?.address}:${two.rec.target?.port}, answers ${via}` : 'no name');
+    await req(`/api/stacks/${T}?data=1`, null, 'DELETE');
+    for (let i = 0; i < 20 && (await req('/api/names')).body?.names?.[T]; i++) await sleep(3000);
+
+    // Nobody watching: the name is the daemon's job. The install goes in
+    // through the API with no page open at all (as if the tab was closed
+    // the moment Install was clicked), on the app's own LAN address when
+    // the host has such a network (names.sh makes t-lan), else on the
+    // bridge. The name must be there anyway, pointing where Open goes, and
+    // the install's Output must say so for a page opened later.
+    const lan = ((await req('/api/networks')).body || []).find((n) => n.name === 't-lan');
+    const manifest = await (await page.request.get(BASE + '/catalog/daemonless/manifests/' + APP + '.yaml')).text();
+    const body = { name: T, app_id: APP, manifest, values: {}, engine: 'podman', givenName: T, ...(lan ? { network: 't-lan', ip: '' } : {}) };
+    const started = Date.now();
+    const ins = await page.request.fetch(BASE + '/api/apps/install', { method: 'POST', data: body, headers: { Origin: BASE }, timeout: 600000 });
+    const out = await ins.text();
+    const d3 = await settle(T);
+    const rec3 = (await req('/api/names')).body?.names?.[T] || null;
+    const own = (d3?.status?.containers || []).map((c) => c.address).find((a) => a && a.startsWith('192.168.'));
+    note(`unwatched install${lan ? ' on its own address' : ''} came up`, d3?.status?.state === 'running', `state ${d3?.status?.state}${own ? ' at ' + own : ''} after ${Math.round((Date.now() - started) / 1000)}s`);
+    note('the daemon gave it its name with nobody on the page', !!rec3?.url, rec3?.url ? `${rec3.url} -> ${rec3.target?.address}:${rec3.target?.port}` : 'no name');
+    if (lan && own) note('the name points at the app\'s own address and its container port', rec3?.target?.address === own && rec3?.target?.port === 3000, `${rec3?.target?.address}:${rec3?.target?.port}, app at ${own}`);
+    note('the install Output says where it is', new RegExp(`\\[fjord\\] ${T} is at https?://${T}\\.`).test(out), (out.match(/\[fjord\] [^\n]*name[^\n]*|\[fjord\] [^\n]* is at [^\n]*/) || ['no [fjord] line about the name'])[0]);
+    // A page opened afterwards: the kept Output has the line, Open goes by
+    // name, and by address the note explains the port.
+    await page.goto(BASE + '/?t=' + Date.now() + '#/stacks/' + T, { waitUntil: 'domcontentloaded' });
+    await sleep(2500);
+    const kept = (await req(`/api/stacks/${T}/output`)).body?.text || '';
+    note('the kept Output, read later, has the line', /\[fjord\] .* is at /.test(kept), (kept.match(/\[fjord\] [^\n]* is at [^\n]*/) || ['not in the kept output'])[0]);
+    const href3 = (await page.getByRole('link', { name: /^Open/ }).first().getAttribute('href').catch(() => '')) || '';
+    note('Open goes by name on a page opened later', href3.startsWith(rec3?.url || 'https://' + T + '.'), href3 || 'no Open link');
+    await shot(page, '9-unwatched-named');
+    if (lan && own) {
+      // By address: the port is the app's own, said beside Open.
+      // The choice is this browser's (localStorage), as the ▾ menu sets it.
+      await page.evaluate(() => localStorage.setItem('fjord.openBy', 'address'));
+      await page.goto(BASE + '/?t=' + Date.now() + '#/stacks/' + T, { waitUntil: 'domcontentloaded' });
+      await sleep(2000);
+      const how = await page.getByText(/on its own address/).first().innerText().catch(() => '');
+      note('by address, Open says the port is the app\'s own', /on its own address/.test(how), how || 'no note beside Open');
+      await shot(page, '10-unwatched-by-address');
+      await page.evaluate(() => localStorage.setItem('fjord.openBy', 'name'));
+    }
 
   } catch (e) {
     note('run', false, e.message.split('\n')[0]);

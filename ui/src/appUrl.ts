@@ -112,6 +112,31 @@ export function appUrl(stack: AppUrlStack | null): string {
   return ports.length ? `http://${host}:${ports[0]}` : '';
 }
 
+/**
+ * Why Open shows the port it does, for an app on its own address: there the
+ * app answers on its container port, while x-fjord web_port (what the
+ * compose shows) is the port it would be published on at this host. Read
+ * side by side, "Open 192.168.86.14:80" under "web_port: 8094" looked like a
+ * contradiction. "" for an app behind the host, where the two agree.
+ */
+export function openHow(stack: AppUrlStack | null): string {
+  if (!stack || noWebUI(stack)) return '';
+  const c = stack.compose || '';
+  const ip = stack.linkHost || (stack.ownAddress ? (c.match(/ipv4_address:\s*([0-9.]+)/) || [])[1] : undefined);
+  if (!ip) return '';
+  const env: Record<string, string> = {};
+  for (const line of (stack.env || '').split('\n')) {
+    const eq = line.indexOf('=');
+    if (eq > 0) env[line.slice(0, eq).trim()] = line.slice(eq + 1).trim();
+  }
+  const resolve = (v: string) => expandVars(v, env);
+  const hinted = resolve((c.match(/web_port:\s*["']?([^\s"']+)/) || [])[1] || '');
+  if (!/^\d{2,5}$/.test(hinted)) return 'on its own address';
+  const inside = containerSide(c, hinted, resolve);
+  if (inside === hinted) return 'on its own address';
+  return `on its own address: port ${inside} is the app's own; ${hinted} would be this host's`;
+}
+
 // containerSide maps a published host port to the container port it
 // forwards to, from the compose's "HOST:CONTAINER" lines (ports: or the
 // x-fjord-published ones parked there on a LAN address). Unmapped, the port

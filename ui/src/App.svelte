@@ -23,7 +23,7 @@
   import Spinner from './Spinner.svelte';
   import LoginButton from './LoginButton.svelte';
   import OpenMenu from './OpenMenu.svelte';
-  import { names, openBy, deviceTrust, loadNames, openUrl as nameOrAddress, opensByName, linkUrl, addNames } from './names';
+  import { names, openBy, deviceTrust, loadNames, openUrl as nameOrAddress, opensByName, linkUrl } from './names';
   import TrustMark from './TrustMark.svelte';
   import NamesPrompt from './NamesPrompt.svelte';
   import Icon from './Icon.svelte';
@@ -37,7 +37,7 @@
   import Toasts from './Toasts.svelte';
   import { toast, dismissToast } from './toast';
   import { expandVars } from './expand';
-  import { appUrl, noWebUI } from './appUrl';
+  import { openHow, appUrl, noWebUI } from './appUrl';
   import { busyStep } from './busyStep';
   import { health } from './stackHealth';
   import { changeSentence } from './updateWords';
@@ -494,6 +494,9 @@
   // port. Empty when the stack publishes nothing web-ish.
 
   $: openUrl = nameOrAddress(selectedStack, $names, $openBy, $deviceTrust);
+  // Beside Open, for an app on its own address: why the port is the app's and
+  // not the compose's web_port. Not when Open goes by name.
+  $: openHowNote = openByName ? '' : openHow(selectedStack);
   $: openByName = opensByName(selectedStack, $names, $openBy);
   // A stack of several apps opens each at its own address: Open is the main
   // one, the menu beside it the rest.
@@ -1981,7 +1984,7 @@
       const res = await fetch('/api/apps/install', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, manifest, values, ...(paths ? { paths } : {}), ...(appData ? { appData } : {}), ...(appId ? { app_id: appId } : {}), ...(engine ? { engine } : {}), ...(tag ? { tag } : {}), ...(network ? { network, ip, ...(mac ? { mac } : {}) } : {}), ...(networkPlan ? { networkPlan } : {}), ...(netList?.length ? { networks: netList } : {}), ...(networkModes ? { networkModes } : {}), ...(choices ? { choices } : {}) }),
+        body: JSON.stringify({ name, manifest, values, ...(paths ? { paths } : {}), ...(appData ? { appData } : {}), ...(appId ? { app_id: appId } : {}), ...(engine ? { engine } : {}), ...(tag ? { tag } : {}), ...(network ? { network, ip, ...(mac ? { mac } : {}) } : {}), ...(networkPlan ? { networkPlan } : {}), ...(netList?.length ? { networks: netList } : {}), ...(networkModes ? { networkModes } : {}), ...(choices ? { choices } : {}), ...(e.detail.givenName ? { givenName: e.detail.givenName } : {}) }),
       });
       // The server sends the id as soon as the stack exists on disk -- also
       // when it then refuses to start it. So the header, not the status, says
@@ -2056,18 +2059,11 @@
       // Store to queue the next one, typically -- back to this page. The
       // stack is saved and its status is live in the list either way.
       if (found && stillWatching(key)) selectStack(found);
-      // A name once it runs, if the wizard asked for one; and a provider
-      // just installed shows Finish setup on its row.
-      const p = await loadNames();
-      if (found && e.detail.givenName && p.ready) {
-        try {
-          const [r] = await addNames([{ stack: found, label: e.detail.givenName }]);
-          if (r?.host) toast(`${name} is at ${r.host.name}.${p.domain}`, { kind: 'success' });
-          else toast(`${name} has no name yet: ${r?.error || `${p.provider} refused it`}`, { kind: 'error' });
-        } catch (err: any) {
-          toast(`${name} has no name yet: ${err?.message || err}`, { kind: 'error' });
-        }
-      }
+      // The name the wizard asked for was given by the daemon at the end of
+      // the stream (its Output says what came of it); read the names back so
+      // Open and the row use it. A provider just installed shows Finish
+      // setup on its row.
+      await loadNames();
     } catch (err: any) {
       // Before the hand-off there is no stack and no terminal to write to;
       // the wizard is still up, so the failure belongs in it.
@@ -2500,6 +2496,7 @@
               >
               {#if openByName && statusLabel(selectedStack.status) === 'running'}<TrustMark {stacks} size={13} />{/if}
               <OpenMenu stack={selectedStack} disabled={statusLabel(selectedStack.status) !== 'running'} />
+              {#if openHowNote}<span class="shrink-0 text-xs text-fjord-fg-dim" title="An app with its own address answers on its container port; x-fjord web_port is where it would be published at this host's address.">{openHowNote}</span>{/if}
               <LoginButton stack={selectedStack.name} />
             {/if}
             {#if openUrl && links.length > 1}

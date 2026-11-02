@@ -197,6 +197,10 @@ type installRequest struct {
 	// choice left out takes its default, so an older client answers nothing
 	// and gets the compose as it stands.
 	Choices map[string]string `json:"choices,omitempty"`
+	// GivenName is the name to give the app once it runs (radarr, for
+	// radarr.apps.lan), "" for none. The daemon gives it, after the
+	// stay-up check, and says so in the install's Output.
+	GivenName string `json:"givenName,omitempty"`
 	// Restart is the stack's restart policy; nil takes the Settings default.
 	Restart *composepkg.Restart `json:"restart,omitempty"`
 }
@@ -611,7 +615,7 @@ func (s *server) handleInstall(w http.ResponseWriter, r *http.Request) {
 	// disk is the source of truth; podman-compose ignores x-* keys). Without it
 	// host-net stacks have no discoverable web link -- nothing is published.
 	if m.WebPort != "" || len(m.NameEnv) > 0 {
-		composeYAML += "\nx-fjord:\n"
+		composeYAML += "\n" + xFjordNote + "x-fjord:\n"
 		if m.WebPort != "" {
 			composeYAML += fmt.Sprintf("  web_port: %q\n", m.WebPort)
 		}
@@ -770,8 +774,16 @@ func (s *server) handleInstall(w http.ResponseWriter, r *http.Request) {
 			io.Closer
 		}{io.MultiReader(strings.NewReader(note), stream), stream}
 	}
-	streamOutput(w, s.recordOutcome(id, "install", s.keepAfter(ctx, st, stream)))
+	streamOutput(w, s.recordOutcome(id, "install", s.nameAfter(ctx, st, req.GivenName, requestOrigin(r), s.keepAfter(ctx, st, stream))))
 }
+
+// xFjordNote sits above the x-fjord block in a saved compose. web_port is
+// the port the page is published on at this host's address; an app with
+// its own address answers on its container port instead, and Open uses
+// that. Read beside "Open 192.168.86.14:80", a bare web_port: 8094 looked
+// like a contradiction.
+const xFjordNote = "# x-fjord is fjord's own: web_port is where the page is published at this\n" +
+	"# host's address. On its own address the app answers on its container port.\n"
 
 // secretsNote is the first lines of an install's output: which passwords
 // were kept or made up. A names provider's key and setup token are fjord's
