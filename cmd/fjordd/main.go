@@ -412,6 +412,52 @@ func logKept(name string, kept, skipped []string) {
 	}
 }
 
+// bootSettleLimit bounds the wait for an engine's own boot start. appjail's
+// takes a couple of minutes on a small host; past the limit start on boot goes on
+// as before rather than leave every stack down behind a start that hung.
+var bootSettleLimit = 10 * time.Minute
+
+// settleBoot waits, once per engine, for an engine that starts stacks itself
+// at boot (engine.BootSettler) to finish before the first of its stacks is
+// judged. Without it a stack the engine was still starting read as down, and
+// bringing it up lost to the engine's own start: appjail answered "has been
+// locked", exit 73, and every stack it reached showed a failed start on boot
+// though its jail came up.
+func settleBoot(settled map[string]bool, engineName string, be engine.Backend) {
+	bs, ok := be.(engine.BootSettler)
+	if !ok || settled[engineName] {
+		return
+	}
+	settled[engineName] = true
+	ctx, cancel := context.WithTimeout(context.Background(), bootSettleLimit)
+	defer cancel()
+	start := time.Now()
+	if err := bs.BootSettle(ctx); err != nil {
+		log.Printf("start-on-boot: %s: still starting its own stacks after %s, going on: %v",
+			engineName, time.Since(start).Round(time.Second), err)
+		return
+	}
+	if waited := time.Since(start); waited >= time.Second {
+		log.Printf("start-on-boot: %s: waited %s for its own boot start", engineName, waited.Round(time.Second))
+	}
+}
+
+func isBootSettler(be engine.Backend) bool {
+	_, ok := be.(engine.BootSettler)
+	return ok
+}
+
+// boolOrder sorts false before true.
+func boolOrder(a, b bool) int {
+	switch {
+	case a == b:
+		return 0
+	case a:
+		return 1
+	}
+	return -1
+}
+
 // startOnBoot brings up every stack whose recorded desired_state is "running",
 // one at a time, so running stacks survive a fjordd or host restart.
 // finishDelete completes a delete that a fjordd restart cut short. Its app
@@ -437,7 +483,18 @@ func startOnBoot(srv *server) {
 		return
 	}
 	booted := hostBooted()
+	// Engines that start stacks themselves at boot go last, so waiting on
+	// theirs (settleBoot) does not hold up everyone else's.
+	slices.SortStableFunc(stacks, func(a, b *stack.Stack) int {
+		return boolOrder(isBootSettler(srv.backendFor(a)), isBootSettler(srv.backendFor(b)))
+	})
+	settled := map[string]bool{}
 	for _, s := range stacks {
+		// Before any action on the stack, a delete included: each one races
+		// the engine's own boot start the same way. Not only at a host boot --
+		// a fjordd restarted while it runs meets the same race, and when
+		// nothing is starting the check costs one pgrep.
+		settleBoot(settled, s.EngineName(), srv.backendFor(s))
 		if s.State != nil && s.State.DesiredState == desiredDeleting {
 			finishDelete(srv, s.Name)
 			continue

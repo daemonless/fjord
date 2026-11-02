@@ -326,6 +326,16 @@ type Segment struct {
 	Gateway string `json:"gateway,omitempty"`
 }
 
+// BootSettler is an engine whose own host service starts stacks at boot, in
+// the background. Start on boot waits for that to finish before it judges any
+// of the engine's stacks: until then a stack still being started reads as
+// down, and bringing it up races the engine for the same jail.
+type BootSettler interface {
+	// BootSettle returns once the engine's own boot start has finished, or
+	// with ctx's error if it has not by then.
+	BootSettle(ctx context.Context) error
+}
+
 // SegmentProber is a backend that can ask a parent's wire which segment it is
 // on -- the only way to know it when the host holds no address there.
 type SegmentProber interface {
