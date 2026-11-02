@@ -3,6 +3,29 @@
 Releases are tagged on GitHub; each rc is a pre-release with the pull
 requests it carries. This file is the story per release.
 
+## 0.4.2 — 2026-11-02
+
+Fixes for 0.4.1, and Set up does two more things itself.
+
+- A name asked for at install is given by fjord, not by the page. The
+  wizard's name used to be requested by the browser once the install's
+  stream ended, so closing the tab or moving on to the next install left
+  the app with no name and nothing saying so. fjord gives it after the
+  stay-up check, asks again while the proxy cannot reach the app yet, and
+  the install's Output says `t-nm is at https://t-nm.apps.lan` or why not,
+  where a page opened later still finds it. Proven with an install through
+  the API and no browser open, on the app's own LAN address. (#205)
+- An app on its own address says so beside Open: "on its own address: port
+  80 is the app's own; 8094 would be this host's". The compose's
+  `x-fjord: web_port` is the port the page is published on at the host's
+  address, which Open does not use for an app with an address of its own;
+  the two side by side read as a contradiction. The saved compose now
+  carries a comment above `x-fjord` saying what it is. (#205)
+- Set up adds pf's anchors and NAT and names the NIC in rc.conf itself,
+  two fewer "Your turn" steps on a fresh FreeBSD host. (#206)
+- Go dependencies are kept current by Dependabot, one grouped PR a week; the
+  FreeBSD test job proves each bump. (#203, #204)
+
 ## 0.4.1 — 2026-11-01
 
 Fixes only, for 0.4.0.
