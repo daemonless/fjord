@@ -586,6 +586,7 @@ msgid "Changes saved"
 msgstr "Modifications enregistrées"
 
 #: src/App.svelte
+#: src/App.svelte
 msgid "Checking it stays up"
 msgstr "Vérification qu'elle reste en marche"
 
@@ -612,6 +613,7 @@ msgstr "Installation…"
 msgid "Starting…"
 msgstr "Démarrage…"
 
+#: src/App.svelte
 #: src/App.svelte
 #: src/App.svelte
 msgid "Updating…"

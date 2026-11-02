@@ -892,11 +892,18 @@ func composeHash(st *stack.Stack) string {
 // @digest first, so pin=false (or omitted) unpins. The UI redeploys afterward
 // only when the version actually changed. With service set, only that
 // service's image moves -- how a multi-image stack takes a new version.
+// With update, the daemon then updates the stack (update_services names a
+// part of it) as one job under one lock: the page used to call update
+// after this answered, and a page gone between the two left the compose
+// naming a version the stack did not run. A busy stack is refused before
+// the compose is touched, for the same reason.
 func (s *server) stackSetTag(w http.ResponseWriter, r *http.Request, name string) {
 	var body struct {
-		Tag     string `json:"tag"`
-		Pin     bool   `json:"pin"`
-		Service string `json:"service"`
+		Tag            string   `json:"tag"`
+		Pin            bool     `json:"pin"`
+		Service        string   `json:"service"`
+		Update         bool     `json:"update"`
+		UpdateServices []string `json:"update_services"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Tag == "" {
 		http.Error(w, "tag required", 400)
@@ -907,12 +914,46 @@ func (s *server) stackSetTag(w http.ResponseWriter, r *http.Request, name string
 		http.Error(w, "Stack not found", 404)
 		return
 	}
+	// The response once the ref is written: the update started, or not asked.
+	done := func() {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"status":"ok"}`))
+	}
+	if body.Update {
+		ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
+		defer cancel()
+		if err := knownServices(st, body.UpdateServices, s.engineServices(ctx, st)); err != nil {
+			http.Error(w, err.Error(), 400)
+			return
+		}
+		unlock, ok := lockStackAs(name, "update")
+		if !ok {
+			http.Error(w, anotherOperation(name), http.StatusConflict)
+			return
+		}
+		started := false
+		defer func() {
+			if !started {
+				unlock()
+			}
+		}()
+		done = func() {
+			started = true
+			s.updateDetached(name, unlock, body.UpdateServices)
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte(`{"status":"ok","updating":true}`))
+		}
+	}
 	if body.Service != "" {
 		// A director service the compose does not name -- bundles call a
 		// sidecar authelia-redis where the compose says redis, and the page
 		// lists the director's names: its version goes to the director.
 		if st.Director != "" && composeImage(st.Compose, body.Service) == "" {
-			s.directorSetTag(r.Context(), w, st, body.Service, body.Tag, body.Pin)
+			if err := s.directorSetTag(r.Context(), st, body.Service, body.Tag, body.Pin); err != nil {
+				replyErr(w, err)
+				return
+			}
+			done()
 			return
 		}
 		if why := s.noBuildForRetag(r.Context(), st.Compose, body.Service, body.Tag); why != "" {
@@ -946,8 +987,7 @@ func (s *server) stackSetTag(w http.ResponseWriter, r *http.Request, name string
 			replyErr(w, err)
 			return
 		}
-		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"status":"ok"}`))
+		done()
 		return
 	}
 	// SetImageTag rewrites EVERY service image -- correct for single-image
@@ -995,8 +1035,7 @@ func (s *server) stackSetTag(w http.ResponseWriter, r *http.Request, name string
 		replyErr(w, err)
 		return
 	}
-	w.Header().Set("Content-Type", "application/json")
-	w.Write([]byte(`{"status":"ok"}`))
+	done()
 }
 
 // retag moves a service (every service when none is named) to tag: in the
@@ -1289,20 +1328,23 @@ func requestedServices(r *http.Request, st *stack.Stack, engineKnows func() []st
 	if len(req.Services) == 0 {
 		return nil, nil
 	}
-	known, _ := composepkg.ServiceImageList(st.Compose)
-	var more []string
-	for _, want := range req.Services {
-		if slices.ContainsFunc(known, func(si composepkg.ServiceImage) bool { return si.Service == want }) {
-			continue
-		}
-		if more == nil && engineKnows != nil {
-			more = append([]string{}, engineKnows()...)
-		}
-		if !slices.Contains(more, want) {
-			return nil, fmt.Errorf("%s has no service %q", st.Name, want)
-		}
+	if err := knownServices(st, req.Services, engineKnows); err != nil {
+		return nil, err
 	}
 	return req.Services, nil
+}
+
+// engineServices names a stack's services as its engine runs them, asked
+// only when needed: the registry of a running image is a call per service.
+func (s *server) engineServices(ctx context.Context, st *stack.Stack) func() []string {
+	return func() []string {
+		var names []string
+		ris, _ := s.backendFor(st).RunningImages(ctx, st)
+		for _, ri := range ris {
+			names = append(names, ri.Service)
+		}
+		return names
+	}
 }
 
 // stackLifecycle runs up/down/update/restart, streaming the backend's output.
@@ -1382,33 +1424,11 @@ func (s *server) lifecycle(w http.ResponseWriter, r *http.Request, name, action 
 		stream, err = s.backendFor(st).Down(ctx, st)
 	case "update":
 		var services []string
-		be := s.backendFor(st)
-		if services, err = requestedServices(r, st, func() []string {
-			var names []string
-			ris, _ := be.RunningImages(ctx, st)
-			for _, ri := range ris {
-				names = append(names, ri.Service)
-			}
-			return names
-		}); err != nil {
+		if services, err = requestedServices(r, st, s.engineServices(ctx, st)); err != nil {
 			http.Error(w, err.Error(), 400)
 			return
 		}
-		if r.Context().Value(isRollbackKey{}) == nil {
-			s.recordRollback(ctx, st, services)
-		}
-		note := keptNote(s.keepAddresses(ctx, st))
-		stream, err = s.backendFor(st).Update(watchable(ctx, name), st, services)
-		if err == nil {
-			// An update recreates what it touches, from the saved config.
-			stream = s.clearPendingAfter(name, services, read, stream)
-		}
-		if err == nil && note != "" {
-			stream = struct {
-				io.Reader
-				io.Closer
-			}{io.MultiReader(strings.NewReader(note), stream), stream}
-		}
+		stream, err = s.updateStream(ctx, st, read, services, r.Context().Value(isRollbackKey{}) == nil)
 	case "restart":
 		stream, err = s.backendFor(st).Restart(ctx, st)
 	default:
@@ -1515,15 +1535,13 @@ func (s *server) noBuildForRetag(ctx context.Context, compose, service, tag stri
 
 // directorSetTag moves one director service to tag, pinned to the digest
 // the tag resolves to now when asked, written into the director alone.
-func (s *server) directorSetTag(ctx context.Context, w http.ResponseWriter, st *stack.Stack, service, tag string, pin bool) {
+func (s *server) directorSetTag(ctx context.Context, st *stack.Stack, service, tag string, pin bool) error {
 	cur := directorImage(st, service)
 	if cur == "" {
-		http.Error(w, "no service "+service+" in the director", 400)
-		return
+		return httpError{400, "no service " + service + " in the director"}
 	}
 	if why := s.noBuildHere(ctx, registry.Repo(cur), tag); why != "" {
-		http.Error(w, why, http.StatusConflict)
-		return
+		return httpError{http.StatusConflict, why}
 	}
 	img := imageRepo(cur) + ":" + tag
 	if pin {
@@ -1531,12 +1549,11 @@ func (s *server) directorSetTag(ctx context.Context, w http.ResponseWriter, st *
 		defer cancel()
 		digest, err := registry.Digest(dctx, img)
 		if err != nil {
-			http.Error(w, err.Error(), 502)
-			return
+			return httpError{502, err.Error()}
 		}
 		img += "@" + digest
 	}
-	if _, err := s.manager.Update(st.Name, func(fresh *stack.Stack) error {
+	_, err := s.manager.Update(st.Name, func(fresh *stack.Stack) error {
 		if err := unchangedSince(fresh, st); err != nil {
 			return err
 		}
@@ -1544,12 +1561,8 @@ func (s *server) directorSetTag(ctx context.Context, w http.ResponseWriter, st *
 			return httpError{400, err.Error()}
 		}
 		return nil
-	}); err != nil {
-		replyErr(w, err)
-		return
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.Write([]byte(`{"status":"ok"}`))
+	})
+	return err
 }
 
 // unchangedSince refuses a change worked out from snap when the stack has

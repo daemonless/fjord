@@ -846,33 +846,62 @@
     const res = await fetch(`/api/stacks/${name}/set-tag`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tag, pin: false }),
+      body: JSON.stringify({ tag, pin: false, update: true }),
     });
     if (!res.ok) {
       toast(`Version change failed: ${(await res.text()).trim()}`, { kind: 'error' });
       return;
     }
+    await followUpdate(name, res);
+  }
+  // A version change is one job of the daemon's: set-tag writes the new
+  // ref and runs the update itself, so a page gone after the click changes
+  // nothing about what runs. This page only follows its output, then
+  // refreshes what an update changes. The second call is for a daemon that
+  // did not say it was updating.
+  async function followUpdate(name: string, res: Response, services?: string[]) {
+    const updating = !!(await res.json().catch(() => ({})))?.updating;
     await selectStack({ name } as Stack); // the compose now names the new tag
-    await update(name);
+    if (!updating) {
+      await update(name, services);
+      return;
+    }
+    logs[name] = '';
+    execMessage[name] = 'Updating…';
+    if (stillWatching(name)) {
+      drawerTab = 'output';
+      drawerOpen = true;
+    }
+    await showActionOutput(name);
+    if (!services?.length) needsApply[name] = false;
+    await refreshState(name);
+    await loadStacks();
+    if (selectedStack?.name === name) checkForUpdate(name); // refresh the badge
+    loadFleetUpdates(true);
   }
   // The picked services, new versions retagged first -- one service each, so
   // the database is never moved to the app's version -- then one update.
   async function updatePicked(name: string, svcs: ServiceUpdate[]) {
     updatePanel = '';
     const bumps = svcs.filter((s) => s.state === 'upgrade');
-    for (const s of bumps) {
+    const services = svcs.map((s) => s.service);
+    for (const [i, s] of bumps.entries()) {
+      const last = i === bumps.length - 1; // the last retag runs the update
       const res = await fetch(`/api/stacks/${name}/set-tag`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tag: s.newTag, service: s.service, pin: false }),
+        body: JSON.stringify({ tag: s.newTag, service: s.service, pin: false, ...(last ? { update: true, update_services: services } : {}) }),
       });
       if (!res.ok) {
         toast(`Could not move ${s.service} to v${s.toVersion}: ${(await res.text()).trim()}`, { kind: 'error' });
         return;
       }
+      if (last) {
+        await followUpdate(name, res, services);
+        return;
+      }
     }
-    if (bumps.length) await selectStack({ name } as Stack); // the compose names the new tags
-    await update(name, svcs.map((s) => s.service));
+    await update(name, services);
   }
   const shortDigest = (d?: string) => (d ?? '').replace('sha256:', '').slice(0, 12);
 
@@ -1605,27 +1634,36 @@
   // start-on-boot) or lost to a reload: fjordd keeps the running or last
   // action's output per stack. Shown when this page has nothing of its own,
   // and followed while the stack is busy.
-  const followingOutput = new Set<string>();
-  async function showActionOutput(name: string) {
+  // One follow per stack at a time; a second caller waits on the same one,
+  // so what starts a daemon-side action can wait for its end.
+  const followingOutput = new Map<string, Promise<void>>();
+  function showActionOutput(name: string): Promise<void> {
     const streamingHere = () => execStatus[name] === 'running' || execStatus[name] === 'watching';
-    if (streamingHere() || followingOutput.has(name)) return;
-    followingOutput.add(name);
-    try {
-      for (;;) {
-        const r = await fetch(`/api/stacks/${encodeURIComponent(name)}/output`).catch(() => null);
-        if (!r?.ok) break;
-        const o = await r.json();
-        if (streamingHere()) break; // this page started one meanwhile
-        if (o.text && (!logs[name] || logs[name] !== o.text)) logs[name] = o.text;
-        if (o.text && !o.done) execMessage[name] = BUSY_LABEL[o.action] ?? `${o.action}…`;
-        following[name] = !!o.text && !o.done;
-        if (o.done || selectedStack?.name !== name) break;
-        await new Promise((res) => setTimeout(res, 1500));
+    if (streamingHere()) return Promise.resolve();
+    const running = followingOutput.get(name);
+    if (running) return running;
+    const follow = (async () => {
+      try {
+        for (;;) {
+          const r = await fetch(`/api/stacks/${encodeURIComponent(name)}/output`).catch(() => null);
+          if (!r?.ok) break;
+          const o = await r.json();
+          if (streamingHere()) break; // this page started one meanwhile
+          if (o.text && (!logs[name] || logs[name] !== o.text)) logs[name] = o.text;
+          // Down to the stay-up check, the badge says so, as it does for an
+          // action this page streamed; the actions are back by then.
+          if (o.text && !o.done) execMessage[name] = watchStarted(o.text) ? 'Checking it stays up' : (BUSY_LABEL[o.action] ?? `${o.action}…`);
+          following[name] = !!o.text && !o.done;
+          if (o.done || selectedStack?.name !== name) break;
+          await new Promise((res) => setTimeout(res, 1500));
+        }
+      } finally {
+        following[name] = false;
+        followingOutput.delete(name);
       }
-    } finally {
-      following[name] = false;
-      followingOutput.delete(name);
-    }
+    })();
+    followingOutput.set(name, follow);
+    return follow;
   }
   function applyStackEvent(ev: any) {
     if (ev?.type === 'stack-busy') {
@@ -1895,10 +1933,16 @@
     changeVersion = null;
     if (!name) return;
     const tagChanged = e.detail.tag !== refTag(curImage);
+    const services = service && perService ? [service] : undefined;
     const res = await fetch(`/api/stacks/${name}/set-tag`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tag: e.detail.tag, pin: e.detail.pin, ...(service ? { service } : {}) }),
+      body: JSON.stringify({
+        tag: e.detail.tag,
+        pin: e.detail.pin,
+        ...(service ? { service } : {}),
+        ...(tagChanged ? { update: true, ...(services ? { update_services: services } : {}) } : {}),
+      }),
     });
     if (!res.ok) {
       const msg = (await res.text()).trim();
@@ -1908,9 +1952,12 @@
       toast(`Version change failed: ${msg}`, { kind: 'error' });
       return;
     }
+    if (tagChanged) {
+      await followUpdate(name, res, services);
+      return;
+    }
     await selectStack({ name } as Stack); // re-fetch: compose now has the new ref
-    if (tagChanged) await update(name, service && perService ? [service] : undefined);
-    else checkForUpdate(name); // a pin alone runs the same bytes: nothing to recreate
+    checkForUpdate(name); // a pin alone runs the same bytes: nothing to recreate
   }
 
   // Prominent blocking overlay while a delete runs -- tearing containers down
