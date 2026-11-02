@@ -77,6 +77,7 @@ wire.
 | retag-var | Change Version on an image whose tag is a variable sets .env and leaves the compose as written | t-var |
 | leftover | a private network whose stack is gone reads as left over and can be deleted | |
 | appjail-dns | the Setup check for jail name resolution tells the truth: with dnsmasq stopped it is a terminal job with the commands on screen, and gone once they are run (leaves dnsmasq configured for appjail) | |
+| host-fixes | pf's podman anchors and ifconfig_DEFAULT are set up from the Setup page, not left to a terminal: from a fresh image's state (no pf.conf, pf off, DHCP on DEFAULT) Set up writes pf.conf, enables pf and names the NIC; with a NAT line gone from a running pf only that step comes back and it is a reload (leaves pf enabled with the anchors) | |
 | appjail-update | one service of an AppJail stack updated from the panel, only its jail rebuilt; then rolled back from its row: the jail runs the image it had, pinned, and the other jail never restarts | t-aju |
 | privdel | deleting a stack removes its private network | t-pd |
 | apply | Apply recreates what a Save changed, even with an exec session holding the old container | t-apply |
