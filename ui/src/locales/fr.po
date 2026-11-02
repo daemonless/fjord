@@ -3986,22 +3986,14 @@ msgstr "Impossible de définir les options"
 msgid "This stack's files did not load, so there is nothing safe to save. Open it again."
 msgstr "Les fichiers de cette pile ne se sont pas chargés, il n'y a donc rien à enregistrer sans risque. Rouvrez-la."
 
-#. 0: name; 1: r.host.name; 2: p.domain
-#: src/App.svelte
-msgid "{0} is at {1}.{2}"
-msgstr "{0} est à {1}.{2}"
+#~ msgid "{0} is at {1}.{2}"
+#~ msgstr "{0} est à {1}.{2}"
 
-#. 0: p.provider
-#: src/App.svelte
-msgid "{0} refused it"
-msgstr "{0} l'a refusé"
+#~ msgid "{0} refused it"
+#~ msgstr "{0} l'a refusé"
 
-#. 0: name; 1: r?.error || `${p.provider} refused it`
-#. 0: name; 1: err?.message || err
-#: src/App.svelte
-#: src/App.svelte
-msgid "{0} has no name yet: {1}"
-msgstr "{0} n'a pas encore de nom : {1}"
+#~ msgid "{0} has no name yet: {1}"
+#~ msgstr "{0} n'a pas encore de nom : {1}"
 
 #: src/App.svelte
 msgid "FJORD_AUTH=none: only this host and the proxy in front of it can reach fjord"
@@ -4868,3 +4860,7 @@ msgstr "Impossible de charger les versions publiées : {0} <0>Réessayer</0>"
 #: src/ServiceResources.svelte
 msgid "{0} — this stack's own network, made by its compose"
 msgstr "{0} — le réseau propre à cette pile, créé par son compose"
+
+#: src/App.svelte
+msgid "An app with its own address answers on its container port; x-fjord web_port is where it would be published at this host's address."
+msgstr ""

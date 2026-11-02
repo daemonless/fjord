@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { appUrl } from './appUrl';
+import { openHow, appUrl } from './appUrl';
 
 describe('appUrl', () => {
   // On its own LAN address a service publishes nothing, so the port comes from
@@ -77,5 +77,22 @@ describe('appUrl web_port hint', () => {
   it('keeps a host-network hint that maps nothing', () => {
     const hostNet = 'services:\n  app:\n    network_mode: host\n\nx-fjord:\n  web_port: "8123"\n';
     expect(appUrl({ compose: hostNet, ownAddress: true, linkHost: '192.168.4.10' })).toBe('http://192.168.4.10:8123');
+  });
+});
+
+// The note beside Open for an app on its own address: the container port
+// is the app's, web_port is the host's, and the two can differ.
+describe('openHow', () => {
+  const own = 'services:\n  app:\n    networks:\n      lan86:\n        ipv4_address: 192.168.86.14\n    x-fjord-published:\n      - "${WEB_PORT}:80"\n\nx-fjord:\n  web_port: "${WEB_PORT}"\n';
+  it('explains the container port against web_port', () => {
+    expect(openHow({ compose: own, env: 'WEB_PORT=8094', ownAddress: true } as any)).toBe("on its own address: port 80 is the app's own; 8094 would be this host's");
+  });
+  it('says only that it is on its own address when the ports agree', () => {
+    const same = own.replace('${WEB_PORT}:80', '${WEB_PORT}:8094');
+    expect(openHow({ compose: same, env: 'WEB_PORT=8094', ownAddress: true } as any)).toBe('on its own address');
+  });
+  it('says nothing for an app behind the host', () => {
+    const behind = 'services:\n  app:\n    ports:\n      - "8094:80"\n\nx-fjord:\n  web_port: "8094"\n';
+    expect(openHow({ compose: behind, env: '' } as any)).toBe('');
   });
 });

@@ -314,7 +314,7 @@ func (s *server) handleAdopt(w http.ResponseWriter, r *http.Request) {
 		defer release()
 		compose := a.Compose
 		if port, https := s.adoptWebHint(ctx, be, a.Service, a.Compose, a.Env); port != "" {
-			compose += fmt.Sprintf("\nx-fjord:\n  web_port: %q\n", port)
+			compose += fmt.Sprintf("\n%sx-fjord:\n  web_port: %q\n", xFjordNote, port)
 			if https {
 				compose += "  web_https: true\n"
 			}
