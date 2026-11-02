@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"runtime"
+	"strings"
 
 	composepkg "github.com/daemonless/fjord/pkg/compose"
 	"github.com/daemonless/fjord/pkg/stack"
@@ -21,8 +22,13 @@ func (s *server) handleComposeMounts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		Compose  string   `json:"compose"`
-		Env      string   `json:"env"`
+		Compose string `json:"compose"`
+		Env     string `json:"env"`
+		// Director is the appjail-director.yml of a director stack: the file
+		// its mounts live in, which replaces Compose as what is edited. Name
+		// is the stack's, for the jail names in the view handed back.
+		Director string   `json:"director"`
+		Name     string   `json:"name"`
 		Op       string   `json:"op"`      // "list" | "add" | "remove" | "options"
 		Service  string   `json:"service"` // which service to mount into; "" = the first
 		Kind     string   `json:"kind"`    // add: "bind" | "volume"
@@ -37,6 +43,10 @@ func (s *server) handleComposeMounts(w http.ResponseWriter, r *http.Request) {
 	}
 	env := (&stack.Stack{Env: req.Env}).EnvMap()
 	opts := composepkg.WithReadOnly(req.Options, req.ReadOnly)
+	if strings.TrimSpace(req.Director) != "" {
+		s.handleDirectorMounts(w, req.Director, req.Name, req.Env, req.Op, req.Service, req.Kind, req.Source, req.Dest, opts)
+		return
+	}
 	if req.Op == "add" || req.Op == "options" {
 		// Refused here, at the edit: podman only says "invalid option type"
 		// when the stack starts.
@@ -84,6 +94,50 @@ func (s *server) handleComposeMounts(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.Error(w, "unknown op: "+req.Op, 400)
 	}
+}
+
+// handleDirectorMounts is handleComposeMounts for a director stack: the same
+// ops on appjail-director.yml, handing back that file and the services as
+// read from it. A named volume is podman's; an appjail mount is a host path.
+func (s *server) handleDirectorMounts(w http.ResponseWriter, director, name, env, op, service, kind, source, dest string, opts []string) {
+	var out string
+	var err error
+	switch op {
+	case "", "list":
+		out = director
+	case "add":
+		if kind == "volume" {
+			http.Error(w, "an AppJail stack mounts host folders; named volumes are podman's", 400)
+			return
+		}
+		out, err = directorAttachBindMount(director, service, source, dest, opts)
+	case "remove":
+		out, err = directorRemoveMount(director, service, dest)
+	case "options":
+		out, err = directorSetMountOptions(director, service, dest, opts)
+	default:
+		http.Error(w, "unknown op: "+op, 400)
+		return
+	}
+	if err != nil {
+		http.Error(w, err.Error(), 400)
+		return
+	}
+	views := directorServiceViews(&stack.Stack{Name: name, Director: out, Env: env})
+	if op == "" || op == "list" {
+		var mounts []composepkg.Mount
+		for _, v := range views {
+			for _, m := range v.Volumes {
+				mounts = append(mounts, composepkg.Mount{Source: m.Source, Dest: m.Dest, ReadOnly: m.ReadOnly, Options: m.Options, Kind: m.Kind, Service: v.Name})
+			}
+		}
+		if mounts == nil {
+			mounts = []composepkg.Mount{}
+		}
+		json.NewEncoder(w).Encode(map[string]any{"mounts": mounts})
+		return
+	}
+	json.NewEncoder(w).Encode(map[string]any{"director": out, "services": views})
 }
 
 // transformed is what a mount change hands back: the new compose, and the
