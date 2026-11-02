@@ -118,10 +118,13 @@ func platform(cfg Config) platformInfo {
 		},
 		{
 			ID: "dhcp-default", Name: "host DHCP stays off container interfaces", HostOnly: true,
-			Group: "networking",
-			Probe: defaultDHCPProbe,
-			Why:   "With ifconfig_DEFAULT=\"DHCP\" in rc.conf (FreeBSD's VM images ship it), devd runs dhclient on every interface that appears -- each container's and jail's epair too. The host then takes LAN leases on them, and the router hands out addresses nobody is using.",
-			Fix:   "# name the host's own NIC instead of DEFAULT (vtnet0 here; see `route -n get default`):\nsysrc ifconfig_vtnet0=\"DHCP\"\nsysrc -x ifconfig_DEFAULT",
+			Group:    "networking",
+			Probe:    defaultDHCPProbe,
+			Install:  installDefaultDHCP,
+			Commands: defaultDHCPCommands(),
+			Action:   "Name the host's own NIC in rc.conf instead of every interface",
+			Why:      "With ifconfig_DEFAULT=\"DHCP\" in rc.conf (FreeBSD's VM images ship it), devd runs dhclient on every interface that appears -- each container's and jail's epair too. The host then takes LAN leases on them, and the router hands out addresses nobody is using.",
+			FixFunc:  func() string { return strings.Join(defaultDHCPCommands(), "\n") },
 		},
 		appjailDNSCheck(),
 		{
@@ -150,10 +153,13 @@ func platform(cfg Config) platformInfo {
 		},
 		{
 			ID: "pf", Name: "pf firewall", Engine: "podman",
-			Group: "firewall",
-			Probe: pfProbe,
-			Why:   "podman's bridge networking publishes ports through pf's rdr/nat anchors. If they aren't loaded, containers start fine but their published ports hang. Host-network stacks don't need this.",
-			Fix:   pfFix(),
+			Group:    "firewall",
+			Probe:    pfProbe,
+			Install:  installPf,
+			Commands: pfCommands(),
+			Action:   "Add podman's rules to /etc/pf.conf and load them",
+			Why:      "podman's bridge networking publishes ports through pf's rdr/nat anchors. If they aren't loaded, containers start fine but their published ports hang. Host-network stacks don't need this.",
+			Fix:      pfFix(),
 		},
 		{
 			// Engine "" so it always shows -- the appjail engine is optional
@@ -196,14 +202,7 @@ func appjailPfCheck() Check {
 // then enable -- "reload pf" is no help to someone who never had the rules.
 func pfFix() string {
 	ifaces := natIfaces()
-	rules := []string{
-		`rdr-anchor "cni-rdr/*"`,
-		`nat-anchor "cni-rdr/*"`,
-		`table <cni-nat>`,
-	}
-	for _, ifc := range ifaces {
-		rules = append(rules, natRule(ifc))
-	}
+	rules := podmanPfRules(ifaces)
 	which := "containers leave by " + strings.Join(ifaces, " and ") + ", the interfaces with an address"
 	conf, _ := os.ReadFile("/etc/pf.conf")
 	if strings.Contains(string(conf), "cni-rdr") {
@@ -239,6 +238,117 @@ func pfFix() string {
 		"service pf start\n" +
 		"# and load them now: `service pf start` does nothing if pf was already up\n" +
 		"pfctl -f /etc/pf.conf"
+}
+
+// podmanPfRules are the pf.conf lines podman's bridge networks need: the
+// anchors its CNI plugins fill, and NAT out of each of the host's networks.
+func podmanPfRules(ifaces []string) []string {
+	rules := []string{
+		`rdr-anchor "cni-rdr/*"`,
+		`nat-anchor "cni-rdr/*"`,
+		`table <cni-nat>`,
+	}
+	for _, ifc := range ifaces {
+		rules = append(rules, natRule(ifc))
+	}
+	return rules
+}
+
+// pfCommands are what installPf runs, for the setup page.
+func pfCommands() []string {
+	cmds := []string{"# add to /etc/pf.conf, before its filter rules, whichever of these it lacks:"}
+	for _, r := range podmanPfRules(natIfaces()) {
+		cmds = append(cmds, "#   "+r)
+	}
+	return append(cmds, pfValidate[:len(pfValidate)-1], "sysrc pf_enable=YES", "service pf start   # or, with pf already up: pfctl -f /etc/pf.conf")
+}
+
+// installPf is the pf check's Fix run for the operator: the lines /etc/pf.conf
+// lacks go in (before the filter rules), the result is validated before it
+// replaces the file, and the ruleset is loaded -- by `service pf start` on a
+// host that never ran pf, by a reload where pf is up, since starting pf
+// again flushes its state table and every connection through it with it.
+func installPf(ctx context.Context, w io.Writer) error {
+	const path = "/etc/pf.conf"
+	b, err := os.ReadFile(path)
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	conf, added := pfInsert(string(b), podmanPfRules(natIfaces()))
+	candidate := path
+	if len(added) > 0 {
+		candidate = path + ".new"
+		fmt.Fprintf(w, "$ # adding to %s:\n", path)
+		for _, r := range added {
+			fmt.Fprintf(w, "$ #   %s\n", r)
+		}
+		if err := os.WriteFile(candidate, []byte(conf), 0o644); err != nil {
+			return err
+		}
+	}
+	if err := runShown(ctx, w, nil, "kldload", "-n", "pf"); err != nil {
+		os.Remove(path + ".new")
+		return err
+	}
+	if err := runShown(ctx, w, nil, "pfctl", "-nf", candidate); err != nil {
+		os.Remove(path + ".new")
+		return fmt.Errorf("%s would not load, so it was left as it is: %v", path, err)
+	}
+	if candidate != path {
+		fmt.Fprintf(w, "$ mv %s %s\n", candidate, path)
+		if err := os.Rename(candidate, path); err != nil {
+			return err
+		}
+	}
+	if err := runShown(ctx, w, nil, "sysrc", "pf_enable=YES"); err != nil {
+		return err
+	}
+	if pfEnabled(ctx) {
+		return runShown(ctx, w, nil, "pfctl", "-f", path)
+	}
+	return runShown(ctx, w, nil, "service", "pf", "start")
+}
+
+// pfEnabled: pf is loaded and switched on (pfctl -e), not just present.
+func pfEnabled(ctx context.Context) bool {
+	return strings.Contains(run(ctx, "pfctl", "-s", "info"), "Status: Enabled")
+}
+
+// defaultDHCPCommands are what installDefaultDHCP runs: the default route's
+// interface gets what ifconfig_DEFAULT had, and DEFAULT goes.
+func defaultDHCPCommands() []string {
+	nic := defaultIface()
+	if nic == "" {
+		nic = "<nic>"
+	}
+	value := strings.TrimSpace(firstLine(run(context.Background(), "sysrc", "-n", "ifconfig_DEFAULT")))
+	if value == "" {
+		value = "DHCP"
+	}
+	return []string{
+		"# name the host's own NIC instead of DEFAULT (see `route -n get default`):",
+		"sysrc ifconfig_" + nic + "=\"" + value + "\"",
+		"sysrc -x ifconfig_DEFAULT",
+	}
+}
+
+// installDefaultDHCP is the dhcp-default check's Fix run for the operator. A
+// NIC that rc.conf already names keeps its own line; only DEFAULT is removed.
+func installDefaultDHCP(ctx context.Context, w io.Writer) error {
+	nic := defaultIface()
+	if nic == "" {
+		return fmt.Errorf("no default route, so no interface to name in rc.conf: set ifconfig_<nic> by hand, then remove ifconfig_DEFAULT")
+	}
+	value := strings.TrimSpace(firstLine(run(ctx, "sysrc", "-n", "ifconfig_DEFAULT")))
+	if value == "" {
+		return nil
+	}
+	if strings.TrimSpace(run(ctx, "sysrc", "-n", "ifconfig_"+nic)) == "" {
+		if err := runShown(ctx, w, nil, "sysrc", "ifconfig_"+nic+"="+value); err != nil {
+			return err
+		}
+	}
+	return runShown(ctx, w, nil, "sysrc", "-x", "ifconfig_DEFAULT")
 }
 
 // pfInsertSnippet returns shell that adds translation rules to /etc/pf.conf in
@@ -300,6 +410,9 @@ func appjailPfProbe(ctx context.Context) (Status, string) {
 		return Unknown, err.Error()
 	} else if !pfLoaded {
 		return Warn, "pf is not loaded -- virtual-network jails cannot be created; host-network jails are unaffected"
+	}
+	if !pfEnabled(ctx) {
+		return Warn, "pf is loaded but disabled -- virtual-network jails fail to create; enable pf (service pf start)"
 	}
 	out, err := exec.CommandContext(ctx, "pfctl", "-s", "nat").Output()
 	if err != nil {
@@ -475,6 +588,11 @@ func pfProbe(ctx context.Context) (Status, string) {
 		return Unknown, err.Error()
 	} else if !pfLoaded {
 		return Warn, "pf is not loaded -- bridge-network stacks will fail; host-network stacks are unaffected"
+	}
+	// `service pf stop` disables pf and leaves the ruleset in place: loaded
+	// rules with pf off publish nothing.
+	if !pfEnabled(ctx) {
+		return Warn, "pf is loaded but disabled -- published bridge ports will hang; enable pf (service pf start)"
 	}
 	out, err := exec.CommandContext(ctx, "pfctl", "-s", "nat").Output()
 	if err != nil {

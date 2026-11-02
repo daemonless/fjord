@@ -198,8 +198,8 @@ plugins — lives in Settings and is persisted in `<fjord root>/settings.json`.
 ## Notes and limitations
 
 - Bridge-network port publishing on FreeBSD needs pf with podman's rdr
-  anchors (`/usr/local/etc/containers/pf.conf.sample`); the System page
-  checks for this.
+  anchors (`/usr/local/etc/containers/pf.conf.sample`); the setup wizard
+  and the System page add them to `/etc/pf.conf` for you.
 - Stacks are plain `compose.yaml` + `.env` on disk — fjord's state lives
   beside them in `state.json`, and nothing stops you editing by hand.
 - Host-network stacks can declare their web endpoint for the ↗ Open link:
