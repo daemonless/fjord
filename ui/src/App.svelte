@@ -1167,7 +1167,14 @@
     const res = await fetch('/api/compose/mounts', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ compose: selectedStack?.compose ?? '', env: selectedStack?.env ?? '', ...body }),
+      // A director stack's mounts live in its director file, not the compose
+      // appjail never reads: that file is what gets edited and handed back.
+      body: JSON.stringify({
+        compose: selectedStack?.compose ?? '',
+        env: selectedStack?.env ?? '',
+        ...(isDirector ? { director: selectedStack?.director ?? '', name: selectedStack?.name ?? '' } : {}),
+        ...body,
+      }),
     });
     if (!res.ok) throw new Error((await res.text()).trim() || `HTTP ${res.status}`);
     return res.json();
@@ -1217,9 +1224,13 @@
   // Both are adopted together. Re-reading the stack instead returns what is on
   // disk, which threw the edit away -- adding a bind mount looked like it did
   // nothing at all.
-  function adopt(res: { compose: string; services?: unknown[] }) {
+  function adopt(res: { compose?: string; director?: string; services?: unknown[] }) {
     if (!selectedStack) return;
-    selectedStack = { ...selectedStack, compose: res.compose, services: res.services ?? selectedStack.services };
+    selectedStack = {
+      ...selectedStack,
+      ...(res.director !== undefined ? { director: res.director } : { compose: res.compose ?? selectedStack.compose }),
+      services: res.services ?? selectedStack.services,
+    };
   }
 
   // Removing a mount rewrites the compose straight away -- no Save, no revert --

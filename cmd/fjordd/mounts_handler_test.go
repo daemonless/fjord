@@ -151,3 +151,36 @@ func TestComposeMountsOptions(t *testing.T) {
 		t.Errorf("bogus option: status %d", rec.Code)
 	}
 }
+
+// A director stack's mounts are in its director file. Unmount used to edit the
+// compose appjail never reads and hand back the compose's empty view, so one
+// click showed every mount gone while the jail kept them all.
+func TestComposeMountsEditsTheDirectorFile(t *testing.T) {
+	director := "services:\n  app:\n    name: t_dm_app\n    volumes:\n      - A: /a\n      - B: /b\nvolumes:\n  A:\n    device: /tank/a\n  B:\n    device: /tank/b\n"
+	body := `{"op":"remove","service":"app","dest":"/a","director":` + mustJSON(t, director) + `,"name":"t-dm","compose":"","env":""}`
+	rec := httptest.NewRecorder()
+	(&server{}).handleComposeMounts(rec, httptest.NewRequest(http.MethodPost, "/api/compose/mounts", strings.NewReader(body)))
+	if rec.Code != 200 {
+		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
+	}
+	var res struct {
+		Director string `json:"director"`
+		Compose  *string
+		Services []struct {
+			Name    string
+			Volumes []struct{ Source, Dest string }
+		}
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &res); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(res.Director, "/a") || !strings.Contains(res.Director, "- B: /b") {
+		t.Errorf("only /a should be gone from the director file:\n%s", res.Director)
+	}
+	if res.Compose != nil {
+		t.Error("a director edit hands back the director file, not a compose")
+	}
+	if len(res.Services) != 1 || len(res.Services[0].Volumes) != 1 || res.Services[0].Volumes[0].Dest != "/b" || res.Services[0].Volumes[0].Source != "/tank/b" {
+		t.Errorf("the view must show the one mount left: %+v", res.Services)
+	}
+}
