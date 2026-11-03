@@ -13,7 +13,8 @@ export type Candidate = {
 export const isProject = (c: Candidate) => !!c.composeFiles?.length;
 
 // After a replace the stack runs only if the container it replaces was
-// running: a stopped or never-started one stays stopped.
+// running: a stopped or never-started one stays stopped. fjord does that
+// start itself (adoptContainer says so); this is what the button promises.
 export const startsAfterReplace = (c: Candidate) => c.state === 'running';
 
 export async function listCandidates(): Promise<Candidate[]> {
@@ -25,8 +26,11 @@ export async function listCandidates(): Promise<Candidate[]> {
   }
 }
 
-// Returns the new stack id. Throws with a user-facing message.
-export async function adoptContainer(c: Candidate, replace: boolean): Promise<string> {
+// Returns the new stack id, and whether fjord is starting it itself: a
+// running container taken over by replace is, since the request that
+// removed it must not leave the start to this page. Throws with a
+// user-facing message.
+export async function adoptContainer(c: Candidate, replace: boolean): Promise<{ id: string; started: boolean }> {
   const r = await fetch('/api/adopt', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -34,7 +38,8 @@ export async function adoptContainer(c: Candidate, replace: boolean): Promise<st
     body: JSON.stringify({ container: isProject(c) ? c.id : c.name, engine: c.engine, replace }),
   });
   if (!r.ok) throw new Error((await r.text()).trim() || `HTTP ${r.status}`);
-  return (await r.json()).id;
+  const out = await r.json();
+  return { id: out.id, started: !!out.started };
 }
 
 // Starts a stack and waits for the engine's output to finish. The status is

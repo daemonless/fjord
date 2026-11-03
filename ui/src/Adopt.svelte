@@ -59,8 +59,8 @@
     for (const [i, c] of todo.entries()) {
       progress = `${i + 1} / ${todo.length}: ${c.name}`;
       try {
-        const id = await adoptContainer(c, true);
-        if (startsAfterReplace(c)) await startStack(id);
+        const { id, started } = await adoptContainer(c, true);
+        if (startsAfterReplace(c) && !started) await startStack(id);
       } catch (e: any) {
         failed++;
         toast(`${c.name}: ${e.message}`, { kind: 'error' });
@@ -77,8 +77,10 @@
     confirmReplace = '';
     busy = c.name;
     try {
-      const id = await adoptContainer(c, replace);
-      const start = replace && startsAfterReplace(c);
+      const { id, started } = await adoptContainer(c, replace);
+      // fjord starts a replaced running container's stack itself; the page
+      // only follows. The start from here is for a daemon that did not say.
+      const start = replace && startsAfterReplace(c) && !started;
       if (start && embedded) {
         // Nothing around the wizard starts it (the app opens the stack and
         // starts it there), so start it here and say if it did not.
@@ -92,7 +94,7 @@
         toast(
           isProject(c)
             ? `Imported ${c.name} — fjord manages it now`
-            : start
+            : start || started
               ? `Adopted ${c.name} — starting`
               : `Adopted ${c.name} — stopped, as it was`,
           { kind: 'success' },
