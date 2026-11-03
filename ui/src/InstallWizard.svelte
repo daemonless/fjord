@@ -43,6 +43,9 @@
   let appDataLocations: string[] = [];
   let appDataChoice = '';
   $: storageBase = appDataChoice || appDataLocations[0] || '/containers';
+  // Whether the install makes a folder under Data at all: only a path or
+  // a dataset variable does (a volume the app writes to).
+  $: keepsData = variables.some((v) => v.type === 'path' || v.type === 'zfs_dataset');
   // Path hints are seeded when the manifest loads, so the App data location
   // must be known first: loadManifest awaits this. Racing it seeded
   // "/containers/<app>/cache" on a host whose App data lives elsewhere.
@@ -1252,7 +1255,13 @@
                 <dd class="text-fjord-fg-body">{pickedWords}</dd>
               {/if}
               <dt class="text-fjord-fg-dim">Data</dt>
-              <dd class="font-mono text-fjord-fg-secondary break-all">{storageBase}/{folderOf(stackName, appId || 'app')}</dd>
+              <!-- An app with no host folder (everything in the browser, or
+                   stateless) gets none made: the row said a path anyway. -->
+              {#if keepsData}
+                <dd class="font-mono text-fjord-fg-secondary break-all">{storageBase}/{folderOf(stackName, appId || 'app')}</dd>
+              {:else}
+                <dd class="text-fjord-fg-body">none: this app keeps nothing on this host</dd>
+              {/if}
               {#if sizeLine}
                 <dt class="text-fjord-fg-dim">Download</dt>
                 <dd class="text-fjord-fg-body" title={SIZE_NOTE} data-install-size>{sizeLine}</dd>

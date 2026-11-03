@@ -4866,3 +4866,7 @@ msgstr "{0} — le réseau propre à cette pile, créé par son compose"
 #: src/App.svelte
 msgid "An app with its own address answers on its container port; x-fjord web_port is where it would be published at this host's address."
 msgstr ""
+
+#: src/InstallWizard.svelte
+msgid "none: this app keeps nothing on this host"
+msgstr "aucune : cette application ne conserve rien sur cet hôte"
