@@ -357,8 +357,21 @@ func (s *server) handleAdopt(w http.ResponseWriter, r *http.Request) {
 			}
 			log.Printf("adopt %s: removed old container %s", id, found.Name)
 		}
+		// A running container taken over is running again as the stack
+		// before this request is answered for: the start is fjord's, not the
+		// page's. The page used to make a second call for it, and a page gone
+		// between the two left the app that was running gone and the stack
+		// stopped, with nothing saying so.
+		started := !project && replacedWasRunning(req.Replace, found.State)
+		if started {
+			st.State.DesiredState = "running"
+			if err := s.manager.SaveState(id, st.State); err != nil {
+				log.Printf("adopt %s: persist state: %v", id, err)
+			}
+			s.upDetached(id, "start")
+		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{"id": id, "service": a.Service, "notes": a.Notes, "replaced": req.Replace})
+		json.NewEncoder(w).Encode(map[string]any{"id": id, "service": a.Service, "notes": a.Notes, "replaced": req.Replace, "started": started})
 
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
