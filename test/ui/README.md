@@ -76,6 +76,7 @@ wire.
 | folders | a second copy of an app gets folders of its own; one inside another stack's is refused | |
 | outcome | a failed install is said on the page and in the log; rows with no container say so | t-fail |
 | arch | a tag with no build for this host is refused before and after | t-arch |
+| change-version | Change Version is one job of the daemon's: Change & Redeploy clicked and the browser closed as set-tag answers, the stack still ends up on the new tag with the rollback recorded (the page used to run the update as a second call); with the page open, the Output pane follows the daemon's update and the page ends idle on the new version | t-cv |
 | retag-var | Change Version on an image whose tag is a variable sets .env and leaves the compose as written | t-var |
 | leftover | a private network whose stack is gone reads as left over and can be deleted | |
 | appjail-dns | the Setup check for jail name resolution tells the truth: with dnsmasq stopped it is a terminal job with the commands on screen, and gone once they are run (leaves dnsmasq configured for appjail) | |
