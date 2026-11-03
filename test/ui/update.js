@@ -63,14 +63,20 @@ const detail = async (page) => (await page.request.get(BASE + '/api/stacks/' + N
     for (let i = 0; i < 120; i++) { d = await detail(page); if (!d.busy) break; await sleep(3000); }
     // Not busy comes when the stay-up check starts (#116); the stream ends
     // with it, up to a minute later.
-    const out = await streamed(page, new RegExp(`/api/stacks/${NAME}/update$`), 120000);
+    // A version step is the daemon's own job (set-tag with update): no
+    // stream reaches the page, the output is what fjordd keeps.
+    const stepped = await page.evaluate((n) => (window.__streams || []).some((s) => new RegExp(`/api/stacks/${n}/set-tag$`).test(s.url)), NAME);
+    let out = '';
+    if (stepped) {
+      for (let i = 0; i < 60; i++) { const o = await (await page.request.get(BASE + '/api/stacks/' + NAME + '/output')).json(); out = o.text || ''; if (o.done && out) break; await sleep(2000); }
+    } else out = await streamed(page, new RegExp(`/api/stacks/${NAME}/update$`), 120000);
     await sleep(2000);
     d = await detail(page);
     const after = d.status.containers[0]?.id || '';
     await page.screenshot({ path: '/out/update-done.png', fullPage: true });
     note('the container was replaced', after && after !== before, `${before.slice(0, 12)} -> ${after.slice(0, 12)}`);
     note(`it runs ${to || 'the offered version'}`, d.status?.state === 'running' && !!to && (d.services?.[0]?.image || '').endsWith(':' + to), `${d.status?.state}, ${d.services?.[0]?.image}`);
-    note('the stream ended without an [error]', !!out && !/\[error\]/.test(out), out ? (out.split('\n').filter((l) => /\[error\]|\[warn\]|healthy|watch/i.test(l)).join(' | ') || 'clean') : 'no stream captured');
+    note(`the ${stepped ? "daemon's output" : 'stream'} ended without an [error]`, !!out && !/\[error\]/.test(out), out ? (out.split('\n').filter((l) => /\[error\]|\[warn\]|healthy|watch/i.test(l)).join(' | ') || 'clean') : 'no stream captured');
     note('fjordd recorded no failure', !d.state?.last_failure, JSON.stringify(d.state?.last_failure || null));
     await openPage(page, BASE + '/?t=' + Date.now() + '#/stacks/' + NAME);
     await sleep(2000);
