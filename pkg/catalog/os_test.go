@@ -51,3 +51,33 @@ func TestMergedLeavesOutOtherOS(t *testing.T) {
 		t.Errorf("freebsd: %v", got)
 	}
 }
+
+// A stack's parts list rides along on both the merged entry and its source
+// entry so the store can show and search the images inside the stack.
+func TestMergedCarriesStackParts(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "main"), 0o755)
+	os.WriteFile(filepath.Join(dir, "main", "catalog.json"), []byte(`{"apps":[{"id":"weavestream","name":"Weavestream","class":"stack","parts":[{"id":"weavestream-api","name":"Weavestream API","image":"ghcr.io/x/weavestream-api"}]}]}`), 0o644)
+	c := New(dir, []Source{{ID: "main", Name: "main"}})
+	b, err := c.Merged()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc struct {
+		Apps []struct {
+			Parts   []struct{ ID, Name string } `json:"parts"`
+			Sources []struct {
+				Parts []struct{ ID, Name string } `json:"parts"`
+			} `json:"sources"`
+		} `json:"apps"`
+	}
+	if err := json.Unmarshal(b, &doc); err != nil {
+		t.Fatal(err)
+	}
+	if len(doc.Apps) != 1 || len(doc.Apps[0].Parts) != 1 || doc.Apps[0].Parts[0].ID != "weavestream-api" {
+		t.Fatalf("merged app parts = %+v", doc.Apps)
+	}
+	if len(doc.Apps[0].Sources) != 1 || len(doc.Apps[0].Sources[0].Parts) != 1 || doc.Apps[0].Sources[0].Parts[0].ID != "weavestream-api" {
+		t.Fatalf("source parts = %+v", doc.Apps[0].Sources)
+	}
+}

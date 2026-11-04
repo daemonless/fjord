@@ -1,5 +1,6 @@
 <script lang="ts">
   import { forwardDeploy } from './installForward';
+  import { matchesSearch, partLabels, type AppPart } from './storeParts';
   import { onMount, createEventDispatcher } from 'svelte';
   import InstallWizard from './InstallWizard.svelte';
   import Icon from './Icon.svelte';
@@ -32,6 +33,7 @@
     catalog_name?: string;
     version: string;
     variants: AppVariant[];
+    parts?: AppPart[];
     catalog_icon?: string;
     architectures?: string[]; // OCI names the image is built for; absent = no restriction
     sources?: AppSource[];
@@ -46,6 +48,7 @@
     image?: string;
     version: string;
     variants: AppVariant[];
+    parts?: AppPart[];
   };
 
   type Catalog = {
@@ -73,13 +76,6 @@
   $: categories = catalog
     ? ['All', ...Array.from(new Set(catalog.apps.map((a) => a.category).filter(Boolean))).sort()]
     : ['All'];
-  // By name, id or category, dashes and spaces alike: "uptime-kuma" (the id)
-  // finds Uptime Kuma, "home assistant" finds home-assistant.
-  const fold = (s: string) => s.toLowerCase().replace(/[-_\s]+/g, ' ');
-  function matchesSearch(a: { name: string; id: string; category?: string }, search: string): boolean {
-    const q = fold(search.trim());
-    return !q || [a.name, a.id, a.category || ''].some((f) => fold(f).includes(q));
-  }
   $: filtered = catalog
     ? catalog.apps.filter((a) => {
         const inCat = selectedCategory === 'All' || a.category === selectedCategory;
@@ -357,6 +353,9 @@
             {#if app.description}
                 <p class="text-xs text-fjord-fg-muted leading-relaxed line-clamp-2 mb-2">{app.description}</p>
             {/if}
+            {#if app.parts?.length}
+                <p class="text-[11px] font-mono text-fjord-fg-dim truncate mb-2">{partLabels(app.name, app.parts).join(', ')}</p>
+            {/if}
 
             <div class="mt-auto pt-4 border-t border-fjord-border/50 flex justify-between items-center gap-3">
                 {#if ver(app.version)}<span class="text-xs font-mono text-fjord-fg-muted truncate min-w-0" title={ver(app.version)}>{ver(app.version)}</span>{/if}
@@ -413,6 +412,14 @@
 
         {#if detailApp.description}
           <p class="text-sm text-fjord-fg-secondary leading-relaxed mt-5">{detailApp.description}</p>
+        {/if}
+
+        {#if detailApp.parts?.length}
+          <div class="mt-4 flex flex-wrap gap-1.5">
+            {#each detailApp.parts as p}
+              <span class="text-xs font-mono px-2 py-1 rounded bg-fjord-bg border border-fjord-border text-fjord-fg-secondary" title={p.image}>{p.name}</span>
+            {/each}
+          </div>
         {/if}
 
         {#if detailApp.variants?.length > 1}
