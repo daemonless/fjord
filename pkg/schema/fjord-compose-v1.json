@@ -16,15 +16,23 @@
         },
         "info": {
           "type": "object",
-          "required": ["id", "name", "description", "category", "class", "icon"],
+          "required": ["id", "name", "description", "category", "class"],
           "properties": {
-            "id": { "type": "string", "pattern": "^[a-z0-9-]+$" },
+            "id": { "type": "string", "pattern": "^[a-z0-9._-]+$" },
             "name": { "type": "string" },
             "description": { "type": "string" },
             "category": { "type": "string" },
-            "class": { "type": "string", "enum": ["service", "agent", "cli"] },
-            "icon": { "type": "string", "format": "uri" },
+            "class": { "type": "string", "enum": ["service", "stack", "part", "agent", "cli", "gui"] },
+            "icon": { "type": "string" },
+            "upstream_url": { "type": "string" },
+            "web_url": { "type": "string" },
             "web_port": { "type": "string" },
+            "web_https": { "type": "boolean" },
+            "own_origin": { "type": "boolean" },
+            "name_env": {
+              "type": "object",
+              "additionalProperties": { "type": "string" }
+            },
             "health_url": { "type": "string" },
             "version": { "type": "string" },
             "only_for_archs": {
@@ -61,16 +69,18 @@
           "type": "array",
           "items": {
             "type": "object",
-            "required": ["name", "label", "type"],
+            "required": ["name", "type"],
             "properties": {
-              "name": { "type": "string", "pattern": "^[A-Z0-9_]+$" },
+              "name": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
               "label": { "type": "string" },
               "type": {
                 "type": "string",
-                "enum": ["string", "port", "path", "zfs_dataset", "secret", "network_interface"]
+                "enum": ["string", "port", "path", "zfs_dataset", "secret", "image_tag", "public_url", "network_interface"]
               },
               "default": { "type": "string" },
               "optional": { "type": "boolean" },
+              "generate": { "type": "boolean" },
+              "image": { "type": "string" },
               "level": { "type": "string", "enum": ["primary", "options", "advanced"] },
               "description": { "type": "string" },
               "zfs_properties": {
@@ -79,13 +89,160 @@
               },
               "host_permissions": {
                 "type": "object",
-                "required": ["uid", "gid", "mode"],
                 "properties": {
                   "uid": { "type": "integer" },
                   "gid": { "type": "integer" },
                   "mode": { "type": "string", "pattern": "^[0-7]{3,4}$" }
                 }
               }
+            }
+          }
+        },
+        "variants": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "label"],
+            "properties": {
+              "id": { "type": "string" },
+              "label": { "type": "string" },
+              "default": { "type": "boolean" },
+              "version": { "type": "string" },
+              "aliases": {
+                "type": "array",
+                "items": { "type": "string" }
+              }
+            }
+          }
+        },
+        "networking": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        },
+        "hostnames": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        },
+        "login": {
+          "type": "object",
+          "properties": {
+            "user": { "type": "string" },
+            "password": { "type": "string" },
+            "note": { "type": "string" }
+          }
+        },
+        "provides": {
+          "type": "object",
+          "properties": {
+            "names": {
+              "type": "object",
+              "required": ["port", "key"],
+              "properties": {
+                "port": { "type": "integer" },
+                "key": { "type": "string" },
+                "setup_token": { "type": "string" },
+                "client_url": { "type": "string" },
+                "client_id": { "type": "string" },
+                "client_name": { "type": "string" }
+              }
+            }
+          }
+        },
+        "choices": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "label", "default", "options"],
+            "properties": {
+              "id": { "type": "string" },
+              "kind": { "type": "string", "enum": ["database", "part"] },
+              "label": { "type": "string" },
+              "doc": { "type": "string" },
+              "default": { "type": "string" },
+              "options": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": ["id"],
+                  "properties": {
+                    "id": { "type": "string" },
+                    "label": { "type": "string" },
+                    "doc": { "type": "string" },
+                    "env": {
+                      "type": "object",
+                      "additionalProperties": { "type": "string" }
+                    },
+                    "defaults": {
+                      "type": "object",
+                      "additionalProperties": { "type": "string" }
+                    },
+                    "secrets": {
+                      "type": "array",
+                      "items": { "type": "string" }
+                    },
+                    "services": { "type": "string" },
+                    "depends_on": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "array",
+                        "items": { "type": "string" }
+                      }
+                    },
+                    "drop": {
+                      "type": "array",
+                      "items": { "type": "string" }
+                    },
+                    "hostnames": {
+                      "type": "object",
+                      "additionalProperties": { "type": "string" }
+                    },
+                    "appjail": {
+                      "type": "object",
+                      "properties": {
+                        "director": { "type": "string" },
+                        "files": {
+                          "type": "object",
+                          "additionalProperties": { "type": "string" }
+                        },
+                        "hostnames": {
+                          "type": "object",
+                          "additionalProperties": { "type": "string" }
+                        }
+                      }
+                    },
+                    "ask": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": ["name"],
+                        "properties": {
+                          "name": { "type": "string" },
+                          "label": { "type": "string" },
+                          "default": { "type": "string" },
+                          "type": { "type": "string", "enum": ["string", "secret"] },
+                          "values": {
+                            "type": "object",
+                            "additionalProperties": { "type": "string" }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "appjail": {
+          "type": "object",
+          "properties": {
+            "director": { "type": "string" },
+            "makejail": { "type": "string" },
+            "template_conf": { "type": "string" },
+            "env_defaults": { "type": "string" },
+            "extras": {
+              "type": "object",
+              "additionalProperties": { "type": "string" }
             }
           }
         }
