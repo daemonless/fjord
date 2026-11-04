@@ -124,3 +124,26 @@ func TestComposePortsForUsesTheStash(t *testing.T) {
 		t.Fatalf("published ports win over a stale stash, got %+v", got)
 	}
 }
+
+// Destroying a jail removes its log directory under /var/log/appjail/jails so
+// a new jail created with the same name does not inherit the old jail's log.
+func TestRemoveJailLogsClearsDeletedJailLog(t *testing.T) {
+	old := jailLogRoot
+	jailLogRoot = t.TempDir()
+	defer func() { jailLogRoot = old }()
+
+	logDir := filepath.Join(jailLogRoot, "radarr", "container")
+	if err := os.MkdirAll(logDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(logDir, "container.log"), []byte("old line\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := latestLog("radarr"); got == "" {
+		t.Fatal("expected latestLog to find log before removal")
+	}
+	removeJailLogs("radarr")
+	if got := latestLog("radarr"); got != "" {
+		t.Fatalf("latestLog after removeJailLogs = %q, want empty", got)
+	}
+}

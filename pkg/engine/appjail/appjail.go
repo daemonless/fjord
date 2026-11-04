@@ -424,9 +424,22 @@ func (b *Backend) Logs(ctx context.Context, s *stack.Stack, tail int, follow boo
 	return pr, nil
 }
 
+// jailLogRoot is where appjail writes per-jail logs. Kept after `jail destroy`
+// by appjail itself, so a new jail created with the same name appends to the
+// deleted jail's log file unless removed when the jail is destroyed.
+var jailLogRoot = "/var/log/appjail/jails"
+
+func removeJailLogs(jail string) {
+	clean := filepath.Base(strings.TrimSpace(jail))
+	if clean == "" || clean == "." || clean == "/" || clean != jail {
+		return
+	}
+	_ = os.RemoveAll(filepath.Join(jailLogRoot, clean))
+}
+
 // latestLog returns the newest container log for a jail, or "".
 func latestLog(jail string) string {
-	dir := filepath.Join("/var/log/appjail/jails", jail, "container")
+	dir := filepath.Join(jailLogRoot, jail, "container")
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return ""
