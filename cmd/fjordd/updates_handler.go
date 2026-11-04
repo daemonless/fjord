@@ -3,7 +3,9 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
+	"slices"
 	"sort"
 	"sync"
 	"time"
@@ -84,10 +86,19 @@ type fleetResponse struct {
 	Refreshing bool                      `json:"refreshing"`
 }
 
-// handleUpdates serves the cached fleet-wide update state. A stale cache (or
-// ?refresh=1) kicks a background refresh; the response never blocks on the
+// handleUpdates serves the cached fleet-wide update state on GET, and starts
+// a daemon-side update of the stacks with available updates on POST. A stale
+// cache (or ?refresh=1) kicks a background refresh; GET never blocks on the
 // registry.
 func (s *server) handleUpdates(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPost {
+		s.handleUpdateAll(w, r)
+		return
+	}
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
 	s.fleet.mu.Lock()
 	stale := time.Since(s.fleet.checkedAt) > fleetCacheTTL
 	if (stale || r.URL.Query().Get("refresh") == "1") && !s.fleet.refreshing {
@@ -102,6 +113,107 @@ func (s *server) handleUpdates(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)
+}
+
+// handleUpdateAll locks every target stack that has an image update ready
+// (or the named stacks when {"stacks": [...]} is given) and updates them one
+// after another in the daemon, so closing the browser changes nothing about
+// what runs. Version upgrades ("upgrade") are left to their own stack page,
+// as they rewrite the tag in the compose.
+func (s *server) handleUpdateAll(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Stacks []string `json:"stacks"`
+	}
+	if r.Body != nil {
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err != io.EOF {
+			http.Error(w, "invalid JSON payload", http.StatusBadRequest)
+			return
+		}
+	}
+	for _, name := range req.Stacks {
+		if !stack.ValidName(name) {
+			http.Error(w, "invalid stack name: "+name, http.StatusBadRequest)
+			return
+		}
+		if _, err := s.manager.Get(name); err != nil {
+			http.Error(w, "Stack not found: "+name, http.StatusNotFound)
+			return
+		}
+	}
+
+	s.fleet.mu.Lock()
+	cached := s.fleet.current(s.manager)
+	s.fleet.mu.Unlock()
+
+	var targets []string
+	if len(req.Stacks) > 0 {
+		for _, name := range req.Stacks {
+			if !slices.Contains(targets, name) {
+				targets = append(targets, name)
+			}
+		}
+	} else {
+		stacks, err := s.manager.List()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		for _, st := range stacks {
+			if cached[st.Name].State == "available" {
+				targets = append(targets, st.Name)
+			}
+		}
+	}
+
+	type queuedStack struct {
+		name     string
+		unlock   func()
+		services []string
+	}
+	var queued []queuedStack
+	updating := make([]string, 0, len(targets))
+	skipped := []string{}
+	for _, name := range targets {
+		st, err := s.manager.Get(name)
+		if err != nil {
+			skipped = append(skipped, name)
+			continue
+		}
+		var svcs []string
+		if s.backendFor(st).Capabilities().UpdateServices {
+			for _, sv := range cached[name].Services {
+				if sv.State == "available" {
+					svcs = append(svcs, sv.Service)
+				}
+			}
+		}
+		unlock, ok := lockStackAs(name, "update")
+		if !ok {
+			skipped = append(skipped, name)
+			continue
+		}
+		queued = append(queued, queuedStack{name: name, unlock: unlock, services: svcs})
+		updating = append(updating, name)
+	}
+
+	if len(queued) > 0 {
+		go func() {
+			for _, q := range queued {
+				if stopping.Load() {
+					q.unlock()
+					continue
+				}
+				s.runDetachedUpdate(q.name, q.services)
+				q.unlock()
+			}
+		}()
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(struct {
+		Updating []string `json:"updating"`
+		Skipped  []string `json:"skipped,omitempty"`
+	}{Updating: updating, Skipped: skipped})
 }
 
 // refreshFleet re-checks every stack against the registry, then swaps the
