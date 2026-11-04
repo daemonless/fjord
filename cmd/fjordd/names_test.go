@@ -18,9 +18,11 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -569,5 +571,85 @@ func TestLinkedProviderWins(t *testing.T) {
 	p, err := s.findProvider(context.Background())
 	if err != nil || p == nil || !p.linked || p.key != "K" {
 		t.Fatalf("got %+v, %v", p, err)
+	}
+}
+
+type statusEngine struct {
+	engine.Backend
+	status engine.StackStatus
+}
+
+func (e statusEngine) Status(context.Context, *stack.Stack) (engine.StackStatus, error) {
+	return e.status, nil
+}
+
+// A provider set up in its own tab while no fjord page is open still gets
+// its root certificate pinned by the background status loop, and syncStack
+// never asks /hosts unverified before setup is done.
+func TestProviderPinsInBackground(t *testing.T) {
+	f := newFakeProxy(t, "k")
+	u, err := url.Parse(f.srv.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	host, portStr, _ := net.SplitHostPort(u.Host)
+	port, _ := strconv.Atoi(portStr)
+
+	root := t.TempDir()
+	stacks := filepath.Join(root, "stacks")
+	os.MkdirAll(filepath.Join(stacks, "reverse-proxy"), 0o755)
+	compose := "services:\n  proxy:\n    image: x\n"
+	os.WriteFile(filepath.Join(stacks, "reverse-proxy", "compose.yaml"), []byte(compose), 0o644)
+	os.WriteFile(filepath.Join(stacks, "reverse-proxy", ".env"), []byte("RP_PAIRING_KEY=k\n"), 0o600)
+	os.WriteFile(filepath.Join(stacks, "reverse-proxy", "state.json"), []byte(`{"schema_version":1,"engine":"podman","origin":{"type":"catalog","app_id":"reverse-proxy"}}`), 0o644)
+	namesManifests.Lock()
+	namesManifests.byApp = map[string]namesManifest{"reverse-proxy": {rp: &manifest.NamesProvider{Port: port, Key: "${RP_PAIRING_KEY}"}, at: time.Now()}}
+	namesManifests.Unlock()
+	t.Cleanup(func() {
+		namesManifests.Lock()
+		namesManifests.byApp = nil
+		namesManifests.Unlock()
+	})
+
+	status := engine.StackStatus{
+		State:      "running",
+		Containers: []engine.ContainerStatus{{Name: "reverse-proxy_proxy_1", Service: "proxy", State: "running", Address: host}},
+	}
+	be := statusEngine{engine.Unavailable("podman"), status}
+	s := &server{manager: stack.NewManager(stacks), fjordRoot: root, defEngine: "podman", backends: map[string]engine.Backend{"podman": be}}
+	st, err := s.manager.Get("reverse-proxy")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+
+	// Before setup finishes: unpinned, and neither the provider pass nor
+	// another stack's syncStack asks /hosts unverified.
+	if !s.providerUnpinned(st) {
+		t.Fatal("expected unpinned provider before setup")
+	}
+	if err := s.syncTargetsNow(ctx, st, status); err != nil {
+		t.Fatalf("before setup: %v", err)
+	}
+	other := &stack.Stack{Name: "radarr", Compose: "services:\n  radarr:\n    image: x\n"}
+	if err := s.syncTargetsNow(ctx, other, status); err != nil {
+		t.Fatalf("other stack before setup: %v", err)
+	}
+	if f.hosts != 0 || !s.providerUnpinned(st) {
+		t.Fatalf("asked /hosts before setup (%d) or pinned early", f.hosts)
+	}
+
+	// Setup finishes in the proxy's own tab with no /api/names call: the
+	// background pass on the provider stack pins the root certificate.
+	f.complete = true
+	if err := s.syncTargetsNow(ctx, st, status); err != nil {
+		t.Fatalf("after setup: %v", err)
+	}
+	if s.providerUnpinned(st) {
+		t.Fatal("provider still unpinned after background pass")
+	}
+	pin := loadPin(filepath.Join(root, "secrets", "names-reverse-proxy.json"))
+	if pin == nil || pin.TrustName != "example.com" || pin.Root == "" {
+		t.Fatalf("pin not written: %+v", pin)
 	}
 }

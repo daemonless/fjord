@@ -131,7 +131,7 @@ type namesManifest struct {
 // namesOf is the stack's x-fjord.provides.names, nil when its app declares
 // none.
 func (s *server) namesOf(ctx context.Context, st *stack.Stack) *manifest.NamesProvider {
-	if st.State == nil || st.State.Origin.Type != "catalog" || st.State.Origin.AppID == "" || s.cat == nil {
+	if st.State == nil || st.State.Origin.Type != "catalog" || st.State.Origin.AppID == "" {
 		return nil
 	}
 	id := st.State.Origin.AppID
@@ -140,6 +140,9 @@ func (s *server) namesOf(ctx context.Context, st *stack.Stack) *manifest.NamesPr
 	namesManifests.Unlock()
 	if ok && time.Since(c.at) < time.Minute {
 		return c.rp
+	}
+	if s.cat == nil {
+		return nil
 	}
 	raw, err := s.cat.ManifestAny(ctx, id)
 	if err != nil {
@@ -1058,9 +1061,30 @@ func (s *server) syncTargets(st *stack.Stack, status engine.StackStatus) {
 	}()
 }
 
+// providerUnpinned reports whether st is this fjord's names provider and
+// has not had its root certificate pinned yet.
+func (s *server) providerUnpinned(st *stack.Stack) bool {
+	if s.linkedProvider() != nil {
+		return false
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if s.namesOf(ctx, st) == nil {
+		return false
+	}
+	return loadPin(filepath.Join(s.fjordRoot, "secrets", "names-"+st.Name+".json")) == nil
+}
+
 func (s *server) syncTargetsNow(ctx context.Context, st *stack.Stack, status engine.StackStatus) error {
 	p, err := s.findProvider(ctx)
-	if err != nil || p == nil || p.Stack == st.Name {
+	if err != nil || p == nil {
+		return err
+	}
+	if p.Stack == st.Name {
+		ps, _, err := p.status(ctx)
+		if err == nil && ps.Setup.Complete && ps.Domain != "" {
+			s.sayHello(ctx, p, s.instance())
+		}
 		return err
 	}
 	return p.syncStack(ctx, st, status)
@@ -1069,6 +1093,12 @@ func (s *server) syncTargetsNow(ctx context.Context, st *stack.Stack, status eng
 // syncStack re-points every name of one stack that no longer matches
 // where the app is.
 func (p *provider) syncStack(ctx context.Context, st *stack.Stack, status engine.StackStatus) error {
+	if p.pin == nil {
+		ps, _, err := p.status(ctx)
+		if err != nil || !ps.Setup.Complete {
+			return err
+		}
+	}
 	hosts, err := p.hosts(ctx)
 	if errors.Is(err, errUntrusted) {
 		// Its certificate changed (a new ending, or a reset): status()
