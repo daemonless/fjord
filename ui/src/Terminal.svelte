@@ -52,14 +52,17 @@
   // Write only newly-appended output so \r-based progress lines (podman pull)
   // overwrite in place instead of piling up. A shorter `logs` means it was
   // cleared, so reset the emulator.
+  // A stack with no output yet binds undefined here. A throw in this block
+  // stops the page's whole update: the rest of it keeps the last stack's text.
+  $: output = logs ?? '';
   $: if (term) {
-    if (logs.length < written) {
+    if (output.length < written) {
       term.reset();
       written = 0;
     }
-    if (logs.length > written) {
-      term.write(logs.slice(written));
-      written = logs.length;
+    if (output.length > written) {
+      term.write(output.slice(written));
+      written = output.length;
     }
   }
 
