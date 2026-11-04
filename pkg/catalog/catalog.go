@@ -245,6 +245,7 @@ func (c *Cache) Merged() ([]byte, error) {
 				"image":        a["image"],
 				"version":      a["version"],
 				"variants":     a["variants"],
+				"parts":        a["parts"],
 				"description":  a["description"],
 				"upstream_url": a["upstream_url"],
 				"web_url":      a["web_url"],
