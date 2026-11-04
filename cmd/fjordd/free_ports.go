@@ -31,6 +31,14 @@ type portView struct {
 func (s *server) handleFreePorts(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
+	out := s.checkFreePorts(ctx, strings.Split(r.URL.Query().Get("ports"), ","))
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(out)
+}
+
+// checkFreePorts checks rawPorts ("3000", "1900/udp") and returns the ones
+// that are taken on this host along with the nearest free port up.
+func (s *server) checkFreePorts(ctx context.Context, rawPorts []string) map[string]portView {
 	used, _ := s.primaryBackend().UsedPorts(ctx)
 	taken := s.otherStackPorts(&stack.Stack{})
 	hostAddr := os.Getenv("FJORD_HOST_ADDR")
@@ -59,7 +67,7 @@ func (s *server) handleFreePorts(w http.ResponseWriter, r *http.Request) {
 	}
 	var asked []want
 	claimed := map[string]bool{} // the asked ports, and every one suggested
-	for _, p := range strings.Split(r.URL.Query().Get("ports"), ",") {
+	for _, p := range rawPorts {
 		num, proto, _ := strings.Cut(strings.TrimSpace(p), "/")
 		if proto == "" {
 			proto = "tcp"
@@ -86,8 +94,7 @@ func (s *server) handleFreePorts(w http.ResponseWriter, r *http.Request) {
 		}
 		out[fmt.Sprintf("%d/%s", a.port, a.proto)] = v
 	}
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(out)
+	return out
 }
 
 // listenerName is the program listening on a TCP port of this host, "" when

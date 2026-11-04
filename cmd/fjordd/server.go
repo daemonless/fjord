@@ -251,6 +251,7 @@ func (s *server) routes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/volumes/", s.handleVolumeDelete)
 	mux.HandleFunc("/api/apps/install", s.handleInstall)
 	mux.HandleFunc("/api/apps/size", s.handleInstallSize)
+	mux.HandleFunc("/api/apps/", s.handleAppRoutes)
 	mux.HandleFunc("/api/adopt", s.handleAdopt)
 	mux.HandleFunc("/api/adopt/names", s.handleAdoptable)
 	mux.HandleFunc("/api/stacks", s.handleStacksList)

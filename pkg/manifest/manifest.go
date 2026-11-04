@@ -15,8 +15,10 @@ import (
 // Var is a wizard variable declared under x-fjord.variables.
 type Var struct {
 	Name     string
-	Type     string // port | string | secret | path | zfs_dataset
+	Type     string // port | string | secret | path | zfs_dataset | image_tag | public_url
 	Default  string
+	Label    string
+	Image    string // image repo for image_tag variables
 	Optional bool
 	Uid, Gid int    // host_permissions for zfs_dataset (0 -> default 1000)
 	Mode     string // octal, e.g. "755"
@@ -106,6 +108,7 @@ type Manifest struct {
 	compose   string
 	appjail   *AppjailBundle
 	Variables []Var
+	Class     string
 	WebPort   string
 	WebHTTPS  bool
 	// OwnOrigin (info.own_origin): the app checks Origin and Referer against
@@ -229,6 +232,8 @@ type xfVar struct {
 	Name            string `yaml:"name"`
 	Type            string `yaml:"type"`
 	Default         string `yaml:"default"`
+	Label           string `yaml:"label"`
+	Image           string `yaml:"image"`
 	Optional        bool   `yaml:"optional"`
 	Generate        *bool  `yaml:"generate"`
 	HostPermissions *struct {
@@ -280,6 +285,7 @@ func Parse(manifestYAML string) (*Manifest, error) {
 
 	var xf struct {
 		Info struct {
+			Class     string            `yaml:"class"`
 			WebPort   string            `yaml:"web_port"`
 			WebHTTPS  bool              `yaml:"web_https"`
 			OwnOrigin bool              `yaml:"own_origin"`
@@ -330,7 +336,7 @@ func Parse(manifestYAML string) (*Manifest, error) {
 	}
 	vars := make([]Var, 0, len(xf.Variables))
 	for _, v := range xf.Variables {
-		nv := Var{Name: v.Name, Type: v.Type, Default: v.Default, Optional: v.Optional,
+		nv := Var{Name: v.Name, Type: v.Type, Default: v.Default, Label: v.Label, Image: v.Image, Optional: v.Optional,
 			Given: v.Generate != nil && !*v.Generate}
 		if v.HostPermissions != nil {
 			nv.Uid, nv.Gid, nv.Mode = v.HostPermissions.Uid, v.HostPermissions.Gid, v.HostPermissions.Mode
@@ -364,6 +370,7 @@ func Parse(manifestYAML string) (*Manifest, error) {
 	}
 
 	m := &Manifest{compose: buf.String(), appjail: xf.Appjail, Variables: vars,
+		Class:   xf.Info.Class,
 		WebPort: xf.Info.WebPort, WebHTTPS: xf.Info.WebHTTPS, OwnOrigin: xf.Info.OwnOrigin,
 		NameEnv:    xf.Info.NameEnv,
 		Networking: xf.Networking, Hostnames: xf.Hostnames, Choices: choices, Login: xf.Login,

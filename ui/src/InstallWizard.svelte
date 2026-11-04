@@ -891,9 +891,19 @@
     touched.clear();
     await storageReady;
     try {
-      const res = await fetch(manifestUrl, { cache: 'no-store' });
-      if (!res.ok) throw new Error('Failed to fetch manifest');
-      manifestText = await res.text();
+      const params = new URLSearchParams();
+      if (activeSource?.catalog) params.set('catalog', activeSource.catalog);
+      if (engineChoice) params.set('engine', engineChoice);
+      if (appDataChoice) params.set('appData', appDataChoice);
+      const planRes = appId ? await fetch(`/api/apps/${encodeURIComponent(appId)}/plan?${params}`, { cache: 'no-store' }) : null;
+      const planData = planRes && planRes.ok ? await planRes.json() : null;
+      if (planData) {
+        manifestText = planData.manifest || '';
+      } else {
+        const res = await fetch(manifestUrl, { cache: 'no-store' });
+        if (!res.ok) throw new Error('Failed to fetch manifest');
+        manifestText = await res.text();
+      }
       const parsed: any = yaml.load(manifestText);
       baseSvcNames = Object.keys(parsed?.services ?? {});
       appjailDirector = String(parsed?.['x-fjord']?.appjail?.director ?? '');
@@ -911,23 +921,51 @@
           .filter((v): v is string => !!v),
       );
       webHttps = parsed?.['x-fjord']?.info?.web_https === true;
-      for (const c of choices) picks[c.id] = c.default;
+      for (const c of choices) picks[c.id] = planData?.choices?.[c.id] ?? c.default;
       picks = picks;
+      if (planData) {
+        if (!engineChoice && planData.engine) engineChoice = planData.engine;
+        if (planData.appData) appDataChoice = planData.appData;
+        if (planData.name && stackName === folderOf(appId, appId || 'app')) stackName = planData.name;
+        if (planData.tag) train = planData.tag;
+        if (planData.givenName && !nameEdited) givenName = planData.givenName;
+        if (planData.restart?.policy) {
+          restartFor = engineChoice || planData.engine || '';
+          restartPolicy = planData.restart.policy;
+          restartRetries = planData.restart.retries || DEFAULT_RETRIES;
+        }
+        if (planData.network) netChoice = planData.network;
+        if (planData.interfaces && Object.keys(planData.interfaces).length) {
+          planEdits = planData.interfaces;
+          lastSeed = JSON.stringify(planData.interfaces);
+        }
+      }
       if (parsed['x-fjord'] && parsed['x-fjord'].variables) {
         variables = parsed['x-fjord'].variables;
-        variables.forEach((v) => {
-          // Path vars get this stack's own <App data>/<stack>/... folder: a
-          // catalog default that names the app is re-rooted, none at all
-          // becomes a hint; still fully editable + browsable.
-          formData[v.name] = v.type === 'path' ? seedPath(v, folderOf(stackName, appId || 'app')) : madeUp(v) || given(v) ? '' : v.default || '';
-          if (v.type === 'path') paths[v.name] = [formData[v.name]];
-        });
-        seededSlug = folderOf(stackName, appId || 'app');
-        formData = formData; // seeding above mutates in place; reassign so missingRequired recomputes
-        paths = paths;
-        defaultedFrom = {};
-        applyDefaultSets();
-        freePorts();
+        if (planData) {
+          formData = { ...(planData.values ?? {}) };
+          paths = { ...(planData.paths ?? {}) };
+          defaultedFrom = { ...(planData.defaultedFrom ?? {}) };
+          portNotes = { ...(planData.portNotes ?? {}) };
+          for (const v of variables) {
+            if (v.type === 'public_url' && formData[v.name]) suggestedUrl[v.name] = formData[v.name];
+          }
+          seededSlug = folderOf(stackName, appId || 'app');
+        } else {
+          variables.forEach((v) => {
+            // Path vars get this stack's own <App data>/<stack>/... folder: a
+            // catalog default that names the app is re-rooted, none at all
+            // becomes a hint; still fully editable + browsable.
+            formData[v.name] = v.type === 'path' ? seedPath(v, folderOf(stackName, appId || 'app')) : madeUp(v) || given(v) ? '' : v.default || '';
+            if (v.type === 'path') paths[v.name] = [formData[v.name]];
+          });
+          seededSlug = folderOf(stackName, appId || 'app');
+          formData = formData; // seeding above mutates in place; reassign so missingRequired recomputes
+          paths = paths;
+          defaultedFrom = {};
+          applyDefaultSets();
+          freePorts();
+        }
       }
       loadVersions();
     } catch (e: any) {
