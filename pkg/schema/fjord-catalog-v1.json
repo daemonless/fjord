@@ -8,26 +8,55 @@
   "properties": {
     "catalog_name": { "type": "string" },
     "fjord_version": { "type": "string" },
+    "catalog_version": { "type": "string" },
     "maintainer": { "type": "string" },
+    "icon": { "type": "string" },
+    "os": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
     "generated": { "type": "string", "format": "date-time" },
     "apps": {
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["id", "name", "category", "icon", "manifest_url", "version", "variants"],
+        "required": ["id", "name", "category", "class", "manifest_url", "variants"],
         "properties": {
-          "id": { "type": "string", "pattern": "^[a-z0-9-]+$" },
+          "id": { "type": "string", "pattern": "^[a-z0-9._-]+$" },
           "name": { "type": "string" },
           "description": { "type": "string" },
           "category": { "type": "string" },
-          "class": { "type": "string", "enum": ["service", "agent", "cli"] },
-          "icon": { "type": "string", "format": "uri" },
-          "manifest_url": { "type": "string", "format": "uri" },
+          "class": { "type": "string", "enum": ["service", "stack", "part", "agent", "cli", "gui"] },
+          "icon": { "type": "string" },
+          "upstream_url": { "type": "string" },
+          "web_url": { "type": "string" },
+          "image": { "type": "string" },
+          "manifest_url": { "type": "string" },
           "version": { "type": "string" },
           "updated": { "type": "string", "format": "date-time" },
+          "architectures": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
           "only_for_archs": {
             "type": "array",
             "items": { "type": "string" }
+          },
+          "os": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "parts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["id", "name", "image"],
+              "properties": {
+                "id": { "type": "string" },
+                "name": { "type": "string" },
+                "image": { "type": "string" }
+              }
+            }
           },
           "variants": {
             "type": "array",
@@ -45,8 +74,7 @@
                   "items": { "type": "string" }
                 }
               }
-            },
-            "minItems": 1
+            }
           }
         }
       }
