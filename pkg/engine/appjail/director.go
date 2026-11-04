@@ -244,7 +244,16 @@ func directorUp(ctx context.Context, s *stack.Stack) (io.ReadCloser, error) {
 // stackDelete never orphans a stopped-but-present jail. Up rebuilds from the
 // Makejail. A missing project is tolerated (delete of an already-stopped stack).
 func directorDown(ctx context.Context, s *stack.Stack) (io.ReadCloser, error) {
-	return directorOp(ctx, s, func(w io.Writer) error { return downDestroy(ctx, stackDir(s.Dir), w) })
+	jails := (&Backend{}).serviceJails(s)
+	return directorOp(ctx, s, func(w io.Writer) error {
+		if err := downDestroy(ctx, stackDir(s.Dir), w); err != nil {
+			return err
+		}
+		for _, sj := range jails {
+			removeJailLogs(sj.jail)
+		}
+		return nil
+	})
 }
 
 // directorRestart stops then starts in place. Plain `down` (no --destroy) keeps
@@ -262,7 +271,15 @@ func directorRestart(ctx context.Context, s *stack.Stack) (io.ReadCloser, error)
 func directorUpdate(ctx context.Context, s *stack.Stack, jails []svcJail) (io.ReadCloser, error) {
 	return directorOp(ctx, s,
 		func(w io.Writer) error { return pullNamedImages(ctx, w, jails) },
-		func(w io.Writer) error { return downDestroy(ctx, stackDir(s.Dir), w) },
+		func(w io.Writer) error {
+			if err := downDestroy(ctx, stackDir(s.Dir), w); err != nil {
+				return err
+			}
+			for _, sj := range jails {
+				removeJailLogs(sj.jail)
+			}
+			return nil
+		},
 		directorUpStep(ctx, s),
 		func(w io.Writer) error { return watchJails(ctx, w, jails, healthWindow, "the update") })
 }
@@ -384,7 +401,11 @@ func destroyJail(ctx context.Context, w io.Writer, jail string) error {
 	}
 	var buf strings.Builder
 	err := runAppjail(ctx, io.MultiWriter(w, &buf), "jail", "destroy", "-f", "--", jail)
-	if err == nil || !containsBusyMount(buf.String()) {
+	if err == nil {
+		removeJailLogs(jail)
+		return nil
+	}
+	if !containsBusyMount(buf.String()) {
 		return err
 	}
 	cleared, ferr := forceUnmountJail(ctx, jail)
@@ -396,7 +417,11 @@ func destroyJail(ctx context.Context, w io.Writer, jail string) error {
 	}
 	fmt.Fprintf(w, "[fjord] a volume was still mounted and would not come off; forced it and retrying: %s\n",
 		strings.Join(cleared, ", "))
-	return runAppjail(ctx, w, "jail", "destroy", "-f", "--", jail)
+	if err := runAppjail(ctx, w, "jail", "destroy", "-f", "--", jail); err != nil {
+		return err
+	}
+	removeJailLogs(jail)
+	return nil
 }
 
 // runAppjail runs one `appjail <args>`, streaming its output without the

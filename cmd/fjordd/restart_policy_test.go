@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -65,10 +66,18 @@ func TestHostBooted(t *testing.T) {
 
 type restartEngine struct {
 	engine.Backend
-	caps engine.Capabilities
+	caps  engine.Capabilities
+	state string
 }
 
 func (e restartEngine) Capabilities() engine.Capabilities { return e.caps }
+
+func (e restartEngine) Status(ctx context.Context, s *stack.Stack) (engine.StackStatus, error) {
+	if e.state != "" {
+		return engine.StackStatus{State: e.state}, nil
+	}
+	return e.Backend.Status(ctx, s)
+}
 
 var (
 	onExit   = engine.Capabilities{RestartPolicies: []string{"unless-stopped", "always", "on-failure", "no"}, RestartOnExit: true}
@@ -80,7 +89,7 @@ func restartFixture(t *testing.T, caps engine.Capabilities) *server {
 	t.Helper()
 	s := &server{
 		manager:  stack.NewManager(t.TempDir()),
-		backends: map[string]engine.Backend{"podman": restartEngine{engine.Unavailable("podman"), caps}},
+		backends: map[string]engine.Backend{"podman": restartEngine{Backend: engine.Unavailable("podman"), caps: caps}},
 	}
 	st := &stack.Stack{Name: "gitea", Compose: "services:\n  gitea:\n    image: g\n    restart: unless-stopped\n  postgres:\n    image: p\n    restart: always\n"}
 	if err := s.manager.Save(st); err != nil {
@@ -238,5 +247,21 @@ func TestRestartPolicyTakesOverAWatch(t *testing.T) {
 	case <-stopped:
 	default:
 		t.Error("the watch was not ended")
+	}
+}
+
+// A stack that is already running when startOnBoot checks it clears a stale
+// "start on boot" failure from an earlier boot.
+func TestStartOnBootRunningClearsBootFailure(t *testing.T) {
+	s := restartFixture(t, onExit)
+	s.backends["podman"] = restartEngine{Backend: engine.Unavailable("podman"), caps: onExit, state: "running"}
+	s.manager.UpdateState("gitea", func(st *stack.State) *stack.State {
+		st.DesiredState = "running"
+		st.LastFailure = &stack.Failure{Action: "start on boot", Message: "timed out"}
+		return st
+	})
+	startOnBoot(s)
+	if st, _ := s.manager.LoadState("gitea"); st == nil || st.LastFailure != nil {
+		t.Fatalf("LastFailure = %+v, want nil once stack is running at boot", st)
 	}
 }

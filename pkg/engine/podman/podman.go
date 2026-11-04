@@ -179,7 +179,17 @@ func (b *Backend) bringUp(ctx context.Context, pw *io.PipeWriter, s *stack.Stack
 		return
 	}
 	seen.reset()
-	if err := b.runStreaming(ctx, out, s.Dir, "podman", append([]string{"start"}, names...)...); err != nil {
+	err = b.runStreaming(ctx, out, s.Dir, "podman", append([]string{"start"}, names...)...)
+	if err != nil && strings.Contains(seen.String(), "duplicate allocation is not allowed") {
+		// A service that exited during `compose up` while waiting on its
+		// database can still hold its host-local reservation when `start`
+		// runs; release the stopped container's reservation and retry once.
+		time.Sleep(500 * time.Millisecond)
+		b.releaseOrphanAddresses(ctx, pw, s)
+		seen.reset()
+		err = b.runStreaming(ctx, out, s.Dir, "podman", append([]string{"start"}, names...)...)
+	}
+	if err != nil {
 		if !b.explainNoDHCP(ctx, pw, seen.String()) {
 			fmt.Fprintf(pw, "\n[error] start: %s\n", commandError(seen.String(), err))
 			// podman's reason is often a symptom: an app that exits at once

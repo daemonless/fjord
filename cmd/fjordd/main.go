@@ -536,6 +536,14 @@ func startOnBoot(srv *server) {
 		// the compose file has changed (killing open shells and restarting the
 		// app), so only bring up what is actually down.
 		if st, err := srv.backendFor(full).Status(ctx, full); err == nil && st.State == "running" {
+			if s.State.LastFailure != nil && s.State.LastFailure.Action == "start on boot" {
+				srv.manager.UpdateState(s.Name, func(st *stack.State) *stack.State {
+					if st != nil {
+						st.LastFailure = nil
+					}
+					return st
+				})
+			}
 			// Pin what it holds before a reboot can hand it out again --
 			// stacks from before fjord pinned on start have never had it.
 			kept, skipped := srv.keepAddresses(ctx, full)
