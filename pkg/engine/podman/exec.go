@@ -32,6 +32,7 @@ type apiExecSession struct {
 	execID    string
 	container string
 	argv0     string // what was exec'd; reap checks the pid still runs it
+	shellEnv  string // FJORD_SHELL=<token> inherited by children in the jail
 	http      *http.Client
 }
 
@@ -59,6 +60,7 @@ func (s *apiExecSession) Close() error {
 // on FreeBSD (jails share PID numbering) -- so a one-shot detached `kill -9`
 // exec in the same container ends the session.
 func (s *apiExecSession) reap(ctx context.Context) {
+	defer engine.ReapShellByEnv(s.shellEnv, "")
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://d/v4.0.0/libpod/exec/"+url.PathEscape(s.execID)+"/json", nil)
 	if err != nil {
 		return
@@ -167,13 +169,16 @@ func (b *Backend) Exec(ctx context.Context, opts engine.ExecOptions) (engine.Exe
 
 	// 1. create the exec instance. TERM is set so full-screen apps (top, vi)
 	// know the terminal type -- xterm.js on the browser side speaks xterm.
+	// FJORD_SHELL tags the session's environment so Close can reap background
+	// children that outlive the shell inside the jail.
+	shellEnv := engine.NewShellEnv()
 	body, _ := json.Marshal(map[string]any{
 		"AttachStdin":  true,
 		"AttachStdout": true,
 		"AttachStderr": true,
 		"Tty":          true,
 		"Cmd":          cmd,
-		"Env":          []string{"TERM=xterm-256color"},
+		"Env":          []string{"TERM=xterm-256color", shellEnv},
 	})
 	createURL := "http://d/v4.0.0/libpod/containers/" + url.PathEscape(opts.Container) + "/exec"
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, createURL, bytes.NewReader(body))
@@ -234,7 +239,7 @@ func (b *Backend) Exec(ctx context.Context, opts engine.ExecOptions) (engine.Exe
 
 	return &apiExecSession{
 		conn: conn, rd: rd, execID: created.Id, container: opts.Container,
-		argv0: filepath.Base(cmd[0]), http: b.http,
+		argv0: filepath.Base(cmd[0]), shellEnv: shellEnv, http: b.http,
 	}, nil
 }
 

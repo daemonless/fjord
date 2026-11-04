@@ -681,7 +681,8 @@ func (b *Backend) Exec(ctx context.Context, opts engine.ExecOptions) (engine.Exe
 	if len(cmdArgs) == 0 {
 		cmdArgs = []string{"/bin/sh"}
 	}
-	args := append([]string{"cmd", "jexec", opts.Container, "-l"}, cmdArgs...)
+	shellEnv := engine.NewShellEnv()
+	args := append([]string{"cmd", "jexec", opts.Container, "-l", "env", shellEnv}, cmdArgs...)
 	c := exec.Command("appjail", args...)
 	// TERM so full-screen apps (top, vi) work; xterm.js speaks xterm.
 	c.Env = append(os.Environ(), "TERM=xterm-256color")
@@ -689,13 +690,15 @@ func (b *Backend) Exec(ctx context.Context, opts engine.ExecOptions) (engine.Exe
 	if err != nil {
 		return nil, fmt.Errorf("jexec %s: %w", opts.Container, err)
 	}
-	return &ptySession{cmd: c, pty: f}, nil
+	return &ptySession{cmd: c, pty: f, jail: opts.Container, shellEnv: shellEnv}, nil
 }
 
 // ptySession bridges a pty-attached jexec process to engine.ExecSession.
 type ptySession struct {
-	cmd *exec.Cmd
-	pty *os.File
+	cmd      *exec.Cmd
+	pty      *os.File
+	jail     string
+	shellEnv string
 }
 
 func (s *ptySession) Read(p []byte) (int, error)  { return s.pty.Read(p) }
@@ -705,13 +708,14 @@ func (s *ptySession) Resize(cols, rows int) error {
 	return pty.Setsize(s.pty, &pty.Winsize{Cols: uint16(cols), Rows: uint16(rows)})
 }
 
-// Close kills the shell and reaps it so no jexec process leaks.
+// Close kills the shell and any background children it left in the jail.
 func (s *ptySession) Close() error {
 	s.pty.Close()
 	if s.cmd.Process != nil {
 		s.cmd.Process.Kill()
 	}
 	_ = s.cmd.Wait()
+	engine.ReapShellByEnv(s.shellEnv, s.jail)
 	return nil
 }
 
