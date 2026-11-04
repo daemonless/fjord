@@ -19,7 +19,7 @@
     address?: string; // the container's own IP on an attachable network
   };
   type StackStatus = { state: string; containers: ContainerStatus[] };
-  type Stack = { name: string; displayName?: string; icon?: string; compose?: string; env?: string; services?: { name: string; address?: string }[]; status?: StackStatus; state?: { origin?: { type?: string; app_id?: string }; engine?: string; desired_state?: string }; restart?: StackRestart };
+  type Stack = { name: string; displayName?: string; icon?: string; busy?: string; compose?: string; env?: string; services?: { name: string; address?: string }[]; status?: StackStatus; state?: { origin?: { type?: string; app_id?: string }; engine?: string; desired_state?: string }; restart?: StackRestart };
   export let stacks: Stack[] = [];
   export let loaded = true;
   // Set when the list did not arrive: 0 = fjord did not answer, else its HTTP status.
@@ -27,6 +27,7 @@
   // Fleet-wide update state, fetched once by the app shell (server-cached).
   export let fleet: Record<string, any> = {};
   export let fleetRefreshing = false;
+  export let updatingAll = false;
 
   const dispatch = createEventDispatcher();
   // One line that says whether anything needs you: the first stack meant to
@@ -59,11 +60,24 @@
   }
   const label = (s?: StackStatus) => stateWord(statusKey(s));
   const running = (s?: StackStatus) => s?.state === 'running' || s?.state === 'partial';
+  function busyWord(k?: string): string {
+    switch (k) {
+      case 'installing': return 'Installing…';
+      case 'up': return 'Starting…';
+      case 'update': return 'Updating…';
+      case 'restart': return 'Restarting…';
+      case 'down': return 'Stopping…';
+      case 'deleting': return 'Deleting…';
+      default: return '';
+    }
+  }
 
   $: runningCount = stacks.filter((s) => running(s.status)).length;
   $: updateCount = stacks.filter(
     (s) => fleet[s.name]?.state === 'available' || fleet[s.name]?.state === 'upgrade'
   ).length;
+  $: availableStacks = stacks.filter((s) => fleet[s.name]?.state === 'available' && !s.busy);
+  $: updatingStacks = stacks.filter((s) => s.busy === 'update');
 
 
   function firstImage(compose: string): string {
@@ -156,10 +170,24 @@
           <span class="text-fjord-success">All {runningCount} running</span>{#if stoppedByYou}
             · {stoppedByYou} stopped{/if}
         {/if}{#if updateCount}
-          · <span class="text-fjord-warning">{updateCount} update{updateCount === 1 ? '' : 's'} available</span>{/if}
+          · <span class="text-fjord-warning">{updateCount} update{updateCount === 1 ? '' : 's'} available</span>{/if}{#if updatingStacks.length}
+          · <span class="text-fjord-accent">{updatingStacks.length} updating</span>{/if}
       </div>
     </div>
     <div class="flex items-center gap-2 flex-wrap">
+      {#if availableStacks.length > 0 || updatingAll || updatingStacks.length > 0}
+        <button
+          on:click={() => dispatch('update-all')}
+          disabled={updatingAll || availableStacks.length === 0}
+          title={availableStacks.length
+            ? `Update ${availableStacks.map((s) => s.displayName || s.name).join(', ')}`
+            : 'Updating in the background'}
+          class="flex items-center gap-2 bg-fjord-warning/15 hover:bg-fjord-warning/25 text-fjord-warning border border-fjord-warning/40 font-medium py-2 px-4 rounded-lg text-sm disabled:opacity-50"
+          ><Icon name="update" size={14} /> {updatingAll || (availableStacks.length === 0 && updatingStacks.length > 0)
+            ? 'Updating…'
+            : `Update all (${availableStacks.length})`}</button
+        >
+      {/if}
       <button
         on:click={() => dispatch('adopt')}
         title="Turn containers started outside fjord into stacks"
@@ -247,9 +275,14 @@
               <div class="text-xs text-fjord-fg-dim font-mono truncate">{info[s.name]?.tag ? ':' + info[s.name].tag : ''}</div>
             </div>
             <!-- status -->
-            <div class="flex items-center gap-2 text-xs text-fjord-fg-muted w-24 shrink-0">
-              <span class="w-2 h-2 rounded-full {DOT[label(s.status)]}"></span>
-              <span class="capitalize">{label(s.status)}</span>
+            <div class="flex items-center gap-2 text-xs {s.busy ? 'text-fjord-accent' : 'text-fjord-fg-muted'} w-24 shrink-0">
+              {#if s.busy}
+                <Spinner size={11} class="text-fjord-accent" />
+                <span class="truncate">{busyWord(s.busy) || 'Busy…'}</span>
+              {:else}
+                <span class="w-2 h-2 rounded-full {DOT[label(s.status)]}"></span>
+                <span class="capitalize">{label(s.status)}</span>
+              {/if}
             </div>
             <!-- restart policy, as the stack page's chip says it -->
             <div class="flex items-center gap-1 text-xs text-fjord-fg-dim w-36 shrink-0 truncate" title={restartTitle(s.restart)}>
@@ -259,7 +292,11 @@
             </div>
             <!-- update badge -->
             <div class="w-32 shrink-0 text-center">
-              {#if !u && fleetRefreshing}
+              {#if s.busy === 'update'}
+                <span class="inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full text-fjord-accent bg-fjord-accent/10 border border-fjord-accent/30"
+                  ><Spinner size={10} /> Updating…</span
+                >
+              {:else if !u && fleetRefreshing}
                 <span class="text-xs text-fjord-fg-faint">…</span>
               {:else if u?.state === 'available'}
                 <span
@@ -323,28 +360,32 @@
               {#if running(s.status)}
                 <button
                   on:click={() => act(s.name, 'down')}
-                  title="Stop"
-                  class="w-8 h-8 flex items-center justify-center rounded-lg bg-fjord-bg border border-fjord-border text-fjord-fg-muted hover:bg-fjord-border hover:text-fjord-fg"
+                  disabled={!!s.busy}
+                  title={s.busy ? busyWord(s.busy) : 'Stop'}
+                  class="w-8 h-8 flex items-center justify-center rounded-lg bg-fjord-bg border border-fjord-border text-fjord-fg-muted hover:bg-fjord-border hover:text-fjord-fg disabled:opacity-40"
                   ><Icon name="stop" size={13} /></button
                 >
               {:else}
                 <button
                   on:click={() => act(s.name, 'up')}
-                  title="Start"
-                  class="w-8 h-8 flex items-center justify-center rounded-lg bg-fjord-bg border border-fjord-border text-fjord-fg-muted hover:bg-fjord-success/80 hover:text-white"
+                  disabled={!!s.busy}
+                  title={s.busy ? busyWord(s.busy) : 'Start'}
+                  class="w-8 h-8 flex items-center justify-center rounded-lg bg-fjord-bg border border-fjord-border text-fjord-fg-muted hover:bg-fjord-success/80 hover:text-white disabled:opacity-40"
                   ><Icon name="play" size={13} /></button
                 >
               {/if}
               <button
                 on:click={() => act(s.name, 'restart')}
-                title="Restart"
-                class="w-8 h-8 flex items-center justify-center rounded-lg bg-fjord-bg border border-fjord-border text-fjord-fg-muted hover:bg-fjord-border hover:text-fjord-fg"
+                disabled={!!s.busy}
+                title={s.busy ? busyWord(s.busy) : 'Restart'}
+                class="w-8 h-8 flex items-center justify-center rounded-lg bg-fjord-bg border border-fjord-border text-fjord-fg-muted hover:bg-fjord-border hover:text-fjord-fg disabled:opacity-40"
                 ><Icon name="restart" size={13} /></button
               >
               <button
                 on:click={() => act(s.name, 'update')}
-                title="Update"
-                class="w-8 h-8 flex items-center justify-center rounded-lg {u?.state === 'available'
+                disabled={!!s.busy}
+                title={s.busy ? busyWord(s.busy) : 'Update'}
+                class="w-8 h-8 flex items-center justify-center rounded-lg disabled:opacity-40 {u?.state === 'available'
                   ? 'bg-fjord-warning/10 border border-fjord-warning/40 text-fjord-warning'
                   : 'bg-fjord-bg border border-fjord-border text-fjord-fg-muted hover:bg-fjord-border hover:text-fjord-fg'}"
                 ><Icon name="update" size={13} /></button

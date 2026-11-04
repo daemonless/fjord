@@ -50,27 +50,33 @@ func (s *server) updateStream(ctx context.Context, st *stack.Stack, read uint64,
 func (s *server) updateDetached(name string, unlock func(), services []string) {
 	go func() {
 		defer unlock()
-		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Minute)
-		defer cancel()
-		read := s.pending.now()
-		st, err := s.manager.Get(name)
-		if err != nil {
-			log.Printf("update %s: %v", name, err)
-			return
-		}
-		log.Printf("update %s (%s)", name, st.EngineName())
-		var stream io.ReadCloser
-		if problems := s.preflight(ctx, st); len(problems) > 0 {
-			stream = errorStream("pre-flight failed:\n  " + strings.Join(problems, "\n  "))
-		} else if stream, err = s.updateStream(ctx, st, read, services, true); err != nil {
-			stream = errorStream(err.Error())
-		} else {
-			stream = s.keepAfter(ctx, st, stream)
-		}
-		io.Copy(io.Discard, s.recordOutcome(name, "update", stream))
-		stream.Close()
-		s.fleet.forget(name)
+		s.runDetachedUpdate(name, services)
 	}()
+}
+
+// runDetachedUpdate runs one stack's update under the caller's lock, keeps
+// its output, records its outcome, and forgets the fleet's verdict on it.
+func (s *server) runDetachedUpdate(name string, services []string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Minute)
+	defer cancel()
+	read := s.pending.now()
+	st, err := s.manager.Get(name)
+	if err != nil {
+		log.Printf("update %s: %v", name, err)
+		return
+	}
+	log.Printf("update %s (%s)", name, st.EngineName())
+	var stream io.ReadCloser
+	if problems := s.preflight(ctx, st); len(problems) > 0 {
+		stream = errorStream("pre-flight failed:\n  " + strings.Join(problems, "\n  "))
+	} else if stream, err = s.updateStream(ctx, st, read, services, true); err != nil {
+		stream = errorStream(err.Error())
+	} else {
+		stream = s.keepAfter(ctx, st, stream)
+	}
+	io.Copy(io.Discard, s.recordOutcome(name, "update", stream))
+	stream.Close()
+	s.fleet.forget(name)
 }
 
 // errorStream is an action's output when it could not start: the one line

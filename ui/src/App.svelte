@@ -1088,9 +1088,11 @@
   };
   let fleet: Record<string, UpdateInfo> = {};
   let fleetRefreshing = false;
+  let updatingAll = false;
   const behind = (u?: UpdateInfo) => u?.state === 'available' || u?.state === 'upgrade';
   // Count only stacks that still exist: the cache can outlive a deleted one.
   $: fleetBehindCount = stacks.filter((s) => behind(fleet[s.name])).length;
+  $: fleetAvailableCount = stacks.filter((s) => fleet[s.name]?.state === 'available' && !s.busy).length;
   async function loadFleetUpdates(refresh = false) {
     try {
       const res = await fetch('/api/updates' + (refresh ? '?refresh=1' : ''));
@@ -1101,6 +1103,39 @@
       // A refresh was kicked off server-side; pick up its results shortly.
       if (d.refreshing) setTimeout(() => loadFleetUpdates(), 5000);
     } catch {}
+  }
+
+  async function updateAll() {
+    if (updatingAll) return;
+    updatingAll = true;
+    try {
+      const res = await fetch('/api/updates', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{}',
+      });
+      if (!res.ok) {
+        toast(`Update failed: ${(await res.text()).trim() || `HTTP ${res.status}`}`, { kind: 'error' });
+        return;
+      }
+      const d = await res.json().catch(() => ({}));
+      const names: string[] = d.updating || [];
+      if (!names.length) {
+        toast('Nothing ready to update', { kind: 'info' });
+        return;
+      }
+      const set = new Set(names);
+      stacks = stacks.map((s) => (set.has(s.name) ? { ...s, busy: 'update' } : s));
+      if (selectedStack && set.has(selectedStack.name)) {
+        selectedStack = { ...selectedStack, busy: 'update' };
+        showActionOutput(selectedStack.name);
+      }
+      toast(names.length === 1 ? `Updating ${names[0]}` : `Updating ${names.length} stacks`, { kind: 'info' });
+    } catch (e: any) {
+      toast(`Update failed: ${e.message || e}`, { kind: 'error' });
+    } finally {
+      updatingAll = false;
+    }
   }
 
   // Named volumes for the stack editor's attach picker (anonymous ones hidden).
@@ -1668,10 +1703,18 @@
   function applyStackEvent(ev: any) {
     if (ev?.type === 'stack-busy') {
       const busy = ev.busy || undefined;
+      const wasBusy = stacks.find((s) => s.name === ev.name)?.busy;
       stacks = stacks.map((s) => (s.name === ev.name ? { ...s, busy } : s));
       if (selectedStack && selectedStack.name === ev.name) {
         selectedStack = { ...selectedStack, busy };
         if (busy) showActionOutput(ev.name); // started elsewhere: follow it
+      }
+      if (!busy && wasBusy) {
+        refreshState(ev.name);
+        if (wasBusy === 'update' || wasBusy === 'up') {
+          loadFleetUpdates();
+          if (selectedStack?.name === ev.name) checkForUpdate(ev.name);
+        }
       }
       return;
     }
@@ -2336,7 +2379,9 @@
                   <span class="w-4 h-4 rounded shrink-0 flex items-center justify-center text-[9px] font-bold text-fjord-fg" style="background:{tile(label(stack))}">{initial(label(stack))}</span>
                 {/if}
                 <span class="truncate">{label(stack)}</span>
-                {#if behind(fleet[stack.name])}
+                {#if stack.busy === 'update'}
+                  <span class="ml-auto shrink-0 text-fjord-accent" title="Updating…"><Spinner size={11} /></span>
+                {:else if behind(fleet[stack.name])}
                   <span
                     class="ml-auto shrink-0 text-fjord-warning"
                     title={fleet[stack.name].state === 'upgrade'
@@ -2350,9 +2395,19 @@
         {/if}
       {/each}
       {#if fleetBehindCount > 0}
-        <div class="px-4 pt-3 flex items-center gap-1.5 text-[11px] text-fjord-warning/80">
-          <Icon name="arrow-up" size={11} />
-          {fleetBehindCount} update{fleetBehindCount === 1 ? '' : 's'} available
+        <div class="px-4 pt-3 flex items-center justify-between gap-2 text-[11px] text-fjord-warning/80">
+          <span class="flex items-center gap-1.5">
+            <Icon name="arrow-up" size={11} />
+            {fleetBehindCount} update{fleetBehindCount === 1 ? '' : 's'} available
+          </span>
+          {#if fleetAvailableCount > 0}
+            <button
+              on:click={updateAll}
+              disabled={updatingAll}
+              class="font-medium text-fjord-warning hover:underline disabled:opacity-50"
+              >Update all</button
+            >
+          {/if}
         </div>
       {/if}
       {#if !stacksLoaded}
@@ -3516,6 +3571,8 @@
           on:retry={loadStacks}
           {fleet}
           {fleetRefreshing}
+          {updatingAll}
+          on:update-all={updateAll}
           on:store={() => {
             selectStack(null);
             currentView = 'store';

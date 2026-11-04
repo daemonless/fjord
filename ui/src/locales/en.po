@@ -602,6 +602,7 @@ msgid "Failed"
 msgstr "Failed"
 
 #: src/App.svelte
+#: src/Dashboard.svelte
 #: src/InstallCheckButton.svelte
 #: src/InstallWizard.svelte
 #: src/System.svelte
@@ -610,27 +611,34 @@ msgstr "Installing…"
 
 #: src/App.svelte
 #: src/App.svelte
+#: src/Dashboard.svelte
 msgid "Starting…"
 msgstr "Starting…"
 
 #: src/App.svelte
 #: src/App.svelte
 #: src/App.svelte
+#: src/App.svelte
+#: src/Dashboard.svelte
+#: src/Dashboard.svelte
 msgid "Updating…"
 msgstr "Updating…"
 
 #: src/App.svelte
 #: src/App.svelte
+#: src/Dashboard.svelte
 #: src/Shell.svelte
 msgid "Restarting…"
 msgstr "Restarting…"
 
 #: src/App.svelte
 #: src/App.svelte
+#: src/Dashboard.svelte
 msgid "Stopping…"
 msgstr "Stopping…"
 
 #: src/App.svelte
+#: src/Dashboard.svelte
 msgid "Deleting…"
 msgstr "Deleting…"
 
@@ -827,6 +835,7 @@ msgstr "Click to rename (id: {0})"
 
 #: src/App.svelte
 #: src/App.svelte
+#: src/Dashboard.svelte
 msgid "Busy…"
 msgstr "Busy…"
 
@@ -996,7 +1005,9 @@ msgid "Change"
 msgstr "Change"
 
 #. 0: s.service
+#. 0: availableStacks.map((s) => s.displayName || s.name).join(', ')
 #: src/App.svelte
+#: src/Dashboard.svelte
 msgid "Update {0}"
 msgstr "Update {0}"
 
@@ -4881,3 +4892,46 @@ msgstr "An app with its own address answers on its container port; x-fjord web_p
 #: src/InstallWizard.svelte
 msgid "none: this app keeps nothing on this host"
 msgstr "none: this app keeps nothing on this host"
+
+#. 0: (await res.text()).trim() || `HTTP ${res.status}`
+#. 0: e.message || e
+#: src/App.svelte
+#: src/App.svelte
+msgid "Update failed: {0}"
+msgstr "Update failed: {0}"
+
+#: src/App.svelte
+msgid "Nothing ready to update"
+msgstr "Nothing ready to update"
+
+#. 0: names[0]
+#: src/App.svelte
+msgid "Updating {0}"
+msgstr "Updating {0}"
+
+#. 0: names.length
+#: src/App.svelte
+msgid "Updating {0} stacks"
+msgstr "Updating {0} stacks"
+
+#: src/App.svelte
+msgid "Update all"
+msgstr "Update all"
+
+#. 0: updatingStacks.length
+#: src/Dashboard.svelte
+msgid "{0} updating"
+msgstr "{0} updating"
+
+#: src/Dashboard.svelte
+msgid "Updating in the background"
+msgstr "Updating in the background"
+
+#. 0: availableStacks.length
+#: src/Dashboard.svelte
+msgid "Update all ({0})"
+msgstr "Update all ({0})"
+
+#: src/Dashboard.svelte
+msgid "<0/> Updating…"
+msgstr "<0/> Updating…"

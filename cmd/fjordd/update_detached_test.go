@@ -3,10 +3,12 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -15,12 +17,14 @@ import (
 	"github.com/daemonless/fjord/pkg/engine"
 	"github.com/daemonless/fjord/pkg/registry"
 	"github.com/daemonless/fjord/pkg/stack"
+	"github.com/daemonless/fjord/pkg/updates"
 )
 
 // updatingEngine records the stack each Update is handed, and can hold the
 // update open or fail it.
 type updatingEngine struct {
 	engine.Backend
+	caps engine.Capabilities
 	gate chan struct{} // Update waits on it when set
 	fail error
 	mu   sync.Mutex
@@ -28,7 +32,7 @@ type updatingEngine struct {
 	svcs [][]string
 }
 
-func (e *updatingEngine) Capabilities() engine.Capabilities { return engine.Capabilities{} }
+func (e *updatingEngine) Capabilities() engine.Capabilities { return e.caps }
 func (e *updatingEngine) RunningImages(context.Context, *stack.Stack) ([]engine.RunningImage, error) {
 	return nil, nil
 }
@@ -163,5 +167,98 @@ func TestSetTagWithUpdateRecordsAFailure(t *testing.T) {
 	}
 	if v, _ := outputs.get("cv-fail"); !v.Done || !strings.Contains(v.Text, "[error] pull: manifest unknown") {
 		t.Errorf("output: %+v", v)
+	}
+}
+
+// POST /api/updates updates every stack whose fleet check says "available",
+// one after another in the daemon, narrows to the behind services when the
+// engine supports per-service updates, skips current/upgrade/busy stacks, and
+// forgets each stack from the fleet cache as it finishes.
+func TestUpdateAllUpdatesAvailableStacksInOrder(t *testing.T) {
+	be := &updatingEngine{
+		Backend: engine.Unavailable("podman"),
+		caps:    engine.Capabilities{UpdateServices: true},
+		gate:    make(chan struct{}),
+	}
+	s := &server{
+		manager:   stack.NewManager(t.TempDir()),
+		fjordRoot: t.TempDir(),
+		backends:  map[string]engine.Backend{"podman": be},
+	}
+	for _, name := range []string{"ua-one", "ua-two", "ua-cur", "ua-upg", "ua-busy"} {
+		compose := "services:\n  web:\n    image: repo/web:latest\n  db:\n    image: repo/db:16\n"
+		if err := s.manager.Save(&stack.Stack{Name: name, Compose: compose}); err != nil {
+			t.Fatal(err)
+		}
+		s.manager.SetEngine(name, "podman")
+	}
+	s.fleet.put("ua-one", updates.Status{
+		State: "available",
+		Services: []updates.ServiceStatus{
+			{Service: "web", State: "available"},
+			{Service: "db", State: "current"},
+		},
+	})
+	s.fleet.put("ua-two", updates.Status{
+		State: "available",
+		Services: []updates.ServiceStatus{
+			{Service: "web", State: "available"},
+			{Service: "db", State: "available"},
+		},
+	})
+	s.fleet.put("ua-cur", updates.Status{State: "current"})
+	s.fleet.put("ua-upg", updates.Status{State: "upgrade", NewTag: "2.0", ToVersion: "2.0"})
+	s.fleet.put("ua-busy", updates.Status{State: "available"})
+
+	holdBusy, ok := lockStackAs("ua-busy", "up")
+	if !ok {
+		t.Fatal("lock ua-busy")
+	}
+	defer holdBusy()
+
+	w := httptest.NewRecorder()
+	s.handleUpdates(w, httptest.NewRequest(http.MethodPost, "/api/updates", strings.NewReader(`{}`)))
+	if w.Code != http.StatusOK {
+		t.Fatalf("%d %s", w.Code, w.Body.String())
+	}
+	var resp struct {
+		Updating []string `json:"updating"`
+		Skipped  []string `json:"skipped"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(resp.Updating, []string{"ua-one", "ua-two"}) {
+		t.Fatalf("updating = %v, want [ua-one ua-two]", resp.Updating)
+	}
+	if !reflect.DeepEqual(resp.Skipped, []string{"ua-busy"}) {
+		t.Fatalf("skipped = %v, want [ua-busy]", resp.Skipped)
+	}
+	if op := loadBusy("ua-one"); op == nil || op.action != "update" {
+		t.Errorf("ua-one busy = %+v, want update", op)
+	}
+	if op := loadBusy("ua-two"); op == nil || op.action != "update" {
+		t.Errorf("ua-two busy = %+v, want update", op)
+	}
+
+	close(be.gate)
+	waitIdle(t, "ua-one")
+	waitIdle(t, "ua-two")
+
+	seen := be.updates()
+	if len(seen) != 2 || seen[0].Name != "ua-one" || seen[1].Name != "ua-two" {
+		t.Fatalf("updated stacks = %+v, want ua-one then ua-two", seen)
+	}
+	be.mu.Lock()
+	gotSvcs := append([][]string{}, be.svcs...)
+	be.mu.Unlock()
+	if !reflect.DeepEqual(gotSvcs, [][]string{{"web"}, {"web", "db"}}) {
+		t.Errorf("updated services = %v, want [[web] [web db]]", gotSvcs)
+	}
+	if _, ok := s.fleet.results["ua-one"]; ok {
+		t.Error("ua-one should be forgotten from fleet cache after update")
+	}
+	if _, ok := s.fleet.results["ua-two"]; ok {
+		t.Error("ua-two should be forgotten from fleet cache after update")
 	}
 }
