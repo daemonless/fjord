@@ -109,19 +109,20 @@ func (s *server) runEventLoop() {
 	idle := 0                   // polls skipped while nobody watches
 	for {
 		time.Sleep(1500 * time.Millisecond)
+		idle++
 		watched := s.events.count() > 0
-		if !watched {
+		if !watched && (idle < 20 || !s.namesInPlay()) {
 			// Nobody watching: skip the (shell-out) status calls, unless
 			// names are in play. A port changed by Apply from the API, or a
 			// lease that moved at night, left a name pointing at nothing
 			// until someone opened fjord (and then only on the next change).
 			// So with a provider the loop still looks, every 30 s.
-			idle++
-			if idle < 20 || !s.namesInPlay() {
-				continue
-			}
+			continue
 		}
-		idle = 0
+		checkProvider := idle >= 20
+		if checkProvider {
+			idle = 0
+		}
 		stacks, err := s.manager.List()
 		if err != nil {
 			continue
@@ -148,6 +149,9 @@ func (s *server) runEventLoop() {
 			// port (a 503 behind the name).
 			key := fmt.Sprintf("%s|%s|%t|%s", state, link, !status.StaleSince.IsZero(), publishedPorts(status))
 			if last[full.Name] == key {
+				if checkProvider && state == "running" && s.providerUnpinned(full) {
+					s.syncTargets(full, status)
+				}
 				continue
 			}
 			// On the first look too: fjordd was down, or nobody watched,
