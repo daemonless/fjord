@@ -683,3 +683,103 @@ func entryOS(a map[string]any, catalogOS []string) []string {
 	}
 	return catalogOS
 }
+
+// Variant is one build channel declared on a catalog entry.
+type Variant struct {
+	ID      string   `json:"id"`
+	Label   string   `json:"label"`
+	Default bool     `json:"default,omitempty"`
+	Image   string   `json:"image,omitempty"`
+	Version string   `json:"version,omitempty"`
+	Aliases []string `json:"aliases,omitempty"`
+}
+
+// Entry is the catalog metadata an install plan needs for an app.
+type Entry struct {
+	ID       string    `json:"id"`
+	Name     string    `json:"name"`
+	Class    string    `json:"class"`
+	Image    string    `json:"image"`
+	Version  string    `json:"version"`
+	Variants []Variant `json:"variants"`
+	OS       []string  `json:"os"`
+}
+
+// AppEntry resolves an app's catalog entry and manifest from srcID, or from the
+// highest-priority enabled source that offers it for this OS when srcID is "".
+func (c *Cache) AppEntry(ctx context.Context, srcID, appID string) (Entry, []byte, error) {
+	findEntry := func(id string) (Entry, bool) {
+		c.mu.RLock()
+		defer c.mu.RUnlock()
+		dir := c.dir
+		if id != LocalID {
+			dir = filepath.Join(c.dir, safeID(id))
+		}
+		raw, err := os.ReadFile(filepath.Join(dir, "catalog.json"))
+		if err != nil {
+			return Entry{}, false
+		}
+		var doc struct {
+			OS   []string `json:"os"`
+			Apps []Entry  `json:"apps"`
+		}
+		if json.Unmarshal(raw, &doc) != nil {
+			return Entry{}, false
+		}
+		for _, a := range doc.Apps {
+			if a.ID != appID {
+				continue
+			}
+			osList := a.OS
+			if len(osList) == 0 {
+				osList = doc.OS
+			}
+			if srcID == "" && c.RunsOn != nil && len(osList) > 0 && !c.RunsOn(osList) {
+				continue
+			}
+			a.Image = strings.TrimSpace(a.Image)
+			return a, true
+		}
+		return Entry{}, false
+	}
+
+	if srcID != "" {
+		e, _ := findEntry(srcID)
+		if e.ID == "" {
+			e.ID = appID
+		}
+		b, err := c.Manifest(ctx, srcID, appID)
+		return e, b, err
+	}
+
+	var sources []string
+	for _, s := range c.Sources() {
+		if !s.Disabled {
+			sources = append(sources, s.ID)
+		}
+	}
+	if c.LocalSeed() {
+		sources = append(sources, LocalID)
+	}
+	var lastErr error
+	for _, id := range sources {
+		if e, ok := findEntry(id); ok {
+			b, err := c.Manifest(ctx, id, appID)
+			if err == nil {
+				return e, b, nil
+			}
+			lastErr = err
+		}
+	}
+	for _, id := range sources {
+		if b, err := c.Manifest(ctx, id, appID); err == nil {
+			return Entry{ID: appID}, b, nil
+		} else {
+			lastErr = err
+		}
+	}
+	if lastErr == nil {
+		lastErr = fmt.Errorf("manifest %q not found in any catalog", appID)
+	}
+	return Entry{}, nil, lastErr
+}

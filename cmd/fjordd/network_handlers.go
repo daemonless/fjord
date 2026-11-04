@@ -32,10 +32,11 @@ func (s *server) handleNetworks(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet:
 		var nets []engine.Network
 		var err error
+		be := s.backendForRequest(r)
 		if r.URL.Query().Get("engine") != "" || r.URL.Query().Get("stack") != "" {
 			// Scoped: what THIS engine can attach to, for an install or a
 			// stack's own view.
-			nets, err = s.backendForRequest(r).Networks(r.Context())
+			nets, err = be.Networks(r.Context())
 		} else {
 			nets, err = s.allNetworks(r.Context())
 		}
@@ -43,44 +44,7 @@ func (s *server) handleNetworks(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), 500)
 			return
 		}
-		if nets == nil {
-			nets = []engine.Network{} // encode [] not null so the UI can .length it
-		}
-		// One place for both engines: the bridge is the host's, not either
-		// runtime's, and neither backend has a reason to report it itself.
-		// Whose each private segment is, named. Every response says it, so it
-		// does not matter which request the UI happened to make.
-		var stackNames []string
-		if list, err := s.manager.List(); err == nil {
-			for _, st := range list {
-				stackNames = append(stackNames, st.Name)
-			}
-		}
-		labelPrivateNetworks(nets, stackNames)
-		for i, n := range nets {
-			d, ok := hostnet.Get(n.Name)
-			if !ok {
-				// Not a conflist: the engine owns it and allocates on it.
-				nets[i].AddressSource = "engine"
-				continue
-			}
-			if n.Bridge == "" {
-				nets[i].Bridge = d.Bridge
-			}
-			nets[i].Static = d.Static
-			nets[i].Subnet6, nets[i].Gateway6 = d.Subnet6, d.Gateway6
-			switch {
-			case d.DHCP:
-				nets[i].AddressSource = "dhcp"
-			case d.Static:
-				nets[i].AddressSource = "static"
-			default:
-				nets[i].AddressSource = "pool"
-			}
-		}
-		if parents, err := s.backendForRequest(r).NetworkParents(r.Context()); err == nil {
-			s.markWireWarnings(nets, parents)
-		}
+		nets = s.decorateNetworks(r.Context(), be, nets)
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(nets)
 	case http.MethodPost:
@@ -110,6 +74,72 @@ func (s *server) handleNetworks(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.Error(w, "method not allowed", 405)
 	}
+}
+
+// decorateNetworks populates PrivateFor, AddressSource, Bridge, Static, Subnet6,
+// Gateway6, and wire warnings on a network list.
+func (s *server) decorateNetworks(ctx context.Context, be engine.Backend, nets []engine.Network) []engine.Network {
+	if nets == nil {
+		nets = []engine.Network{} // encode [] not null so the UI can .length it
+	}
+	// One place for both engines: the bridge is the host's, not either
+	// runtime's, and neither backend has a reason to report it itself.
+	// Whose each private segment is, named. Every response says it, so it
+	// does not matter which request the UI happened to make.
+	var stackNames []string
+	if list, err := s.manager.List(); err == nil {
+		for _, st := range list {
+			stackNames = append(stackNames, st.Name)
+		}
+	}
+	labelPrivateNetworks(nets, stackNames)
+	for i, n := range nets {
+		d, ok := hostnet.Get(n.Name)
+		if !ok {
+			// Not a conflist: the engine owns it and allocates on it.
+			nets[i].AddressSource = "engine"
+			continue
+		}
+		if n.Bridge == "" {
+			nets[i].Bridge = d.Bridge
+		}
+		nets[i].Static = d.Static
+		nets[i].Subnet6, nets[i].Gateway6 = d.Subnet6, d.Gateway6
+		switch {
+		case d.DHCP:
+			nets[i].AddressSource = "dhcp"
+		case d.Static:
+			nets[i].AddressSource = "static"
+		default:
+			nets[i].AddressSource = "pool"
+		}
+	}
+	if be != nil {
+		if parents, err := be.NetworkParents(ctx); err == nil {
+			s.markWireWarnings(nets, parents)
+		}
+	}
+	return nets
+}
+
+// networksForEngine returns the decorated network list for engineName (or
+// allNetworks when engineName is empty).
+func (s *server) networksForEngine(ctx context.Context, engineName string) ([]engine.Network, error) {
+	be, ok := s.backend(engineName)
+	if !ok {
+		be = s.primaryBackend()
+	}
+	var nets []engine.Network
+	var err error
+	if engineName != "" {
+		nets, err = be.Networks(ctx)
+	} else {
+		nets, err = s.allNetworks(ctx)
+	}
+	if err != nil {
+		return nil, err
+	}
+	return s.decorateNetworks(ctx, be, nets), nil
 }
 
 // networkUsers reports what is attached to a network, across every engine that

@@ -445,6 +445,24 @@ func (m *Manager) AllocateName(name, fallback string) (id string, release func()
 	}
 }
 
+// NextName is the id AllocateName would give name right now, without reserving
+// it (for previewing a default install plan).
+func (m *Manager) NextName(name, fallback string) string {
+	base := Slug(name, fallback)
+	if !ValidName(base) || base == "" {
+		base = "stack"
+	}
+	id := base
+	for n := 2; ; n++ {
+		if !m.exists(id) {
+			if _, taken := m.reserved.Load(id); !taken {
+				return id
+			}
+		}
+		id = fmt.Sprintf("%s-%d", base, n)
+	}
+}
+
 func (m *Manager) exists(id string) bool {
 	_, err := os.Stat(filepath.Join(m.StacksDir, id))
 	return err == nil

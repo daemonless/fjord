@@ -4,10 +4,50 @@ import (
 	"crypto/rand"
 	"fmt"
 	"math/big"
+	"slices"
 	"sort"
 
 	composepkg "github.com/daemonless/fjord/pkg/compose"
 )
+
+// ChosenServices is the stack's services in compose order as picks install
+// them: the compose's own, less what a picked option drops, plus what it adds.
+func (m *Manifest) ChosenServices(picks map[string]string) []string {
+	dropped := map[string]bool{}
+	var added []string
+	for _, c := range m.Choices {
+		id := picks[c.ID]
+		if id == "" {
+			id = c.Default
+		}
+		o := c.Option(id)
+		if o == nil {
+			continue
+		}
+		for _, d := range o.Drop {
+			dropped[d] = true
+		}
+		if o.Services != "" {
+			if c, err := composepkg.AddServices("services: {}\n", o.Services); err == nil {
+				for _, s := range composepkg.ParseServices(c, nil) {
+					added = append(added, s.Name)
+				}
+			}
+		}
+	}
+	var out []string
+	for _, s := range composepkg.ParseServices(m.compose, nil) {
+		if !dropped[s.Name] {
+			out = append(out, s.Name)
+		}
+	}
+	for _, s := range added {
+		if !slices.Contains(out, s) {
+			out = append(out, s)
+		}
+	}
+	return out
+}
 
 // ApplyChoices answers the manifest's choices: picks maps a choice id to an
 // option id, and a choice not in picks takes its default. The compose is
