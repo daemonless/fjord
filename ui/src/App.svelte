@@ -4,7 +4,7 @@
   import RemoteFolderForm from './RemoteFolderForm.svelte';
   import { ensureRemoteVolume, remoteKind, type RemoteKind } from './remote';
   import Editor from './Editor.svelte';
-  import Terminal from './Terminal.svelte';
+  import BottomDrawer from './BottomDrawer.svelte';
   import AppStore from './AppStore.svelte';
   import Volumes from './Volumes.svelte';
   import Networks from './Networks.svelte';
@@ -14,8 +14,6 @@
   import { auth, checkSession, SIGNED_IN } from './auth';
   import SetupWizard from './SetupWizard.svelte';
   import Dashboard from './Dashboard.svelte';
-  import LogView from './LogView.svelte';
-  import Shell from './Shell.svelte';
   import ChangeVersionModal from './ChangeVersionModal.svelte';
   import RestartPolicy from './RestartPolicy.svelte';
   import DirPicker from './DirPicker.svelte';
@@ -60,10 +58,8 @@
     mergeStackList,
     newStackDraft as makeStackDraft,
     orderStacks,
-    primaryContainer,
     reduceStackEvent,
     refTag,
-    serviceLabel,
     stackImage,
     stackLabel as label,
     statusDot as dot,
@@ -174,16 +170,11 @@
   let search = ''; // sidebar stack filter
   let daemonVersion = ''; // shown under the sidebar
   let drawerOpen = true; // bottom panel — open by default
+  let drawer: BottomDrawer | null = null;
   try {
     const d = localStorage.getItem('fjord.drawerOpen');
     if (d !== null) drawerOpen = d === '1';
   } catch {}
-  function setDrawerOpen(v: boolean) {
-    drawerOpen = v;
-    try {
-      localStorage.setItem('fjord.drawerOpen', v ? '1' : '0');
-    } catch {}
-  }
   // Bottom panel tabs: "terminal" = action output, "logs" = live container logs.
   // Separate buffers so streaming logs doesn't clobber the last command output.
   // "output" = fjord's action output (up/down/restart/update), "logs" = the
@@ -194,7 +185,6 @@
     if (t === 'terminal') drawerTab = 'output'; // migrate old value
     else if (t === 'output' || t === 'logs' || t === 'shell') drawerTab = t;
   } catch {}
-  let containerLogs: Record<string, string> = {};
 
   // Resizable panels, persisted across refreshes. Mutations go through named
   // functions (not inline arrows in the action param) so Svelte 5 instruments
@@ -224,14 +214,9 @@
   }
   // Picking anything in the drawer closes it.
   $: if (narrow && (selectedStack || currentView)) navOpen = false;
-  let drawerHeight = loadSize('fjord.drawerH', 256); // h-64
   function setSidebar(w: number) {
     sidebarWidth = clamp(w, 200, 640);
     saveSize('fjord.sidebarW', sidebarWidth);
-  }
-  function setDrawer(h: number) {
-    drawerHeight = clamp(h, 120, 640);
-    saveSize('fjord.drawerH', drawerHeight);
   }
 
   // Drag-to-resize action: reports incremental pointer deltas to onMove.
@@ -843,9 +828,7 @@
     // has no services yet -- it is a compose being written.
     if (stack?.name !== selectedStack?.name) activeTab = stack?.dir ? 'net' : 'compose';
     updateInfo = null;
-    stopLogs(); // don't keep tailing a stack we're navigating away from
-    logsSel = {}; // logs scope is per-stack
-    logsMenuOpen = false;
+    drawer?.resetLogs();
     if (!stack) {
       selectedStack = null;
       originalCompose = '';
@@ -889,7 +872,7 @@
     checkForUpdate(stack!.name); // fire-and-forget; badge fills in when it returns
     // The Logs tab persists across refreshes -- if it's the active view, start
     // streaming now instead of waiting for a tab click.
-    if (drawerOpen && drawerTab === 'logs') streamLogs(stack!.name);
+    drawer?.followLogsIfActive(stack!.name);
   }
 
   async function loadStacks() {
@@ -1419,7 +1402,7 @@
 
   async function streamAction(name: string, action: string, msg: string, body?: unknown, onStart?: () => void) {
     const mine = newRun(name);
-    stopLogs(); // action output goes to the Output tab, not the Logs stream
+    drawer?.stopLogs(); // action output goes to the Output tab, not the Logs stream
     // Only steer the drawer for the stack being looked at. Started from the
     // list, or left running while the operator moved on, this forced the tab
     // to Output over whatever they were reading.
@@ -1543,99 +1526,6 @@
     if (res.refreshFleet) loadFleetUpdates();
     if (res.checkUpdate) checkForUpdate(res.checkUpdate);
   }
-
-  // Live log streaming. `podman compose logs -f` never exits, so it's driven by
-  // an AbortController rather than the action flow -- aborting (close drawer /
-  // switch stacks / re-click) disconnects, which kills the podman process.
-  let logController: AbortController | null = null;
-  let logStacking = ''; // which stack we're tailing, '' when idle
-
-  // Logs scope: per-service checkboxes, all checked by default (a missing key
-  // counts as checked, so new containers join automatically).
-  let logsSel: Record<string, boolean> = {};
-  let logsMenuOpen = false;
-  $: logsSelected = shellContainers.filter((c) => logsSel[c.name] !== false).map((c) => c.name);
-  $: logsAll = shellContainers.length > 0 && logsSelected.length === shellContainers.length;
-  // All, None, or one service alone: following one of ten (crafting-apps)
-  // was nine unticks.
-  function setLogs(pick: (name: string) => boolean) {
-    for (const c of shellContainers) logsSel[c.name] = pick(c.name);
-    logsSel = logsSel;
-    streamLogs(selectedStack!.name);
-  }
-
-  async function streamLogs(name: string) {
-    logController?.abort();
-    logController = new AbortController();
-    logStacking = name;
-    containerLogs[name] = ''; // backend announces its own "$ command" header
-    drawerOpen = true;
-    // Compute the scope HERE, not from the $: derived vars -- checkbox
-    // handlers call this before Svelte reruns reactives, so those are stale.
-    const selected = shellContainers.filter((c) => logsSel[c.name] !== false).map((c) => c.name);
-    const all = selected.length === shellContainers.length;
-    if (shellContainers.length > 1 && selected.length === 0) {
-      containerLogs[name] = '[no services selected: pick one under Services, or All]\n';
-      logStacking = '';
-      return;
-    }
-    try {
-      const scope = all ? '' : selected.map((c) => `&container=${encodeURIComponent(c)}`).join('');
-      const res = await fetch(`/api/stacks/${name}/logs?follow=1&tail=200${scope}`, { signal: logController.signal });
-      if (!res.ok) {
-        // The daemon says why; the status alone told nobody anything.
-        containerLogs[name] += `[ERROR]: ${(await res.text()).trim() || `HTTP ${res.status}`}\n`;
-        return;
-      }
-      const reader = res.body?.getReader();
-      if (reader) {
-        const decoder = new TextDecoder('utf-8');
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          containerLogs[name] += decoder.decode(value);
-        }
-      }
-    } catch (err: any) {
-      if (err?.name !== 'AbortError') containerLogs[name] += `[ERROR]: ${err?.message || err}\n`;
-    } finally {
-      if (logStacking === name) logStacking = '';
-    }
-  }
-
-  function stopLogs() {
-    logController?.abort();
-    logController = null;
-    logStacking = '';
-  }
-
-  // Switch the bottom panel's tab. Selecting Logs starts the live stream for
-  // this stack; leaving it stops the follow (killed server-side on disconnect).
-  function showTab(name: string, tab: 'output' | 'logs' | 'shell') {
-    drawerTab = tab;
-    drawerOpen = true;
-    try {
-      localStorage.setItem('fjord.drawerTab', tab);
-    } catch {}
-    if (tab === 'logs') {
-      if (logStacking !== name) streamLogs(name);
-    } else {
-      stopLogs(); // shell/terminal don't use the logs stream
-    }
-  }
-
-  // The container a shell exec's into: the stack's first (primary) container.
-  // Shell target container: the user's pick if still valid, else the stack's
-  // first container. Falls back automatically when switching stacks.
-  let shellPick = '';
-  $: shellContainers = selectedStack?.status?.containers ?? [];
-  $: shellContainer =
-    shellPick && shellContainers.some((c) => c.name === shellPick)
-      ? shellPick
-      : primaryContainer(selectedStack?.compose ?? '', shellContainers);
-  // A shell needs a live container/jail: exec into a stopped one fails
-  // instantly ("Cannot find the jail") and would just reconnect in a loop.
-  $: shellContainerUp = (shellContainers.find((c) => c.name === shellContainer)?.state ?? 'stopped') !== 'stopped';
 
   // What fjordd says it is doing to a stack. An install or up shows no
   // container for the whole pull; without this the page said "stopped".
@@ -3151,159 +3041,15 @@
           </div>
         </div>
 
-        <!-- Terminal drawer -->
-        {#if drawerOpen}
-          <!-- editor↔drawer sash: drag up = taller, widens + highlights on hover -->
-          <div
-            role="slider"
-            aria-orientation="horizontal"
-            aria-label="Output height"
-            aria-valuenow={drawerHeight}
-            aria-valuemin={120}
-            aria-valuemax={640}
-            tabindex="0"
-            class="group relative h-px shrink-0 my-2 bg-fjord-border cursor-row-resize focus:outline-none focus:bg-fjord-accent"
-            use:resizer={{ axis: 'y', onMove: (d) => setDrawer(drawerHeight - d) }}
-            on:dblclick={() => setDrawer(256)}
-            on:keydown={(e) => { if (e.key === 'ArrowUp') setDrawer(drawerHeight + 16); else if (e.key === 'ArrowDown') setDrawer(drawerHeight - 16); else if (e.key === 'Enter') setDrawer(256); }}
-            title="Drag to resize · double-click to reset"
-          >
-            <div class="absolute inset-x-0 -top-1.5 -bottom-1.5 group-hover:bg-fjord-accent/60 transition-colors"></div>
-          </div>
-          <div class="shrink-0 flex flex-col min-h-0" style="height:{drawerHeight}px">
-            <!-- tab bar -->
-            <div class="flex items-center gap-1 mb-1">
-              <button
-                on:click={() => showTab(selectedStack!.name, 'output')}
-                class="flex items-center gap-1.5 px-3 py-1 rounded-t-md text-xs font-medium transition-colors {drawerTab ===
-                'output'
-                  ? 'bg-fjord-card text-fjord-fg border-b-2 border-fjord-accent'
-                  : 'text-fjord-fg-muted hover:text-fjord-fg'}"><Icon name="list" size={13} /> Output</button
-              >
-              <button
-                on:click={() => showTab(selectedStack!.name, 'logs')}
-                class="px-3 py-1 rounded-t-md text-xs font-medium transition-colors flex items-center gap-1.5 {drawerTab ===
-                'logs'
-                  ? 'bg-fjord-card text-fjord-fg border-b-2 border-fjord-accent'
-                  : 'text-fjord-fg-muted hover:text-fjord-fg'}"
-              >
-                <Icon name="logs" size={13} /> Logs
-                {#if logStacking === selectedStack.name}
-                  <span class="w-1.5 h-1.5 rounded-full bg-fjord-warning animate-pulse"></span>
-                {/if}
-              </button>
-              {#if drawerTab === 'logs' && shellContainers.length > 1}
-                <div class="relative ml-1">
-                  <button
-                    on:click={() => (logsMenuOpen = !logsMenuOpen)}
-                    title="Choose which services' logs to show"
-                    class="bg-fjord-bg border border-fjord-border rounded px-2 py-0.5 text-[11px] font-mono focus:outline-none {logsAll
-                      ? 'text-fjord-fg-secondary'
-                      : 'text-fjord-accent border-fjord-accent/50'}"
-                    ><span class="flex items-center gap-1"
-                      >{logsAll ? 'Services' : `${logsSelected.length}/${shellContainers.length} services`}
-                      <Icon name="chevron-down" size={11} /></span
-                    ></button
-                  >
-                  {#if logsMenuOpen}
-                    <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
-                    <div class="fixed inset-0 z-20" on:click={() => (logsMenuOpen = false)}></div>
-                    <div class="absolute z-30 top-full left-0 mt-1 bg-fjord-card border border-fjord-border rounded-lg shadow-2xl p-2 min-w-48">
-                      <div class="flex items-center gap-3 px-1.5 pb-1.5 mb-1 border-b border-fjord-border text-xs">
-                        <button on:click={() => setLogs(() => true)} disabled={logsAll} class="text-fjord-accent hover:underline disabled:text-fjord-fg-faint disabled:no-underline">All</button>
-                        <button on:click={() => setLogs(() => false)} disabled={logsSelected.length === 0} class="text-fjord-accent hover:underline disabled:text-fjord-fg-faint disabled:no-underline">None</button>
-                      </div>
-                      {#each shellContainers as c}
-                        <label class="group flex items-center gap-2 px-1.5 py-1 rounded text-xs text-fjord-fg-secondary cursor-pointer hover:bg-fjord-border/50 hover:text-fjord-fg select-none">
-                          <input
-                            type="checkbox"
-                            checked={logsSel[c.name] !== false}
-                            on:change={(e) => {
-                              logsSel[c.name] = e.currentTarget.checked;
-                              logsSel = logsSel;
-                              streamLogs(selectedStack!.name); // restart scoped
-                            }}
-                            class="accent-fjord-accent"
-                          />
-                          <span class="font-mono flex-1">{serviceLabel(selectedStack.name, c.name)}</span>
-                          <button
-                            on:click|preventDefault|stopPropagation={() => setLogs((n) => n === c.name)}
-                            title="Show only {serviceLabel(selectedStack.name, c.name)}"
-                            class="opacity-0 group-hover:opacity-100 focus:opacity-100 text-[11px] text-fjord-accent hover:underline">only</button
-                          >
-                        </label>
-                      {/each}
-                    </div>
-                  {/if}
-                </div>
-              {/if}
-              <button
-                on:click={() => showTab(selectedStack!.name, 'shell')}
-                class="flex items-center gap-1.5 px-3 py-1 rounded-t-md text-xs font-medium transition-colors {drawerTab ===
-                'shell'
-                  ? 'bg-fjord-card text-fjord-fg border-b-2 border-fjord-accent'
-                  : 'text-fjord-fg-muted hover:text-fjord-fg'}"><Icon name="terminal" size={13} /> Shell</button
-              >
-              {#if drawerTab === 'shell' && shellContainers.length > 1}
-                <select
-                  value={shellContainer}
-                  on:change={(e) => (shellPick = e.currentTarget.value)}
-                  title="Service to open a shell in"
-                  class="ml-1 bg-fjord-bg border border-fjord-border rounded px-2 py-0.5 text-[11px] text-fjord-fg-secondary font-mono focus:outline-none focus:border-fjord-accent"
-                >
-                  {#each shellContainers as c}
-                    <option value={c.name}>{serviceLabel(selectedStack.name, c.name)}</option>
-                  {/each}
-                </select>
-              {/if}
-              <div class="flex-1"></div>
-              <button
-                on:click={() => {
-                  stopLogs();
-                  setDrawerOpen(false);
-                }}
-                class="flex items-center gap-1 text-xs font-medium text-fjord-fg-muted hover:text-fjord-fg"
-                ><Icon name="chevron-down" size={12} /> Hide</button
-              >
-            </div>
-            {#if drawerTab === 'logs'}
-              <LogView
-                text={containerLogs[selectedStack.name] || ''}
-                streaming={logStacking === selectedStack.name}
-              />
-            {:else if drawerTab === 'shell'}
-              {#if shellContainer && shellContainerUp}
-                {#key selectedStack.name + '/' + shellContainer}
-                  <Shell stack={selectedStack.name} container={shellContainer} />
-                {/key}
-              {:else}
-                <div
-                  class="flex-1 flex items-center justify-center text-sm text-fjord-fg-dim bg-fjord-card border border-fjord-border rounded-xl"
-                >
-                  Start the stack to open a shell.
-                </div>
-              {/if}
-            {:else}
-              <Terminal
-                bind:logs={logs[selectedStack.name]}
-                status={termStatus}
-                statusMessage={execMessage[selectedStack.name] || ''}
-              />
-            {/if}
-          </div>
-        {:else}
-          <button
-            on:click={() => setDrawerOpen(true)}
-            class="shrink-0 mt-3 flex items-center gap-2 px-4 py-2 border border-fjord-border rounded-lg text-xs font-medium text-fjord-fg-muted hover:text-fjord-fg hover:border-fjord-accent/40 transition-colors"
-          >
-            <Icon name="chevron-up" size={12} /> Panel
-            {#if termStatus === 'running'}
-              <span class="w-1.5 h-1.5 rounded-full bg-fjord-warning animate-ping"></span>
-            {:else if logs[selectedStack.name]}
-              <span class="text-fjord-fg-dim">· last output</span>
-            {/if}
-          </button>
-        {/if}
+        <BottomDrawer
+          bind:this={drawer}
+          stack={selectedStack}
+          bind:open={drawerOpen}
+          bind:tab={drawerTab}
+          bind:outputLogs={logs[selectedStack.name]}
+          {termStatus}
+          statusMessage={execMessage[selectedStack.name] || ''}
+        />
       </div>
     {:else if currentView === 'store'}
       <div class="p-6 h-full overflow-hidden">
