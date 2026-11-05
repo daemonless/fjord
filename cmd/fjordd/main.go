@@ -9,6 +9,7 @@ import (
 	"io"
 	"io/fs"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -193,6 +194,9 @@ func main() {
 		}
 		return
 	}
+	if isCLIInvocation(os.Args) {
+		os.Exit(runCLI(os.Args, os.Stdin, os.Stdout, os.Stderr))
+	}
 	var (
 		fVersion      = flag.Bool("version", false, "print version and exit")
 		fVersionV     = flag.Bool("v", false, "print version and exit (alias)")
@@ -208,7 +212,7 @@ func main() {
 		fTrustedProxy = flag.String("trusted-proxy", os.Getenv("FJORD_TRUSTED_PROXY"), "reverse proxy addresses or ranges, comma-separated (their X-Forwarded-For is believed)")
 	)
 	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "fjordd %s\n\nUsage: fjordd [flags]\n       fjordd passwd [--user NAME] [--password-stdin]\n\n"+
+		fmt.Fprintf(os.Stderr, "fjordd %s\n\nUsage: fjordd [flags]\n       fjordd passwd [--user NAME] [--password-stdin]\n       fjordd <command> [args]   (see `fjordd help`)\n\n"+
 			"Each flag can also be set with its FJORD_* env var; the flag wins.\n\nFlags:\n", version)
 		flag.PrintDefaults()
 	}
@@ -388,9 +392,11 @@ func main() {
 	fmt.Printf("Web UI listening on %s\n", addr)
 	hostname, _ := os.Hostname()
 	resolv, _ := os.ReadFile("/etc/resolv.conf")
+	handler := guardHost(newHostAllow(hostname, string(resolv), *fAllowedHosts), gate.wrap(http.DefaultServeMux))
+	go serveLocalSocket(filepath.Join(fjordRoot, "fjordd.sock"), handler)
 	httpd := &http.Server{
 		Addr:    addr,
-		Handler: guardHost(newHostAllow(hostname, string(resolv), *fAllowedHosts), gate.wrap(http.DefaultServeMux)),
+		Handler: handler,
 		// A client that opens connections and never finishes its headers
 		// holds them forever otherwise. No read or write timeout: the event
 		// stream, logs, action output and the shell stay open for as long
@@ -400,6 +406,32 @@ func main() {
 		IdleTimeout:       2 * time.Minute,
 	}
 	log.Fatal(httpd.ListenAndServe())
+}
+
+// serveLocalSocket listens on a root-only Unix domain socket at sockPath so
+// the local `fjord` CLI can drive the same HTTP/WebSocket handlers without a
+// browser session cookie.
+func serveLocalSocket(sockPath string, handler http.Handler) {
+	_ = os.Remove(sockPath)
+	ln, err := net.Listen("unix", sockPath)
+	if err != nil {
+		log.Printf("local socket %s: %v", sockPath, err)
+		return
+	}
+	if err := os.Chmod(sockPath, 0o600); err != nil {
+		log.Printf("local socket chmod %s: %v", sockPath, err)
+		ln.Close()
+		return
+	}
+	srv := &http.Server{
+		Handler:           handler,
+		ConnContext:       func(ctx context.Context, _ net.Conn) context.Context { return withLocalSocket(ctx) },
+		ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout:       2 * time.Minute,
+	}
+	if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		log.Printf("local socket %s: %v", sockPath, err)
+	}
 }
 
 // logKept logs what start-on-boot pinned, and what it would not pin.
