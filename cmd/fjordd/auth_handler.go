@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -34,6 +35,20 @@ var openPaths = map[string]bool{
 	"/api/auth/state": true,
 	"/api/auth/login": true,
 	"/api/auth/setup": true,
+}
+
+type localSocketKey struct{}
+
+// withLocalSocket marks a connection as arriving on fjordd's root-only Unix
+// domain socket, so authGate.wrap lets the host CLI through without a browser
+// session cookie.
+func withLocalSocket(ctx context.Context) context.Context {
+	return context.WithValue(ctx, localSocketKey{}, true)
+}
+
+func isLocalSocket(r *http.Request) bool {
+	v, _ := r.Context().Value(localSocketKey{}).(bool)
+	return v
 }
 
 // newAuthGate reads FJORD_AUTH and FJORD_TRUSTED_PROXY. Turning auth off is
@@ -121,6 +136,10 @@ func (g *authGate) wrap(next http.Handler) http.Handler {
 		// someone with an account. A handler with its own rule sets it after.
 		if strings.HasPrefix(p, "/api/") {
 			w.Header().Set("Cache-Control", "no-store")
+		}
+		if isLocalSocket(r) {
+			next.ServeHTTP(w, r)
+			return
 		}
 		if g.off {
 			host, _, _ := net.SplitHostPort(r.RemoteAddr)
