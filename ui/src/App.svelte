@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { staleNote, statusKey } from './staleNote';
+  import { staleNote } from './staleNote';
   import { onMount, onDestroy, tick } from 'svelte';
   import RemoteFolderForm from './RemoteFolderForm.svelte';
   import { ensureRemoteVolume, remoteKind, type RemoteKind } from './remote';
@@ -18,7 +18,6 @@
   import Shell from './Shell.svelte';
   import ChangeVersionModal from './ChangeVersionModal.svelte';
   import RestartPolicy from './RestartPolicy.svelte';
-  import type { StackRestart } from './restartPolicy';
   import DirPicker from './DirPicker.svelte';
   import Spinner from './Spinner.svelte';
   import LoginButton from './LoginButton.svelte';
@@ -42,56 +41,46 @@
   import { health } from './stackHealth';
   import { changeSentence } from './updateWords';
   import { firstLine } from './errorLine';
-  import { watchStarted } from './watch';
   import { startError } from './adopt';
   import { parseEnv, missingVars, unusedVars, setEnvVar, isSecret, usedVars } from './composeVars';
   import { serviceLinks } from './serviceLinks';
   import VarsPanel from './VarsPanel.svelte';
   import { currentTheme, setTheme, watchSystem, type Theme } from './theme';
-  import { addressProblem, usableRange, networkLabel, HOST_NETWORK, DEFAULT_NETWORK, randomMAC } from './network';
-
-  type ContainerStatus = {
-    name: string;
-    service?: string; // the compose service it runs
-    state: string;
-    ports?: { hostPort: number; containerPort: number; protocol?: string }[];
-    detail?: string; // one-line reason for a non-running state (appjail: crash-looping app)
-    address?: string; // the container's own IP on an attachable network
-  };
-  type StackStatus = { state: string; containers: ContainerStatus[]; staleSince?: string };
-  type StackState = { group?: string; desired_state?: string; engine?: string; order?: number; origin?: { type?: string; app_id?: string }; choices?: Record<string, string>; pending_services?: string[]; last_failure?: { action: string; at: string; message: string } };
-  type Stack = { name: string; displayName?: string; icon?: string; dir: string; compose: string; env: string; director?: string; makejail?: string; engine?: string; status?: StackStatus; state?: StackState; services?: any[]; composeHash?: string; busy?: string; linkHost?: string; restart?: StackRestart; listOnly?: boolean };
-  // What the UI shows for a stack: its label, falling back to the id.
-  const label = (s: { name: string; displayName?: string } | null | undefined) => s?.displayName || s?.name || '';
-
-  const STATUS_STYLE: Record<string, string> = {
-    running: 'bg-fjord-success/10 border-fjord-success/20 text-fjord-success',
-    partial: 'bg-fjord-warning/10 border-fjord-warning/20 text-fjord-warning',
-    stopped: 'bg-fjord-neutral/10 border-fjord-neutral/20 text-fjord-fg-muted',
-    // Not known yet is not broken: grey, not red.
-    checking: 'bg-fjord-neutral/10 border-fjord-neutral/20 text-fjord-fg-dim',
-    // The engine answered and could not say (socket down): a host problem.
-    unknown: 'bg-fjord-warning/10 border-fjord-warning/20 text-fjord-warning',
-  };
-
-  function statusLabel(status: StackStatus | undefined): string {
-    return statusKey(status);
-  }
-
-  function statusStyle(status: StackStatus | undefined): string {
-    return STATUS_STYLE[statusLabel(status)] ?? STATUS_STYLE.unknown;
-  }
-
-  const DOT: Record<string, string> = {
-    running: 'bg-fjord-success',
-    partial: 'bg-fjord-warning',
-    stopped: 'bg-fjord-neutral',
-    checking: 'bg-fjord-neutral animate-pulse',
-    unknown: 'bg-fjord-warning',
-  };
-  function dot(status: StackStatus | undefined): string {
-    return DOT[statusLabel(status)] ?? DOT.unknown;
-  }
+  import { addressProblem, usableRange, randomMAC } from './network';
+  import {
+    behind,
+    computeFilterCounts,
+    computeReorder,
+    currentImage,
+    existingGroupsOf,
+    filterStacks,
+    groupStacks,
+    isDraftEdited,
+    isMultiImage,
+    mergeStackList,
+    newStackDraft as makeStackDraft,
+    orderStacks,
+    primaryContainer,
+    reduceStackEvent,
+    refTag,
+    serviceLabel,
+    stackImage,
+    stackLabel as label,
+    statusDot as dot,
+    statusLabel,
+    statusStyle,
+    type GroupMode,
+    type ServiceUpdate,
+    type Stack,
+    type StackFilter,
+    type UpdateInfo,
+  } from './stacks';
+  import {
+    createOutputFollower,
+    createRunTracker,
+    formatActionHttpError,
+    readActionStream,
+  } from './actions';
 
   let stacks: Stack[] = [];
   // Until the first list arrives, "no stacks" would tell someone with apps
@@ -119,16 +108,7 @@
   // on Linux alpine, which needs a command to stay up. A podman draft is a
   // compose; an appjail draft is a native director spec + Makejail (no
   // compose) that runs via appjail-director from the start.
-  const NEW_STACK_IMAGE = 'ghcr.io/daemonless/base:15.1-latest';
   let hostOS = '';
-  const newStackCompose = (os: string) =>
-    os === 'linux'
-      ? `services:\n  app:\n    image: docker.io/library/alpine:3.24\n    command: sleep infinity\n`
-      : `services:\n  app:\n    image: ${NEW_STACK_IMAGE}\n`;
-  const NEW_STACK_MAKEJAIL = `OPTION container=boot\nOPTION overwrite=force\nOPTION from=${NEW_STACK_IMAGE}\n`;
-  // Jail name is namespaced by the stack id, like catalog installs.
-  const newStackDirector = (name: string) =>
-    `options:\n  - virtualnet: ':<random> default'\n  - nat:\nservices:\n  app:\n    name: ${name.replace(/[^A-Za-z0-9_]/g, '_')}_app\n    oci:\n      environment:\n        - TZ: !ENV '\${TZ}'\n`;
   let engines: { name: string; available: boolean; enabled: boolean }[] = [];
   let defaultEngine = 'podman';
   async function loadEngines() {
@@ -141,18 +121,14 @@
     } catch {}
   }
   const newStackDraft = (engine = defaultEngine, name = `stack-${Date.now().toString().slice(-4)}`): Stack =>
-    engine === 'appjail'
-      ? { name, dir: '', compose: '', env: `DIRECTOR_PROJECT=${name}\nTZ=UTC\n`, director: newStackDirector(name), makejail: NEW_STACK_MAKEJAIL, engine }
-      : { name, dir: '', compose: newStackCompose(hostOS), env: 'TZ=UTC\n', engine };
+    makeStackDraft(engine, hostOS, name);
   // Switch a draft's runtime: swap in that engine's starter files. The two
   // engines' files are different formats (compose vs director + Makejail), so
   // nothing carries over -- which was silent, and took every edit with it. An
   // edited draft asks first; an untouched one just switches.
   let engineSwitch = ''; // the engine a confirm is pending for
   function draftEdited(): boolean {
-    if (!selectedStack) return false;
-    const starter = newStackDraft(selectedStack.engine ?? defaultEngine, selectedStack.name);
-    return (['compose', 'env', 'director', 'makejail'] as const).some((k) => (selectedStack![k] ?? '') !== (starter[k] ?? ''));
+    return isDraftEdited(selectedStack, defaultEngine, hostOS);
   }
   function setDraftEngine(engine: string, confirmed = false) {
     if (!selectedStack || !isDraft || engine === (selectedStack.engine ?? defaultEngine)) return;
@@ -291,18 +267,9 @@
   // single-image stack (the ⋮ menu).
   let changeVersion: { name: string; image: string; suggest?: string; service?: string } | null = null;
 
-  // Pull the first service image out of a stack's compose (for the retag modal).
-  function stackImage(compose: string): string {
-    const m = compose.match(/^\s*image:\s*["']?([^\s"'#]+)/m);
-    return m ? m[1] : '';
-  }
-  // The image as it runs, ${VAR}s filled in from .env: fjordd's services
-  // list has it. The raw compose line read ":${IMMICH_TAG:-latest}" as a
-  // tag called "-latest}".
-  const currentImage = (s: Stack) => s.services?.[0]?.image || stackImage(s.compose);
   // Multi-image stacks (e.g. app+db+redis) have no single version to change --
   // the Change Version modal would retag every service. Hidden for those.
-  $: multiImage = (selectedStack?.compose.match(/^\s*image:/gm) || []).length > 1;
+  $: multiImage = isMultiImage(selectedStack?.compose);
   // A director-backed appjail stack: its runtime spec is appjail-director.yml,
   // not compose.yaml (kept only for status/log service discovery). The primary
   // tab edits the director spec; director reconciles changes on the next up.
@@ -310,7 +277,6 @@
 
   // The status filter under the search box. Remembered; a chip shows only
   // when it has something in it, so a healthy host shows next to nothing.
-  type StackFilter = 'all' | 'running' | 'stopped' | 'problem' | 'updates';
   let stackFilter: StackFilter = (() => {
     try {
       const v = localStorage.getItem('fjord.stackFilter') as StackFilter;
@@ -322,20 +288,11 @@
   $: try {
     localStorage.setItem('fjord.stackFilter', stackFilter);
   } catch {}
-  // fleet is passed in, not read inside: a $: line re-runs only for what it
-  // names, and Updates must follow each update check as it lands.
-  const inFilter = (s: Stack, f: StackFilter, fl: Record<string, UpdateInfo>) =>
-    f === 'all' ? true : f === 'updates' ? behind(fl[s.name]) : health(s) === f;
-  $: filterCounts = {
-    running: stacks.filter((s) => inFilter(s, 'running', fleet)).length,
-    stopped: stacks.filter((s) => inFilter(s, 'stopped', fleet)).length,
-    problem: stacks.filter((s) => inFilter(s, 'problem', fleet)).length,
-    updates: stacks.filter((s) => inFilter(s, 'updates', fleet)).length,
-  } as Record<string, number>;
+  $: filterCounts = computeFilterCounts(stacks, fleet);
   // A filter emptied by events (the last problem fixed) falls back to All
   // rather than leaving an empty list with no chip to explain it.
   $: if (stackFilter !== 'all' && !filterCounts[stackFilter]) stackFilter = 'all';
-  $: filtered = stacks.filter((s) => s.name.toLowerCase().includes(search.toLowerCase()) && inFilter(s, stackFilter, fleet));
+  $: filtered = filterStacks(stacks, search, stackFilter, fleet);
 
   // Sidebar grouping by state.group. Ungrouped ('') sorts last, no header.
   let collapsedGroups: Record<string, boolean> = {};
@@ -349,16 +306,10 @@
       localStorage.setItem('fjord.collapsedGroups', JSON.stringify(collapsedGroups));
     } catch {}
   }
-  // Manual sidebar order: state.order (1-based) wins; unset (0) sorts last by
-  // numeric id so fresh installs land at the bottom in a stable order.
-  const orderKey = (s: Stack) => (s.state?.order && s.state.order > 0 ? s.state.order : Number.MAX_SAFE_INTEGER);
-  $: ordered = [...filtered].sort(
-    (a, b) => orderKey(a) - orderKey(b) || a.name.localeCompare(b.name, undefined, { numeric: true }),
-  );
+  $: ordered = orderStacks(filtered);
   // Sidebar grouping mode: user-defined groups, by engine, network, status,
   // or flat.
   // Only 'groups' is drag-editable (the others are derived buckets).
-  type GroupMode = 'groups' | 'engine' | 'app' | 'network' | 'status' | 'flat';
   let groupMode: GroupMode = 'groups';
   let groupMenuOpen = false;
   try {
@@ -379,49 +330,12 @@
     { id: 'status', label: 'Status' },
     { id: 'flat', label: 'Flat' },
   ];
-  // Which bucket a stack falls in for the active mode.
-  const bucketOf = (s: Stack): string => {
-    if (groupMode === 'engine') return s.state?.engine || 'podman';
-    if (groupMode === 'status') return s.status?.state || 'unknown';
-    if (groupMode === 'network') return networkLabel(s.compose);
-    if (groupMode === 'flat') return '';
-    // By app: the catalog app id (two installs of the same app group together),
-    // falling back to the display name for stacks with no recorded origin (BYO).
-    if (groupMode === 'app') return s.state?.origin?.app_id || s.displayName || s.name;
-    return (s.state?.group || '').trim();
-  };
-  const STATUS_RANK: Record<string, number> = { running: 0, partial: 1, stopped: 2, unknown: 3 };
-  $: groupedStacks = (() => {
-    const m = new Map<string, Stack[]>();
-    for (const s of ordered) {
-      const k = bucketOf(s);
-      if (!m.has(k)) m.set(k, []);
-      m.get(k)!.push(s);
-    }
-    if (groupMode === 'groups') {
-      // Guarantee an (even empty) ungrouped bucket as a drop-out zone when any
-      // group is in use.
-      const named = [...m.keys()].some((k) => k !== '');
-      if (named && !m.has('')) m.set('', []);
-      return [...m.entries()].sort((a, b) => (a[0] === '' ? 1 : b[0] === '' ? -1 : a[0].localeCompare(b[0])));
-    }
-    if (groupMode === 'status') {
-      return [...m.entries()].sort((a, b) => (STATUS_RANK[a[0]] ?? 9) - (STATUS_RANK[b[0]] ?? 9));
-    }
-    if (groupMode === 'network') {
-      // Named networks first -- those are the interesting buckets; the generic
-      // default bridge, host mode and unparseable compose sink to the bottom.
-      const rank = (n: string) =>
-        n === 'unknown' ? 3 : n === HOST_NETWORK ? 2 : n === DEFAULT_NETWORK ? 1 : 0;
-      return [...m.entries()].sort((a, b) => rank(a[0]) - rank(b[0]) || a[0].localeCompare(b[0]));
-    }
-    return [...m.entries()].sort((a, b) => a[0].localeCompare(b[0])); // engine / app / flat
-  })();
+  $: groupedStacks = groupStacks(ordered, groupMode);
   // Headers show for user groups (when present) and always for engine/status
   // buckets; flat has no headers. Drag-to-regroup is groups-only.
   $: hasGroups = groupMode === 'groups' && groupedStacks.some(([g]) => g !== '');
   $: draggableStacks = groupMode === 'groups';
-  $: existingGroups = [...new Set(stacks.map((s) => (s.state?.group || '').trim()).filter(Boolean))].sort();
+  $: existingGroups = existingGroupsOf(stacks);
 
   // ---- sidebar drag-and-drop: reorder stacks and move them between groups ----
   let dragName = ''; // stack being dragged
@@ -450,40 +364,16 @@
     dropGroup = null;
   }
 
-  // Commit a drop: rebuild the flat top-to-bottom order (dragged item removed,
-  // then reinserted at the target) and the dragged item's new group, persist the
-  // whole layout, and update locally so the sidebar doesn't flicker.
   async function commitReorder(targetName: string | null, after: boolean, group: string) {
-    const name = dragName;
-    if (!name) return;
-    if (targetName === name && group === groupOf(name)) return clearDrag(); // dropped on itself
-    const flat = ordered.map((s) => s.name).filter((n) => n !== name);
-    let idx: number;
-    if (targetName && targetName !== name) {
-      idx = flat.indexOf(targetName) + (after ? 1 : 0);
-    } else {
-      // Dropped on a group header/zone: append after that group's last member.
-      const last = ordered.filter((s) => (s.state?.group || '').trim() === group && s.name !== name).pop();
-      idx = last ? flat.indexOf(last.name) + 1 : flat.length;
-    }
-    flat.splice(idx < 0 ? flat.length : idx, 0, name);
-
-    // Optimistic local update: stamp order by new position + the dragged group.
-    const pos = new Map(flat.map((n, i) => [n, i + 1]));
-    stacks = stacks.map((s) => {
-      if (!pos.has(s.name)) return s;
-      const state = { ...(s.state || {}), order: pos.get(s.name)! };
-      if (s.name === name) state.group = group;
-      return { ...s, state };
-    });
+    const res = computeReorder(ordered, stacks, dragName, targetName, after, group);
     clearDrag();
-
-    const items = flat.map((n) => ({ name: n, group: n === name ? group : groupOf(n) }));
+    if (!res) return;
+    stacks = res.nextStacks;
     try {
       await fetch('/api/stacks/reorder', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ items }),
+        body: JSON.stringify({ items: res.items }),
       });
     } catch {}
     await loadStacks(); // reconcile with server truth
@@ -1012,24 +902,12 @@
     }
     if (!res.ok && !stacksLoaded) stacksFailed = res.status;
     if (res.ok) {
-      stacks = await res.json();
+      const fresh: Stack[] = await res.json();
+      const merged = mergeStackList(selectedStack, fresh);
+      stacks = merged.stacks;
+      if (merged.selectedStack !== selectedStack) selectedStack = merged.selectedStack;
       stacksLoaded = true;
       stacksFailed = null;
-      if (selectedStack) {
-        const found = stacks.find((s) => s.name === selectedStack!.name);
-        if (found) {
-          // Refresh live status/state only -- never overwrite the editor's
-          // compose/env with the list's empty values. services goes with them:
-          // it is what each service is running right now, not something the
-          // editor holds an unsaved version of.
-          selectedStack = {
-            ...selectedStack,
-            status: found.status,
-            state: found.state,
-            services: found.services ?? selectedStack.services,
-          };
-        }
-      }
     }
   }
 
@@ -1060,36 +938,9 @@
   }
 
   // Fleet-wide update state (server-side cached; refreshed in the background).
-  type ServiceUpdate = {
-    service: string;
-    image: string;
-    state: string;
-    tag?: string;
-    running?: string;
-    latest?: string;
-    newTag?: string;
-    fromVersion?: string;
-    toVersion?: string;
-    detail?: string;
-  };
-  type UpdateInfo = {
-    perService?: boolean;
-    pinServices?: boolean;
-    rollback?: Record<string, { ref: string; at: string }>;
-    restartsWith?: Record<string, string[]>;
-    state: string;
-    tag?: string;
-    latest?: string;
-    newTag?: string;
-    fromVersion?: string;
-    toVersion?: string;
-    detail?: string;
-    services?: ServiceUpdate[];
-  };
   let fleet: Record<string, UpdateInfo> = {};
   let fleetRefreshing = false;
   let updatingAll = false;
-  const behind = (u?: UpdateInfo) => u?.state === 'available' || u?.state === 'upgrade';
   // Count only stacks that still exist: the cache can outlive a deleted one.
   $: fleetBehindCount = stacks.filter((s) => behind(fleet[s.name])).length;
   $: fleetAvailableCount = stacks.filter((s) => behind(fleet[s.name]) && !s.busy).length;
@@ -1546,34 +1397,24 @@
   // Each run of an action on a stack has a number. One taken while another is
   // down to its stay-up check ends that check; from then on the older run must
   // not write into the newer one's output, nor say how the stack ended up.
-  let runSeq: Record<string, number> = {};
-  function newRun(name: string): () => boolean {
-    const run = (runSeq[name] = (runSeq[name] ?? 0) + 1);
-    return () => runSeq[name] === run;
-  }
-  // Read an action's output into the stack's log. At the stay-up check the
-  // actions come back (see watch.ts). Stops when a newer run takes over;
-  // false then.
-  async function readRun(name: string, res: Response, mine: () => boolean): Promise<boolean> {
-    const reader = res.body?.getReader();
-    if (!reader) return mine();
-    const decoder = new TextDecoder('utf-8');
-    while (true) {
-      const { done, value } = await reader.read();
-      if (!mine()) {
-        reader.cancel().catch(() => {});
-        return false;
-      }
-      if (done) return true;
-      logs[name] += decoder.decode(value);
-      if (execStatus[name] === 'running' && watchStarted(logs[name])) {
-        execStatus[name] = 'watching';
-        execMessage[name] = 'Checking it stays up';
-        // fjordd counts the changes applied from here (clearPendingAfter):
-        // the banner goes now, not after the whole check.
-        refreshState(name);
-      }
-    }
+  const runTracker = createRunTracker();
+  const newRun = (name: string) => runTracker.newRun(name);
+
+  function readRun(name: string, res: Response, mine: () => boolean): Promise<boolean> {
+    return readActionStream(
+      res,
+      mine,
+      (chunk) => {
+        logs[name] += chunk;
+      },
+      () => {
+        if (execStatus[name] === 'running') {
+          execStatus[name] = 'watching';
+          execMessage[name] = 'Checking it stays up';
+          refreshState(name);
+        }
+      },
+    );
   }
 
   async function streamAction(name: string, action: string, msg: string, body?: unknown, onStart?: () => void) {
@@ -1602,8 +1443,7 @@
       if (!res.ok) {
         const why = (await res.text()).trim() || res.statusText;
         execStatus[name] = 'error';
-        // "pre-flight failed:" alone says nothing; the reason is the next line.
-        execMessage[name] = why.split('\n').map((l) => l.trim()).filter(Boolean).slice(0, 2).join(' ').slice(0, 240) || `HTTP ${res.status}`;
+        execMessage[name] = formatActionHttpError(why, res.status);
         logs[name] += `[ERROR]: ${why}\n`;
         return;
       }
@@ -1672,78 +1512,36 @@
       };
     } catch {}
   }
-  // The output of an action this page did not start (another tab, the API,
-  // start-on-boot) or lost to a reload: fjordd keeps the running or last
-  // action's output per stack. Shown when this page has nothing of its own,
-  // and followed while the stack is busy.
-  // One follow per stack at a time; a second caller waits on the same one,
-  // so what starts a daemon-side action can wait for its end.
-  const followingOutput = new Map<string, Promise<void>>();
+  const outputFollower = createOutputFollower();
   function showActionOutput(name: string): Promise<void> {
-    const streamingHere = () => execStatus[name] === 'running' || execStatus[name] === 'watching';
-    if (streamingHere()) return Promise.resolve();
-    const running = followingOutput.get(name);
-    if (running) return running;
-    const follow = (async () => {
-      try {
-        for (;;) {
-          const r = await fetch(`/api/stacks/${encodeURIComponent(name)}/output`).catch(() => null);
-          if (!r?.ok) break;
-          const o = await r.json();
-          if (streamingHere()) break; // this page started one meanwhile
-          if (o.text && (!logs[name] || logs[name] !== o.text)) logs[name] = o.text;
-          // Down to the stay-up check, the badge says so, as it does for an
-          // action this page streamed; the actions are back by then.
-          if (o.text && !o.done) execMessage[name] = watchStarted(o.text) ? 'Checking it stays up' : (BUSY_LABEL[o.action] ?? `${o.action}…`);
-          following[name] = !!o.text && !o.done;
-          if (o.done || selectedStack?.name !== name) break;
-          await new Promise((res) => setTimeout(res, 1500));
+    return outputFollower.follow(name, {
+      isStreamingHere: () => execStatus[name] === 'running' || execStatus[name] === 'watching',
+      shouldKeepPolling: () => selectedStack?.name === name,
+      onUpdate: (o, watching) => {
+        if (o.text && (!logs[name] || logs[name] !== o.text)) logs[name] = o.text;
+        if (o.text && !o.done) {
+          execMessage[name] = watching ? 'Checking it stays up' : (BUSY_LABEL[o.action ?? ''] ?? `${o.action}…`);
         }
-      } finally {
+        following[name] = !!o.text && !o.done;
+      },
+      onFinish: () => {
         following[name] = false;
-        followingOutput.delete(name);
-      }
-    })();
-    followingOutput.set(name, follow);
-    return follow;
+      },
+    });
   }
   function applyStackEvent(ev: any) {
-    if (ev?.type === 'fleet-updates') {
-      loadFleetUpdates();
+    const res = reduceStackEvent(stacks, selectedStack, ev);
+    if (res.stacks !== stacks) stacks = res.stacks;
+    if (res.clearSelection) {
+      selectStack(null);
       return;
     }
-    if (ev?.type === 'stack-busy') {
-      const busy = ev.busy || undefined;
-      const wasBusy = stacks.find((s) => s.name === ev.name)?.busy;
-      stacks = stacks.map((s) => (s.name === ev.name ? { ...s, busy } : s));
-      if (selectedStack && selectedStack.name === ev.name) {
-        selectedStack = { ...selectedStack, busy };
-        if (busy) showActionOutput(ev.name); // started elsewhere: follow it
-      }
-      if (!busy && wasBusy) {
-        refreshState(ev.name);
-        if (wasBusy === 'update' || wasBusy === 'up') {
-          loadFleetUpdates();
-          if (selectedStack?.name === ev.name) checkForUpdate(ev.name);
-        }
-      }
-      return;
-    }
-    if (ev?.type === 'stack-removed') {
-      stacks = stacks.filter((s) => s.name !== ev.name);
-      if (selectedStack?.name === ev.name) selectStack(null);
-      return;
-    }
-    if (ev?.type === 'stack') {
-      if (!stacks.some((s) => s.name === ev.name)) {
-        loadStacks(); // a stack this tab doesn't know yet (installed elsewhere)
-        return;
-      }
-      // Status and where Open goes -- never compose/env, so an open editor is safe.
-      const linkHost = ev.linkHost ?? undefined;
-      stacks = stacks.map((s) => (s.name === ev.name ? { ...s, status: ev.status, linkHost } : s));
-      if (selectedStack && selectedStack.name === ev.name) selectedStack = { ...selectedStack, status: ev.status, linkHost };
-    }
+    if (res.selectedStack !== selectedStack) selectedStack = res.selectedStack;
+    if (res.reloadStacks) loadStacks();
+    if (res.followOutput) showActionOutput(res.followOutput);
+    if (res.refreshState) refreshState(res.refreshState);
+    if (res.refreshFleet) loadFleetUpdates();
+    if (res.checkUpdate) checkForUpdate(res.checkUpdate);
   }
 
   // Live log streaming. `podman compose logs -f` never exits, so it's driven by
@@ -1831,28 +1629,6 @@
   // first container. Falls back automatically when switching stacks.
   let shellPick = '';
   $: shellContainers = selectedStack?.status?.containers ?? [];
-  // Default shell target: the compose's FIRST service (authors list the
-  // primary app first; deps like db/redis/ml follow). The runtime's container
-  // list order is arbitrary, so containers[0] would land you in redis.
-  // Short service label for pickers: <project>_<service>_1 -> <service>.
-  // Mirrors the backend's log-prefix derivation (pkg/engine/podman Logs).
-  function serviceLabel(stackName: string, containerName: string): string {
-    let label = containerName;
-    const prefix = stackName.toLowerCase() + '_';
-    if (label.toLowerCase().startsWith(prefix)) label = label.slice(prefix.length);
-    const i = label.lastIndexOf('_');
-    if (i > 0 && /^\d+$/.test(label.slice(i + 1))) label = label.slice(0, i);
-    return label || containerName;
-  }
-
-  function primaryContainer(compose: string, containers: { name: string }[]): string {
-    const first = (compose.match(/^services:\s*\n\s{2}([\w.-]+):/m) || [])[1];
-    if (first) {
-      const hit = containers.find((c) => c.name.includes(`_${first}_`) || c.name === first);
-      if (hit) return hit.name;
-    }
-    return containers[0]?.name ?? '';
-  }
   $: shellContainer =
     shellPick && shellContainers.some((c) => c.name === shellPick)
       ? shellPick
@@ -1966,14 +1742,6 @@
     if (selectedStack?.name === name) checkForUpdate(name); // refresh the badge
     loadFleetUpdates(true); // fleet badges should reflect the applied update
   };
-
-  // Parse the tag out of an image ref, ignoring any @sha256 digest.
-  function refTag(image: string): string {
-    const b = image.includes('@') ? image.slice(0, image.indexOf('@')) : image;
-    const s = b.lastIndexOf('/');
-    const c = b.lastIndexOf(':');
-    return c > s ? b.slice(c + 1) : 'latest';
-  }
 
   // Apply a version/pin change: rewrite the image ref (tag +/- digest) on the
   // server, refresh the detail, then redeploy only if the version actually
