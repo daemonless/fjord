@@ -4,7 +4,9 @@
   // back into the stack's .env, which stays editable as a whole on its tab.
   import { createEventDispatcher, tick } from 'svelte';
   import { parseEnv, usedVars, isSecret } from './composeVars';
+  import { isTrueFalse } from './typedVars';
   import Icon from './Icon.svelte';
+  import Switch from './Switch.svelte';
 
   export let text = ''; // the compose or director file
   export let env = ''; // the .env's text
@@ -70,6 +72,14 @@
           {/if}
           <span class="font-mono text-fjord-fg-secondary truncate">{v.name}</span>
           {#if v.state === 'default'}<span class="text-fjord-fg-dim">default</span>{/if}
+          {#if !isSecret(v.name) && isTrueFalse(v.value)}
+            <span class="flex-1"></span>
+            <Switch
+              checked={String(v.value).trim().toLowerCase() === 'true'}
+              label={v.name}
+              on:change={(e) => dispatch('set', { name: v.name, value: e.detail ? 'true' : 'false' })}
+            />
+          {/if}
         </span>
         <input
           bind:this={rows[v.name]}

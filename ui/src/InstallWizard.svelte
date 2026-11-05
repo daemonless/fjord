@@ -17,6 +17,17 @@
   import RestartChoice from './RestartChoice.svelte';
   import { sizeWords, SIZE_NOTE, type SizeAnswer } from './installSize';
   import { DEFAULT_RETRIES } from './restartPolicy';
+  import {
+    boolChecked,
+    boolToggled,
+    choiceOptions,
+    effectiveType,
+    formatSize,
+    isBoolVar,
+    parseSize,
+    sizeUnits,
+    typedVarProblem,
+  } from './typedVars';
 
   // sources: every catalog offering this app; the user picks one (Repository)
   // when there's more than one. Each carries its own manifest_url + variants.
@@ -328,6 +339,11 @@
     formData[name] = value;
     formData = formData;
   }
+  function setVar(name: string, value: string) {
+    formData[name] = value;
+    formData = formData;
+    touched.add(name);
+  }
   // An option that adds services runs on AppJail only with its AppJail form
   // (the jails it adds); a catalog built before forms has none. Greyed, with
   // the reason, rather than refused at Install.
@@ -489,11 +505,13 @@
     ...listedVars.filter(
       (v) =>
         v.optional !== true &&
+        !isBoolVar(v) &&
         !madeUp(v) &&
         !(v.type === 'path' ? (paths[v.name] || []).some((p) => p.trim()) : String(formData[v.name] ?? '').trim()),
     ),
     ...askedNow.filter((a) => !String(formData[a.name] ?? '').trim()).map((a) => ({ name: a.label || a.name })),
   ];
+  $: badTyped = listedVars.filter((v) => typedVarProblem(v, formData[v.name] ?? '') !== '');
 
   // Why Install is held, on screen beside it: in a tooltip alone nobody saw it
   // (woodpecker's empty WOODPECKER_HOST read as a dead button).
@@ -511,7 +529,9 @@
         ? `Fill in ${missingRequired.map((v) => v.name).join(', ')}`
         : badUrls.length
           ? `Fix the address in ${badUrls.map((v) => v.name).join(', ')}`
-          : ipProblem
+          : badTyped.length
+            ? `Fix ${badTyped.map((v) => v.name).join(', ')}`
+            : ipProblem
             ? ipProblem
             : ipRequired && !netIP.trim()
               ? `${netChoice} allocates nothing — give this app an address`
@@ -956,7 +976,14 @@
             // Path vars get this stack's own <App data>/<stack>/... folder: a
             // catalog default that names the app is re-rooted, none at all
             // becomes a hint; still fully editable + browsable.
-            formData[v.name] = v.type === 'path' ? seedPath(v, folderOf(stackName, appId || 'app')) : madeUp(v) || given(v) ? '' : v.default || '';
+            formData[v.name] =
+              v.type === 'path'
+                ? seedPath(v, folderOf(stackName, appId || 'app'))
+                : madeUp(v) || given(v)
+                  ? ''
+                  : isBoolVar(v)
+                    ? boolToggled(v, boolChecked(v, v.default))
+                    : v.default || '';
             if (v.type === 'path') paths[v.name] = [formData[v.name]];
           });
           seededSlug = folderOf(stackName, appId || 'app');
@@ -1100,6 +1127,20 @@
             {#if v.type === 'port' && webOwnAddress && insidePort(manifestText, v.name)}
               <!-- Nothing to choose: with its own address nothing is published
                    on this host. Networking says where it answers instead. -->
+            {:else if effectiveType(v) === 'bool'}
+              <div class="flex items-center justify-between gap-3 py-0.5">
+                <div class="flex flex-col gap-0.5">
+                  <span class="text-sm font-semibold font-mono text-fjord-accent/90">{v.name}</span>
+                  {#if v.label}
+                    <div class="text-xs text-fjord-fg-dim">{#each linkify(v.label) as seg}{#if seg.url}<a href={seg.url} target="_blank" rel="noopener noreferrer" class="text-fjord-accent hover:underline">{seg.text}</a>{:else}{seg.text}{/if}{/each}</div>
+                  {/if}
+                </div>
+                <Switch
+                  checked={boolChecked(v, formData[v.name])}
+                  label={v.name}
+                  on:change={(e) => setVar(v.name, boolToggled(v, e.detail))}
+                />
+              </div>
             {:else}
             <div class="flex flex-col gap-1">
               <label class="text-sm font-semibold text-fjord-fg-secondary flex items-center gap-2" for={v.name}>
@@ -1174,6 +1215,65 @@
                     <div class="text-xs text-fjord-fg-dim">Several folders: each is mounted as its own sub-folder inside the container.</div>
                   {/if}
                 </div>
+              {:else if effectiveType(v) === 'choice'}
+                <select
+                  id={v.name}
+                  value={formData[v.name] ?? ''}
+                  on:change={(e) => setVar(v.name, e.currentTarget.value)}
+                  class="w-full bg-fjord-inset border rounded-md px-3 py-2 text-fjord-fg-body focus:outline-none focus:border-fjord-accent transition-colors {(v.optional !== true && isEmpty(v)) || typedVarProblem(v, formData[v.name] ?? '') ? 'border-fjord-danger/60' : 'border-fjord-border'}"
+                >
+                  {#if v.optional === true}
+                    <option value="">None</option>
+                  {/if}
+                  {#each choiceOptions(v) as opt (opt.value)}
+                    <option value={opt.value}>{opt.label}</option>
+                  {/each}
+                </select>
+                {#if typedVarProblem(v, formData[v.name] ?? '')}
+                  <div class="text-xs text-fjord-danger">{typedVarProblem(v, formData[v.name] ?? '')}</div>
+                {/if}
+              {:else if effectiveType(v) === 'int'}
+                <input
+                  id={v.name}
+                  type="number"
+                  step="1"
+                  min={typeof v.min === 'number' ? v.min : undefined}
+                  max={typeof v.max === 'number' ? v.max : undefined}
+                  value={formData[v.name] ?? ''}
+                  on:input={(e) => setVar(v.name, e.currentTarget.value)}
+                  placeholder={v.default || (v.optional !== true ? 'required' : '')}
+                  class="w-full bg-fjord-inset border rounded-md px-3 py-2 text-fjord-fg-body font-mono focus:outline-none focus:border-fjord-accent transition-colors {(v.optional !== true && isEmpty(v)) || typedVarProblem(v, formData[v.name] ?? '') ? 'border-fjord-danger/60' : 'border-fjord-border'}"
+                />
+                {#if typedVarProblem(v, formData[v.name] ?? '')}
+                  <div class="text-xs text-fjord-danger">{typedVarProblem(v, formData[v.name] ?? '')}</div>
+                {/if}
+              {:else if effectiveType(v) === 'size'}
+                {@const sz = parseSize(formData[v.name], v.default)}
+                <div class="flex items-center gap-2">
+                  <input
+                    id={v.name}
+                    type="number"
+                    min="1"
+                    step="1"
+                    value={sz.amount}
+                    on:input={(e) => setVar(v.name, formatSize(e.currentTarget.value, sz.unit))}
+                    placeholder={parseSize(v.default, v.default).amount || '1'}
+                    class="flex-1 min-w-0 bg-fjord-inset border rounded-md px-3 py-2 text-fjord-fg-body font-mono focus:outline-none focus:border-fjord-accent transition-colors {(v.optional !== true && isEmpty(v)) || typedVarProblem(v, formData[v.name] ?? '') ? 'border-fjord-danger/60' : 'border-fjord-border'}"
+                  />
+                  <select
+                    aria-label="{v.name} unit"
+                    value={sz.unit}
+                    on:change={(e) => setVar(v.name, formatSize(sz.amount, e.currentTarget.value))}
+                    class="bg-fjord-inset border border-fjord-border rounded-md px-3 py-2 text-fjord-fg-body font-mono focus:outline-none focus:border-fjord-accent"
+                  >
+                    {#each sizeUnits(v.default) as u (u)}
+                      <option value={u}>{u}</option>
+                    {/each}
+                  </select>
+                </div>
+                {#if typedVarProblem(v, formData[v.name] ?? '')}
+                  <div class="text-xs text-fjord-danger">{typedVarProblem(v, formData[v.name] ?? '')}</div>
+                {/if}
               {:else}
                 {#if v.type === 'public_url'}
                   {#if webOwnAddress && !webIP && v.optional !== true && isEmpty(v)}

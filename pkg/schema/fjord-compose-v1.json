@@ -75,12 +75,32 @@
               "label": { "type": "string" },
               "type": {
                 "type": "string",
-                "enum": ["string", "port", "path", "zfs_dataset", "secret", "image_tag", "public_url", "network_interface"]
+                "enum": ["string", "port", "path", "zfs_dataset", "secret", "image_tag", "public_url", "bool", "int", "choice", "size", "network_interface"]
               },
               "default": { "type": "string" },
               "optional": { "type": "boolean" },
               "generate": { "type": "boolean" },
               "image": { "type": "string" },
+              "on": { "type": "string" },
+              "off": { "type": "string" },
+              "min": { "type": "integer" },
+              "max": { "type": "integer" },
+              "options": {
+                "type": "array",
+                "items": {
+                  "oneOf": [
+                    { "type": "string" },
+                    {
+                      "type": "object",
+                      "required": ["value"],
+                      "properties": {
+                        "value": { "type": "string" },
+                        "label": { "type": "string" }
+                      }
+                    }
+                  ]
+                }
+              },
               "level": { "type": "string", "enum": ["primary", "options", "advanced"] },
               "description": { "type": "string" },
               "zfs_properties": {

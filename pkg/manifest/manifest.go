@@ -15,7 +15,7 @@ import (
 // Var is a wizard variable declared under x-fjord.variables.
 type Var struct {
 	Name     string
-	Type     string // port | string | secret | path | zfs_dataset | image_tag | public_url
+	Type     string // port | string | secret | path | zfs_dataset | image_tag | public_url | bool | int | choice | size
 	Default  string
 	Label    string
 	Image    string // image repo for image_tag variables
@@ -25,6 +25,89 @@ type Var struct {
 	// Given marks a secret only its owner has (a tunnel token, a WireGuard
 	// key): typed, never made up. Manifest `generate: false`.
 	Given bool
+	// On and Off are the strings a "bool" variable writes when switched on
+	// or off; default to "true" and "false".
+	On, Off string
+	// Min and Max bound an "int" variable when non-nil.
+	Min, Max *int
+	// Options are the allowed values for a "choice" variable.
+	Options []VarOption
+}
+
+// VarOption is one selectable answer for a variable of type "choice".
+// In YAML it may be a plain scalar ("debug") or a {value, label} mapping.
+type VarOption struct {
+	Value string `yaml:"value" json:"value"`
+	Label string `yaml:"label,omitempty" json:"label,omitempty"`
+}
+
+// UnmarshalYAML decodes either a scalar option ("info") or a {value, label} map.
+func (o *VarOption) UnmarshalYAML(value *yaml.Node) error {
+	if value.Kind == yaml.ScalarNode {
+		o.Value = value.Value
+		o.Label = value.Value
+		return nil
+	}
+	var m struct {
+		Value string `yaml:"value"`
+		Label string `yaml:"label"`
+	}
+	if err := value.Decode(&m); err != nil {
+		return err
+	}
+	o.Value = m.Value
+	o.Label = m.Label
+	if o.Label == "" {
+		o.Label = m.Value
+	}
+	return nil
+}
+
+// IsBool reports whether the variable is a boolean toggle: either declared as
+// type "bool", or an untyped/string variable whose default is "true" or "false".
+func (v Var) IsBool() bool {
+	if v.Type == "bool" {
+		return true
+	}
+	if v.Type == "" || v.Type == "string" {
+		return isTrueFalse(v.Default)
+	}
+	return false
+}
+
+// BoolValues returns the on and off strings for a boolean variable, defaulting
+// to "true" and "false".
+func (v Var) BoolValues() (on, off string) {
+	on, off = v.On, v.Off
+	if on == "" {
+		on = "true"
+	}
+	if off == "" {
+		off = "false"
+	}
+	return on, off
+}
+
+// HasOption reports whether val is one of a choice variable's allowed options.
+func (v Var) HasOption(val string) bool {
+	for _, o := range v.Options {
+		if o.Value == val {
+			return true
+		}
+	}
+	return false
+}
+
+func (v Var) optionValues() string {
+	vals := make([]string, len(v.Options))
+	for i, o := range v.Options {
+		vals[i] = o.Value
+	}
+	return strings.Join(vals, ", ")
+}
+
+func isTrueFalse(s string) bool {
+	return strings.EqualFold(s, "true") || strings.EqualFold(s, "false")
 }
 
 // MadeUp reports whether fjord makes the value up when it is left empty: a
@@ -229,13 +312,18 @@ func (m *Manifest) Appjail() *AppjailBundle { return m.appjail }
 
 // xfVar mirrors the on-disk x-fjord variable shape for decoding.
 type xfVar struct {
-	Name            string `yaml:"name"`
-	Type            string `yaml:"type"`
-	Default         string `yaml:"default"`
-	Label           string `yaml:"label"`
-	Image           string `yaml:"image"`
-	Optional        bool   `yaml:"optional"`
-	Generate        *bool  `yaml:"generate"`
+	Name            string      `yaml:"name"`
+	Type            string      `yaml:"type"`
+	Default         string      `yaml:"default"`
+	Label           string      `yaml:"label"`
+	Image           string      `yaml:"image"`
+	Optional        bool        `yaml:"optional"`
+	Generate        *bool       `yaml:"generate"`
+	On              string      `yaml:"on"`
+	Off             string      `yaml:"off"`
+	Min             *int        `yaml:"min"`
+	Max             *int        `yaml:"max"`
+	Options         []VarOption `yaml:"options"`
 	HostPermissions *struct {
 		Uid  int    `yaml:"uid"`
 		Gid  int    `yaml:"gid"`
@@ -337,7 +425,16 @@ func Parse(manifestYAML string) (*Manifest, error) {
 	vars := make([]Var, 0, len(xf.Variables))
 	for _, v := range xf.Variables {
 		nv := Var{Name: v.Name, Type: v.Type, Default: v.Default, Label: v.Label, Image: v.Image, Optional: v.Optional,
-			Given: v.Generate != nil && !*v.Generate}
+			Given:   v.Generate != nil && !*v.Generate,
+			On:      v.On,
+			Off:     v.Off,
+			Min:     v.Min,
+			Max:     v.Max,
+			Options: v.Options,
+		}
+		if (nv.Type == "" || nv.Type == "string") && isTrueFalse(nv.Default) {
+			nv.Type = "bool"
+		}
 		if v.HostPermissions != nil {
 			nv.Uid, nv.Gid, nv.Mode = v.HostPermissions.Uid, v.HostPermissions.Gid, v.HostPermissions.Mode
 		}
