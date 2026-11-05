@@ -193,8 +193,8 @@ msgid "Already running on this host"
 msgstr "Tourne déjà sur cet hôte"
 
 #: src/Adopt.svelte
-#: src/App.svelte
 #: src/Dashboard.svelte
+#: src/Sidebar.svelte
 msgid "Adopt existing containers"
 msgstr "Adopter des conteneurs existants"
 
@@ -257,7 +257,6 @@ msgstr "Adopter"
 #~ msgid "Removes the container <0/> and starts it as a stack with the same mounts, network address and name. Data stays where it is."
 #~ msgstr ""
 
-#: src/App.svelte
 #: src/AppStore.svelte
 #: src/AppStore.svelte
 #: src/AppStore.svelte
@@ -265,6 +264,7 @@ msgstr "Adopter"
 #: src/AppStore.svelte
 #: src/BottomDrawer.svelte
 #: src/NamesPrompt.svelte
+#: src/Sidebar.svelte
 msgid "All"
 msgstr "Tout"
 
@@ -514,30 +514,30 @@ msgstr "Changer de version — {0}"
 msgid "Currently running <0/><1/>"
 msgstr "Tourne actuellement en <0/><1/>"
 
-#: src/App.svelte
+#: src/Sidebar.svelte
 msgid "Groups"
 msgstr "Groupes"
 
-#: src/App.svelte
 #: src/InstallWizard.svelte
 #: src/InstallWizard.svelte
+#: src/Sidebar.svelte
 msgid "Engine"
 msgstr "Moteur"
 
-#: src/App.svelte
+#: src/Sidebar.svelte
 msgid "App"
 msgstr "Application"
 
-#: src/App.svelte
 #: src/ServiceResources.svelte
+#: src/Sidebar.svelte
 msgid "Network"
 msgstr "Réseau"
 
-#: src/App.svelte
+#: src/Sidebar.svelte
 msgid "Status"
 msgstr "État"
 
-#: src/App.svelte
+#: src/Sidebar.svelte
 msgid "Flat"
 msgstr "À plat"
 
@@ -635,9 +635,9 @@ msgstr "Démarrage…"
 #: src/App.svelte
 #: src/App.svelte
 #: src/App.svelte
-#: src/App.svelte
 #: src/Dashboard.svelte
 #: src/Dashboard.svelte
+#: src/Sidebar.svelte
 msgid "Updating…"
 msgstr "Mise à jour…"
 
@@ -728,108 +728,108 @@ msgid "Install failed: {0}"
 msgstr "Installation échouée : {0}"
 
 #: src/App.svelte
-#: src/App.svelte
+#: src/Sidebar.svelte
 msgid "<0>F</0>JORD"
 msgstr "<0>F</0>JORD"
 
-#: src/App.svelte
+#: src/Sidebar.svelte
 msgid "Search stacks…"
 msgstr "Rechercher une pile…"
 
 #~ msgid "New Stack"
 #~ msgstr "Nouvelle pile"
 
-#: src/App.svelte
 #: src/Dashboard.svelte
+#: src/Sidebar.svelte
 msgid "Running"
 msgstr "En marche"
 
-#: src/App.svelte
 #: src/Dashboard.svelte
+#: src/Sidebar.svelte
 msgid "Stopped"
 msgstr "Arrêtée"
 
-#: src/App.svelte
+#: src/Sidebar.svelte
 msgid "Problems"
 msgstr "Problèmes"
 
-#: src/App.svelte
+#: src/Sidebar.svelte
 msgid "Updates"
 msgstr "Mises à jour"
 
-#: src/App.svelte
+#: src/Sidebar.svelte
 msgid "Group by"
 msgstr "Grouper par"
 
-#: src/App.svelte
+#: src/Sidebar.svelte
 msgid "Ungrouped"
 msgstr "Sans groupe"
 
-#: src/App.svelte
+#: src/Sidebar.svelte
 msgid "Drag here to remove from group"
 msgstr "Déposez ici pour retirer du groupe"
 
-#. 0: fleet[stack.name].fromVersion ? `v${fleet[stack.name].fromVersion} → ` \\: ''; 1: fleet[stack.name].toVersion
 #. 0: updateInfo!.fromVersion ? `v${updateInfo!.fromVersion} → ` \\: ''; 1: updateInfo!.toVersion
+#. 0: fleet[stack.name].fromVersion ? `v${fleet[stack.name].fromVersion} → ` \\: ''; 1: fleet[stack.name].toVersion
 #: src/App.svelte
-#: src/App.svelte
+#: src/Sidebar.svelte
 msgid "{0}v{1} available"
 msgstr "{0}v{1} disponible"
 
 #: src/App.svelte
-#: src/App.svelte
+#: src/Sidebar.svelte
 msgid "Update available"
 msgstr "Mise à jour disponible"
 
 #. 0: fleetBehindCount; 1: fleetBehindCount === 1 ? '' \\: 's'
-#: src/App.svelte
+#: src/Sidebar.svelte
 msgid "<0/> {0} update{1} available"
 msgstr "<0/> {0} mise{1} à jour en attente"
 
 #. 0: search || stackFilter !== 'all' ? ' match' \\: ' yet'
-#: src/App.svelte
+#: src/Sidebar.svelte
 msgid "No stacks{0}."
 msgstr "Aucune pile{0}."
 
-#: src/App.svelte
+#: src/Sidebar.svelte
 msgid "<0/> App Store"
 msgstr "<0/> Boutique"
 
-#: src/App.svelte
+#: src/Sidebar.svelte
 msgid "<0/> Volumes"
 msgstr "<0/> Volumes"
 
-#: src/App.svelte
+#: src/Sidebar.svelte
 msgid "<0/> Networks"
 msgstr "<0/> Réseaux"
 
-#: src/App.svelte
+#: src/Sidebar.svelte
 msgid "<0/> System"
 msgstr "<0/> Système"
 
-#: src/App.svelte
+#: src/Sidebar.svelte
 msgid "<0/> Settings"
 msgstr "<0/> Réglages"
 
-#: src/App.svelte
+#: src/Sidebar.svelte
 msgid "System: this host and fjord"
 msgstr "Système : cet hôte et fjord"
 
-#. 0: daemonVersion
 #. 0: version
 #. 0: daemonVersion
-#: src/App.svelte
+#. 0: daemonVersion
 #: src/Shortcuts.svelte
+#: src/Sidebar.svelte
 #: src/System.svelte
 msgid "fjord {0}"
 msgstr "fjord {0}"
 
-#: src/App.svelte
+#: src/Sidebar.svelte
 msgid "Sidebar width"
 msgstr "Largeur de la barre latérale"
 
-#: src/App.svelte
 #: src/BottomDrawer.svelte
+#: src/Sidebar.svelte
 msgid "Drag to resize · double-click to reset"
 msgstr "Glissez pour redimensionner · double-clic pour réinitialiser"
 
@@ -3915,7 +3915,7 @@ msgid "{0} · last used {1}"
 msgstr "{0} · dernière activité {1}"
 
 #: src/Account.svelte
-#: src/App.svelte
+#: src/Sidebar.svelte
 msgid "Sign out"
 msgstr "Se déconnecter"
 
@@ -4053,16 +4053,16 @@ msgstr "Les fichiers de cette pile ne se sont pas chargés, il n'y a donc rien �
 #~ msgid "{0} has no name yet: {1}"
 #~ msgstr "{0} n'a pas encore de nom : {1}"
 
-#: src/App.svelte
+#: src/Sidebar.svelte
 msgid "FJORD_AUTH=none: only this host and the proxy in front of it can reach fjord"
 msgstr "FJORD_AUTH=none : seuls cet hôte et le proxy devant lui peuvent atteindre fjord"
 
-#: src/App.svelte
+#: src/Sidebar.svelte
 msgid "Sign-in is off"
 msgstr "La connexion est désactivée"
 
 #. 0: $auth.user
-#: src/App.svelte
+#: src/Sidebar.svelte
 msgid "Signed in as {0}"
 msgstr "Connecté en tant que {0}"
 
@@ -4793,8 +4793,8 @@ msgstr "fjord ne peut pas le joindre pour le moment : {0}. Les noms existants fo
 msgid "Not loaded"
 msgstr "Non chargé"
 
-#: src/App.svelte
 #: src/Dashboard.svelte
+#: src/Sidebar.svelte
 msgid "Loading…"
 msgstr "Chargement…"
 
@@ -4813,7 +4813,7 @@ msgstr "Réessayer"
 msgid "<0/> Loading your stacks…"
 msgstr "<0/> Chargement de vos piles…"
 
-#: src/App.svelte
+#: src/Sidebar.svelte
 msgid "Stacks did not load."
 msgstr "Les piles ne se sont pas chargées."
 
@@ -4885,28 +4885,28 @@ msgstr "Masquer jusqu'à ce qu'un autre apparaisse"
 msgid "Adopt…"
 msgstr "Adopter…"
 
-#: src/App.svelte
-#: src/App.svelte
+#: src/Sidebar.svelte
+#: src/Sidebar.svelte
 msgid "Add a stack"
 msgstr "Ajouter une pile"
 
-#: src/App.svelte
+#: src/Sidebar.svelte
 msgid "Install from the store"
 msgstr "Installer depuis la boutique"
 
-#: src/App.svelte
+#: src/Sidebar.svelte
 msgid "Pick an app; fjord fills in the rest"
 msgstr "Choisissez une application ; fjord s'occupe du reste"
 
-#: src/App.svelte
+#: src/Sidebar.svelte
 msgid "Take over ones started outside fjord"
 msgstr "Reprendre ceux démarrés en dehors de fjord"
 
-#: src/App.svelte
+#: src/Sidebar.svelte
 msgid "New stack"
 msgstr "Nouvelle pile"
 
-#: src/App.svelte
+#: src/Sidebar.svelte
 msgid "Write the compose file yourself"
 msgstr "Écrivez vous-même le fichier compose"
 
@@ -4949,7 +4949,7 @@ msgstr "Mise à jour de {0}"
 msgid "Updating {0} stacks"
 msgstr "Mise à jour de {0} piles"
 
-#: src/App.svelte
+#: src/Sidebar.svelte
 msgid "Update all"
 msgstr "Tout mettre à jour"
 
