@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { openUrl, nameTargets, nameLabel, unnamed, trustPage, opensByName, freeName, freeLabels, nameOwner, type NamesState } from './names';
+import { openUrl, nameTargets, nameLabel, unnamed, trustPage, opensByName, freeName, freeLabels, nameOwner, hasWebPort, type NamesState } from './names';
 
 // serviceLinks and appUrl fall back to the page's host.
 vi.stubGlobal('location', { hostname: '192.168.4.103' });
@@ -110,9 +110,29 @@ describe('nameLabel', () => {
 describe('unnamed', () => {
   it('leaves out named apps, the provider itself and apps with no page', () => {
     const db = { name: 'pg', compose: 'services: {}\n', state: { origin: { type: 'catalog' } } };
+    const samba = {
+      name: 'samba',
+      compose: 'services:\n  samba:\n    ports:\n      - "445:445"\n',
+      linkHost: '192.168.4.103',
+      state: { origin: { type: 'adopted' } },
+    };
+    const wireguard = {
+      name: 'wireguard',
+      compose: 'services:\n  wg:\n    image: ghcr.io/daemonless/wireguard:latest\n',
+      ownAddress: true,
+      linkHost: '192.168.4.199',
+    };
     const self = { ...radarr, name: 'reverse-proxy' };
     const sonarr = { ...radarr, name: 'sonarr' };
-    expect(unnamed([radarr, db, self, sonarr], ready).map((t) => t.key)).toEqual(['sonarr']);
+    expect(hasWebPort(samba)).toBe(false);
+    expect(hasWebPort(wireguard)).toBe(false);
+    expect(hasWebPort(sonarr)).toBe(true);
+    expect(unnamed([radarr, db, samba, wireguard, self, sonarr], ready).map((t) => t.key)).toEqual(['sonarr']);
+  });
+  it('skips apps dismissed with Never name this', () => {
+    const sonarr = { ...radarr, name: 'sonarr' };
+    const lidarr = { ...radarr, name: 'lidarr' };
+    expect(unnamed([sonarr, lidarr], ready, ['sonarr']).map((t) => t.key)).toEqual(['lidarr']);
   });
   // tailscale, adopted and stopped: the provider cannot reach it, so Add name
   // failed and the prompt came back for it every time.

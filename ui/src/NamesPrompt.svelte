@@ -3,7 +3,7 @@
   // do: finish its setup, or give the apps already installed their names.
   // The dashboard carries none of this; the row's link column says
   // "Finish setup" until the provider is ready, and nothing after.
-  import { names, setupUrl, providerSettingsUrl, unnamed, addNames, removeName, freeLabels } from './names';
+  import { names, setupUrl, providerSettingsUrl, unnamed, addNames, removeName, freeLabels, skippedNames, skipNames } from './names';
   import { toast } from './toast';
   import Spinner from './Spinner.svelte';
   import Icon from './Icon.svelte';
@@ -19,7 +19,7 @@
       Object.values(c.addresses || {}).some((a) => ($names.linkAddrs || []).includes(a)),
     );
   $: mine = $names.provider === stack.name || linkedHere;
-  $: todo = mine && $names.ready ? freeLabels(unnamed(stacks, $names), $names) : [];
+  $: todo = mine && $names.ready ? freeLabels(unnamed(stacks, $names, $skippedNames), $names) : [];
   $: example = todo[0] ? `${todo[0].label}.${$names.domain}` : '';
 
   // Add names opens a list to pick from (all ticked): ten names in one
@@ -93,6 +93,8 @@
       >{todo.length === 1 ? 'One app has' : `${todo.length} apps have`} no name yet. Like <span class="font-mono text-fjord-fg">{example}</span>, home network only.</span
     >
     {#if !choosing}
+      <button on:click={() => skipNames(todo.map((t) => t.key))}
+        class="shrink-0 rounded-lg px-2.5 py-1 text-xs text-fjord-fg-muted hover:text-fjord-fg hover:bg-fjord-border">{todo.length === 1 ? 'Never name this' : 'Never name these'}</button>
       <button on:click={open}
         class="shrink-0 rounded-lg bg-fjord-accent px-3 py-1 font-medium text-white hover:bg-fjord-accent-hover">{todo.length === 1 ? 'Add name…' : 'Add names…'}</button>
     {/if}
