@@ -147,3 +147,63 @@ func TestRemoveJailLogsClearsDeletedJailLog(t *testing.T) {
 		t.Fatalf("latestLog after removeJailLogs = %q, want empty", got)
 	}
 }
+
+// A service built from the Makejail is pulled before an update like one naming
+// its own image. Adopt writes exactly this Makejail and no `args:--pull`, so
+// without reading it an update of an adopted stack rebuilt from the copy the
+// host already had and changed nothing.
+func TestDirectorServicesReadsTheMakejailImage(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "Makejail"), []byte("# Makejail\n\nARG tag=1.2\n\nOPTION container=boot\nOPTION overwrite=force\nOPTION from=ghcr.io/example/app:${tag}\n"), 0o644)
+	os.WriteFile(filepath.Join(dir, "Other.makejail"), []byte("OPTION from=\"ghcr.io/example/other:${tag}\"\n"), 0o644)
+	os.WriteFile(filepath.Join(dir, "Local.makejail"), []byte("ARG tag=dev\nOPTION from=localhost/example/local:${tag}\n"), 0o644)
+	abs := filepath.Join(t.TempDir(), "Abs.makejail")
+	os.WriteFile(abs, []byte("ARG tag=9\nARG tag=10\nOPTION from=ghcr.io/example/abs:${tag}\n"), 0o644)
+	os.WriteFile(filepath.Join(dir, ".env"), []byte("APP_TAG=3.0\n"), 0o600)
+	spec := `services:
+  plain:
+    name: plain_j
+    options:
+      - container: 'args:--pull'
+  pinned:
+    name: pinned_j
+    arguments:
+      - tag: !ENV '${APP_TAG}'
+  own:
+    name: own_j
+    options:
+      - from: ghcr.io/example/redis:7
+  other:
+    name: other_j
+    makejail: Other.makejail
+  remote:
+    name: remote_j
+    makejail: gh+example/remote-makejail
+  local:
+    name: local_j
+    makejail: Local.makejail
+  abs:
+    name: abs_j
+    makejail: ` + abs + `
+`
+	os.WriteFile(filepath.Join(dir, "appjail-director.yml"), []byte(spec), 0o644)
+
+	got := map[string]string{}
+	for _, sj := range NewBackend().serviceJails(&stack.Stack{Name: "app", Dir: dir}) {
+		got[sj.svc.Name] = sj.from
+	}
+	want := map[string]string{
+		"plain":  "ghcr.io/example/app:1.2",
+		"pinned": "ghcr.io/example/app:3.0",
+		"own":    "ghcr.io/example/redis:7",
+		"other":  "ghcr.io/example/other:latest",
+		"remote": "",
+		"local":  "",
+		"abs":    "ghcr.io/example/abs:9",
+	}
+	for svc, w := range want {
+		if got[svc] != w {
+			t.Errorf("%s: from = %q, want %q", svc, got[svc], w)
+		}
+	}
+}

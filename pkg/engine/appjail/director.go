@@ -265,9 +265,9 @@ func directorRestart(ctx context.Context, s *stack.Stack) (io.ReadCloser, error)
 		directorUpStep(ctx, s))
 }
 
-// directorUpdate recreates the project with a fresh image pull: `down
-// --destroy` drops the jails, then `up` rebuilds from the Makejail, whose
-// director spec passes `--pull` to buildah.
+// directorUpdate recreates the project with a fresh image pull: each
+// service's image is pulled first, then `down --destroy` drops the jails and
+// `up` rebuilds them from what was pulled.
 func directorUpdate(ctx context.Context, s *stack.Stack, jails []svcJail) (io.ReadCloser, error) {
 	return directorOp(ctx, s,
 		func(w io.Writer) error { return pullNamedImages(ctx, w, jails) },
@@ -307,7 +307,7 @@ func directorUpdateStopped(ctx context.Context, s *stack.Stack, jails []svcJail)
 // Director has no "rebuild this one" flag, but `up` creates any service whose
 // jail is missing and leaves a running, unchanged one alone (proven on netlab
 // 2026-10-04: the untouched jail kept its jid). So the jails are destroyed
-// here and `up` puts them back, pulling as it builds. Nothing is touched in
+// here and `up` puts them back from the images pulled first. Nothing is touched in
 // the Makejail to force it: services that name no makejail: of their own all
 // share that file, and director rebuilds every one of them when it is newer.
 func directorUpdateServices(ctx context.Context, s *stack.Stack, jails []svcJail) (io.ReadCloser, error) {
@@ -340,13 +340,13 @@ func directorUpdateServices(ctx context.Context, s *stack.Stack, jails []svcJail
 		func(w io.Writer) error { return watchJails(ctx, w, jails, healthWindow, "the update") })
 }
 
-// pullNamedImages pulls the image of each service that names one (`from:`).
+// pullNamedImages pulls the image each service is built from.
 //
-// A service built from the Makejail is pulled by buildah as it builds: the
-// bundle gives it `container: args:--pull`. One that names its own image --
-// every sidecar -- has no such option, so a rebuild reused whatever the host
-// already had and an update changed nothing. Pulled before anything is
-// destroyed: a pull that fails leaves the stack as it runs.
+// Without it a rebuild reuses whatever the host already has and an update
+// changes nothing. That was every sidecar (its own `from:`, no pull option),
+// and every adopted stack: adopt writes a Makejail but no
+// `container: args:--pull`, so buildah never pulled for those either. Pulled
+// before anything is destroyed: a pull that fails leaves the stack as it runs.
 func pullNamedImages(ctx context.Context, w io.Writer, jails []svcJail) error {
 	seen := map[string]bool{}
 	for _, sj := range jails {
@@ -438,8 +438,9 @@ func runAppjail(ctx context.Context, w io.Writer, args ...string) error {
 type svcJail struct {
 	svc  composepkg.Service
 	jail string
-	// from is the image the service names itself (`from:`), "" when it takes
-	// the Makejail's.
+	// from is the image the service is built from: its own `from:`, else its
+	// Makejail's `OPTION from=` at the tag it is given. "" when that cannot be
+	// read here (a remote makejail, a reference with other variables).
 	from string
 }
 
@@ -514,9 +515,90 @@ func directorServices(path string, s *stack.Stack) []svcJail {
 		if len(svc.Ports) == 0 {
 			svc.Ports = composePortsFor(s, key, env)
 		}
+		if from == "" {
+			makejail := ""
+			if m := yamlMapValue(body, "makejail"); m != nil {
+				makejail = composepkg.ExpandEnv(m.Value, env)
+			}
+			from = makejailImage(s, makejail, serviceTagArg(body, env))
+		}
 		out = append(out, svcJail{svc: svc, jail: jail, from: from})
 	}
 	return out
+}
+
+// serviceTagArg is the `tag` a service passes its Makejail (`arguments:
+// - tag: <value>`), "" when it passes none.
+func serviceTagArg(body *yaml.Node, env map[string]string) string {
+	args := yamlMapValue(body, "arguments")
+	if args == nil || args.Kind != yaml.SequenceNode {
+		return ""
+	}
+	tag := ""
+	for _, item := range args.Content {
+		if item.Kind == yaml.MappingNode && len(item.Content) >= 2 && item.Content[0].Value == "tag" {
+			tag = composepkg.ExpandEnv(item.Content[1].Value, env)
+		}
+	}
+	return tag
+}
+
+// makejailImage is the image a Makejail-built service runs: the Makejail's
+// `OPTION from=<repo>:${tag}`, with ${tag} the service's own tag argument,
+// else the Makejail's `ARG tag=` default, else latest. The Makejail is the
+// service's `makejail:` when it names a local file, else the stack's. The
+// first `ARG tag=` counts, as for the update check (makejailTagDefault).
+// "" -- nothing to pull -- for a remote makejail (gh+...), a reference left
+// holding another variable, and a localhost/ image, which exists only on
+// this host: pulling it fails, and that would refuse every update of a stack
+// that used to rebuild fine from the local copy.
+func makejailImage(s *stack.Stack, makejail, tagArg string) string {
+	var body string
+	switch {
+	case makejail == "" || makejail == "Makejail":
+		body = s.Makejail
+		if body == "" {
+			b, _ := os.ReadFile(filepath.Join(s.Dir, "Makejail"))
+			body = string(b)
+		}
+	case strings.Contains(makejail, "+") || strings.Contains(makejail, "://"):
+		return ""
+	default:
+		if !filepath.IsAbs(makejail) {
+			makejail = filepath.Join(s.Dir, makejail)
+		}
+		b, _ := os.ReadFile(makejail)
+		body = string(b)
+	}
+	ref, tag := "", ""
+	for _, line := range strings.Split(body, "\n") {
+		line = strings.TrimSpace(line)
+		if def, ok := strings.CutPrefix(line, "ARG tag="); ok && tag == "" {
+			tag = unquote(strings.TrimSpace(def))
+		}
+		if r, ok := strings.CutPrefix(line, "OPTION from="); ok && ref == "" {
+			ref = unquote(strings.TrimSpace(r))
+		}
+	}
+	if tagArg != "" {
+		tag = tagArg
+	}
+	if tag == "" {
+		tag = "latest"
+	}
+	ref = strings.ReplaceAll(ref, "${tag}", tag)
+	if ref == "" || strings.Contains(ref, "$") || strings.HasPrefix(ref, "localhost/") {
+		return ""
+	}
+	return ref
+}
+
+// unquote drops one pair of matching quotes around a Makejail value.
+func unquote(v string) string {
+	if len(v) >= 2 && (v[0] == '"' || v[0] == '\'') && v[len(v)-1] == v[0] {
+		return v[1 : len(v)-1]
+	}
+	return v
 }
 
 // composePortsFor returns the ports the stack's compose declares for one
