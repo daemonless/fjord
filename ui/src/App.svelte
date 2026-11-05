@@ -1092,7 +1092,7 @@
   const behind = (u?: UpdateInfo) => u?.state === 'available' || u?.state === 'upgrade';
   // Count only stacks that still exist: the cache can outlive a deleted one.
   $: fleetBehindCount = stacks.filter((s) => behind(fleet[s.name])).length;
-  $: fleetAvailableCount = stacks.filter((s) => fleet[s.name]?.state === 'available' && !s.busy).length;
+  $: fleetAvailableCount = stacks.filter((s) => behind(fleet[s.name]) && !s.busy).length;
   async function loadFleetUpdates(refresh = false) {
     try {
       const res = await fetch('/api/updates' + (refresh ? '?refresh=1' : ''));
@@ -1105,14 +1105,21 @@
     } catch {}
   }
 
-  async function updateAll() {
+  let dashboardUpdateAllOpen = false;
+  function openUpdateAll() {
+    selectStack(null);
+    currentView = 'stacks';
+    dashboardUpdateAllOpen = true;
+  }
+
+  async function updateAll(targetStacks?: string[]) {
     if (updatingAll) return;
     updatingAll = true;
     try {
       const res = await fetch('/api/updates', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: '{}',
+        body: JSON.stringify(targetStacks?.length ? { stacks: targetStacks } : {}),
       });
       if (!res.ok) {
         toast(`Update failed: ${(await res.text()).trim() || `HTTP ${res.status}`}`, { kind: 'error' });
@@ -1701,6 +1708,10 @@
     return follow;
   }
   function applyStackEvent(ev: any) {
+    if (ev?.type === 'fleet-updates') {
+      loadFleetUpdates();
+      return;
+    }
     if (ev?.type === 'stack-busy') {
       const busy = ev.busy || undefined;
       const wasBusy = stacks.find((s) => s.name === ev.name)?.busy;
@@ -2403,7 +2414,7 @@
           </span>
           {#if fleetAvailableCount > 0}
             <button
-              on:click={updateAll}
+              on:click={openUpdateAll}
               disabled={updatingAll}
               class="font-medium text-fjord-warning hover:underline disabled:opacity-50"
               >Update all</button
@@ -3573,7 +3584,8 @@
           {fleet}
           {fleetRefreshing}
           {updatingAll}
-          on:update-all={updateAll}
+          bind:updateAllOpen={dashboardUpdateAllOpen}
+          on:update-all={(e) => updateAll(Array.isArray(e.detail) ? e.detail : undefined)}
           on:store={() => {
             selectStack(null);
             currentView = 'store';

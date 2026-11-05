@@ -65,6 +65,7 @@ msgstr "Mount into <0/> — edits the compose, <1>Save</1> to apply."
 #: src/App.svelte
 #: src/ChangeVersionModal.svelte
 #: src/ConfirmDialog.svelte
+#: src/Dashboard.svelte
 #: src/DirPicker.svelte
 #: src/InstallWizard.svelte
 #: src/NamesPrompt.svelte
@@ -430,6 +431,7 @@ msgstr "Multi-service stack"
 
 #: src/AppStore.svelte
 #: src/AppStore.svelte
+#: src/Dashboard.svelte
 msgid "Stack"
 msgstr "Stack"
 
@@ -1008,6 +1010,7 @@ msgid "Service"
 msgstr "Service"
 
 #: src/App.svelte
+#: src/Dashboard.svelte
 msgid "Tag"
 msgstr "Tag"
 
@@ -1016,12 +1019,15 @@ msgid "State"
 msgstr "State"
 
 #: src/App.svelte
+#: src/Dashboard.svelte
 msgid "Change"
 msgstr "Change"
 
 #. 0: s.service
-#. 0: availableStacks.map((s) => s.displayName || s.name).join(', ')
+#. 0: row.label
+#. 0: pickedRows[0].label
 #: src/App.svelte
+#: src/Dashboard.svelte
 #: src/Dashboard.svelte
 msgid "Update {0}"
 msgstr "Update {0}"
@@ -1047,6 +1053,7 @@ msgid "unknown"
 msgstr "unknown"
 
 #: src/App.svelte
+#: src/Dashboard.svelte
 msgid "new build"
 msgstr "new build"
 
@@ -1060,6 +1067,7 @@ msgid "v{0} → v{1} <0/>"
 msgstr "v{0} → v{1} <0/>"
 
 #: src/App.svelte
+#: src/Dashboard.svelte
 msgid "Reading what changed…"
 msgstr "Reading what changed…"
 
@@ -1116,6 +1124,7 @@ msgid "Update {0} service{1}"
 msgstr "Update {0} service{1}"
 
 #: src/App.svelte
+#: src/Dashboard.svelte
 #: src/Dashboard.svelte
 msgid "Update"
 msgstr "Update"
@@ -4990,3 +4999,27 @@ msgstr "<0/> Cards"
 #: src/AppStore.svelte
 msgid "<0/> List"
 msgstr "<0/> List"
+
+#. 0: availableStacks.map((s) => s.displayName || s.name).join(', ')
+#: src/Dashboard.svelte
+msgid "Review and update {0}"
+msgstr "Review and update {0}"
+
+#: src/Dashboard.svelte
+msgid "Tick the stacks to update."
+msgstr "Tick the stacks to update."
+
+#. 0: pickedRows[0].label
+#: src/Dashboard.svelte
+msgid "Updates {0} in the background."
+msgstr "Updates {0} in the background."
+
+#. 0: pickedRows.length
+#: src/Dashboard.svelte
+msgid "Updates {0} stacks one at a time in the background."
+msgstr "Updates {0} stacks one at a time in the background."
+
+#. 0: pickedRows.length
+#: src/Dashboard.svelte
+msgid "Update {0} stacks"
+msgstr "Update {0} stacks"
