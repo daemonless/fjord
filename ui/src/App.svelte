@@ -1394,57 +1394,12 @@
     theme = currentTheme();
     unwatchTheme = watchSystem((t) => (theme = t));
     loadFleetUpdates();
-    if (!document.hidden) subscribeEvents(); // opened in a background tab: on first view
+    subscribeEvents();
     await restoreFromHash();
     routeReady = true;
     window.addEventListener('hashchange', restoreFromHash);
     window.addEventListener(SIGNED_IN, signedInAgain);
-    document.addEventListener('visibilitychange', eventsFollowVisibility);
-    // Shown while restoreFromHash was in flight: the listener missed it.
-    if (!document.hidden && !eventSource) subscribeEvents();
   });
-
-  // fjordd polls every stack while any browser holds the event stream open,
-  // and a backgrounded tab holds it open indefinitely. Close the stream once
-  // the tab has been hidden for a minute (a quick tab switch keeps it); on
-  // return, resync what the missed events would have changed and reopen it.
-  const HIDDEN_CLOSE_MS = 60_000;
-  let hiddenTimer: ReturnType<typeof setTimeout> | undefined;
-  function eventsFollowVisibility() {
-    clearTimeout(hiddenTimer);
-    if (document.hidden) {
-      hiddenTimer = setTimeout(() => {
-        eventSource?.close();
-        eventSource = null;
-      }, HIDDEN_CLOSE_MS);
-    } else if (!eventSource) {
-      resync();
-    }
-  }
-
-  // Reload what the live stream would have kept current, then reopen it. The
-  // list is awaited first so its snapshot cannot land after (and undo) a newer
-  // delta from the reopened stream. The open stack gets what its stack-busy and
-  // stack-removed events would have done: deleted -> deselected, busy state
-  // taken from the list, an action still running followed, a finished one's
-  // update badge refreshed.
-  async function resync() {
-    const wasBusy = selectedStack?.busy;
-    await loadStacks();
-    loadNetworks();
-    loadVolumes();
-    loadFleetUpdates();
-    if (!document.hidden && (!eventSource || eventSource.readyState === EventSource.CLOSED)) subscribeEvents();
-    if (!selectedStack) return;
-    const found = stacks.find((s) => s.name === selectedStack!.name);
-    if (!found) {
-      selectStack(null);
-      return;
-    }
-    selectedStack = { ...selectedStack, busy: found.busy };
-    if (found.busy) showActionOutput(found.name);
-    else if (wasBusy === 'update' || wasBusy === 'up') checkForUpdate(found.name);
-  }
 
   // Signed in again over this page (its session had ended): reload what
   // failed meanwhile and reopen the live stream.
@@ -1452,10 +1407,14 @@
   // the stack view's edits live here and the App store keeps an open wizard.
   let viewEpoch = 0;
   let showShortcuts = false; // the ? overlay
-  async function signedInAgain() {
+  function signedInAgain() {
     viewEpoch++;
+    loadStacks();
     loadEngines();
-    await resync();
+    loadNetworks();
+    loadVolumes();
+    loadFleetUpdates();
+    if (!eventSource || eventSource.readyState === EventSource.CLOSED) subscribeEvents();
     if (selectedStack?.listOnly) selectStack(selectedStack);
   }
 
@@ -1466,8 +1425,6 @@
 
   onDestroy(() => {
     window.removeEventListener(SIGNED_IN, signedInAgain);
-    document.removeEventListener('visibilitychange', eventsFollowVisibility);
-    clearTimeout(hiddenTimer);
     eventSource?.close();
     unwatchTheme?.();
   });
