@@ -6,7 +6,7 @@
 // else the address as before.
 
 import { get, writable } from 'svelte/store';
-import { appUrl, type AppUrlStack } from './appUrl';
+import { appUrl, noWebUI, type AppUrlStack } from './appUrl';
 import { serviceLinks } from './serviceLinks';
 
 export type AppName = { id: string; name: string; url: string; access?: string };
@@ -146,8 +146,12 @@ function target(key: string, label: string, url: string, service?: string): Name
   return { key, label: nameLabel(label), url, address: u.hostname, port: Number(u.port || (https ? 443 : 80)), https, service };
 }
 
+export function hasWebPort(stack: AppUrlStack | null): boolean {
+  return !!stack && /^\s*web_port:/m.test(stack.compose || '');
+}
+
 export function nameTargets(stack: NamedStack | null): NameTarget[] {
-  if (!stack) return [];
+  if (!stack || noWebUI(stack)) return [];
   const env: Record<string, string> = {};
   for (const line of (stack.env || '').split('\n')) {
     const eq = line.indexOf('=');
@@ -263,13 +267,42 @@ export function nameLabel(s: string): string {
     .replace(/^-+|-+$/g, '');
 }
 
+const SKIP_KEY = 'fjord.names.skipped';
+
+function readSkipped(): string[] {
+  try {
+    const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(SKIP_KEY) : null;
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+export const skippedNames = writable<string[]>(readSkipped());
+
+export function skipNames(keys: string[]): void {
+  skippedNames.update((cur) => {
+    const next = [...new Set([...cur, ...keys])];
+    try {
+      if (typeof localStorage !== 'undefined') localStorage.setItem(SKIP_KEY, JSON.stringify(next));
+    } catch {}
+    return next;
+  });
+}
+
 /** Apps that could have a name and have none yet (not the provider itself).
- *  A stopped stack is left out: the provider probes an app before naming it,
- *  so naming one that is not running always failed, and the prompt offered
- *  it again on every visit. It is offered once it runs. */
-export function unnamed(stacks: NamedStack[], p: NamesState): NameTarget[] {
+ *  Only stacks that declare a web_port are offered automatically: TCP/UDP
+ *  services (samba, wireguard, databases) and adopted/hand-written stacks
+ *  without an x-fjord web_port hint are never nagged by the banner (a stack
+ *  with a port can still be named on its own page). A stopped stack is left
+ *  out until it runs, and keys in skipped were dismissed with "Never name this". */
+export function unnamed(stacks: NamedStack[], p: NamesState, skipped: Iterable<string> = []): NameTarget[] {
+  const skip = new Set(skipped);
   const stopped = (s: NamedStack) => !!s.status?.state && s.status.state !== 'running' && s.status.state !== 'partial';
-  return stacks.filter((s) => s.name !== p.provider && !stopped(s)).flatMap((s) => nameTargets(s).filter((t) => !p.names?.[t.key]));
+  return stacks
+    .filter((s) => s.name !== p.provider && !stopped(s) && hasWebPort(s))
+    .flatMap((s) => nameTargets(s).filter((t) => !p.names?.[t.key] && !skip.has(t.key)));
 }
 
 export type NameResult = { stack: string; host?: AppName; error?: string };

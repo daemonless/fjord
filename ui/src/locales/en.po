@@ -4946,3 +4946,11 @@ msgstr "Fix {0}"
 #: src/InstallWizard.svelte
 msgid "{0} unit"
 msgstr "{0} unit"
+
+#: src/NamesPrompt.svelte
+msgid "Never name this"
+msgstr "Never name this"
+
+#: src/NamesPrompt.svelte
+msgid "Never name these"
+msgstr "Never name these"

@@ -4935,3 +4935,11 @@ msgstr "Corrigez {0}"
 #: src/InstallWizard.svelte
 msgid "{0} unit"
 msgstr "Unité de {0}"
+
+#: src/NamesPrompt.svelte
+msgid "Never name this"
+msgstr "Ne jamais nommer cette application"
+
+#: src/NamesPrompt.svelte
+msgid "Never name these"
+msgstr "Ne jamais nommer ces applications"
