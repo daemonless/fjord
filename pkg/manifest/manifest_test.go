@@ -206,3 +206,88 @@ x-fjord:
 		t.Errorf("login %+v", m.Login)
 	}
 }
+
+func TestParseAndResolveTypedVars(t *testing.T) {
+	m, err := Parse(`services:
+  app:
+    image: x
+x-fjord:
+  info:
+    id: app
+  variables:
+    - name: ENABLE_STATS
+      type: string
+      default: "true"
+    - name: SKIP_CHOWN
+      default: "false"
+    - name: LEGACY_FLAG
+      type: bool
+      default: "yes"
+      on: "yes"
+      off: "no"
+    - name: NO_DEFAULT_BOOL
+      type: bool
+    - name: WORKERS
+      type: int
+      default: "4"
+      min: 1
+      max: 16
+    - name: LOG_LEVEL
+      type: choice
+      default: info
+      options:
+        - debug
+        - value: info
+          label: Info
+        - value: warn
+          label: Warning
+    - name: CACHE_MAX_SIZE
+      type: size
+      default: "50g"
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.Variables[0].Type != "bool" || m.Variables[1].Type != "bool" {
+		t.Fatalf("expected true/false defaults to infer bool, got %q and %q", m.Variables[0].Type, m.Variables[1].Type)
+	}
+
+	// Defaults resolve cleanly, and an empty bool becomes its off value (never required).
+	res, err := m.Resolve(map[string]string{
+		"LEGACY_FLAG":     "false",
+		"NO_DEFAULT_BOOL": "",
+	}, "app", "/tmp")
+	if err != nil {
+		t.Fatalf("resolve defaults: %v", err)
+	}
+	for k, want := range map[string]string{
+		"ENABLE_STATS":    "true",
+		"SKIP_CHOWN":      "false",
+		"LEGACY_FLAG":     "no",
+		"NO_DEFAULT_BOOL": "false",
+		"WORKERS":         "4",
+		"LOG_LEVEL":       "info",
+		"CACHE_MAX_SIZE":  "50g",
+	} {
+		if got := res.Env[k]; got != want {
+			t.Errorf("%s = %q, want %q", k, got, want)
+		}
+	}
+
+	for name, bad := range map[string]string{
+		"ENABLE_STATS":   "maybe",
+		"WORKERS":        "0",
+		"LOG_LEVEL":      "trace",
+		"CACHE_MAX_SIZE": "50x",
+	} {
+		if _, err := m.Resolve(map[string]string{name: bad}, "app", "/tmp"); err == nil {
+			t.Errorf("expected %s=%q to be rejected", name, bad)
+		}
+	}
+	if _, err := m.Resolve(map[string]string{"WORKERS": "not-an-int"}, "app", "/tmp"); err == nil {
+		t.Errorf("expected non-integer WORKERS to be rejected")
+	}
+	if _, err := m.Resolve(map[string]string{"WORKERS": "32"}, "app", "/tmp"); err == nil {
+		t.Errorf("expected above-max WORKERS to be rejected")
+	}
+}

@@ -1313,6 +1313,7 @@ msgid "{0}/{1} services"
 msgstr "{0}/{1} services"
 
 #: src/App.svelte
+#: src/InstallWizard.svelte
 #: src/NamesPrompt.svelte
 msgid "None"
 msgstr "Aucun"
@@ -4924,3 +4925,13 @@ msgstr "Tout mettre à jour ({0})"
 #: src/Dashboard.svelte
 msgid "<0/> Updating…"
 msgstr "<0/> Mise à jour…"
+
+#. 0: badTyped.map((v) => v.name).join(', ')
+#: src/InstallWizard.svelte
+msgid "Fix {0}"
+msgstr "Corrigez {0}"
+
+#. 0: v.name
+#: src/InstallWizard.svelte
+msgid "{0} unit"
+msgstr "Unité de {0}"

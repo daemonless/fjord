@@ -6,9 +6,12 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 )
+
+var sizeValueRe = regexp.MustCompile(`^[1-9][0-9]*[kmgtKMGT][bB]?$`)
 
 // ProvisionDir is a host directory to create + chown before the stack starts.
 type ProvisionDir struct {
@@ -59,7 +62,11 @@ func (m *Manifest) Resolve(values map[string]string, slug, storageBase string) (
 			val = composepkg.ExpandEnv(val, nil)
 		}
 
-		switch v.Type {
+		typ := v.Type
+		if v.IsBool() {
+			typ = "bool"
+		}
+		switch typ {
 		case "zfs_dataset":
 			var abs string
 			if filepath.IsAbs(val) {
@@ -117,6 +124,67 @@ func (m *Manifest) Resolve(values map[string]string, slug, storageBase string) (
 				if u, err := url.Parse(val); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
 					return nil, fmt.Errorf("%s must be an address like http://host:port, got %q", v.Name, val)
 				}
+			}
+			res.Env[v.Name] = val
+
+		case "bool":
+			// A boolean variable is never required: off is an answer.
+			on, off := v.BoolValues()
+			switch {
+			case val == "" || strings.EqualFold(val, off) || strings.EqualFold(val, "false"):
+				res.Env[v.Name] = off
+			case strings.EqualFold(val, on) || strings.EqualFold(val, "true"):
+				res.Env[v.Name] = on
+			default:
+				return nil, fmt.Errorf("%s must be %q or %q, got %q", v.Name, on, off, val)
+			}
+
+		case "int":
+			if val == "" {
+				if v.Optional {
+					res.Env[v.Name] = ""
+					res.EmptyOptional = append(res.EmptyOptional, v.Name)
+					continue
+				}
+				return nil, fmt.Errorf("required value %q is empty", v.Name)
+			}
+			n, err := strconv.Atoi(val)
+			if err != nil {
+				return nil, fmt.Errorf("%s must be a whole number, got %q", v.Name, val)
+			}
+			if v.Min != nil && n < *v.Min {
+				return nil, fmt.Errorf("%s must be at least %d, got %d", v.Name, *v.Min, n)
+			}
+			if v.Max != nil && n > *v.Max {
+				return nil, fmt.Errorf("%s must be at most %d, got %d", v.Name, *v.Max, n)
+			}
+			res.Env[v.Name] = strconv.Itoa(n)
+
+		case "choice":
+			if val == "" {
+				if v.Optional {
+					res.Env[v.Name] = ""
+					res.EmptyOptional = append(res.EmptyOptional, v.Name)
+					continue
+				}
+				return nil, fmt.Errorf("required value %q is empty", v.Name)
+			}
+			if len(v.Options) > 0 && !v.HasOption(val) {
+				return nil, fmt.Errorf("%s must be one of %s, got %q", v.Name, v.optionValues(), val)
+			}
+			res.Env[v.Name] = val
+
+		case "size":
+			if val == "" {
+				if v.Optional {
+					res.Env[v.Name] = ""
+					res.EmptyOptional = append(res.EmptyOptional, v.Name)
+					continue
+				}
+				return nil, fmt.Errorf("required value %q is empty", v.Name)
+			}
+			if !sizeValueRe.MatchString(val) {
+				return nil, fmt.Errorf("%s must be a size like 50g or 512m, got %q", v.Name, val)
 			}
 			res.Env[v.Name] = val
 

@@ -90,6 +90,34 @@ var validManifest = []byte(`{
         "default": "postgres"
       },
       {
+        "name": "ENABLE_STATS",
+        "type": "bool",
+        "default": "true",
+        "on": "true",
+        "off": "false"
+      },
+      {
+        "name": "WORKERS",
+        "type": "int",
+        "default": "4",
+        "min": 1,
+        "max": 32
+      },
+      {
+        "name": "LOG_LEVEL",
+        "type": "choice",
+        "default": "info",
+        "options": [
+          "debug",
+          { "value": "info", "label": "Info" }
+        ]
+      },
+      {
+        "name": "CACHE_MAX_SIZE",
+        "type": "size",
+        "default": "50g"
+      },
+      {
         "name": "CONFIG_DATA",
         "label": "Configuration directory",
         "type": "zfs_dataset",

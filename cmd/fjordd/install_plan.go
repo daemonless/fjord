@@ -133,6 +133,13 @@ func (s *server) handleAppPlan(w http.ResponseWriter, r *http.Request, appID str
 			}
 		case v.MadeUp() || (v.Type == "secret" && v.Given):
 			values[v.Name] = ""
+		case v.IsBool():
+			on, off := v.BoolValues()
+			if strings.EqualFold(v.Default, on) || strings.EqualFold(v.Default, "true") {
+				values[v.Name] = on
+			} else {
+				values[v.Name] = off
+			}
 		default:
 			values[v.Name] = v.Default
 		}
