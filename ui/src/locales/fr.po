@@ -851,6 +851,7 @@ msgstr "Cliquez pour renommer (id : {0})"
 #: src/App.svelte
 #: src/App.svelte
 #: src/Dashboard.svelte
+#: src/Dashboard.svelte
 msgid "Busy…"
 msgstr "Occupé…"
 
@@ -996,6 +997,7 @@ msgstr "Recréer"
 
 #: src/App.svelte
 #: src/Dashboard.svelte
+#: src/Dashboard.svelte
 msgid "Stop"
 msgstr "Arrêter"
 
@@ -1124,6 +1126,7 @@ msgstr "Mettre à jour {0} service{1}"
 #: src/App.svelte
 #: src/Dashboard.svelte
 #: src/Dashboard.svelte
+#: src/Dashboard.svelte
 msgid "Update"
 msgstr "Mettre à jour"
 
@@ -1193,10 +1196,12 @@ msgstr "Vérifier à nouveau"
 
 #: src/App.svelte
 #: src/Dashboard.svelte
+#: src/Dashboard.svelte
 msgid "<0/> Up to date"
 msgstr "<0/> À jour"
 
 #: src/App.svelte
+#: src/Dashboard.svelte
 #: src/Dashboard.svelte
 msgid "<0/> Pinned"
 msgstr "<0/> Épinglé"
@@ -1234,6 +1239,7 @@ msgid "<0/> Stop…"
 msgstr "<0/> Arrêter…"
 
 #: src/App.svelte
+#: src/Dashboard.svelte
 #: src/Dashboard.svelte
 msgid "<0/> Update"
 msgstr "<0/> Mettre à jour"
@@ -1471,36 +1477,47 @@ msgid "Open App Store"
 msgstr "Ouvrir la boutique"
 
 #: src/Dashboard.svelte
+#: src/Dashboard.svelte
 msgid "Runs on the podman engine"
 msgstr "Tourne sur le moteur podman"
 
 #. 0: s.state.engine
+#. 0: s.state.engine
+#: src/Dashboard.svelte
 #: src/Dashboard.svelte
 msgid "Runs on the {0} engine"
 msgstr "Tourne sur le moteur {0}"
 
 #. 0: u.fromVersion ? `v${u.fromVersion} → ` \\: ''; 1: u.toVersion
+#. 0: u.fromVersion ? `v${u.fromVersion} → ` \\: ''; 1: u.toVersion
+#: src/Dashboard.svelte
 #: src/Dashboard.svelte
 msgid "<0/> {0}v{1}"
 msgstr "<0/> {0}v{1}"
 
 #: src/Dashboard.svelte
+#: src/Dashboard.svelte
 msgid "Could not compare the local image with the registry"
 msgstr "Impossible de comparer l'image locale avec le registre"
 
+#: src/Dashboard.svelte
 #: src/Dashboard.svelte
 msgid "<0/> Unknown"
 msgstr "<0/> Inconnu"
 
 #. 0: (info[s.name].more?.length ?? 1) - 1
+#. 0: (info[s.name].more?.length ?? 1) - 1
+#: src/Dashboard.svelte
 #: src/Dashboard.svelte
 msgid "+{0} more apps"
 msgstr "+{0} applications de plus"
 
 #: src/Dashboard.svelte
+#: src/Dashboard.svelte
 msgid "Start"
 msgstr "Démarrer"
 
+#: src/Dashboard.svelte
 #: src/Dashboard.svelte
 #: src/InstallWizard.svelte
 msgid "Restart"
@@ -3616,7 +3633,9 @@ msgstr "Langue"
 #. 0: updateInfo!.fromVersion
 #. 0: u.fromVersion
 #. 0: u.fromVersion
+#. 0: u.fromVersion
 #: src/App.svelte
+#: src/Dashboard.svelte
 #: src/Dashboard.svelte
 #: src/ServiceResources.svelte
 msgid "v{0} → "
@@ -4007,6 +4026,7 @@ msgstr "<0/>Importer"
 #~ msgid "Removes the container <0/> and makes it a stack with the same mounts, network address and name, {0}. Data stays where it is."
 #~ msgstr "Retire le conteneur <0/> et en fait une pile avec les mêmes montages, adresse réseau et nom, {0}. Les données restent où elles sont."
 
+#: src/Dashboard.svelte
 #: src/Dashboard.svelte
 #: src/NamesPrompt.svelte
 msgid "Finish setup"
@@ -4948,6 +4968,7 @@ msgid "Update all ({0})"
 msgstr "Tout mettre à jour ({0})"
 
 #: src/Dashboard.svelte
+#: src/Dashboard.svelte
 msgid "<0/> Updating…"
 msgstr "<0/> Mise à jour…"
 
@@ -4974,18 +4995,22 @@ msgid "Store view"
 msgstr "Affichage de la boutique"
 
 #: src/AppStore.svelte
+#: src/Dashboard.svelte
 msgid "Cards view"
 msgstr "Affichage en cartes"
 
 #: src/AppStore.svelte
+#: src/Dashboard.svelte
 msgid "List view"
 msgstr "Affichage en liste"
 
 #: src/AppStore.svelte
+#: src/Dashboard.svelte
 msgid "<0/> Cards"
 msgstr "<0/> Cartes"
 
 #: src/AppStore.svelte
+#: src/Dashboard.svelte
 msgid "<0/> List"
 msgstr "<0/> Liste"
 
@@ -5012,3 +5037,7 @@ msgstr "Met à jour {0} piles l'une après l'autre en arrière-plan."
 #: src/Dashboard.svelte
 msgid "Update {0} stacks"
 msgstr "Mettre à jour {0} piles"
+
+#: src/Dashboard.svelte
+msgid "Stacks view"
+msgstr "Affichage des piles"

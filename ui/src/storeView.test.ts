@@ -1,5 +1,13 @@
 import { describe, it, expect } from 'vitest';
-import { isAppInstalled, normalizeStoreView, readStoreView, writeStoreView } from './storeView';
+import {
+  isAppInstalled,
+  normalizeStacksView,
+  normalizeStoreView,
+  readStacksView,
+  readStoreView,
+  writeStacksView,
+  writeStoreView,
+} from './storeView';
 
 describe('storeView', () => {
   it('defaults to cards when nothing is stored or value is unknown', () => {
@@ -21,6 +29,24 @@ describe('storeView', () => {
     expect(readStoreView(storage)).toBe('list');
     writeStoreView('cards', storage);
     expect(readStoreView(storage)).toBe('cards');
+  });
+
+  it('defaults stacks view to list and persists cards/list separately from store view', () => {
+    const mem = new Map<string, string>();
+    const storage = {
+      getItem: (k: string) => mem.get(k) ?? null,
+      setItem: (k: string, v: string) => {
+        mem.set(k, v);
+      },
+    };
+    expect(normalizeStacksView(null)).toBe('list');
+    expect(normalizeStacksView('cards')).toBe('cards');
+    expect(readStacksView(storage)).toBe('list');
+    writeStacksView('cards', storage);
+    expect(readStacksView(storage)).toBe('cards');
+    expect(readStoreView(storage)).toBe('cards');
+    writeStacksView('list', storage);
+    expect(readStacksView(storage)).toBe('list');
   });
 
   it('detects installed apps by id', () => {
