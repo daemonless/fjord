@@ -11,6 +11,15 @@
   import TrustMark from './TrustMark.svelte';
   import { serviceLinks } from './serviceLinks';
   import { restartShort, restartTitle, type StackRestart } from './restartPolicy';
+  import { changeSentence } from './updateWords';
+  import {
+    changesKeyFor,
+    isUpdatableFleetStack,
+    massUpdateRows,
+    pickedMassRows,
+    shortDigest,
+    type DetailedChanges,
+  } from './massUpdate';
 
   type ContainerStatus = {
     name: string;
@@ -28,6 +37,7 @@
   export let fleet: Record<string, any> = {};
   export let fleetRefreshing = false;
   export let updatingAll = false;
+  export let updateAllOpen = false;
 
   const dispatch = createEventDispatcher();
   // One line that says whether anything needs you: the first stack meant to
@@ -76,7 +86,7 @@
   $: updateCount = stacks.filter(
     (s) => fleet[s.name]?.state === 'available' || fleet[s.name]?.state === 'upgrade'
   ).length;
-  $: availableStacks = stacks.filter((s) => fleet[s.name]?.state === 'available' && !s.busy);
+  $: availableStacks = stacks.filter((s) => isUpdatableFleetStack(fleet[s.name]) && !s.busy);
   $: updatingStacks = stacks.filter((s) => s.busy === 'update');
 
 
@@ -151,6 +161,32 @@
   }
 
   const act = (name: string, action: string) => dispatch('action', { name, action });
+
+  // Update all review panel: what each behind stack's update changes before it runs.
+  let unpickedStacks: Record<string, boolean> = {};
+  let changes: Record<string, DetailedChanges | 'loading' | 'none'> = {};
+  let changesOpen: Record<string, boolean> = {};
+  $: fallbackTags = Object.fromEntries(Object.entries(info).map(([k, v]) => [k, v.tag]));
+  $: massRows = massUpdateRows(stacks, fleet, fallbackTags);
+  $: pickedRows = pickedMassRows(massRows, unpickedStacks);
+  $: if (!massRows.length && updateAllOpen) updateAllOpen = false;
+  $: if (updateAllOpen) {
+    for (const row of massRows) {
+      for (const s of row.services) {
+        const k = changesKeyFor(row.stack, s);
+        if (changes[k]) continue;
+        changes[k] = 'loading';
+        fetch(`/api/stacks/${encodeURIComponent(row.stack)}/changes?service=${encodeURIComponent(s.service)}`)
+          .then((r) => (r.ok ? r.json() : 'none'))
+          .catch(() => 'none')
+          .then((d) => (changes = { ...changes, [k]: d }));
+      }
+    }
+  }
+  function toggleUpdateAll() {
+    if (!updateAllOpen) unpickedStacks = {};
+    updateAllOpen = !updateAllOpen;
+  }
 </script>
 
 <div class="h-full flex flex-col">
@@ -177,10 +213,10 @@
     <div class="flex items-center gap-2 flex-wrap">
       {#if availableStacks.length > 0 || updatingAll || updatingStacks.length > 0}
         <button
-          on:click={() => dispatch('update-all')}
+          on:click={toggleUpdateAll}
           disabled={updatingAll || availableStacks.length === 0}
           title={availableStacks.length
-            ? `Update ${availableStacks.map((s) => s.displayName || s.name).join(', ')}`
+            ? `Review and update ${availableStacks.map((s) => s.displayName || s.name).join(', ')}`
             : 'Updating in the background'}
           class="flex items-center gap-2 bg-fjord-warning/15 hover:bg-fjord-warning/25 text-fjord-warning border border-fjord-warning/40 font-medium py-2 px-4 rounded-lg text-sm disabled:opacity-50"
           ><Icon name="update" size={14} /> {updatingAll || (availableStacks.length === 0 && updatingStacks.length > 0)
@@ -239,6 +275,114 @@
             aria-label="Hide"
             class="p-1 rounded text-fjord-fg-dim hover:text-fjord-fg hover:bg-fjord-border shrink-0"><Icon name="close" size={12} /></button
           >
+        </div>
+      {/if}
+      {#if updateAllOpen && massRows.length > 0}
+        <div class="mb-4 px-4 py-3 rounded-xl bg-fjord-card border border-fjord-border text-sm text-fjord-fg-body">
+          <div class="overflow-x-auto">
+            <table class="w-full text-xs">
+              <thead class="text-fjord-fg-dim">
+                <tr>
+                  {#if massRows.length > 1}<th class="w-6 pb-1.5"></th>{/if}
+                  <th class="text-left font-medium pb-1.5">Stack</th>
+                  <th class="text-left font-medium pb-1.5">Tag</th>
+                  <th class="text-left font-medium pb-1.5">Change</th>
+                </tr>
+              </thead>
+              <tbody>
+                {#each massRows as row (row.stack)}
+                  {#each row.services as s, i (s.service)}
+                    {@const k = changesKeyFor(row.stack, s)}
+                    {@const c = changes[k]}
+                    <tr class="border-t border-fjord-border/60 align-top">
+                      {#if massRows.length > 1}
+                        <td class="py-1.5 pr-1">
+                          {#if i === 0}
+                            <input
+                              type="checkbox"
+                              checked={!unpickedStacks[row.stack]}
+                              on:change={(e) => (unpickedStacks = { ...unpickedStacks, [row.stack]: !e.currentTarget.checked })}
+                              aria-label="Update {row.label}"
+                              class="accent-fjord-accent"
+                            />
+                          {/if}
+                        </td>
+                      {/if}
+                      <td class="py-1.5 pr-3 font-medium text-fjord-fg whitespace-nowrap">
+                        {#if i === 0}
+                          <button
+                            on:click={() => dispatch('select', row.stack)}
+                            class="hover:underline text-left font-medium text-fjord-fg">{row.label}</button
+                          >
+                        {/if}
+                        {#if row.showServiceName}
+                          <span class="font-mono text-fjord-fg-dim {i === 0 ? 'ml-1.5' : ''}">{s.service}</span>
+                        {/if}
+                      </td>
+                      <td class="py-1.5 pr-3 font-mono text-fjord-fg-secondary whitespace-nowrap"
+                        >{s.newTag ? `${s.tag ?? ''} → ${s.newTag}` : (s.tag ?? '')}</td
+                      >
+                      <td class="py-1.5 text-fjord-fg-secondary">
+                        {#if c === 'loading' || !c}
+                          <span class="text-fjord-fg-dim" title="{shortDigest(s.running) || 'local'} → {shortDigest(s.latest)}"
+                            >Reading what changed…</span
+                          >
+                        {:else if c !== 'none' && changeSentence(c)}
+                          {@const n = (c.changed?.length ?? 0) + (c.added?.length ?? 0) + (c.removed?.length ?? 0)}
+                          <span title="{shortDigest(s.running) || 'local'} → {shortDigest(s.latest)}">{changeSentence(c)}</span>
+                          {#if c.packages && n}
+                            <button
+                              on:click={() => (changesOpen = { ...changesOpen, [k]: !changesOpen[k] })}
+                              class="ml-1 text-fjord-accent hover:underline">{changesOpen[k] ? 'hide' : 'show'}</button
+                            >
+                          {/if}
+                          {#if changesOpen[k]}
+                            <div class="mt-1 font-mono text-[11px] leading-5 max-h-48 overflow-y-auto">
+                              {#each c.changed ?? [] as p}<div>{p.name} <span class="text-fjord-fg-dim">{p.from} →</span> {p.to}</div>{/each}
+                              {#each c.added ?? [] as p}<div class="text-fjord-success">+ {p.name} {p.version}</div>{/each}
+                              {#each c.removed ?? [] as p}<div class="text-fjord-danger">− {p.name} {p.version}</div>{/each}
+                            </div>
+                          {/if}
+                        {:else}
+                          <span title="{shortDigest(s.running) || 'local'} → {shortDigest(s.latest)}">new build</span>
+                        {/if}
+                      </td>
+                    </tr>
+                  {/each}
+                {/each}
+              </tbody>
+            </table>
+          </div>
+          <div class="flex items-center gap-3 mt-3">
+            <span class="flex-1 text-xs text-fjord-fg-dim">
+              {#if !pickedRows.length}
+                Tick the stacks to update.
+              {:else if pickedRows.length === 1}
+                Updates {pickedRows[0].label} in the background.
+              {:else}
+                Updates {pickedRows.length} stacks one at a time in the background.
+              {/if}
+            </span>
+            <button
+              on:click={() => (updateAllOpen = false)}
+              class="shrink-0 px-3 py-1.5 rounded-lg text-sm font-medium text-fjord-fg-muted hover:text-fjord-fg transition-colors"
+              >Cancel</button
+            >
+            <button
+              on:click={() => {
+                const names = pickedRows.map((r) => r.stack);
+                updateAllOpen = false;
+                dispatch('update-all', names);
+              }}
+              disabled={!pickedRows.length || updatingAll}
+              class="shrink-0 px-3 py-1.5 rounded-lg text-sm font-medium bg-fjord-accent text-white hover:bg-fjord-accent-hover transition-colors disabled:opacity-40"
+              >{!pickedRows.length
+                ? 'Update'
+                : pickedRows.length === 1
+                  ? `Update ${pickedRows[0].label}`
+                  : `Update ${pickedRows.length} stacks`}</button
+            >
+          </div>
         </div>
       {/if}
       <div class="border border-fjord-border rounded-xl overflow-hidden divide-y divide-fjord-border bg-fjord-card">

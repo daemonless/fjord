@@ -165,10 +165,15 @@ func (s *server) handleUpdateAll(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	type retagStep struct {
+		service string
+		tag     string
+	}
 	type queuedStack struct {
 		name     string
 		unlock   func()
 		services []string
+		retags   []retagStep
 	}
 	var queued []queuedStack
 	updating := make([]string, 0, len(targets))
@@ -180,19 +185,25 @@ func (s *server) handleUpdateAll(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		var svcs []string
-		if s.backendFor(st).Capabilities().UpdateServices {
-			for _, sv := range cached[name].Services {
-				if sv.State == "available" {
-					svcs = append(svcs, sv.Service)
-				}
+		var retags []retagStep
+		perSvc := s.backendFor(st).Capabilities().UpdateServices
+		for _, sv := range cached[name].Services {
+			if sv.State == "upgrade" && sv.NewTag != "" {
+				retags = append(retags, retagStep{service: sv.Service, tag: sv.NewTag})
 			}
+			if perSvc && (sv.State == "available" || (sv.State == "upgrade" && sv.NewTag != "")) {
+				svcs = append(svcs, sv.Service)
+			}
+		}
+		if len(retags) == 0 && cached[name].State == "upgrade" && cached[name].NewTag != "" {
+			retags = append(retags, retagStep{tag: cached[name].NewTag})
 		}
 		unlock, ok := lockStackAs(name, "update")
 		if !ok {
 			skipped = append(skipped, name)
 			continue
 		}
-		queued = append(queued, queuedStack{name: name, unlock: unlock, services: svcs})
+		queued = append(queued, queuedStack{name: name, unlock: unlock, services: svcs, retags: retags})
 		updating = append(updating, name)
 	}
 
@@ -202,6 +213,9 @@ func (s *server) handleUpdateAll(w http.ResponseWriter, r *http.Request) {
 				if stopping.Load() {
 					q.unlock()
 					continue
+				}
+				for _, rt := range q.retags {
+					s.retagForUpdate(q.name, rt.service, rt.tag)
 				}
 				s.runDetachedUpdate(q.name, q.services)
 				q.unlock()
@@ -238,6 +252,9 @@ func (s *server) refreshFleet() {
 	s.fleet.checkedAt = time.Now()
 	s.fleet.refreshing = false
 	s.fleet.mu.Unlock()
+	if s.events != nil {
+		s.events.publish([]byte(`{"type":"fleet-updates"}`))
+	}
 }
 
 // current returns the cached results restricted to stacks that still exist,
@@ -300,4 +317,31 @@ func (f *fleetUpdates) touch(name string) {
 		f.touched = map[string]time.Time{}
 	}
 	f.touched[name] = time.Now()
+}
+
+// retagForUpdate rewrites a service's tag before an explicitly requested
+// update from the Update all review panel.
+func (s *server) retagForUpdate(name, service, tag string) {
+	st, err := s.manager.Get(name)
+	if err != nil || tag == "" {
+		return
+	}
+	if service != "" && st.Director != "" && composeImage(st.Compose, service) == "" {
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cancel()
+		_ = s.directorSetTag(ctx, st, service, tag, false)
+		return
+	}
+	newCompose, newEnv, err := retag(st.Compose, st.Env, service, tag)
+	if err != nil {
+		return
+	}
+	_, _ = s.manager.Update(name, func(fresh *stack.Stack) error {
+		fresh.Compose, fresh.Env = newCompose, newEnv
+		var only []string
+		if service != "" {
+			only = []string{service}
+		}
+		return directorFollowsCompose(fresh, only)
+	})
 }
