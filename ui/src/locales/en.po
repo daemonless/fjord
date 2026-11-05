@@ -258,12 +258,12 @@ msgstr "Adopt"
 #~ msgstr "Removes the container <0/> and starts it as a stack with the same mounts, network address and name. Data stays where it is."
 
 #: src/App.svelte
-#: src/App.svelte
 #: src/AppStore.svelte
 #: src/AppStore.svelte
 #: src/AppStore.svelte
 #: src/AppStore.svelte
 #: src/AppStore.svelte
+#: src/BottomDrawer.svelte
 #: src/NamesPrompt.svelte
 msgid "All"
 msgstr "All"
@@ -831,7 +831,7 @@ msgid "Sidebar width"
 msgstr "Sidebar width"
 
 #: src/App.svelte
-#: src/App.svelte
+#: src/BottomDrawer.svelte
 msgid "Drag to resize · double-click to reset"
 msgstr "Drag to resize · double-click to reset"
 
@@ -1260,7 +1260,7 @@ msgstr "Makejail<0/>"
 
 #: src/App.svelte
 #: src/App.svelte
-#: src/App.svelte
+#: src/BottomDrawer.svelte
 msgid "Services"
 msgstr "Services"
 
@@ -1331,63 +1331,63 @@ msgstr "Chosen at install: {0}"
 msgid "What each service holds, and where each one is on the network. Changes apply to the stack on <0>Save</0>."
 msgstr "What each service holds, and where each one is on the network. Changes apply to the stack on <0>Save</0>."
 
-#: src/App.svelte
+#: src/BottomDrawer.svelte
 msgid "Output height"
 msgstr "Output height"
 
-#: src/App.svelte
+#: src/BottomDrawer.svelte
 msgid "Choose which services' logs to show"
 msgstr "Choose which services' logs to show"
 
 #. 0: logsSelected.length; 1: shellContainers.length
-#: src/App.svelte
+#: src/BottomDrawer.svelte
 msgid "{0}/{1} services"
 msgstr "{0}/{1} services"
 
-#: src/App.svelte
+#: src/BottomDrawer.svelte
 #: src/InstallWizard.svelte
 #: src/NamesPrompt.svelte
 msgid "None"
 msgstr "None"
 
-#. 0: serviceLabel(selectedStack.name, c.name)
-#: src/App.svelte
+#. 0: serviceLabel(stack.name, c.name)
+#: src/BottomDrawer.svelte
 msgid "Show only {0}"
 msgstr "Show only {0}"
 
-#: src/App.svelte
+#: src/BottomDrawer.svelte
 msgid "only"
 msgstr "only"
 
-#: src/App.svelte
+#: src/BottomDrawer.svelte
 msgid "Service to open a shell in"
 msgstr "Service to open a shell in"
 
-#: src/App.svelte
+#: src/BottomDrawer.svelte
 msgid "<0/> Output"
 msgstr "<0/> Output"
 
-#: src/App.svelte
+#: src/BottomDrawer.svelte
 msgid "<0/> Logs <1/>"
 msgstr "<0/> Logs <1/>"
 
-#: src/App.svelte
+#: src/BottomDrawer.svelte
 msgid "<0/> Shell"
 msgstr "<0/> Shell"
 
-#: src/App.svelte
+#: src/BottomDrawer.svelte
 msgid "<0/> Hide"
 msgstr "<0/> Hide"
 
-#: src/App.svelte
+#: src/BottomDrawer.svelte
 msgid "Start the stack to open a shell."
 msgstr "Start the stack to open a shell."
 
-#: src/App.svelte
+#: src/BottomDrawer.svelte
 msgid "· last output"
 msgstr "· last output"
 
-#: src/App.svelte
+#: src/BottomDrawer.svelte
 msgid "<0/> Panel <1/>"
 msgstr "<0/> Panel <1/>"
 
