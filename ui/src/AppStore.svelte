@@ -1,6 +1,7 @@
 <script lang="ts">
   import { forwardDeploy } from './installForward';
   import { matchesSearch, partLabels, type AppPart } from './storeParts';
+  import { isAppInstalled, readStoreView, writeStoreView, type StoreView } from './storeView';
   import { onMount, createEventDispatcher } from 'svelte';
   import InstallWizard from './InstallWizard.svelte';
   import Icon from './Icon.svelte';
@@ -69,6 +70,11 @@
   let detailApp: CatalogApp | null = null; // app-detail view (click a card)
   let search = '';
   let selectedCategory = 'All';
+  let view: StoreView = readStoreView();
+  function setView(v: StoreView) {
+    view = v;
+    writeStoreView(v);
+  }
 
   // Origin badges only matter once more than one catalog contributes apps.
   $: multiCatalog = new Set((catalog?.apps ?? []).map((a: any) => a.catalog_name)).size > 1;
@@ -221,6 +227,24 @@
             placeholder="Search apps…"
             class="w-64 bg-fjord-card border border-fjord-border rounded-md px-3 py-2 text-sm text-fjord-fg-body focus:outline-none focus:border-fjord-accent"
           />
+          <div class="inline-flex rounded-md border border-fjord-border bg-fjord-card p-0.5" role="group" aria-label="Store view">
+            <button
+              type="button"
+              aria-pressed={view === 'cards'}
+              title="Cards view"
+              on:click={() => setView('cards')}
+              class="flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs font-medium transition-colors {view === 'cards' ? 'bg-fjord-accent text-white' : 'text-fjord-fg-muted hover:text-fjord-fg'}"
+              ><Icon name="grid" size={13} /> Cards</button
+            >
+            <button
+              type="button"
+              aria-pressed={view === 'list'}
+              title="List view"
+              on:click={() => setView('list')}
+              class="flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs font-medium transition-colors {view === 'list' ? 'bg-fjord-accent text-white' : 'text-fjord-fg-muted hover:text-fjord-fg'}"
+              ><Icon name="list" size={13} /> List</button
+            >
+          </div>
           <button
             on:click={refreshCatalog}
             disabled={refreshing || sourceCount === 0}
@@ -308,6 +332,70 @@
         {/if}
       </p>
     {/if}
+    {#if view === 'list'}
+      <div class="bg-fjord-card border border-fjord-border rounded-xl divide-y divide-fjord-border overflow-y-auto mb-8">
+        {#each filtered as app}
+          <div
+            role="button"
+            tabindex="0"
+            class="flex items-center gap-4 px-4 py-3 hover:bg-fjord-inset focus:outline-none focus:bg-fjord-inset transition-colors cursor-pointer group"
+            on:click={() => (detailApp = app)}
+            on:keydown={(e) => { if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); detailApp = app; } }}
+          >
+            <div class="relative shrink-0">
+              <div class="w-9 h-9 rounded-lg bg-fjord-bg border border-fjord-border flex items-center justify-center overflow-hidden">
+                {#if app.icon}
+                  <img src={app.icon} alt={app.name} class="w-6 h-6 object-contain" on:error={handleImgError} />
+                {:else}
+                  <span class="text-sm font-bold text-fjord-fg-dim">{app.name[0]}</span>
+                {/if}
+              </div>
+              {#if app.catalog_icon}
+                <div
+                  class="absolute -bottom-1 -right-1 w-4 h-4 rounded bg-fjord-card border border-fjord-border flex items-center justify-center overflow-hidden shadow"
+                  title={(app.sources?.length ?? 1) > 1 ? `${app.sources?.map((s) => s.catalog_name).join(', ')} — pick one when installing` : `From ${app.catalog_name}`}
+                >
+                  <img src={app.catalog_icon} alt={app.catalog_name} class="w-3 h-3 object-contain" />
+                </div>
+              {/if}
+            </div>
+            <div class="w-48 shrink-0 min-w-0">
+              <div class="flex items-center gap-1.5">
+                <span class="font-semibold text-sm text-fjord-fg group-hover:text-fjord-accent transition-colors truncate">{app.name}</span>
+                {#if app.class === 'stack'}
+                  <span class="shrink-0 text-[10px] font-medium bg-fjord-accent/20 text-fjord-accent px-1.5 py-0.5 rounded" title="Multi-service stack">Stack</span>
+                {/if}
+                {#if isAppInstalled(app.id, stackIds)}
+                  <span class="shrink-0 text-[10px] font-medium bg-emerald-500/15 text-emerald-400 px-1.5 py-0.5 rounded">Installed</span>
+                {/if}
+              </div>
+              <div class="flex items-center gap-1.5 mt-0.5">
+                <span class="text-[11px] text-fjord-accent font-medium truncate">{app.category}</span>
+                {#if (app.sources?.length ?? 1) > 1}
+                  <span class="text-[10px] font-medium px-1 py-0.2 rounded bg-fjord-bg border border-fjord-border text-fjord-fg-muted">{app.sources?.length} catalogs</span>
+                {:else if multiCatalog && app.catalog_name}
+                  <span class="text-[10px] font-medium px-1 py-0.2 rounded bg-fjord-bg border border-fjord-border text-fjord-fg-muted">{app.catalog_name}</span>
+                {/if}
+              </div>
+            </div>
+            <p class="flex-1 min-w-0 text-xs text-fjord-fg-muted truncate hidden md:block">{app.description || (app.parts?.length ? partLabels(app.name, app.parts).join(', ') : '')}</p>
+            {#if ver(app.version)}
+              <span class="text-xs font-mono text-fjord-fg-muted shrink-0 hidden sm:inline" title={ver(app.version)}>{ver(app.version)}</span>
+            {/if}
+            {#if !supported(app)}
+              <span class="text-[10px] font-medium px-1.5 py-0.5 rounded bg-fjord-warning/10 border border-fjord-warning/30 text-fjord-warning shrink-0" title="Image is built for {(app.architectures || []).join(', ')} — this host is {hostArch}">{(app.architectures || []).join('/')} only</span>
+            {/if}
+            <button
+              on:click|stopPropagation={() => (installingApp = app)}
+              disabled={!supported(app)}
+              title={supported(app) ? '' : `Not built for ${hostArch}`}
+              class="ml-auto shrink-0 bg-fjord-border hover:bg-fjord-accent hover:text-white transition-all px-3 py-1 rounded-md text-xs font-medium shadow-sm disabled:opacity-40 disabled:hover:bg-fjord-border disabled:hover:text-inherit">
+              Install…
+            </button>
+          </div>
+        {/each}
+      </div>
+    {:else}
     <!-- columns from the available width, not the viewport: the sidebar eats a third of it -->
     <div class="grid grid-cols-[repeat(auto-fill,minmax(340px,1fr))] gap-6 overflow-y-auto pb-8 pr-2">
       {#each filtered as app}
@@ -373,6 +461,7 @@
         </div>
       {/each}
     </div>
+    {/if}
   {/if}
 
   {#if detailApp}

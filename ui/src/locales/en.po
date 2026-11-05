@@ -366,11 +366,15 @@ msgid "{0} app{1} hidden — not built for <0/>. <1>Show</1>"
 msgstr "{0} app{1} hidden — not built for <0/>. <1>Show</1>"
 
 #. 0: app.sources?.map((s) => s.catalog_name).join(', ')
+#. 0: app.sources?.map((s) => s.catalog_name).join(', ')
+#: src/AppStore.svelte
 #: src/AppStore.svelte
 msgid "{0} — pick one when installing"
 msgstr "{0} — pick one when installing"
 
 #. 0: app.catalog_name
+#. 0: app.catalog_name
+#: src/AppStore.svelte
 #: src/AppStore.svelte
 msgid "From {0}"
 msgstr "From {0}"
@@ -381,6 +385,8 @@ msgid "Available from {0} — pick one when installing"
 msgstr "Available from {0} — pick one when installing"
 
 #. 0: app.sources?.length
+#. 0: app.sources?.length
+#: src/AppStore.svelte
 #: src/AppStore.svelte
 msgid "{0} catalogs"
 msgstr "{0} catalogs"
@@ -391,29 +397,38 @@ msgid "From the {0} catalog"
 msgstr "From the {0} catalog"
 
 #. 0: (app.architectures || []).join(', '); 1: hostArch
+#. 0: (app.architectures || []).join(', '); 1: hostArch
+#: src/AppStore.svelte
 #: src/AppStore.svelte
 msgid "Image is built for {0} — this host is {1}"
 msgstr "Image is built for {0} — this host is {1}"
 
 #. 0: (app.architectures || []).join('/')
+#. 0: (app.architectures || []).join('/')
+#: src/AppStore.svelte
 #: src/AppStore.svelte
 msgid "{0} only"
 msgstr "{0} only"
 
 #. 0: hostArch
+#. 0: hostArch
+#: src/AppStore.svelte
 #: src/AppStore.svelte
 msgid "Not built for {0}"
 msgstr "Not built for {0}"
 
 #: src/AppStore.svelte
 #: src/AppStore.svelte
+#: src/AppStore.svelte
 msgid "Install…"
 msgstr "Install…"
 
 #: src/AppStore.svelte
+#: src/AppStore.svelte
 msgid "Multi-service stack"
 msgstr "Multi-service stack"
 
+#: src/AppStore.svelte
 #: src/AppStore.svelte
 msgid "Stack"
 msgstr "Stack"
@@ -4066,6 +4081,7 @@ msgstr "Add {0} to the app's environment in the compose"
 msgid "Pass {0} to the app"
 msgstr "Pass {0} to the app"
 
+#: src/AppStore.svelte
 #: src/InstallCheckButton.svelte
 msgid "Installed"
 msgstr "Installed"
@@ -4954,3 +4970,23 @@ msgstr "Never name this"
 #: src/NamesPrompt.svelte
 msgid "Never name these"
 msgstr "Never name these"
+
+#: src/AppStore.svelte
+msgid "Store view"
+msgstr "Store view"
+
+#: src/AppStore.svelte
+msgid "Cards view"
+msgstr "Cards view"
+
+#: src/AppStore.svelte
+msgid "List view"
+msgstr "List view"
+
+#: src/AppStore.svelte
+msgid "<0/> Cards"
+msgstr "<0/> Cards"
+
+#: src/AppStore.svelte
+msgid "<0/> List"
+msgstr "<0/> List"

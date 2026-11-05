@@ -366,11 +366,15 @@ msgid "{0} app{1} hidden — not built for <0/>. <1>Show</1>"
 msgstr "{0} application{1} masquée(s) — pas construite(s) pour <0/>. <1>Afficher</1>"
 
 #. 0: app.sources?.map((s) => s.catalog_name).join(', ')
+#. 0: app.sources?.map((s) => s.catalog_name).join(', ')
+#: src/AppStore.svelte
 #: src/AppStore.svelte
 msgid "{0} — pick one when installing"
 msgstr "{0} — à choisir à l'installation"
 
 #. 0: app.catalog_name
+#. 0: app.catalog_name
+#: src/AppStore.svelte
 #: src/AppStore.svelte
 msgid "From {0}"
 msgstr "Depuis {0}"
@@ -381,6 +385,8 @@ msgid "Available from {0} — pick one when installing"
 msgstr "Disponible depuis {0} — à choisir à l'installation"
 
 #. 0: app.sources?.length
+#. 0: app.sources?.length
+#: src/AppStore.svelte
 #: src/AppStore.svelte
 msgid "{0} catalogs"
 msgstr "{0} catalogues"
@@ -391,29 +397,38 @@ msgid "From the {0} catalog"
 msgstr "Depuis le catalogue {0}"
 
 #. 0: (app.architectures || []).join(', '); 1: hostArch
+#. 0: (app.architectures || []).join(', '); 1: hostArch
+#: src/AppStore.svelte
 #: src/AppStore.svelte
 msgid "Image is built for {0} — this host is {1}"
 msgstr "L'image est construite pour {0} — cet hôte est en {1}"
 
 #. 0: (app.architectures || []).join('/')
+#. 0: (app.architectures || []).join('/')
+#: src/AppStore.svelte
 #: src/AppStore.svelte
 msgid "{0} only"
 msgstr "{0} seulement"
 
 #. 0: hostArch
+#. 0: hostArch
+#: src/AppStore.svelte
 #: src/AppStore.svelte
 msgid "Not built for {0}"
 msgstr "Pas construite pour {0}"
 
 #: src/AppStore.svelte
 #: src/AppStore.svelte
+#: src/AppStore.svelte
 msgid "Install…"
 msgstr "Installer…"
 
 #: src/AppStore.svelte
+#: src/AppStore.svelte
 msgid "Multi-service stack"
 msgstr "Pile multi-services"
 
+#: src/AppStore.svelte
 #: src/AppStore.svelte
 msgid "Stack"
 msgstr "Pile"
@@ -4057,6 +4072,7 @@ msgstr "Ajouter {0} à l'environnement de l'application dans le compose"
 msgid "Pass {0} to the app"
 msgstr "Passer {0} à l'application"
 
+#: src/AppStore.svelte
 #: src/InstallCheckButton.svelte
 msgid "Installed"
 msgstr "Installé"
@@ -4943,3 +4959,23 @@ msgstr "Ne jamais nommer cette application"
 #: src/NamesPrompt.svelte
 msgid "Never name these"
 msgstr "Ne jamais nommer ces applications"
+
+#: src/AppStore.svelte
+msgid "Store view"
+msgstr "Affichage de la boutique"
+
+#: src/AppStore.svelte
+msgid "Cards view"
+msgstr "Affichage en cartes"
+
+#: src/AppStore.svelte
+msgid "List view"
+msgstr "Affichage en liste"
+
+#: src/AppStore.svelte
+msgid "<0/> Cards"
+msgstr "<0/> Cartes"
+
+#: src/AppStore.svelte
+msgid "<0/> List"
+msgstr "<0/> Liste"
