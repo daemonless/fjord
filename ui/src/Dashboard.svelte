@@ -12,6 +12,7 @@
   import { serviceLinks } from './serviceLinks';
   import { restartShort, restartTitle, type StackRestart } from './restartPolicy';
   import { changeSentence } from './updateWords';
+  import { readStacksView, writeStacksView, type StoreView } from './storeView';
   import {
     changesKeyFor,
     isUpdatableFleetStack,
@@ -187,6 +188,12 @@
     if (!updateAllOpen) unpickedStacks = {};
     updateAllOpen = !updateAllOpen;
   }
+
+  let view: StoreView = readStacksView();
+  function setView(next: StoreView) {
+    view = next;
+    writeStacksView(next);
+  }
 </script>
 
 <div class="h-full flex flex-col">
@@ -211,6 +218,26 @@
       </div>
     </div>
     <div class="flex items-center gap-2 flex-wrap">
+      {#if stacks.length > 0}
+        <div class="inline-flex rounded-md border border-fjord-border bg-fjord-card p-0.5" role="group" aria-label="Stacks view">
+          <button
+            type="button"
+            aria-pressed={view === 'cards'}
+            title="Cards view"
+            on:click={() => setView('cards')}
+            class="flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs font-medium transition-colors {view === 'cards' ? 'bg-fjord-accent text-white' : 'text-fjord-fg-muted hover:text-fjord-fg'}"
+            ><Icon name="grid" size={13} /> Cards</button
+          >
+          <button
+            type="button"
+            aria-pressed={view === 'list'}
+            title="List view"
+            on:click={() => setView('list')}
+            class="flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs font-medium transition-colors {view === 'list' ? 'bg-fjord-accent text-white' : 'text-fjord-fg-muted hover:text-fjord-fg'}"
+            ><Icon name="list" size={13} /> List</button
+          >
+        </div>
+      {/if}
       {#if availableStacks.length > 0 || updatingAll || updatingStacks.length > 0}
         <button
           on:click={toggleUpdateAll}
@@ -385,6 +412,179 @@
           </div>
         </div>
       {/if}
+      {#if view === 'cards'}
+        <div class="grid grid-cols-[repeat(auto-fill,minmax(320px,1fr))] gap-4 pb-8">
+          {#each stacks as s (s.name)}
+            {@const u = fleet[s.name]}
+            <div
+              role="button"
+              tabindex="0"
+              class="bg-fjord-card border border-fjord-border rounded-xl p-5 hover:border-fjord-accent/50 focus:outline-none focus:border-fjord-accent transition-colors flex flex-col gap-3 cursor-pointer"
+              on:click={() => dispatch('select', s.name)}
+              on:keydown={(e) => {
+                if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) {
+                  e.preventDefault();
+                  dispatch('select', s.name);
+                }
+              }}
+            >
+              <div class="flex items-start gap-3.5">
+                <div class="relative shrink-0">
+                  {#if iconOf(s)}
+                    <img src={iconOf(s)} alt="" class="w-11 h-11 rounded-lg object-contain bg-fjord-bg p-1" />
+                  {:else}
+                    <div
+                      class="w-11 h-11 rounded-lg flex items-center justify-center font-bold text-fjord-fg text-base"
+                      style="background:{tile(s.displayName || s.name)}"
+                    >
+                      {(s.displayName || s.name)[0]?.toUpperCase()}
+                    </div>
+                  {/if}
+                  {#if s.state?.engine === 'podman'}
+                    <span
+                      class="absolute -bottom-1 -right-1 w-[18px] h-[18px] rounded-full bg-white flex items-center justify-center ring-2 ring-fjord-card"
+                      title="Runs on the podman engine"
+                    >
+                      <EngineMark engine="podman" size={15} />
+                    </span>
+                  {:else if s.state?.engine}
+                    <span
+                      class="absolute -bottom-1 -right-1 w-4 h-4 rounded-full bg-fjord-accent text-white flex items-center justify-center ring-2 ring-fjord-card"
+                      title="Runs on the {s.state.engine} engine"
+                    >
+                      <EngineMark engine={s.state.engine} size={10} strokeWidth={2.5} />
+                    </span>
+                  {/if}
+                </div>
+                <div class="min-w-0 flex-1">
+                  <div class="text-fjord-fg font-semibold text-base truncate">{s.displayName || s.name}</div>
+                  <div class="text-xs text-fjord-fg-dim font-mono truncate">{info[s.name]?.tag ? ':' + info[s.name].tag : ''}</div>
+                </div>
+                <div class="flex items-center gap-1.5 text-xs {s.busy ? 'text-fjord-accent' : 'text-fjord-fg-muted'} shrink-0">
+                  {#if s.busy}
+                    <Spinner size={11} class="text-fjord-accent" />
+                    <span class="truncate">{busyWord(s.busy) || 'Busy…'}</span>
+                  {:else}
+                    <span class="w-2 h-2 rounded-full {DOT[label(s.status)]}"></span>
+                    <span class="capitalize">{label(s.status)}</span>
+                  {/if}
+                </div>
+              </div>
+
+              <div class="flex items-center justify-between gap-2 text-xs min-h-[20px]">
+                <div class="min-w-0 flex items-center gap-1.5">
+                  {#if s.name === $names.provider && !$names.ready && $names.setupToken}
+                    <a
+                      href={setupUrl($names, stacks)}
+                      target="_blank"
+                      rel="noreferrer"
+                      on:click|stopPropagation
+                      class="text-xs font-semibold px-2.5 py-1 rounded-lg bg-fjord-accent text-white hover:bg-fjord-accent-hover"
+                      >Finish setup</a
+                    >
+                  {:else if info[s.name]?.link}
+                    {#if info[s.name]?.byName}<TrustMark {stacks} />{/if}
+                    <a
+                      href={info[s.name].link}
+                      target="_blank"
+                      rel="noreferrer"
+                      on:click|stopPropagation
+                      class="text-xs font-mono text-fjord-accent hover:underline truncate flex items-center gap-1 {running(s.status)
+                        ? ''
+                        : 'opacity-40 pointer-events-none'}"
+                      ><span class="truncate">{(info[s.name]?.link || '').replace(/^https?:\/\//, '')}</span>
+                      <Icon name="external" size={11} /></a
+                    >
+                    {#if info[s.name]?.more?.length}
+                      <span class="text-[11px] text-fjord-fg-muted shrink-0" title={info[s.name].more?.join('\n')}
+                        >+{(info[s.name].more?.length ?? 1) - 1} more apps</span
+                      >
+                    {/if}
+                  {/if}
+                </div>
+                {#if s.restart}
+                  <div class="flex items-center gap-1 text-xs text-fjord-fg-dim shrink-0" title={restartTitle(s.restart)}>
+                    <Icon name={s.restart.onExit || !s.restart.policies.length ? 'restart' : 'power'} size={11} />
+                    <span>{restartShort(s.restart)}</span>
+                  </div>
+                {/if}
+              </div>
+
+              <div class="mt-auto pt-3 border-t border-fjord-border/50 flex items-center justify-between gap-2">
+                <div>
+                  {#if s.busy === 'update'}
+                    <span
+                      class="inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full text-fjord-accent bg-fjord-accent/10 border border-fjord-accent/30"
+                      ><Spinner size={10} /> Updating…</span
+                    >
+                  {:else if !u && fleetRefreshing}
+                    <span class="text-xs text-fjord-fg-faint">…</span>
+                  {:else if u?.state === 'available'}
+                    <span
+                      class="inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full text-fjord-warning bg-fjord-warning/10 border border-fjord-warning/30"
+                      ><Icon name="arrow-up" size={11} /> Update</span
+                    >
+                  {:else if u?.state === 'upgrade'}
+                    <span
+                      class="inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full text-fjord-warning bg-fjord-warning/10 border border-fjord-warning/30"
+                      ><Icon name="arrow-up" size={11} /> {u.fromVersion ? `v${u.fromVersion} → ` : ''}v{u.toVersion}</span
+                    >
+                  {:else if u?.state === 'pinned'}
+                    <span class="inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full text-fjord-accent bg-fjord-accent/10"
+                      ><Icon name="pin" size={11} /> Pinned</span
+                    >
+                  {:else if u?.state === 'current'}
+                    <span class="inline-flex items-center gap-1 text-xs font-medium text-fjord-success"
+                      ><Icon name="check" size={11} /> Up to date</span
+                    >
+                  {:else if u?.state === 'unknown'}
+                    <span
+                      class="inline-flex items-center gap-1 text-xs text-fjord-fg-dim cursor-help"
+                      title={u.detail || 'Could not compare the local image with the registry'}><Icon name="help" size={11} /> Unknown</span
+                    >
+                  {/if}
+                </div>
+                <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+                <div class="flex gap-1.5 shrink-0" on:click|stopPropagation>
+                  {#if running(s.status)}
+                    <button
+                      on:click={() => act(s.name, 'down')}
+                      disabled={!!s.busy}
+                      title={s.busy ? busyWord(s.busy) : 'Stop'}
+                      class="w-8 h-8 flex items-center justify-center rounded-lg bg-fjord-bg border border-fjord-border text-fjord-fg-muted hover:bg-fjord-border hover:text-fjord-fg disabled:opacity-40"
+                      ><Icon name="stop" size={13} /></button
+                    >
+                  {:else}
+                    <button
+                      on:click={() => act(s.name, 'up')}
+                      disabled={!!s.busy}
+                      title={s.busy ? busyWord(s.busy) : 'Start'}
+                      class="w-8 h-8 flex items-center justify-center rounded-lg bg-fjord-bg border border-fjord-border text-fjord-fg-muted hover:bg-fjord-success/80 hover:text-white disabled:opacity-40"
+                      ><Icon name="play" size={13} /></button
+                    >
+                  {/if}
+                  <button
+                    on:click={() => act(s.name, 'restart')}
+                    disabled={!!s.busy}
+                    title={s.busy ? busyWord(s.busy) : 'Restart'}
+                    class="w-8 h-8 flex items-center justify-center rounded-lg bg-fjord-bg border border-fjord-border text-fjord-fg-muted hover:bg-fjord-border hover:text-fjord-fg disabled:opacity-40"
+                    ><Icon name="restart" size={13} /></button
+                  >
+                  <button
+                    on:click={() => act(s.name, 'update')}
+                    disabled={!!s.busy}
+                    title={s.busy ? busyWord(s.busy) : 'Update'}
+                    class="w-8 h-8 flex items-center justify-center rounded-lg disabled:opacity-40 {u?.state === 'available'
+                      ? 'bg-fjord-warning/10 border border-fjord-warning/40 text-fjord-warning'
+                      : 'bg-fjord-bg border border-fjord-border text-fjord-fg-muted hover:bg-fjord-border hover:text-fjord-fg'}"
+                    ><Icon name="update" size={13} /></button
+                  >
+                </div>
+              </div>
+            </div>
+          {/each}
+        </div>
+      {:else}
       <div class="border border-fjord-border rounded-xl overflow-hidden divide-y divide-fjord-border bg-fjord-card">
         {#each stacks as s (s.name)}
           {@const u = fleet[s.name]}
@@ -538,6 +738,7 @@
           </div>
         {/each}
       </div>
+      {/if}
     {/if}
   </div>
 </div>

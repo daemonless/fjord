@@ -853,6 +853,7 @@ msgstr "Click to rename (id: {0})"
 #: src/App.svelte
 #: src/App.svelte
 #: src/Dashboard.svelte
+#: src/Dashboard.svelte
 msgid "Busy…"
 msgstr "Busy…"
 
@@ -998,6 +999,7 @@ msgstr "Recreate"
 
 #: src/App.svelte
 #: src/Dashboard.svelte
+#: src/Dashboard.svelte
 msgid "Stop"
 msgstr "Stop"
 
@@ -1126,6 +1128,7 @@ msgstr "Update {0} service{1}"
 #: src/App.svelte
 #: src/Dashboard.svelte
 #: src/Dashboard.svelte
+#: src/Dashboard.svelte
 msgid "Update"
 msgstr "Update"
 
@@ -1195,10 +1198,12 @@ msgstr "Check again"
 
 #: src/App.svelte
 #: src/Dashboard.svelte
+#: src/Dashboard.svelte
 msgid "<0/> Up to date"
 msgstr "<0/> Up to date"
 
 #: src/App.svelte
+#: src/Dashboard.svelte
 #: src/Dashboard.svelte
 msgid "<0/> Pinned"
 msgstr "<0/> Pinned"
@@ -1236,6 +1241,7 @@ msgid "<0/> Stop…"
 msgstr "<0/> Stop…"
 
 #: src/App.svelte
+#: src/Dashboard.svelte
 #: src/Dashboard.svelte
 msgid "<0/> Update"
 msgstr "<0/> Update"
@@ -1473,36 +1479,47 @@ msgid "Open App Store"
 msgstr "Open App Store"
 
 #: src/Dashboard.svelte
+#: src/Dashboard.svelte
 msgid "Runs on the podman engine"
 msgstr "Runs on the podman engine"
 
 #. 0: s.state.engine
+#. 0: s.state.engine
+#: src/Dashboard.svelte
 #: src/Dashboard.svelte
 msgid "Runs on the {0} engine"
 msgstr "Runs on the {0} engine"
 
 #. 0: u.fromVersion ? `v${u.fromVersion} → ` \\: ''; 1: u.toVersion
+#. 0: u.fromVersion ? `v${u.fromVersion} → ` \\: ''; 1: u.toVersion
+#: src/Dashboard.svelte
 #: src/Dashboard.svelte
 msgid "<0/> {0}v{1}"
 msgstr "<0/> {0}v{1}"
 
 #: src/Dashboard.svelte
+#: src/Dashboard.svelte
 msgid "Could not compare the local image with the registry"
 msgstr "Could not compare the local image with the registry"
 
+#: src/Dashboard.svelte
 #: src/Dashboard.svelte
 msgid "<0/> Unknown"
 msgstr "<0/> Unknown"
 
 #. 0: (info[s.name].more?.length ?? 1) - 1
+#. 0: (info[s.name].more?.length ?? 1) - 1
+#: src/Dashboard.svelte
 #: src/Dashboard.svelte
 msgid "+{0} more apps"
 msgstr "+{0} more apps"
 
 #: src/Dashboard.svelte
+#: src/Dashboard.svelte
 msgid "Start"
 msgstr "Start"
 
+#: src/Dashboard.svelte
 #: src/Dashboard.svelte
 #: src/InstallWizard.svelte
 msgid "Restart"
@@ -3625,7 +3642,9 @@ msgstr "Language"
 #. 0: updateInfo!.fromVersion
 #. 0: u.fromVersion
 #. 0: u.fromVersion
+#. 0: u.fromVersion
 #: src/App.svelte
+#: src/Dashboard.svelte
 #: src/Dashboard.svelte
 #: src/ServiceResources.svelte
 msgid "v{0} → "
@@ -4016,6 +4035,7 @@ msgstr "<0/>Import"
 #~ msgid "Removes the container <0/> and makes it a stack with the same mounts, network address and name, {0}. Data stays where it is."
 #~ msgstr "Removes the container <0/> and makes it a stack with the same mounts, network address and name, {0}. Data stays where it is."
 
+#: src/Dashboard.svelte
 #: src/Dashboard.svelte
 #: src/NamesPrompt.svelte
 msgid "Finish setup"
@@ -4959,6 +4979,7 @@ msgid "Update all ({0})"
 msgstr "Update all ({0})"
 
 #: src/Dashboard.svelte
+#: src/Dashboard.svelte
 msgid "<0/> Updating…"
 msgstr "<0/> Updating…"
 
@@ -4985,18 +5006,22 @@ msgid "Store view"
 msgstr "Store view"
 
 #: src/AppStore.svelte
+#: src/Dashboard.svelte
 msgid "Cards view"
 msgstr "Cards view"
 
 #: src/AppStore.svelte
+#: src/Dashboard.svelte
 msgid "List view"
 msgstr "List view"
 
 #: src/AppStore.svelte
+#: src/Dashboard.svelte
 msgid "<0/> Cards"
 msgstr "<0/> Cards"
 
 #: src/AppStore.svelte
+#: src/Dashboard.svelte
 msgid "<0/> List"
 msgstr "<0/> List"
 
@@ -5023,3 +5048,7 @@ msgstr "Updates {0} stacks one at a time in the background."
 #: src/Dashboard.svelte
 msgid "Update {0} stacks"
 msgstr "Update {0} stacks"
+
+#: src/Dashboard.svelte
+msgid "Stacks view"
+msgstr "Stacks view"
