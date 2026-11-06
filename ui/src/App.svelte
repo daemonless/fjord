@@ -11,6 +11,8 @@
   import { checkSession, SIGNED_IN } from './auth';
   import SetupWizard from './SetupWizard.svelte';
   import Dashboard from './Dashboard.svelte';
+  import ConditionsBanner from './ConditionsBanner.svelte';
+  import { type Condition } from './conditions';
   import Spinner from './Spinner.svelte';
   import { loadNames } from './names';
   import Icon from './Icon.svelte';
@@ -73,6 +75,13 @@
   let hostOS = '';
   let engines: { name: string; available: boolean; enabled: boolean }[] = [];
   let defaultEngine = 'podman';
+  let conditions: Condition[] = [];
+  async function loadConditions() {
+    try {
+      const r = await fetch('/api/conditions');
+      if (r.ok) conditions = (await r.json()).conditions || [];
+    } catch {}
+  }
   async function loadEngines() {
     try {
       const r = await fetch('/api/engine');
@@ -586,6 +595,7 @@
     await loadStacks();
     loadNames();
     loadEngines();
+    loadConditions();
     loadNetworks();
     loadVolumes();
     theme = currentTheme();
@@ -628,6 +638,7 @@
   async function resync() {
     const wasBusy = selectedStack?.busy;
     await loadStacks();
+    loadConditions();
     loadNetworks();
     loadVolumes();
     loadFleetUpdates();
@@ -883,6 +894,9 @@
   function subscribeEvents() {
     try {
       eventSource = new EventSource('/api/events');
+      eventSource.onopen = () => {
+        loadConditions();
+      };
       eventSource.onmessage = (e) => {
         try {
           applyStackEvent(JSON.parse(e.data));
@@ -913,6 +927,10 @@
     });
   }
   function applyStackEvent(ev: any) {
+    if (ev?.type === 'conditions') {
+      conditions = ev.conditions || [];
+      return;
+    }
     const res = reduceStackEvent(stacks, selectedStack, ev);
     if (res.stacks !== stacks) stacks = res.stacks;
     if (res.clearSelection) {
@@ -1208,7 +1226,7 @@
     e.preventDefault();
     if (s.action === 'help') showShortcuts = !showShortcuts;
     else if (s.action === 'search') (document.getElementById(currentView === 'store' ? 'app-search' : 'stack-search') as HTMLInputElement | null)?.focus();
-    else if (s.action === 'refresh') { loadStacks(); loadNetworks(); loadVolumes(); loadFleetUpdates(); toast('Refreshed'); }
+    else if (s.action === 'refresh') { loadStacks(); loadConditions(); loadNetworks(); loadVolumes(); loadFleetUpdates(); toast('Refreshed'); }
     else if (s.go) location.hash = s.go;
   }}
 />
@@ -1263,6 +1281,7 @@
       class="absolute top-4 right-4 z-30 w-8 h-8 flex items-center justify-center rounded-lg text-fjord-fg-muted hover:text-fjord-fg hover:bg-fjord-border transition-colors"
       ><Icon name={theme === 'dark' ? 'sun' : 'moon'} size={16} /></button
     >
+    <ConditionsBanner {conditions} on:changed={loadConditions} />
     {#if selectedStack}
       <StackDetail
         bind:this={stackDetail}

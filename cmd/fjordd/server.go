@@ -46,6 +46,7 @@ type server struct {
 	seen       *firstSeen   // when each update candidate was first seen (soak)
 	live       *liveStatus  // status for the pages, never waiting long on the engine
 	events     *eventHub    // SSE pub/sub; fed by runEventLoop
+	conds      *conditionsState
 
 	segs segmentCache // what each bridge's wire said when probed (network_segment.go)
 
@@ -262,6 +263,8 @@ func (s *server) routes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/engine/install", s.handleEngineInstall)
 	mux.HandleFunc("/api/engine/toggle", s.handleEngineToggle)
 	mux.HandleFunc("/api/setup", s.handleSetup)
+	mux.HandleFunc("/api/conditions", s.handleConditions)
+	mux.HandleFunc("/api/conditions/fix", s.handleConditionsFix)
 	mux.HandleFunc("/api/about", s.handleAbout)
 	mux.HandleFunc("/api/names", s.handleNames)
 	mux.HandleFunc("/api/names/link", s.handleNamesLink)

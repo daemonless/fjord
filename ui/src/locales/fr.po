@@ -5035,3 +5035,49 @@ msgstr "Mettre à jour {0} piles"
 #: src/Dashboard.svelte
 msgid "Stacks view"
 msgstr "Affichage des piles"
+
+#. 0: c.title
+#: src/ConditionsBanner.svelte
+msgid "Fixed: {0}"
+msgstr ""
+
+#. 0: why
+#. 0: why
+#: src/ConditionsBanner.svelte
+#: src/ConditionsBanner.svelte
+msgid "Could not fix: {0}"
+msgstr ""
+
+#: src/ConditionsBanner.svelte
+msgid "<0/> Working…"
+msgstr ""
+
+#: src/ConditionsBanner.svelte
+msgid "Fix"
+msgstr ""
+
+#: src/ConditionsBanner.svelte
+msgid "Hide steps"
+msgstr ""
+
+#: src/ConditionsBanner.svelte
+msgid "Steps"
+msgstr ""
+
+#: src/ConditionsBanner.svelte
+msgid "Remind me tomorrow"
+msgstr ""
+
+#: src/ConditionsBanner.svelte
+msgid "Show fewer"
+msgstr ""
+
+#. 0: extraCount
+#: src/ConditionsBanner.svelte
+msgid "+{0} more"
+msgstr ""
+
+#. 0: fixError[c.id]
+#: src/ConditionsBanner.svelte
+msgid "Still not passing: {0}"
+msgstr ""

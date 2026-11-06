@@ -5046,3 +5046,49 @@ msgstr "Update {0} stacks"
 #: src/Dashboard.svelte
 msgid "Stacks view"
 msgstr "Stacks view"
+
+#. 0: c.title
+#: src/ConditionsBanner.svelte
+msgid "Fixed: {0}"
+msgstr "Fixed: {0}"
+
+#. 0: why
+#. 0: why
+#: src/ConditionsBanner.svelte
+#: src/ConditionsBanner.svelte
+msgid "Could not fix: {0}"
+msgstr "Could not fix: {0}"
+
+#: src/ConditionsBanner.svelte
+msgid "<0/> Working…"
+msgstr "<0/> Working…"
+
+#: src/ConditionsBanner.svelte
+msgid "Fix"
+msgstr "Fix"
+
+#: src/ConditionsBanner.svelte
+msgid "Hide steps"
+msgstr "Hide steps"
+
+#: src/ConditionsBanner.svelte
+msgid "Steps"
+msgstr "Steps"
+
+#: src/ConditionsBanner.svelte
+msgid "Remind me tomorrow"
+msgstr "Remind me tomorrow"
+
+#: src/ConditionsBanner.svelte
+msgid "Show fewer"
+msgstr "Show fewer"
+
+#. 0: extraCount
+#: src/ConditionsBanner.svelte
+msgid "+{0} more"
+msgstr "+{0} more"
+
+#. 0: fixError[c.id]
+#: src/ConditionsBanner.svelte
+msgid "Still not passing: {0}"
+msgstr "Still not passing: {0}"

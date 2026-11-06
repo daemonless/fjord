@@ -54,6 +54,9 @@ func platform(cfg Config) platformInfo {
 				Fix:   "# with your distribution's package manager, e.g.\nsudo apt install -y conmon\n# or: sudo dnf install -y conmon",
 			},
 			rootCheck(cfg.FjordRoot),
+			storageLowCheck(cfg.FjordRoot),
+			fjorddOutdatedCheck("sudo systemctl restart fjordd"),
+			hostnameTakenCheck(),
 		}, osChecks(cfg)...),
 	}
 }

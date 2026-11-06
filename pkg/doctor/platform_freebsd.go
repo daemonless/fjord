@@ -176,6 +176,9 @@ func platform(cfg Config) platformInfo {
 			},
 		},
 		rootCheck(cfg.FjordRoot),
+		storageLowCheck(cfg.FjordRoot),
+		fjorddOutdatedCheck("service fjordd restart"),
+		hostnameTakenCheck(),
 	}
 	// Only meaningful where appjail exists; a podman-only host has nothing to
 	// check and shouldn't see an amber row for it.

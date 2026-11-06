@@ -78,6 +78,7 @@ func (s *server) handleSetupInstall(w http.ResponseWriter, r *http.Request) {
 		}
 		log.Printf("setup: installed what the %q check needs", req.ID)
 		s.registerNewEngines()
+		s.triggerConditions()
 		fmt.Fprintln(out, "[done]")
 		return
 	}
@@ -88,6 +89,7 @@ func (s *server) handleSetupInstall(w http.ResponseWriter, r *http.Request) {
 	}
 	log.Printf("setup: installed what the %q check needs", req.ID)
 	s.registerNewEngines()
+	s.triggerConditions()
 	w.WriteHeader(http.StatusNoContent)
 }
 

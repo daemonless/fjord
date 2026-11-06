@@ -70,6 +70,7 @@ func (s *server) stackExec(w http.ResponseWriter, r *http.Request, name string) 
 		// it restarts. Said once with a close code the page acts on (a
 		// Restart button), instead of eight reconnects printing the same.
 		if detail := staleService(r.Context(), err); detail != "" {
+			s.triggerConditions()
 			conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(closeStaleService, trimReason(detail)))
 			return
 		}
