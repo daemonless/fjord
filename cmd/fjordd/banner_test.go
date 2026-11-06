@@ -4,7 +4,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/daemonless/fjord/pkg/engine"
 	"github.com/daemonless/fjord/pkg/manifest"
+	"github.com/daemonless/fjord/pkg/stack"
 )
 
 // Only daemonless services read the banner variable; one that sets it keeps
@@ -141,5 +143,63 @@ func TestDirectorEnvBanner(t *testing.T) {
 		if !strings.Contains(env, c.want) || strings.Count(env, "DAEMONLESS_BANNER=") != 1 {
 			t.Errorf("defaults %q resolved %q: want %q in:\n%s", c.defaults, c.resolved, c.want, env)
 		}
+	}
+}
+
+// Adopted containers and existing stacks get DAEMONLESS_BANNER=color when they
+// run a daemonless image and do not set DAEMONLESS_BANNER already.
+func TestAdoptSpecAndBackfillBanners(t *testing.T) {
+	spec, err := adoptSpec(engine.Unmanaged{
+		Name:    "radarr",
+		RunArgs: []string{"podman", "run", "-d", "--name", "radarr", "-e", "TZ=UTC", "ghcr.io/daemonless/radarr:latest"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(spec.Compose, "DAEMONLESS_BANNER=${DAEMONLESS_BANNER}") {
+		t.Errorf("adopted compose missing banner var:\n%s", spec.Compose)
+	}
+	if !strings.Contains(spec.Env, "DAEMONLESS_BANNER=color\n") {
+		t.Errorf("adopted env missing DAEMONLESS_BANNER=color:\n%s", spec.Env)
+	}
+
+	dir := t.TempDir()
+	m := stack.NewManager(dir)
+	if err := m.Save(&stack.Stack{
+		Name:    "sonarr",
+		Compose: "services:\n  sonarr:\n    image: ghcr.io/daemonless/sonarr:latest\n",
+		Env:     "TZ=UTC\n",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Save(&stack.Stack{
+		Name:    "foreign",
+		Compose: "services:\n  db:\n    image: docker.io/library/postgres:17\n",
+		Env:     "TZ=UTC\n",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	backfillStackBanners(m)
+
+	sonarr, err := m.Get("sonarr")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(sonarr.Compose, "DAEMONLESS_BANNER=${DAEMONLESS_BANNER}") || !strings.Contains(sonarr.Env, "DAEMONLESS_BANNER=color\n") {
+		t.Errorf("backfill did not update sonarr:\ncompose:\n%s\nenv:\n%s", sonarr.Compose, sonarr.Env)
+	}
+
+	foreign, err := m.Get("foreign")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(foreign.Compose, "BANNER") || strings.Contains(foreign.Env, "BANNER") {
+		t.Errorf("backfill touched foreign stack:\ncompose:\n%s\nenv:\n%s", foreign.Compose, foreign.Env)
+	}
+
+	// Second run is a no-op.
+	if ensureStackBanner(sonarr) {
+		t.Errorf("ensureStackBanner reported change on already-updated stack")
 	}
 }

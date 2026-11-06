@@ -103,10 +103,15 @@ func adoptSpec(u engine.Unmanaged) (*engine.AdoptSpec, error) {
 		return nil, fmt.Errorf("%s", u.Unadoptable)
 	}
 	if u.Spec != nil {
-		return u.Spec, nil
+		cp := *u.Spec
+		return bannerAdoptSpec(&cp), nil
 	}
 	if len(u.ComposeFiles) > 0 {
-		return importSpec(u)
+		spec, err := importSpec(u)
+		if err != nil {
+			return nil, err
+		}
+		return bannerAdoptSpec(spec), nil
 	}
 	if len(u.RunArgs) == 0 {
 		return nil, fmt.Errorf("nothing recorded to recreate %s from", u.Name)
@@ -115,7 +120,7 @@ func adoptSpec(u engine.Unmanaged) (*engine.AdoptSpec, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &engine.AdoptSpec{Service: a.Service, Compose: a.Compose, Env: a.Env, Notes: a.Notes}, nil
+	return bannerAdoptSpec(&engine.AdoptSpec{Service: a.Service, Compose: a.Compose, Env: a.Env, Notes: a.Notes}), nil
 }
 
 // ownedJails names every jail fjord's stacks on this engine already own.

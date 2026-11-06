@@ -341,6 +341,7 @@ func main() {
 		log.Printf("stack migration: recorded engine podman on %s", strings.Join(migrated, ", "))
 	}
 	backfillStackIcons(manager, cat)
+	backfillStackBanners(manager)
 	srv := &server{
 		manager:    manager,
 		backends:   backends,
