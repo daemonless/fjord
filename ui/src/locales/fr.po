@@ -60,9 +60,6 @@ msgstr "Monter dans <0/> — modifie le compose, <1>Enregistrer</1> pour appliqu
 #: src/AddMount.svelte
 #: src/Adopt.svelte
 #: src/Adopt.svelte
-#: src/App.svelte
-#: src/App.svelte
-#: src/App.svelte
 #: src/ChangeVersionModal.svelte
 #: src/ConfirmDialog.svelte
 #: src/Dashboard.svelte
@@ -80,6 +77,9 @@ msgstr "Monter dans <0/> — modifie le compose, <1>Enregistrer</1> pour appliqu
 #: src/ServiceResources.svelte
 #: src/Settings.svelte
 #: src/SetupWizard.svelte
+#: src/StackDetail.svelte
+#: src/StackDetail.svelte
+#: src/StackDetail.svelte
 #: src/System.svelte
 #: src/System.svelte
 #: src/Volumes.svelte
@@ -569,23 +569,23 @@ msgid "Could not move {0} to v{1}: {2}"
 msgstr "Impossible de passer {0} en v{1} : {2}"
 
 #. 0: set.name; 1: dest
-#: src/App.svelte
+#: src/StackDetail.svelte
 msgid "Mounting \"{0}\" at {1} — type a container path first to choose another"
 msgstr "Montage de \"{0}\" sur {1} — saisissez d'abord un chemin de conteneur pour en choisir un autre"
 
-#: src/App.svelte
-#: src/App.svelte
-#: src/App.svelte
 #: src/Settings.svelte
+#: src/StackDetail.svelte
+#: src/StackDetail.svelte
+#: src/StackDetail.svelte
 msgid "Add failed"
 msgstr "Ajout échoué"
 
-#: src/App.svelte
+#: src/StackDetail.svelte
 msgid "Enter the container path to mount it at"
 msgstr "Saisissez le chemin de conteneur où le monter"
 
-#: src/App.svelte
 #: src/Settings.svelte
+#: src/StackDetail.svelte
 msgid "Remove failed"
 msgstr "Retrait échoué"
 
@@ -613,12 +613,11 @@ msgstr "Échec — voir la Sortie"
 
 #: src/App.svelte
 #: src/App.svelte
-#: src/App.svelte
+#: src/StackDetail.svelte
 #: src/System.svelte
 msgid "Failed"
 msgstr "Échec"
 
-#: src/App.svelte
 #: src/Dashboard.svelte
 #: src/InstallCheckButton.svelte
 #: src/InstallWizard.svelte
@@ -627,12 +626,10 @@ msgid "Installing…"
 msgstr "Installation…"
 
 #: src/App.svelte
-#: src/App.svelte
 #: src/Dashboard.svelte
 msgid "Starting…"
 msgstr "Démarrage…"
 
-#: src/App.svelte
 #: src/App.svelte
 #: src/App.svelte
 #: src/Dashboard.svelte
@@ -642,19 +639,16 @@ msgid "Updating…"
 msgstr "Mise à jour…"
 
 #: src/App.svelte
-#: src/App.svelte
 #: src/Dashboard.svelte
 #: src/Shell.svelte
 msgid "Restarting…"
 msgstr "Redémarrage…"
 
 #: src/App.svelte
-#: src/App.svelte
 #: src/Dashboard.svelte
 msgid "Stopping…"
 msgstr "Arrêt…"
 
-#: src/App.svelte
 #: src/Dashboard.svelte
 msgid "Deleting…"
 msgstr "Suppression…"
@@ -664,23 +658,23 @@ msgstr "Suppression…"
 msgid "Could not dismiss: {0}"
 msgstr "Impossible d'ignorer : {0}"
 
-#: src/App.svelte
+#: src/StackDetail.svelte
 msgid "Install failed"
 msgstr "Installation échouée"
 
-#: src/App.svelte
+#: src/StackDetail.svelte
 msgid "Start failed"
 msgstr "Démarrage échoué"
 
-#: src/App.svelte
+#: src/StackDetail.svelte
 msgid "Update failed"
 msgstr "Mise à jour échouée"
 
-#: src/App.svelte
+#: src/StackDetail.svelte
 msgid "Restart failed"
 msgstr "Redémarrage échoué"
 
-#: src/App.svelte
+#: src/StackDetail.svelte
 msgid "Stop failed"
 msgstr "Arrêt échoué"
 
@@ -769,15 +763,15 @@ msgstr "Sans groupe"
 msgid "Drag here to remove from group"
 msgstr "Déposez ici pour retirer du groupe"
 
-#. 0: updateInfo!.fromVersion ? `v${updateInfo!.fromVersion} → ` \\: ''; 1: updateInfo!.toVersion
 #. 0: fleet[stack.name].fromVersion ? `v${fleet[stack.name].fromVersion} → ` \\: ''; 1: fleet[stack.name].toVersion
-#: src/App.svelte
+#. 0: updateInfo!.fromVersion ? `v${updateInfo!.fromVersion} → ` \\: ''; 1: updateInfo!.toVersion
 #: src/Sidebar.svelte
+#: src/StackDetail.svelte
 msgid "{0}v{1} available"
 msgstr "{0}v{1} disponible"
 
-#: src/App.svelte
 #: src/Sidebar.svelte
+#: src/StackDetail.svelte
 msgid "Update available"
 msgstr "Mise à jour disponible"
 
@@ -843,23 +837,23 @@ msgstr "Passer au thème clair"
 msgid "Switch to dark theme"
 msgstr "Passer au thème sombre"
 
-#. 0: selectedStack.name
-#: src/App.svelte
+#. 0: stack.name
+#: src/StackDetail.svelte
 msgid "Click to rename (id: {0})"
 msgstr "Cliquez pour renommer (id : {0})"
 
-#: src/App.svelte
-#: src/App.svelte
 #: src/Dashboard.svelte
 #: src/Dashboard.svelte
+#: src/StackDetail.svelte
+#: src/StackDetail.svelte
 msgid "Busy…"
 msgstr "Occupé…"
 
-#: src/App.svelte
+#: src/StackDetail.svelte
 msgid "The engine did not answer in time -- usually a pull writing an image to disk. The state updates as soon as it answers."
 msgstr "Le moteur n'a pas répondu à temps — généralement un pull qui écrit une image sur le disque. L'état se met à jour dès qu'il répond."
 
-#: src/App.svelte
+#: src/StackDetail.svelte
 msgid "Runtime engine"
 msgstr "Moteur d'exécution"
 
@@ -867,465 +861,465 @@ msgstr "Moteur d'exécution"
 #~ msgstr ""
 
 #. 0: openUrl
-#: src/App.svelte
+#: src/StackDetail.svelte
 msgid "Open {0}"
 msgstr "Ouvrir {0}"
 
-#: src/App.svelte
+#: src/StackDetail.svelte
 msgid "<0/> Open"
 msgstr "<0/> Ouvrir"
 
 #. 0: links.length
-#: src/App.svelte
+#: src/StackDetail.svelte
 msgid "Open another of this stack's {0} apps"
 msgstr "Ouvrir une autre des {0} applications de cette pile"
 
-#: src/App.svelte
+#: src/StackDetail.svelte
 msgid "Assign this stack to a sidebar group"
 msgstr "Ranger cette pile dans un groupe de la barre latérale"
 
-#: src/App.svelte
+#: src/StackDetail.svelte
 msgid "Unsaved"
 msgstr "Non enregistré"
 
-#: src/App.svelte
+#: src/StackDetail.svelte
 msgid "Engine <0/>"
 msgstr "Moteur <0/>"
 
-#: src/App.svelte
+#: src/StackDetail.svelte
 msgid "Discard unsaved changes and restore the last saved version"
 msgstr "Abandonner les modifications non enregistrées et restaurer la dernière version enregistrée"
 
-#: src/App.svelte
+#: src/StackDetail.svelte
 msgid "Revert"
 msgstr "Rétablir"
 
-#: src/App.svelte
 #: src/Networks.svelte
+#: src/StackDetail.svelte
 #: src/Volumes.svelte
 msgid "Creating…"
 msgstr "Création…"
 
-#: src/App.svelte
 #: src/Settings.svelte
 #: src/Settings.svelte
+#: src/StackDetail.svelte
 msgid "Saving…"
 msgstr "Enregistrement…"
 
-#: src/App.svelte
 #: src/Networks.svelte
+#: src/StackDetail.svelte
 #: src/Volumes.svelte
 msgid "Create"
 msgstr "Créer"
 
-#: src/App.svelte
 #: src/Networks.svelte
 #: src/OpenMenu.svelte
 #: src/Settings.svelte
 #: src/Settings.svelte
+#: src/StackDetail.svelte
 msgid "Save"
 msgstr "Enregistrer"
 
-#. 0.0: engineSwitch; 0: selectedStack.director ? 'director file and Makejail' \\: 'compose.yaml'; 1: draftFiles(engineSwitch)
-#: src/App.svelte
+#. 0.0: engineSwitch; 0: stack.director ? 'director file and Makejail' \\: 'compose.yaml'; 1: draftFiles(engineSwitch)
+#: src/StackDetail.svelte
 msgid "<0>Switch to {0}?</0> It replaces this {0} with {1} — your edits are lost."
 msgstr "<0>Passer à {0} ?</0> Ce {0} est remplacé par {1} — vos modifications sont perdues."
 
-#. 0: selectedStack.engine ?? defaultEngine
-#: src/App.svelte
+#. 0: stack.engine ?? defaultEngine
+#: src/StackDetail.svelte
 msgid "Keep {0}"
 msgstr "Garder {0}"
 
-#: src/App.svelte
+#: src/StackDetail.svelte
 msgid "Switch"
 msgstr "Changer"
 
-#: src/App.svelte
+#: src/StackDetail.svelte
 msgid "Looking at what it uses…"
 msgstr "Examen de ce qu'elle utilise…"
 
-#: src/App.svelte
+#: src/StackDetail.svelte
 msgid "Its app data"
 msgstr "Ses données d'application"
 
-#: src/App.svelte
+#: src/StackDetail.svelte
 msgid "<0/> Also delete its app data — this cannot be undone"
 msgstr "<0/> Supprimer aussi ses données d'application — irréversible"
 
-#: src/App.svelte
+#: src/StackDetail.svelte
 msgid "Not touched: <0/>"
 msgstr "Non touché : <0/>"
 
-#: src/App.svelte
+#: src/StackDetail.svelte
 msgid "Its data stays on disk."
 msgstr "Ses données restent sur le disque."
 
-#. 0.0: label(selectedStack)
-#: src/App.svelte
+#. 0.0: label(stack)
+#: src/StackDetail.svelte
 msgid "<0>Delete {0}?</0> Stops it and removes its containers and its settings in fjord. <1/>"
 msgstr "<0>Supprimer {0} ?</0> L'arrête et retire ses conteneurs et ses réglages dans fjord. <1/>"
 
-#. 0.0: label(selectedStack)
-#: src/App.svelte
+#. 0.0: label(stack)
+#: src/StackDetail.svelte
 msgid "<0>Pull & recreate {0}?</0> Pulls every image and recreates every container, including ones already up to date."
 msgstr "<0>Tirer et recréer {0} ?</0> Tire chaque image et recrée chaque conteneur, y compris ceux déjà à jour."
 
-#. 0.0: label(selectedStack)
-#: src/App.svelte
+#. 0.0: label(stack)
+#: src/StackDetail.svelte
 msgid "<0>Stop {0}?</0> Stops and removes the containers. Your data is preserved."
 msgstr "<0>Arrêter {0} ?</0> Arrête et retire les conteneurs. Vos données sont conservées."
 
-#: src/App.svelte
+#: src/StackDetail.svelte
 msgid "Delete stack and data"
 msgstr "Supprimer la pile et ses données"
 
-#: src/App.svelte
 #: src/Networks.svelte
 #: src/Networks.svelte
 #: src/Networks.svelte
 #: src/Networks.svelte
 #: src/Networks.svelte
+#: src/StackDetail.svelte
 #: src/Volumes.svelte
 #: src/Volumes.svelte
 #: src/Volumes.svelte
 msgid "Delete"
 msgstr "Supprimer"
 
-#: src/App.svelte
+#: src/StackDetail.svelte
 msgid "Recreate"
 msgstr "Recréer"
 
-#: src/App.svelte
 #: src/Dashboard.svelte
 #: src/Dashboard.svelte
+#: src/StackDetail.svelte
 msgid "Stop"
 msgstr "Arrêter"
 
-#: src/App.svelte
+#: src/StackDetail.svelte
 msgid "<0/> Checking the registry…"
 msgstr "<0/> Interrogation du registre…"
 
-#: src/App.svelte
+#: src/StackDetail.svelte
 msgid "Service"
 msgstr "Service"
 
-#: src/App.svelte
 #: src/Dashboard.svelte
+#: src/StackDetail.svelte
 msgid "Tag"
 msgstr "Tag"
 
-#: src/App.svelte
+#: src/StackDetail.svelte
 msgid "State"
 msgstr "État"
 
-#: src/App.svelte
 #: src/Dashboard.svelte
+#: src/StackDetail.svelte
 msgid "Change"
 msgstr "Changer"
 
-#. 0: s.service
 #. 0: row.label
 #. 0: pickedRows[0].label
-#: src/App.svelte
+#. 0: s.service
 #: src/Dashboard.svelte
 #: src/Dashboard.svelte
+#: src/StackDetail.svelte
 msgid "Update {0}"
 msgstr "Mettre à jour {0}"
 
-#: src/App.svelte
+#: src/StackDetail.svelte
 msgid "update"
 msgstr "mise à jour"
 
-#: src/App.svelte
+#: src/StackDetail.svelte
 msgid "new version"
 msgstr "nouvelle version"
 
-#: src/App.svelte
+#: src/StackDetail.svelte
 msgid "up to date"
 msgstr "à jour"
 
-#: src/App.svelte
+#: src/StackDetail.svelte
 msgid "pinned"
 msgstr "épinglé"
 
-#: src/App.svelte
+#: src/StackDetail.svelte
 msgid "unknown"
 msgstr "inconnu"
 
-#: src/App.svelte
 #: src/Dashboard.svelte
+#: src/StackDetail.svelte
 msgid "new build"
 msgstr "nouveau build"
 
-#: src/App.svelte
+#: src/StackDetail.svelte
 msgid "(set in the compose)"
 msgstr "(fixé dans le compose)"
 
 #. 0: s.fromVersion; 1: s.toVersion
-#: src/App.svelte
+#: src/StackDetail.svelte
 msgid "v{0} → v{1} <0/>"
 msgstr "v{0} → v{1} <0/>"
 
-#: src/App.svelte
 #: src/Dashboard.svelte
+#: src/StackDetail.svelte
 msgid "Reading what changed…"
 msgstr "Lecture de ce qui change…"
 
 #. 0: versionStep.tag
-#: src/App.svelte
+#: src/StackDetail.svelte
 msgid "Switches to {0} and recreates the container."
 msgstr "Passe à {0} et recrée le conteneur."
 
-#: src/App.svelte
+#: src/StackDetail.svelte
 msgid "Tick the services to update."
 msgstr "Cochez les services à mettre à jour."
 
 #. 0: s.service; 1: s.toVersion
-#: src/App.svelte
+#: src/StackDetail.svelte
 msgid "{0} to v{1}"
 msgstr "{0} en v{1}"
 
 #. 0: bumps.map((s) => `${s.service} to v${s.toVersion}`).join(', ')
-#: src/App.svelte
+#: src/StackDetail.svelte
 msgid "Moves {0} in the compose, then pulls"
 msgstr "Passe {0} dans le compose, puis tire"
 
-#: src/App.svelte
+#: src/StackDetail.svelte
 msgid "Pulls"
 msgstr "Tire"
 
 #. 0: also.join(', '); 1: also.length === 1 ? 'restarts' \\: 'restart'
-#: src/App.svelte
+#: src/StackDetail.svelte
 msgid "; {0} {1} with it (depends on it)"
 msgstr " ; {0} {1} avec lui (en dépend)"
 
 #. 0: picked.map((s) => s.service).join(', ')
-#: src/App.svelte
+#: src/StackDetail.svelte
 msgid "<0/> and recreates only {0}<1/>. The rest keep running."
 msgstr "<0/> et ne recrée que {0}<1/>. Le reste continue de tourner."
 
 #. 0: updatable.length; 1: updateInfo.services?.length ?? 0; 2: updateInfo.services?.length === 1 ? 'service has' \\: 'services have'
-#: src/App.svelte
+#: src/StackDetail.svelte
 msgid "{0} of {1} {2} an update. This engine updates the whole stack: every image is pulled and every container recreated."
 msgstr "{0} des {1} {2} une mise à jour. Ce moteur met à jour la pile entière : chaque image est tirée et chaque conteneur recréé."
 
-#: src/App.svelte
+#: src/StackDetail.svelte
 msgid "Nothing here is pulled by Update."
 msgstr "Rien ici n'est tiré par Mettre à jour."
 
 #. 0: versionStep.to
-#: src/App.svelte
+#: src/StackDetail.svelte
 msgid "Update to v{0}"
 msgstr "Mettre à jour en v{0}"
 
 #. 0: picked.length; 1: picked.length === 1 ? '' \\: 's'
-#: src/App.svelte
+#: src/StackDetail.svelte
 msgid "Update {0} service{1}"
 msgstr "Mettre à jour {0} service{1}"
 
-#: src/App.svelte
 #: src/Dashboard.svelte
 #: src/Dashboard.svelte
 #: src/Dashboard.svelte
+#: src/StackDetail.svelte
 msgid "Update"
 msgstr "Mettre à jour"
 
-#: src/App.svelte
+#: src/StackDetail.svelte
 msgid "<0>Not saved.</0> The compose changed on the server after you opened it — a rollback, version change or unpin, or another tab. Reload to see it; copy your edits first, reloading replaces them."
 msgstr "<0>Non enregistré.</0> Le compose a changé sur le serveur depuis son ouverture — un retour en arrière, un changement de version ou un désépinglage, ou un autre onglet. Rechargez pour le voir ; copiez d'abord vos modifications, le rechargement les remplace."
 
-#: src/App.svelte
-#: src/App.svelte
+#: src/StackDetail.svelte
+#: src/StackDetail.svelte
 #: src/Toasts.svelte
 msgid "Dismiss"
 msgstr "Ignorer"
 
-#: src/App.svelte
+#: src/StackDetail.svelte
 msgid "Reload"
 msgstr "Recharger"
 
-#: src/App.svelte
+#: src/StackDetail.svelte
 msgid "Hide this until it happens again"
 msgstr "Masquer jusqu'à la prochaine fois"
 
 #. 0: failedWhen(f.at); 1: f.message
-#: src/App.svelte
+#: src/StackDetail.svelte
 msgid "<0/> at {0} — {1}"
 msgstr "<0/> à {0} — {1}"
 
-#: src/App.svelte
+#: src/StackDetail.svelte
 msgid "Keep the running services as they are; the saved changes apply the next time the stack starts"
 msgstr "Garder les services en marche tels quels ; les modifications enregistrées s'appliqueront au prochain démarrage de la pile"
 
-#: src/App.svelte
+#: src/StackDetail.svelte
 msgid "The running services still use the old configuration — apply the saved changes to recreate them."
 msgstr "Les services en marche utilisent encore l'ancienne configuration — appliquez les modifications enregistrées pour les recréer."
 
-#: src/App.svelte
+#: src/StackDetail.svelte
 msgid "Not now"
 msgstr "Pas maintenant"
 
-#: src/App.svelte
+#: src/StackDetail.svelte
 msgid "Apply Changes"
 msgstr "Appliquer les modifications"
 
 #. 0: updatable.map((s) => s.service).join(', '); 1: updatable.length === 1 ? 'has' \\: 'have'
-#: src/App.svelte
+#: src/StackDetail.svelte
 msgid "{0} {1} an update"
 msgstr "{0} {1} une mise à jour"
 
-#: src/App.svelte
+#: src/StackDetail.svelte
 msgid "Check for updates"
 msgstr "Vérifier les mises à jour"
 
-#: src/App.svelte
+#: src/StackDetail.svelte
 msgid "Checking…"
 msgstr "Vérification…"
 
-#: src/App.svelte
+#: src/StackDetail.svelte
 msgid "Registry has a newer image than what's pulled"
 msgstr "Le registre a une image plus récente que celle tirée"
 
-#: src/App.svelte
+#: src/StackDetail.svelte
 msgid "A newer version is published — switch to it via Change Version"
 msgstr "Une version plus récente est publiée — passez-y via Changer de version"
 
-#: src/App.svelte
+#: src/StackDetail.svelte
 msgid "Check again"
 msgstr "Vérifier à nouveau"
 
-#: src/App.svelte
 #: src/Dashboard.svelte
 #: src/Dashboard.svelte
+#: src/StackDetail.svelte
 msgid "<0/> Up to date"
 msgstr "<0/> À jour"
 
-#: src/App.svelte
 #: src/Dashboard.svelte
 #: src/Dashboard.svelte
+#: src/StackDetail.svelte
 msgid "<0/> Pinned"
 msgstr "<0/> Épinglé"
 
-#: src/App.svelte
+#: src/StackDetail.svelte
 msgid "More Actions"
 msgstr "Plus d'actions"
 
-#: src/App.svelte
+#: src/StackDetail.svelte
 msgid "Pull every image and recreate every service, even ones already up to date"
 msgstr "Tirer chaque image et recréer chaque service, même ceux déjà à jour"
 
-#: src/App.svelte
+#: src/StackDetail.svelte
 msgid "<0/> Change Version…<1/>"
 msgstr "<0/> Changer de version…<1/>"
 
-#: src/App.svelte
+#: src/StackDetail.svelte
 msgid "<0/> Restart"
 msgstr "<0/> Redémarrer"
 
-#: src/App.svelte
+#: src/StackDetail.svelte
 msgid "<0/> Pull & recreate all…"
 msgstr "<0/> Tirer et tout recréer…"
 
-#: src/App.svelte
+#: src/StackDetail.svelte
 msgid "<0/> Delete…"
 msgstr "<0/> Supprimer…"
 
-#: src/App.svelte
+#: src/StackDetail.svelte
 msgid "<0/> Start"
 msgstr "<0/> Démarrer"
 
-#: src/App.svelte
+#: src/StackDetail.svelte
 msgid "<0/> Stop…"
 msgstr "<0/> Arrêter…"
 
-#: src/App.svelte
 #: src/Dashboard.svelte
 #: src/Dashboard.svelte
+#: src/StackDetail.svelte
 msgid "<0/> Update"
 msgstr "<0/> Mettre à jour"
 
-#: src/App.svelte
+#: src/StackDetail.svelte
 msgid "appjail-director.yml<0/>"
 msgstr "appjail-director.yml<0/>"
 
-#: src/App.svelte
+#: src/StackDetail.svelte
 msgid "compose.yaml<0/>"
 msgstr "compose.yaml<0/>"
 
-#: src/App.svelte
+#: src/StackDetail.svelte
 msgid "Makejail<0/>"
 msgstr "Makejail<0/>"
 
-#: src/App.svelte
-#: src/App.svelte
 #: src/BottomDrawer.svelte
+#: src/StackDetail.svelte
+#: src/StackDetail.svelte
 msgid "Services"
 msgstr "Services"
 
-#: src/App.svelte
+#: src/StackDetail.svelte
 msgid ".env<0/>"
 msgstr ".env<0/>"
 
-#: src/App.svelte
+#: src/StackDetail.svelte
 msgid "Hide the values shown after each ${VAR}"
 msgstr "Masquer les valeurs affichées après chaque ${VAR}"
 
-#: src/App.svelte
+#: src/StackDetail.svelte
 msgid "Show each ${VAR}’s value in the file"
 msgstr "Afficher la valeur de chaque ${VAR} dans le fichier"
 
-#: src/App.svelte
+#: src/StackDetail.svelte
 msgid "Every variable this file uses, and a field to set each"
 msgstr "Chaque variable que ce fichier utilise, et un champ pour chacune"
 
 #. 0: fileMissing
-#: src/App.svelte
+#: src/StackDetail.svelte
 msgid "· {0} missing"
 msgstr "· {0} manquante(s)"
 
-#: src/App.svelte
+#: src/StackDetail.svelte
 msgid "Values"
 msgstr "Valeurs"
 
-#: src/App.svelte
+#: src/StackDetail.svelte
 msgid "Variables<0/>"
 msgstr "Variables<0/>"
 
-#. 0: (selectedStack as any).network
-#: src/App.svelte
+#. 0: (stack as any).network
+#: src/StackDetail.svelte
 msgid ": it has its own address on {0}, so nothing is published on this host's ports, and the app answers on its own port there"
 msgstr " : elle a sa propre adresse sur {0}, donc rien n'est publié sur les ports de cet hôte, et l'application répond sur son propre port là-bas"
 
 #. 0: unusedEnv.length === 1 ? 'it' \\: 'them'
-#: src/App.svelte
+#: src/StackDetail.svelte
 msgid ", so changing {0} has no effect"
 msgstr ", donc changer {0} n'a aucun effet"
 
 #. 0: unusedEnv.length === 1 ? 'is' \\: 'are'
-#: src/App.svelte
+#: src/StackDetail.svelte
 msgid "<0/> {0} not used by this stack<1/>."
 msgstr "<0/> {0} non utilisée(s) par cette pile<1/>."
 
-#. 0: selectedStack.director ? 'director file' \\: 'compose'; 1: unsetVars.length === 1 ? 'is' \\: 'are'; 2: unsetVars.length === 1 ? 'has' \\: 'have'
-#: src/App.svelte
+#. 0: stack.director ? 'director file' \\: 'compose'; 1: unsetVars.length === 1 ? 'is' \\: 'are'; 2: unsetVars.length === 1 ? 'has' \\: 'have'
+#: src/StackDetail.svelte
 msgid "The {0} uses <0/>, which {1} not set here and {2} no default."
 msgstr "Le {0} utilise <0/>, qui {1} pas défini(e) ici et {2} pas de valeur par défaut."
 
 #. 0: unsetVars.length === 1 ? 'it' \\: 'them'
-#: src/App.svelte
+#: src/StackDetail.svelte
 msgid "Add {0}"
 msgstr "Ajouter {0}"
 
-#: src/App.svelte
+#: src/StackDetail.svelte
 msgid "<0/> Still installing — this fills in as soon as the stack is written."
 msgstr "<0/> Installation en cours — ceci se remplit dès que la pile est écrite."
 
-#. 0: Object.entries(selectedStack.state?.choices ?? {}) .map(([c, o]) => `${c.replace(/_/g, ' ')} ${o}`) .join(' · ')
-#: src/App.svelte
+#. 0: Object.entries(stack.state?.choices ?? {}) .map(([c, o]) => `${c.replace(/_/g, ' ')} ${o}`) .join(' · ')
+#: src/StackDetail.svelte
 msgid "Chosen at install: {0}"
 msgstr "Choisi à l'installation : {0}"
 
-#: src/App.svelte
+#: src/StackDetail.svelte
 msgid "What each service holds, and where each one is on the network. Changes apply to the stack on <0>Save</0>."
 msgstr "Ce que chaque service contient, et où chacun se trouve sur le réseau. Les changements s'appliquent à la pile à l'<0>Enregistrement</0>."
 
@@ -1389,12 +1383,12 @@ msgstr "· dernière sortie"
 msgid "<0/> Panel <1/>"
 msgstr "<0/> Panneau <1/>"
 
-#: src/App.svelte
 #: src/ServiceResources.svelte
+#: src/StackDetail.svelte
 msgid "Set"
 msgstr "Définir"
 
-#: src/App.svelte
+#: src/StackDetail.svelte
 msgid "<0/> in .env"
 msgstr "<0/> dans .env"
 
@@ -3047,9 +3041,9 @@ msgstr "Masquer les commandes"
 msgid "Show commands"
 msgstr "Afficher les commandes"
 
-#: src/App.svelte
 #: src/Root.svelte
 #: src/SetupReady.svelte
+#: src/StackDetail.svelte
 msgid "Try again"
 msgstr "Réessayer"
 
@@ -3630,65 +3624,65 @@ msgstr "Nouveau volume"
 msgid "Language"
 msgstr "Langue"
 
+#. 0: u.fromVersion
+#. 0: u.fromVersion
+#. 0: u.fromVersion
 #. 0: updateInfo!.fromVersion
-#. 0: u.fromVersion
-#. 0: u.fromVersion
-#. 0: u.fromVersion
-#: src/App.svelte
 #: src/Dashboard.svelte
 #: src/Dashboard.svelte
 #: src/ServiceResources.svelte
+#: src/StackDetail.svelte
 msgid "v{0} → "
 msgstr "v{0} → "
 
-#: src/App.svelte
+#: src/StackDetail.svelte
 msgid "Up to date — nothing to pull"
 msgstr "À jour — rien à tirer"
 
-#: src/App.svelte
+#: src/StackDetail.svelte
 msgid "Pinned to an exact image — nothing to pull"
 msgstr "Épinglé à une image exacte — rien à tirer"
 
 #. 0: updateInfo.toVersion
-#: src/App.svelte
+#: src/StackDetail.svelte
 msgid "A newer version is published (v{0}) — set it in the compose editor"
 msgstr "Une version plus récente est publiée (v{0}) — indiquez-la dans l'éditeur compose"
 
-#: src/App.svelte
+#: src/StackDetail.svelte
 msgid "Checking it stays up — any action ends the check"
 msgstr "Vérification qu'elle reste en marche — toute action met fin à la vérification"
 
-#: src/App.svelte
+#: src/StackDetail.svelte
 #: src/System.svelte
 msgid "Working…"
 msgstr "Travail en cours…"
 
-#: src/App.svelte
+#: src/StackDetail.svelte
 msgid "director file and Makejail"
 msgstr "fichier director et Makejail"
 
-#: src/App.svelte
+#: src/StackDetail.svelte
 msgid "— deleted with it:"
 msgstr "— supprimés avec elle :"
 
-#: src/App.svelte
+#: src/StackDetail.svelte
 msgid "— kept on disk unless you tick below:"
 msgstr "— gardés sur le disque sauf si vous cochez ci-dessous :"
 
-#: src/App.svelte
+#: src/StackDetail.svelte
 #: src/System.svelte
 msgid "more than "
 msgstr "plus de "
 
-#: src/App.svelte
+#: src/StackDetail.svelte
 msgid "service has"
 msgstr "service a"
 
-#: src/App.svelte
+#: src/StackDetail.svelte
 msgid "services have"
 msgstr "services ont"
 
-#: src/App.svelte
+#: src/StackDetail.svelte
 msgid "director file"
 msgstr "fichier director"
 
@@ -4032,11 +4026,11 @@ msgstr "<0/>Importer"
 msgid "Finish setup"
 msgstr "Terminer la configuration"
 
-#: src/App.svelte
+#: src/StackDetail.svelte
 msgid "Could not change the compose"
 msgstr "Impossible de changer le compose"
 
-#: src/App.svelte
+#: src/StackDetail.svelte
 msgid "Could not set the options"
 msgstr "Impossible de définir les options"
 
@@ -4071,33 +4065,33 @@ msgid "Menu"
 msgstr "Menu"
 
 #. 0: noAddress
-#: src/App.svelte
+#: src/StackDetail.svelte
 msgid "A stack on its own IP publishes nothing on the host, so there is no link to open until the network gives it an address. {0}"
 msgstr "Une pile sur sa propre IP ne publie rien sur l'hôte, il n'y a donc pas de lien à ouvrir tant que le réseau ne lui a pas donné d'adresse. {0}"
 
-#: src/App.svelte
+#: src/StackDetail.svelte
 msgid "<0/> Open <1/>"
 msgstr "<0/> Ouvrir <1/>"
 
-#: src/App.svelte
+#: src/StackDetail.svelte
 msgid "Save or discard your edits first"
 msgstr "Enregistrez ou abandonnez d'abord vos modifications"
 
-#: src/App.svelte
+#: src/StackDetail.svelte
 msgid "Couldn't apply:"
 msgstr "Impossible d'appliquer :"
 
-#: src/App.svelte
+#: src/StackDetail.svelte
 msgid "The running services still use the old configuration. The Output below has the whole message."
 msgstr "Les services en marche utilisent encore l'ancienne configuration. La Sortie ci-dessous a le message complet."
 
 #. 0: unusedEnv.map((n) => `${n}=\\\\${${n}}`).join(', ')
-#: src/App.svelte
+#: src/StackDetail.svelte
 msgid "Add {0} to the app's environment in the compose"
 msgstr "Ajouter {0} à l'environnement de l'application dans le compose"
 
 #. 0: unusedEnv.length === 1 ? 'it' \\: 'them'
-#: src/App.svelte
+#: src/StackDetail.svelte
 msgid "Pass {0} to the app"
 msgstr "Passer {0} à l'application"
 
@@ -4920,7 +4914,7 @@ msgstr "Impossible de charger les versions publiées : {0} <0>Réessayer</0>"
 msgid "{0} — this stack's own network, made by its compose"
 msgstr "{0} — le réseau propre à cette pile, créé par son compose"
 
-#: src/App.svelte
+#: src/StackDetail.svelte
 msgid "An app with its own address answers on its container port; x-fjord web_port is where it would be published at this host's address."
 msgstr ""
 

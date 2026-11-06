@@ -81,6 +81,24 @@ export type UpdateInfo = {
 export type StackFilter = 'all' | 'running' | 'stopped' | 'problem' | 'updates';
 export type GroupMode = 'groups' | 'engine' | 'app' | 'network' | 'status' | 'flat';
 
+// Networks a stack can be given an address on (empty on a host with none).
+// problem: the daemon's reason a network cannot be used here (a CNI plugin
+// that is not installed, typically). The picker grays those out rather than
+// offering an attachment Save would refuse.
+export type Network = { name: string; driver: string; subnet: string; gateway: string; problem?: string; bridge?: string; addressSource?: string };
+export type Attachment = { network: string; service?: string; ip?: string; mac?: string; iface?: string };
+
+// What fjordd says it is doing to a stack. An install or up shows no
+// container for the whole pull; without this the page said "stopped".
+export const BUSY_LABEL: Record<string, string> = {
+  installing: 'Installing…',
+  up: 'Starting…',
+  update: 'Updating…',
+  restart: 'Restarting…',
+  down: 'Stopping…',
+  deleting: 'Deleting…',
+};
+
 // What the UI shows for a stack: its label, falling back to the id.
 export function stackLabel(s: { name: string; displayName?: string } | null | undefined): string {
   return s?.displayName || s?.name || '';
