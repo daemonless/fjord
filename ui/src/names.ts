@@ -131,6 +131,7 @@ export async function checkTrust(trustName: string): Promise<DeviceTrust> {
 
 type NamedStack = AppUrlStack & {
   name: string;
+  displayName?: string;
   services?: { name: string; address?: string }[];
   status?: AppUrlStack['status'] & { state?: string };
 };
@@ -160,7 +161,7 @@ export function nameTargets(stack: NamedStack | null): NameTarget[] {
   const links = serviceLinks(stack.compose || '', env, stack.services || [], location.hostname);
   if (links.length > 1) return links.map((l) => target(`${stack.name}/${l.service}`, l.service, l.url, l.service));
   const raw = appUrl(stack);
-  return raw ? [target(stack.name, stack.name, raw)] : [];
+  return raw ? [target(stack.name, stack.displayName || stack.name, raw)] : [];
 }
 
 /** Where one app opens: its name, unless this browser picked addresses or
