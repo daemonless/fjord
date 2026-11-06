@@ -2,11 +2,16 @@ package main
 
 import (
 	"fmt"
+	"log"
+	"os"
 	"path"
+	"path/filepath"
 	"strings"
 
 	composepkg "github.com/daemonless/fjord/pkg/compose"
+	"github.com/daemonless/fjord/pkg/engine"
 	"github.com/daemonless/fjord/pkg/manifest"
+	"github.com/daemonless/fjord/pkg/stack"
 
 	"gopkg.in/yaml.v3"
 )
@@ -140,4 +145,101 @@ func addOCIEnv(svc *yaml.Node, name string) bool {
 		return false
 	}
 	return true
+}
+
+// appendBannerEnv appends DAEMONLESS_BANNER=color to an .env body when it is
+// not already defined there.
+func appendBannerEnv(env string, parsed map[string]string) string {
+	if _, ok := parsed[bannerVar]; ok {
+		return env
+	}
+	if env != "" && !strings.HasSuffix(env, "\n") {
+		env += "\n"
+	}
+	return env + bannerVar + "=" + bannerDefault + "\n"
+}
+
+// bannerAdoptSpec adds ${DAEMONLESS_BANNER} and DAEMONLESS_BANNER=color to an
+// adopted stack's compose or director spec when it runs a daemonless image and
+// does not set DAEMONLESS_BANNER itself.
+func bannerAdoptSpec(a *engine.AdoptSpec) *engine.AdoptSpec {
+	if a == nil {
+		return nil
+	}
+	envMap := (&stack.Stack{Env: a.Env}).EnvMap()
+	if a.Compose != "" {
+		if c, err := bannerCompose(a.Compose, envMap); err == nil {
+			a.Compose = c
+		}
+	}
+	if a.Director != "" {
+		b := &manifest.AppjailBundle{Director: a.Director, Makejail: a.Makejail}
+		if d, err := setDirectorBanner(a.Director, b); err == nil {
+			a.Director = d
+		}
+	}
+	if strings.Contains(a.Compose, "${"+bannerVar+"}") || strings.Contains(a.Director, "${"+bannerVar+"}") {
+		a.Env = appendBannerEnv(a.Env, envMap)
+	}
+	return a
+}
+
+// ensureStackBanner updates a stack's compose/director and .env in memory with
+// DAEMONLESS_BANNER=color when it runs a daemonless image and does not yet set
+// DAEMONLESS_BANNER. Reports whether anything changed.
+func ensureStackBanner(st *stack.Stack) bool {
+	if st == nil {
+		return false
+	}
+	origCompose, origDirector, origEnv := st.Compose, st.Director, st.Env
+	envMap := st.EnvMap()
+	if st.Compose != "" {
+		if c, err := bannerCompose(st.Compose, envMap); err == nil {
+			st.Compose = c
+		}
+	}
+	if st.Director != "" {
+		extras := map[string]string{}
+		if st.Dir != "" {
+			if matches, err := filepath.Glob(filepath.Join(st.Dir, "*.Makejail")); err == nil {
+				for _, m := range matches {
+					if b, err := os.ReadFile(m); err == nil {
+						extras[filepath.Base(m)] = string(b)
+					}
+				}
+			}
+		}
+		b := &manifest.AppjailBundle{Director: st.Director, Makejail: st.Makejail, Extras: extras}
+		if d, err := setDirectorBanner(st.Director, b); err == nil {
+			st.Director = d
+		}
+	}
+	if strings.Contains(st.Compose, "${"+bannerVar+"}") || strings.Contains(st.Director, "${"+bannerVar+"}") {
+		st.Env = appendBannerEnv(st.Env, envMap)
+	}
+	return st.Compose != origCompose || st.Director != origDirector || st.Env != origEnv
+}
+
+// backfillStackBanners adds DAEMONLESS_BANNER=color to stacks adopted or
+// installed before bannerCompose existed. Best-effort, once per start.
+func backfillStackBanners(m *stack.Manager) {
+	list, err := m.List()
+	if err != nil {
+		return
+	}
+	n := 0
+	for _, item := range list {
+		st, err := m.Get(item.Name)
+		if err != nil {
+			continue
+		}
+		if ensureStackBanner(st) {
+			if err := m.Save(st); err == nil {
+				n++
+			}
+		}
+	}
+	if n > 0 {
+		log.Printf("stack banners: added %s=%s to %d stack(s)", bannerVar, bannerDefault, n)
+	}
 }
