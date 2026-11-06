@@ -481,6 +481,56 @@ func TestAddressCandidatesLoopbackMeansTheHost(t *testing.T) {
 	if got := addressCandidates("127.0.0.1", nil); !reflect.DeepEqual(got, []string{"127.0.0.1"}) {
 		t.Fatalf("no own addresses: %v", got)
 	}
+	if got := addressCandidates("fjord.apps.lan", own); !reflect.DeepEqual(got, []string{"192.168.86.194", "192.168.4.180", "fjord.apps.lan"}) {
+		t.Fatalf("a host name goes after this host's addresses: %v", got)
+	}
+	if got := addressCandidates("fjord.apps.lan", nil); !reflect.DeepEqual(got, []string{"fjord.apps.lan"}) {
+		t.Fatalf("a host name, no own addresses: %v", got)
+	}
+	if got := addressCandidates("localhost", own); !reflect.DeepEqual(got, own) {
+		t.Fatalf("localhost: %v", got)
+	}
+	if got := addressCandidates("", own); !reflect.DeepEqual(got, own) {
+		t.Fatalf("unknown origin: %v", got)
+	}
+}
+
+// An address that only reaches the provider's own port is not the app: the
+// next one is used, and when none is left the name is refused.
+func TestNameSkipsProviderItself(t *testing.T) {
+	const name = "fjord.apps.lan"
+	var saved string
+	selfUnless := ""
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/probe":
+			out := map[string]any{"reachable": true}
+			if a := r.URL.Query().Get("address"); a != selfUnless {
+				out["self"] = true
+			}
+			json.NewEncoder(w).Encode(out)
+		case "/api/v1/hosts":
+			var in struct {
+				Target struct {
+					Address string `json:"address"`
+				} `json:"target"`
+			}
+			json.NewDecoder(r.Body).Decode(&in)
+			saved = in.Target.Address
+			json.NewEncoder(w).Encode(map[string]any{"id": "h", "name": "radarr"})
+		}
+	}))
+	defer srv.Close()
+	p := &provider{Stack: "rp", base: srv.URL, key: "k", pinPath: filepath.Join(t.TempDir(), "p.json")}
+	req := nameRequest{Stack: "radarr", Label: "radarr", Address: name, Port: 80}
+
+	if res := p.name(context.Background(), req); res.Host != nil || !strings.Contains(res.Error, "cannot reach") {
+		t.Fatalf("only the provider itself answered: %+v", res)
+	}
+	selfUnless = name
+	if res := p.name(context.Background(), req); res.Host == nil || saved != name {
+		t.Fatalf("the app answered at the last address: %+v, saved %q", res, saved)
+	}
 }
 
 // A deleted stack's name goes whatever form its ref has: the id form, or

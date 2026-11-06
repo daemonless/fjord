@@ -76,6 +76,9 @@ describe('freeName', () => {
 });
 
 describe('nameTargets', () => {
+  it('suggests the name the person gave the app, keyed by its id', () => {
+    expect(nameTargets({ ...radarr, name: 'tally-aj', displayName: 'Tally' })).toMatchObject([{ key: 'tally-aj', label: 'tally' }]);
+  });
   it('points the name where a browser opens the app', () => {
     expect(nameTargets(radarr)).toMatchObject([{ key: 'radarr', label: 'radarr', address: '192.168.4.103', port: 7878, https: false }]);
   });

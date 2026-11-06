@@ -745,6 +745,7 @@ func (p *provider) name(ctx context.Context, n nameRequest) nameResult {
 		Reachable     bool `json:"reachable"`
 		HTTPS         bool `json:"https"`
 		UntrustedCert bool `json:"untrustedCert"`
+		Self          bool `json:"self"` // the provider's own 80 or 443: a name there would loop
 	}
 	// The address is the one the browser reached fjord on. A provider on
 	// another machine may not reach it (a host on two networks, opened from
@@ -753,15 +754,17 @@ func (p *provider) name(ctx context.Context, n nameRequest) nameResult {
 	address := n.Address
 	tried := []string{}
 	for _, addr := range addressCandidates(n.Address, hostIPv4s()) {
+		pr.Reachable, pr.Self = false, false // self is left out when false; keep none from the last try
 		q := url.Values{"address": {addr}, "port": {strconv.Itoa(n.Port)}}
 		if _, err := p.call(ctx, "GET", "/api/v1/probe?"+q.Encode(), nil, &pr); err != nil {
 			res.Error = err.Error()
 			return res
 		}
-		if pr.Reachable {
+		if pr.Reachable && !pr.Self {
 			address = addr
 			break
 		}
+		pr.Reachable = false // reached only itself, the last try included
 		tried = append(tried, fmt.Sprintf("%s:%d", addr, n.Port))
 	}
 	if !pr.Reachable {
@@ -841,13 +844,19 @@ func hostIPv4s() []string {
 // order: the address the browser used, then this host's others when that
 // was one of them. A loopback address is the browser sitting on the host
 // itself (http://localhost:3567): no provider elsewhere can reach that, so
-// the host's own addresses stand in for it from the start.
+// the host's own addresses stand in for it from the start. A host name is
+// this host too (an app's own address is always an IP), but it may resolve
+// to the provider itself, so its addresses go first and the name last.
 func addressCandidates(addr string, own []string) []string {
-	if ip := net.ParseIP(addr); ip != nil && ip.IsLoopback() {
+	ip := net.ParseIP(addr)
+	if addr == "" || addr == "localhost" || (ip != nil && ip.IsLoopback()) {
 		if len(own) > 0 {
 			return own
 		}
 		return []string{addr}
+	}
+	if ip == nil {
+		return append(append([]string{}, own...), addr)
 	}
 	return append([]string{addr}, otherHostAddresses(addr, own)...)
 }
