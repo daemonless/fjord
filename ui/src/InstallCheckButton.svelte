@@ -18,16 +18,20 @@
   async function install() {
     busy = true;
     try {
-      const res = await fetch('/api/setup/install', {
+      const res = await fetch('/api/conditions/fix', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id, timezone: browserZone() }),
       });
-      if (!res.ok) throw new Error((await res.text()).trim() || `HTTP ${res.status}`);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.fixed) {
+        throw new Error(data.error || data.detail || `HTTP ${res.status}`);
+      }
       toast(`${label === 'Install' ? 'Installed' : 'Done'}: ${name}`, { kind: 'success' });
       dispatch('installed');
     } catch (e: any) {
       toast(`${label === 'Install' ? 'Could not install' : 'Could not fix'} ${name}: ${e.message}`, { kind: 'error' });
+      dispatch('installed');
     } finally {
       busy = false;
     }
