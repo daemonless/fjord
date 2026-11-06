@@ -26,6 +26,10 @@ export type NamesState = {
   /** Labels every other host on the provider holds: another fjord's, or
    *  made by hand. A suggested name avoids them. */
   taken?: string[];
+  /** Where the hosts made by hand on the provider point. */
+  handMade?: { address: string; port: number }[];
+  /** This host's addresses: the same app can be reached at any of them. */
+  hostAddrs?: string[];
   /** Linked by hand (Settings, Names): a proxy on another machine. */
   linked?: boolean;
   /** Where a linked proxy's name resolves: a stack here at one of them is it. */
@@ -292,18 +296,26 @@ export function skipNames(keys: string[]): void {
   });
 }
 
+/** A host made by hand already points at this app: at its address, or at
+ *  this host on the same port when the app is published here. */
+export function handNamed(t: NameTarget, p: NamesState): boolean {
+  const onHost = (a: string) => a === location.hostname || !!p.hostAddrs?.includes(a);
+  return !!p.handMade?.some((h) => h.port === t.port && (h.address === t.address || (onHost(h.address) && onHost(t.address))));
+}
+
 /** Apps that could have a name and have none yet (not the provider itself).
  *  Only stacks that declare a web_port are offered automatically: TCP/UDP
  *  services (samba, wireguard, databases) and adopted/hand-written stacks
  *  without an x-fjord web_port hint are never nagged by the banner (a stack
  *  with a port can still be named on its own page). A stopped stack is left
- *  out until it runs, and keys in skipped were dismissed with "Never name this". */
+ *  out until it runs, keys in skipped were dismissed with "Never name this",
+ *  and an app a hand-made host points at has its name already. */
 export function unnamed(stacks: NamedStack[], p: NamesState, skipped: Iterable<string> = []): NameTarget[] {
   const skip = new Set(skipped);
   const stopped = (s: NamedStack) => !!s.status?.state && s.status.state !== 'running' && s.status.state !== 'partial';
   return stacks
     .filter((s) => s.name !== p.provider && !stopped(s) && hasWebPort(s))
-    .flatMap((s) => nameTargets(s).filter((t) => !p.names?.[t.key] && !skip.has(t.key)));
+    .flatMap((s) => nameTargets(s).filter((t) => !p.names?.[t.key] && !skip.has(t.key) && !handNamed(t, p)));
 }
 
 export type NameResult = { stack: string; host?: AppName; error?: string };

@@ -429,6 +429,19 @@ func TestRenameKeepsTheHost(t *testing.T) {
 	}
 }
 
+// Only a host with no ref is hand made: one with a ref belongs to a fjord,
+// this one or another, and is looked after there.
+func TestHandMadeTargets(t *testing.T) {
+	var hand, ours, other, blank providerHost
+	hand.Target.Address, hand.Target.Port = "192.168.4.103", 8000
+	ours.Ref, ours.Target.Address = nameRef("radarr"), "192.168.4.103"
+	other.Ref, other.Target.Address = "fjord:elsewhere:sonarr", "192.168.4.50"
+	got := handMadeTargets([]providerHost{hand, ours, other, blank})
+	if !reflect.DeepEqual(got, []handMadeTarget{{"192.168.4.103", 8000}}) {
+		t.Fatalf("hand made: %+v", got)
+	}
+}
+
 // Other fjords' names and hand-made ones are taken; this fjord's own are
 // not (they are its names, by stack).
 func TestTakenNamesLeavesOutOurOwn(t *testing.T) {
