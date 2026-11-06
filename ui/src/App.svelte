@@ -1438,7 +1438,9 @@
     if (!selectedStack) return;
     const found = stacks.find((s) => s.name === selectedStack!.name);
     if (!found) {
-      selectStack(null);
+      // Only a stack that was on the server can have been deleted. A "+" draft
+      // or a store install still in flight has no dir and isn't listed yet.
+      if (selectedStack.dir) selectStack(null);
       return;
     }
     selectedStack = { ...selectedStack, busy: found.busy };
