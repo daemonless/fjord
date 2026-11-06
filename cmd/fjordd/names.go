@@ -527,7 +527,12 @@ type namesView struct {
 	// fjord's, or made by hand), so a suggested name is free before it is
 	// offered, not refused after.
 	Taken []string `json:"taken,omitempty"`
-	Error string   `json:"error,omitempty"`
+	// HandMade is where the hosts made by hand point, and HostAddrs is this
+	// host's addresses: an app one of them already points at is not offered
+	// a second name.
+	HandMade  []handMadeTarget `json:"handMade,omitempty"`
+	HostAddrs []string         `json:"hostAddrs,omitempty"`
+	Error     string           `json:"error,omitempty"`
 	// Linked: the provider was linked by hand (Settings, Names), not
 	// installed here. Self is this fjord, as providers see it.
 	Linked bool `json:"linked,omitempty"`
@@ -594,6 +599,8 @@ func (s *server) namesState(ctx context.Context) namesView {
 		}
 	}
 	v.Taken = takenNames(hosts)
+	v.HandMade = handMadeTargets(hosts)
+	v.HostAddrs = hostIPv4s()
 	return v
 }
 
@@ -628,6 +635,24 @@ func (s *server) sayHello(ctx context.Context, p *provider, self Instance) {
 	s.helloMu.Lock()
 	s.hello = key
 	s.helloMu.Unlock()
+}
+
+// handMadeTarget is where a host fjord did not make points.
+type handMadeTarget struct {
+	Address string `json:"address"`
+	Port    int    `json:"port"`
+}
+
+// handMadeTargets is the target of every host with no ref. A ref is a host
+// some fjord or other tool made and keeps; only one made by hand has none.
+func handMadeTargets(hosts []providerHost) []handMadeTarget {
+	var out []handMadeTarget
+	for _, h := range hosts {
+		if h.Ref == "" && h.Target.Address != "" {
+			out = append(out, handMadeTarget{h.Target.Address, h.Target.Port})
+		}
+	}
+	return out
 }
 
 // takenNames is every label on the provider that is not this fjord's own,

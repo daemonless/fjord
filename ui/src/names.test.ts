@@ -111,6 +111,14 @@ describe('nameLabel', () => {
 });
 
 describe('unnamed', () => {
+  it('leaves out an app a hand-made host already points at', () => {
+    const p = (handMade: { address: string; port: number }[]): NamesState => ({ ready: true, handMade, hostAddrs: ['10.0.0.9'] });
+    const key = (x: NamesState) => unnamed([radarr], x).map((t) => t.key);
+    expect(key(p([{ address: location.hostname, port: 7878 }]))).toEqual([]);
+    expect(key(p([{ address: '10.0.0.9', port: 7878 }]))).toEqual([]);
+    expect(key(p([{ address: '10.0.0.9', port: 7879 }]))).toEqual(['radarr']);
+    expect(key(p([{ address: '10.0.0.77', port: 7878 }]))).toEqual(['radarr']);
+  });
   it('leaves out named apps, the provider itself and apps with no page', () => {
     const db = { name: 'pg', compose: 'services: {}\n', state: { origin: { type: 'catalog' } } };
     const samba = {
