@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { tick } from 'svelte';
+  import { onMount, tick } from 'svelte';
   import { staleNote } from './staleNote';
   import { ensureRemoteVolume, remoteKind } from './remote';
   import Editor from './Editor.svelte';
@@ -420,6 +420,7 @@
       folderSets = [];
     }
   }
+  onMount(loadFolderSets);
   async function addFolderSet(service: string, setId: string, at: string, readOnly: boolean, options: string[] = []) {
     const set = folderSets.find((s) => s.id === setId);
     if (!stack || !set) return;

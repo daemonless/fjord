@@ -912,6 +912,10 @@
   <div
     class="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center-safe justify-center overflow-y-auto z-50 p-4"
     on:click|self={() => (creating = false)}
+    role="dialog"
+    aria-modal="true"
+    aria-label="New Network"
+    tabindex="-1"
   >
     <div class="bg-fjord-card border border-fjord-border rounded-xl shadow-2xl w-full max-w-lg p-6">
       <h3 class="text-lg font-bold text-fjord-fg mb-4">New Network</h3>

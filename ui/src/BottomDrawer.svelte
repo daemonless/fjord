@@ -106,7 +106,8 @@
 
   export async function streamLogs(name: string) {
     logController?.abort();
-    logController = new AbortController();
+    const ctrl = new AbortController();
+    logController = ctrl;
     logStacking = name;
     containerLogs[name] = ''; // backend announces its own "$ command" header
     open = true;
@@ -116,12 +117,12 @@
     const all = selected.length === shellContainers.length;
     if (shellContainers.length > 1 && selected.length === 0) {
       containerLogs[name] = '[no services selected: pick one under Services, or All]\n';
-      logStacking = '';
+      if (logController === ctrl) logStacking = '';
       return;
     }
     try {
       const scope = all ? '' : selected.map((c) => `&container=${encodeURIComponent(c)}`).join('');
-      const res = await fetch(`/api/stacks/${name}/logs?follow=1&tail=200${scope}`, { signal: logController.signal });
+      const res = await fetch(`/api/stacks/${name}/logs?follow=1&tail=200${scope}`, { signal: ctrl.signal });
       if (!res.ok) {
         // The daemon says why; the status alone told nobody anything.
         containerLogs[name] += `[ERROR]: ${(await res.text()).trim() || `HTTP ${res.status}`}\n`;
@@ -132,14 +133,18 @@
         const decoder = new TextDecoder('utf-8');
         while (true) {
           const { done, value } = await reader.read();
-          if (done) break;
-          containerLogs[name] += decoder.decode(value);
+          if (done) {
+            const tail = decoder.decode();
+            if (tail) containerLogs[name] += tail;
+            break;
+          }
+          containerLogs[name] += decoder.decode(value, { stream: true });
         }
       }
     } catch (err: any) {
       if (err?.name !== 'AbortError') containerLogs[name] += `[ERROR]: ${err?.message || err}\n`;
     } finally {
-      if (logStacking === name) logStacking = '';
+      if (logController === ctrl && logStacking === name) logStacking = '';
     }
   }
 
@@ -318,11 +323,13 @@
         </div>
       {/if}
     {:else}
-      <Terminal
-        bind:logs={outputLogs}
-        status={termStatus}
-        {statusMessage}
-      />
+      {#key stack.name}
+        <Terminal
+          bind:logs={outputLogs}
+          status={termStatus}
+          {statusMessage}
+        />
+      {/key}
     {/if}
   </div>
 {:else}

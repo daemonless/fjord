@@ -43,6 +43,7 @@
     createOutputFollower,
     createRunTracker,
     formatActionHttpError,
+    latest,
     readActionStream,
   } from './actions';
 
@@ -351,6 +352,15 @@
   // navigating: the page they are on now is the one they chose.
   const stillWatching = (name: string) => currentView === 'stacks' && selectedStack?.name === name;
 
+  const nextStackLoad = latest();
+
+  function confirmDiscardIfDirty(nextName: string | undefined): boolean {
+    if (!isDirty || !selectedStack || nextName === selectedStack.name) return true;
+    return typeof window === 'undefined' || typeof window.confirm !== 'function'
+      ? true
+      : window.confirm(`Discard unsaved changes to ${selectedStack.name}?`);
+  }
+
   async function selectStack(stack: Stack | null) {
     // Only when moving to a DIFFERENT stack. Re-selecting the one already open
     // is a refresh, not navigation -- and the install flow does exactly that
@@ -359,7 +369,9 @@
     // the first few seconds after a create.
     // Services first: what runs, where it answers, what is behind. A draft
     // has no services yet -- it is a compose being written.
-    if (stack?.name !== selectedStack?.name) activeTab = stack?.dir ? 'net' : 'compose';
+    const isLatest = nextStackLoad();
+    const switching = stack?.name !== selectedStack?.name;
+    if (switching) activeTab = stack?.dir ? 'net' : 'compose';
     updateInfo = null;
     stackDetail?.resetLogs();
     if (!stack) {
@@ -378,15 +390,19 @@
     if (!full) {
       try {
         const res = await fetch(`/api/stacks/${stack.name}`);
+        if (!isLatest()) return;
         if (res.ok) {
           stack = await res.json();
           full = true;
         }
-      } catch {}
+      } catch {
+        if (!isLatest()) return;
+      }
     }
+    if (!isLatest()) return;
     if (!full) stack = { ...stack!, listOnly: true };
     selectedStack = stack;
-    currentView = 'stacks'; // selecting a stack always means the Stacks section
+    if (switching) currentView = 'stacks'; // selecting a stack always means the Stacks section
     showActionOutput(stack!.name);
     originalCompose = stack!.compose;
     originalEnv = stack!.env;
@@ -434,13 +450,13 @@
   // the stack the hash selected -- and they finish in no fixed order. The
   // later request wins; without this the earlier one could land last and
   // replace the list under the page.
-  let netsSeq = 0;
+  const nextNetsLoad = latest();
   async function loadNetworks(stackId?: string) {
-    const seq = ++netsSeq;
+    const isLatest = nextNetsLoad();
     try {
       const q = stackId ? '?stack=' + encodeURIComponent(stackId) : '';
       const res = await fetch('/api/networks' + q);
-      if (res.ok && seq === netsSeq) networks = (await res.json()) || []; // null when none -> []
+      if (res.ok && isLatest()) networks = (await res.json()) || []; // null when none -> []
     } catch {}
   }
 
@@ -639,8 +655,8 @@
     const wasBusy = selectedStack?.busy;
     await loadStacks();
     loadConditions();
-    loadNetworks();
-    loadVolumes();
+    loadNetworks(selectedStack?.name);
+    loadVolumes(selectedStack?.name);
     loadFleetUpdates();
     if (!document.hidden && (!eventSource || eventSource.readyState === EventSource.CLOSED)) subscribeEvents();
     if (!selectedStack) return;
@@ -673,6 +689,7 @@
     window.removeEventListener(SIGNED_IN, signedInAgain);
     document.removeEventListener('visibilitychange', eventsFollowVisibility);
     clearTimeout(hiddenTimer);
+    clearTimeout(sseRetryTimer);
     eventSource?.close();
     unwatchTheme?.();
   });
@@ -682,6 +699,10 @@
   function revert() {
     if (!selectedStack) return;
     selectedStack = { ...selectedStack, compose: originalCompose, env: originalEnv, ...(isDirector ? { director: originalDirector, makejail: originalMakejail } : {}) };
+    seedSvcNets(selectedStack);
+    volChoice = '';
+    volPath = '';
+    volRO = false;
     toast('Reverted to the last saved version', { kind: 'success' });
   }
 
@@ -700,6 +721,7 @@
       toast("This stack's files did not load, so there is nothing safe to save. Open it again.", { kind: 'error' });
       return;
     }
+    const savedName = selectedStack.name;
     saving = true;
     try {
       const body: Record<string, unknown> = {
@@ -733,7 +755,7 @@
         body.volumePath = volPath.trim();
         body.volumeRO = volRO;
       }
-      const res = await fetch(`/api/stacks/${selectedStack.name}/save`, {
+      const res = await fetch(`/api/stacks/${savedName}/save`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
@@ -741,26 +763,32 @@
       if (res.ok) {
         saveConflict = '';
         const saved = await res.json().catch(() => ({}));
-        if (saved.composeHash) selectedStack!.composeHash = saved.composeHash;
+        if (selectedStack?.name === savedName && saved.composeHash) {
+          selectedStack.composeHash = saved.composeHash;
+        }
         // If we injected networks/a volume the on-disk compose changed;
         // re-fetch it so the editor shows the real (injected) compose.
         // NB "networks", plural: the singular field is gone, and testing only
         // the singular here left the Unsaved badge on forever after a network
         // save.
         if (body.networks || body.network || body.volume) {
-          const detail = await fetch(`/api/stacks/${selectedStack.name}`);
-          if (detail.ok) {
+          const detail = await fetch(`/api/stacks/${savedName}`);
+          if (detail.ok && selectedStack?.name === savedName) {
             selectedStack = await detail.json();
             seedSvcNets(selectedStack);
           }
-          volChoice = '';
-          volPath = '';
-          volRO = false;
+          if (selectedStack?.name === savedName) {
+            volChoice = '';
+            volPath = '';
+            volRO = false;
+          }
         }
-        originalCompose = selectedStack!.compose;
-        originalEnv = selectedStack!.env;
-        originalDirector = selectedStack!.director ?? '';
-        originalMakejail = selectedStack!.makejail ?? '';
+        if (selectedStack?.name === savedName) {
+          originalCompose = selectedStack.compose;
+          originalEnv = selectedStack.env;
+          originalDirector = selectedStack.director ?? '';
+          originalMakejail = selectedStack.makejail ?? '';
+        }
         toast('Changes saved', { kind: 'success' });
         // A secret changed on a stack that has run: its database kept the
         // old one, and the app may be refused with no other explanation.
@@ -768,17 +796,19 @@
         // A running container keeps its creation-time config (ports, env) --
         // saved changes only apply on a recreate (`up`), NOT on restart. Flag
         // it so the UI can offer "Apply".
-        if (statusLabel(selectedStack!.status) === 'running' || statusLabel(selectedStack!.status) === 'partial') {
-          needsApply[selectedStack!.name] = true;
+        if (selectedStack?.name === savedName && (statusLabel(selectedStack.status) === 'running' || statusLabel(selectedStack.status) === 'partial')) {
+          needsApply[savedName] = true;
         }
-        applyDismissed[selectedStack!.name] = false;
-        await refreshState(selectedStack!.name);
+        applyDismissed[savedName] = false;
+        await refreshState(savedName);
         await loadStacks();
       } else if (res.status === 409) {
-        saveConflict = selectedStack.name;
+        saveConflict = savedName;
       } else {
         toast((await res.text()).trim() || `HTTP ${res.status}`, { kind: 'error' });
       }
+    } catch (err: any) {
+      toast(`Save failed: ${err?.message || err}`, { kind: 'error' });
     } finally {
       saving = false;
     }
@@ -891,11 +921,18 @@
   // starts, stops and crashes (including external ones) without polling. The
   // baseline is the initial loadStacks(); this applies only deltas.
   let eventSource: EventSource | null = null;
+  let sseRetryTimer: ReturnType<typeof setTimeout> | undefined;
+  let sseRetryDelay = 1500;
   function subscribeEvents() {
+    clearTimeout(sseRetryTimer);
     try {
+      eventSource?.close();
       eventSource = new EventSource('/api/events');
+      const hadFailed = sseRetryDelay > 1500;
       eventSource.onopen = () => {
-        loadConditions();
+        sseRetryDelay = 1500;
+        if (hadFailed) resync();
+        else loadConditions();
       };
       eventSource.onmessage = (e) => {
         try {
@@ -903,9 +940,20 @@
         } catch {}
       };
       // The browser retries a dropped stream by itself, but gives up on an
-      // answer like 401: then the session may have ended.
+      // answer like 401 or 502: check the session and reopen with backoff.
       eventSource.onerror = () => {
-        if (eventSource?.readyState === EventSource.CLOSED) checkSession();
+        if (eventSource?.readyState === EventSource.CLOSED) {
+          checkSession();
+          if (!document.hidden) {
+            const delay = sseRetryDelay;
+            sseRetryDelay = Math.min(sseRetryDelay * 2, 15000);
+            sseRetryTimer = setTimeout(() => {
+              if (!document.hidden && (!eventSource || eventSource.readyState === EventSource.CLOSED)) {
+                subscribeEvents();
+              }
+            }, delay);
+          }
+        }
       };
     } catch {}
   }
@@ -1215,6 +1263,12 @@
 
 <!-- Keys: the table in shortcuts.ts; never while typing in a field. -->
 <svelte:window
+  on:beforeunload={(e) => {
+    if (isDirty) {
+      e.preventDefault();
+      e.returnValue = '';
+    }
+  }}
   on:keydown={(e) => {
     if (typing(e)) return;
     const s = matchShortcut(e);
@@ -1226,7 +1280,7 @@
     e.preventDefault();
     if (s.action === 'help') showShortcuts = !showShortcuts;
     else if (s.action === 'search') (document.getElementById(currentView === 'store' ? 'app-search' : 'stack-search') as HTMLInputElement | null)?.focus();
-    else if (s.action === 'refresh') { loadStacks(); loadConditions(); loadNetworks(); loadVolumes(); loadFleetUpdates(); toast('Refreshed'); }
+    else if (s.action === 'refresh') { loadStacks(); loadConditions(); loadNetworks(selectedStack?.name); loadVolumes(selectedStack?.name); loadFleetUpdates(); toast('Refreshed'); }
     else if (s.go) location.hash = s.go;
   }}
 />
@@ -1248,10 +1302,15 @@
     {narrow}
     bind:navOpen
     onReload={loadStacks}
-    on:select={(e) => selectStack(e.detail)}
-    on:new={() => selectStack(newStackDraft())}
+    on:select={(e) => {
+      if (confirmDiscardIfDirty(e.detail?.name)) selectStack(e.detail);
+    }}
+    on:new={() => {
+      if (confirmDiscardIfDirty(undefined)) selectStack(newStackDraft());
+    }}
     on:update-all={openUpdateAll}
     on:navigate={(e) => {
+      if (!confirmDiscardIfDirty(undefined)) return;
       selectStack(null);
       if (e.detail.settingsTab) settingsTab = e.detail.settingsTab;
       currentView = e.detail.view;
@@ -1411,7 +1470,13 @@
 {/if}
 
 {#if deleting}
-  <div class="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center-safe justify-center overflow-y-auto z-50 p-4">
+  <div
+    class="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center-safe justify-center overflow-y-auto z-50 p-4"
+    role="dialog"
+    aria-modal="true"
+    aria-label="Deleting {deleting}"
+    tabindex="-1"
+  >
     <div class="bg-fjord-card border border-fjord-border rounded-xl shadow-2xl w-full max-w-sm p-8 flex flex-col items-center text-center gap-4">
       <div class="w-14 h-14 rounded-full bg-fjord-danger/15 border border-fjord-danger/30 flex items-center justify-center text-fjord-danger">
         <Spinner size={26} class="text-fjord-danger" />

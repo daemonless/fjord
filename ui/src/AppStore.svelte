@@ -469,6 +469,10 @@
     <div
       class="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center-safe justify-center overflow-y-auto z-40 p-4"
       on:click|self={() => (detailApp = null)}
+      role="dialog"
+      aria-modal="true"
+      aria-label={detailApp.name}
+      tabindex="-1"
     >
       <div class="bg-fjord-card border border-fjord-border rounded-xl shadow-2xl w-full max-w-xl p-7">
         <div class="flex items-start gap-5">
