@@ -117,6 +117,17 @@ func cachedImageSize(ctx context.Context, image string) (int64, bool) {
 	n, _, err := registryImageSize(sctx, image)
 	e = sizeEntry{bytes: n, ok: err == nil && n > 0, at: time.Now()}
 	sizeMu.Lock()
+	if len(sizeCache) >= 512 {
+		now := time.Now()
+		for k, v := range sizeCache {
+			if now.Sub(v.at) >= sizeTTL {
+				delete(sizeCache, k)
+			}
+		}
+		if len(sizeCache) >= 512 {
+			clear(sizeCache)
+		}
+	}
 	sizeCache[image] = e
 	sizeMu.Unlock()
 	return e.bytes, e.ok

@@ -50,7 +50,12 @@ func secretNames(m *manifest.Manifest) map[string]bool {
 func reuseSecrets(root, dataDir string, m *manifest.Manifest, values map[string]string) []string {
 	b, err := os.ReadFile(secretsPath(root, dataDir))
 	if err != nil {
-		if b, err = os.ReadFile(filepath.Join(dataDir, secretsFile)); err != nil {
+		legacy := filepath.Join(dataDir, secretsFile)
+		fi, stErr := os.Lstat(legacy)
+		if stErr != nil || !fi.Mode().IsRegular() {
+			return nil
+		}
+		if b, err = os.ReadFile(legacy); err != nil {
 			return nil
 		}
 	}

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -142,7 +141,7 @@ func saveSettings(fjordRoot string, s savedSettings) error {
 		os.Remove(tmp.Name())
 		return err
 	}
-	if err := os.Chmod(tmp.Name(), 0o644); err != nil {
+	if err := os.Chmod(tmp.Name(), 0o600); err != nil {
 		os.Remove(tmp.Name())
 		return err
 	}
@@ -207,8 +206,8 @@ func (s *server) handleCatalogs(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "catalog name required", 400)
 			return
 		}
-		if u, err := url.Parse(req.URL); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
-			http.Error(w, "catalog URL must be http(s)://...", 400)
+		if err := catalog.ValidSourceURL(req.URL); err != nil {
+			http.Error(w, err.Error(), 400)
 			return
 		}
 		sources := s.cat.Sources()

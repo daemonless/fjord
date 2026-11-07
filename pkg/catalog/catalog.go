@@ -16,7 +16,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path"
 	"path/filepath"
@@ -58,8 +60,39 @@ func New(dir string, sources []Source) *Cache {
 	return &Cache{
 		dir:     dir,
 		sources: append([]Source(nil), sources...),
-		client:  &http.Client{Timeout: 30 * time.Second},
+		client: &http.Client{
+			Timeout: 30 * time.Second,
+			CheckRedirect: func(req *http.Request, via []*http.Request) error {
+				if len(via) >= 10 {
+					return errors.New("stopped after 10 redirects")
+				}
+				if len(via) > 0 && via[len(via)-1].URL.Scheme == "https" && req.URL.Scheme != "https" {
+					return errors.New("refusing redirect from https to non-https URL")
+				}
+				return nil
+			},
+		},
 	}
+}
+
+// ValidSourceURL checks that raw is a valid catalog URL: https:// is required
+// unless the host is localhost, loopback, or a private/link-local IP address.
+func ValidSourceURL(raw string) error {
+	u, err := url.Parse(raw)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return errors.New("catalog URL must be https://... (or http:// for a local address)")
+	}
+	if u.Scheme == "https" {
+		return nil
+	}
+	h := strings.ToLower(u.Hostname())
+	if h == "localhost" || strings.HasSuffix(h, ".localhost") || strings.HasSuffix(h, ".local") || strings.HasSuffix(h, ".lan") {
+		return nil
+	}
+	if ip := net.ParseIP(h); ip != nil && (ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast()) {
+		return nil
+	}
+	return errors.New("catalog URL must use https:// (plain http:// is only allowed for localhost or private network addresses)")
 }
 
 // Sources returns the configured sources (not including the local seed).
@@ -236,6 +269,8 @@ func (c *Cache) Merged() ([]byte, error) {
 			// Local seed keeps its original /catalog/... paths (that's where
 			// its files are); configured sources are scoped by id. Sparse
 			// display fields ride along so the group can coalesce them.
+			a["upstream_url"] = cleanHTTPURL(a["upstream_url"])
+			a["web_url"] = cleanHTTPURL(a["web_url"])
 			src := map[string]any{
 				"catalog":      id,
 				"catalog_name": name,
@@ -511,15 +546,40 @@ func fileExists(p string) bool {
 }
 
 // pullIcon fetches an app's icon from wherever the catalog points -- an
-// absolute URL (Iconify fallback) or a /catalog/icons/... path relative to
-// the source.
+// absolute URL on the same host as the source, or a /catalog/icons/... path
+// relative to the source.
 func (c *Cache) pullIcon(ctx context.Context, src Source, icon string) (data []byte, ext string, ok bool) {
 	if strings.HasPrefix(icon, "http") {
+		if !sameHost(icon, src.URL) {
+			return nil, "", false
+		}
 		b, err := c.get(ctx, icon)
 		return b, ".svg", err == nil
 	}
 	b, err := c.fetch(ctx, src, strings.TrimPrefix(icon, "/catalog/"))
 	return b, path.Ext(icon), err == nil
+}
+
+func sameHost(rawA, rawB string) bool {
+	ua, errA := url.Parse(rawA)
+	ub, errB := url.Parse(rawB)
+	if errA != nil || errB != nil || ua.Host == "" || ub.Host == "" {
+		return false
+	}
+	return strings.EqualFold(ua.Host, ub.Host)
+}
+
+func cleanHTTPURL(v any) string {
+	s, _ := v.(string)
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return ""
+	}
+	u, err := url.Parse(s)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return ""
+	}
+	return s
 }
 
 func (c *Cache) fetch(ctx context.Context, src Source, rel string) ([]byte, error) {

@@ -343,6 +343,24 @@ func (p *provider) status(ctx context.Context) (providerStatus, int, error) {
 	code, err := p.call(ctx, "GET", "/api/v1/status", nil, &st)
 	if errors.Is(err, errUntrusted) {
 		was := p.pin
+		if was != nil && was.Root != "" {
+			// Its own root when setup finished, public certificates now
+			// (they arrive after: a free name, a DNS token). Checked first
+			// so this path verifies against the public roots without ever
+			// dropping TLS verification or sending the key unverified.
+			p.pin = &providerPin{TrustName: was.TrustName}
+			var pub providerStatus
+			if code3, err3 := p.call(ctx, "GET", "/api/v1/status", nil, &pub); err3 == nil && pub.Setup.Complete && pub.ProxyName == was.TrustName {
+				if err := p.savePin(p.pin); err != nil {
+					return pub, code3, err
+				}
+				return pub, code3, nil
+			}
+			p.pin = was
+		}
+		if p.linked {
+			return st, code, err
+		}
 		p.pin = nil
 		var again providerStatus
 		code2, err2 := p.call(ctx, "GET", "/api/v1/status", nil, &again)
@@ -356,19 +374,6 @@ func (p *provider) status(ctx context.Context) (providerStatus, int, error) {
 				return again, code2, fmt.Errorf("cannot take its root certificate: %v", err)
 			}
 			return again, code2, nil
-		case err2 == nil && again.Setup.Complete && again.ProxyName == was.TrustName && was.Root != "":
-			// Its own root when setup finished, public certificates now
-			// (they arrive after: a free name, a DNS token). Trusted only
-			// if it verifies against the public roots, which nobody can
-			// fake for this name (netlab, 2026-10-27).
-			p.pin = &providerPin{TrustName: was.TrustName}
-			var pub providerStatus
-			if code3, err3 := p.call(ctx, "GET", "/api/v1/status", nil, &pub); err3 == nil {
-				if err := p.savePin(p.pin); err != nil {
-					return pub, code3, err
-				}
-				return pub, code3, nil
-			}
 		}
 		p.pin = was
 		return st, code, err
@@ -393,7 +398,7 @@ func (p *provider) pinRoot(ctx context.Context, trustName string) error {
 		Fingerprint string `json:"fingerprint"`
 		RootURL     string `json:"rootUrl"`
 	}
-	if _, err := p.call(ctx, "GET", "/api/v1/trust", nil, &trust); err != nil {
+	if _, err := p.callNoAuth(ctx, "GET", "/api/v1/trust", &trust); err != nil {
 		return err
 	}
 	if !trust.Needed {
@@ -435,6 +440,32 @@ func (p *provider) call(ctx context.Context, method, path string, in, out any) (
 		body = bytes.NewReader(b)
 	}
 	return p.send(ctx, method, path, body, "application/json", out)
+}
+
+func (p *provider) callNoAuth(ctx context.Context, method, path string, out any) (int, error) {
+	req, err := http.NewRequestWithContext(ctx, method, p.base+path, nil)
+	if err != nil {
+		return 0, err
+	}
+	resp, err := p.client().Do(req)
+	if err != nil {
+		var certErr *tls.CertificateVerificationError
+		if errors.As(err, &certErr) {
+			return 0, errUntrusted
+		}
+		return 0, fmt.Errorf("%s is not answering at %s", p.Stack, p.base)
+	}
+	defer resp.Body.Close()
+	data, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if resp.StatusCode >= 300 {
+		return resp.StatusCode, fmt.Errorf("%s: %s", path, resp.Status)
+	}
+	if out != nil && len(data) > 0 {
+		if err := json.Unmarshal(data, out); err != nil {
+			return resp.StatusCode, err
+		}
+	}
+	return resp.StatusCode, nil
 }
 
 // send is call with a body that is not JSON (an icon).

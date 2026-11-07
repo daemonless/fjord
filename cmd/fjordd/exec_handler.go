@@ -153,6 +153,7 @@ func (s *server) stackExec(w http.ResponseWriter, r *http.Request, name string) 
 	}()
 
 	// browser input -> container
+	conn.SetReadLimit(64 << 10)
 	for {
 		_, data, err := conn.ReadMessage()
 		if err != nil {
