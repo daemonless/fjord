@@ -3,9 +3,21 @@ name: Test
 on:
   push:
     branches: [main]
-    tags-ignore: ["v*"]
+    tags: ["v*"]
   pull_request:
+  workflow_call:
+    inputs:
+      ref:
+        description: "Git ref to test"
+        required: false
+        type: string
+        default: ""
   workflow_dispatch:
+    inputs:
+      ref:
+        description: "Git ref to test"
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -25,6 +37,8 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref || github.ref }}
 
       - uses: actions/setup-go@v7
         with:
@@ -102,6 +116,8 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref || github.ref }}
 
       - name: Download UI assets
         uses: actions/download-artifact@v8

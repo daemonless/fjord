@@ -64,10 +64,17 @@ jobs:
             packaging/fjordd.rc
           if-no-files-found: error
 
+  test:
+    if: startsWith(github.ref, 'refs/tags/v') || github.event.inputs.tag != ''
+    uses: ./.github/workflows/test.yml
+    with:
+      ref: ${{ github.event.inputs.tag || github.ref }}
+
   # On a v* tag: publish a GitHub Release with a self-contained source tarball
   # (vendored Go modules + prebuilt UI, so the FreeBSD port builds offline with
   # no npm) plus the ready-to-run binary.
   release:
+    needs: [build, test]
     if: startsWith(github.ref, 'refs/tags/v') || github.event.inputs.tag != ''
     runs-on: ubuntu-latest
     permissions:
