@@ -389,6 +389,7 @@ func main() {
 
 	// Keep the app store's versions current (interval in Settings → Catalogs).
 	go runCatalogScheduler(srv)
+	go runFleetScheduler(srv)
 
 	// Default binds all interfaces so container port publishing reaches it; a
 	// host daemon can narrow it to loopback via FJORD_LISTEN.
@@ -409,7 +410,10 @@ func main() {
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       2 * time.Minute,
 	}
-	log.Fatal(httpd.ListenAndServe())
+	registerHTTPServer(httpd)
+	if err := httpd.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		log.Fatal(err)
+	}
 }
 
 // serveLocalSocket listens on a root-only Unix domain socket at sockPath so
@@ -433,6 +437,7 @@ func serveLocalSocket(sockPath string, handler http.Handler) {
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       2 * time.Minute,
 	}
+	registerHTTPServer(srv)
 	if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Printf("local socket %s: %v", sockPath, err)
 	}

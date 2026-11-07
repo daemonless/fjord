@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
 	"sort"
@@ -23,13 +24,46 @@ var stopping atomic.Bool
 // stopWait bounds how long a stop waits for operations in flight.
 var stopWait = 60 * time.Second
 
+var (
+	httpServersMu sync.Mutex
+	httpServers   []*http.Server
+)
+
+func registerHTTPServer(srv *http.Server) {
+	if srv == nil {
+		return
+	}
+	httpServersMu.Lock()
+	httpServers = append(httpServers, srv)
+	httpServersMu.Unlock()
+}
+
+func shutdownHTTPServers(wait time.Duration) {
+	httpServersMu.Lock()
+	srvs := append([]*http.Server(nil), httpServers...)
+	httpServersMu.Unlock()
+	if len(srvs) == 0 {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), wait)
+	defer cancel()
+	var wg sync.WaitGroup
+	for _, srv := range srvs {
+		wg.Add(1)
+		go func(s *http.Server) {
+			defer wg.Done()
+			_ = s.Shutdown(ctx)
+		}(srv)
+	}
+	wg.Wait()
+}
+
 // stopOnSignal stops fjordd cleanly on SIGTERM or an interrupt (review 2.1).
 // It used to close the terminals and os.Exit at once: an install or up still
 // running carried on unsupervised, and the next fjordd's start-on-boot ran a
 // second one beside it. Now nothing new starts, health watches end (as Apply
 // ends one: the stack is saved as it is), and the operations still running
-// get stopWait to finish. Not a graceful HTTP shutdown: event streams and
-// terminals never end on their own.
+// get stopWait to finish.
 func stopOnSignal() {
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGTERM, os.Interrupt)
@@ -42,6 +76,7 @@ func stopOnSignal() {
 		if left := waitForOperations(stopWait); len(left) > 0 {
 			log.Printf("stopping with %v still busy after %s", left, stopWait)
 		}
+		shutdownHTTPServers(5 * time.Second)
 		os.Exit(0)
 	}()
 }
