@@ -15,7 +15,7 @@ const bare = (u) => (u || '').replace(/^https?:\/\//, '').replace(/[#?].*$/, '')
   page.on('pageerror', (e) => errors.push(e.message));
   const stacks = (await (await page.request.get(BASE + '/api/stacks')).json()).filter((s) => s.status?.state === 'running');
   if (stacks.length < 2) {
-    note('switch stack', true, 'fewer than two running stacks (nothing to judge)');
+    console.log('SKIP switch stack: fewer than two running stacks (nothing to judge)');
     await b.close();
     return;
   }

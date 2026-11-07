@@ -116,9 +116,14 @@ del_net() { curl -s -o /dev/null --max-time 60 -b "$FJORD_COOKIE" -X DELETE -H "
 # terminal and the test's log.
 run_js() {
   _js=$1; shift
+  _tmp="$OUT/.run_js.$$"
   on "cd $REMOTE && podman run --rm --network host $* $JS_MOUNTS -e FJORD_SESSION=$FJORD_SESSION \
     -v \$PWD/$_js.js:/app/t.js:ro$Z -v \$PWD/session.js:/app/session.js:ro$Z -v \$PWD/out:/out${Z:+:z} \
-    $IMAGE node /app/t.js 2>&1 | grep -v -E '^\[(usermod|init)\]'" | tee -a "$LOG"
+    $IMAGE node /app/t.js" >"$_tmp" 2>&1
+  _rc=$?
+  grep -v -E '^\[(usermod|init)\]' "$_tmp" | tee -a "$LOG"
+  rm -f "$_tmp"
+  return "$_rc"
 }
 
 tests=$*
@@ -170,10 +175,20 @@ for t in $tests; do
   if command -v before >/dev/null 2>&1 && ! before; then
     echo "SKIP $t"; skipped="$skipped $t"; continue
   fi
-  if command -v main >/dev/null 2>&1; then main; else run_js "$t" $UI_ENV; fi
+  if command -v main >/dev/null 2>&1; then main; _rc=$?; else run_js "$t" $UI_ENV; _rc=$?; fi
+  if [ "$_rc" -ne 0 ]; then say "FAIL $t: exited with status $_rc"; fi
   if command -v after >/dev/null 2>&1; then after | tee -a "$LOG"; fi
   mkdir -p "$OUT/$t" && get "$REMOTE/out/*.png" "$OUT/$t/" 2>/dev/null
-  p=$(grep -c '^PASS' "$LOG"); f=$(grep -c '^FAIL' "$LOG")
+  p=$(grep -c '^PASS' "$LOG"); f=$(grep -c '^FAIL' "$LOG"); s=$(grep -c '^SKIP' "$LOG")
+  if [ "$p" -eq 0 ] && [ "$f" -eq 0 ] && [ "$s" -gt 0 ]; then
+    skipped="$skipped $t"
+    printf '%s: skipped\n' "$t"
+    continue
+  fi
+  if [ "$p" -eq 0 ] && [ "$f" -eq 0 ] && [ "$s" -eq 0 ]; then
+    say "FAIL $t: produced no PASS, FAIL or SKIP lines"
+    f=1
+  fi
   pass=$((pass + p)); fail=$((fail + f))
   [ "$f" -gt 0 ] && failed="$failed $t"
   printf '%s: %s passed, %s failed\n' "$t" "$p" "$f"
