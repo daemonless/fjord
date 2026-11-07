@@ -385,7 +385,7 @@ func JailAddresses(ctx context.Context, jail string) []string {
 	if err != nil {
 		return nil
 	}
-	out, err := exec.CommandContext(ctx, "jexec", strings.TrimSpace(string(jidOut)), "ifconfig").Output()
+	out, err := exec.CommandContext(ctx, "ifconfig", "-j", strings.TrimSpace(string(jidOut))).Output()
 	if err != nil {
 		return nil
 	}
@@ -419,7 +419,7 @@ func JailAddress(ctx context.Context, jail string) string {
 	if err != nil {
 		return ""
 	}
-	out, err := exec.CommandContext(ctx, "jexec", strings.TrimSpace(string(jidOut)), "ifconfig").Output()
+	out, err := exec.CommandContext(ctx, "ifconfig", "-j", strings.TrimSpace(string(jidOut))).Output()
 	if err != nil {
 		return ""
 	}

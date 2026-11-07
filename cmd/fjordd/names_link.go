@@ -30,10 +30,45 @@ func (i Instance) Label() string { return "fjord on " + i.Name }
 
 // NamesLink is a names provider linked by hand: a reverse proxy elsewhere,
 // reached at URL with Key (made by its Connected apps page for this fjord).
+// Key is stored in secrets/names-linked-key at 0600, migrating any legacy key
+// out of settings.json on load.
 type NamesLink struct {
 	URL       string `json:"url"`
-	Key       string `json:"key"`
+	Key       string `json:"key,omitempty"`
 	ProxyName string `json:"proxyName,omitempty"`
+}
+
+func namesLinkKeyPath(fjordRoot string) string {
+	return filepath.Join(fjordRoot, "secrets", "names-linked-key")
+}
+
+func saveNamesLinkKey(fjordRoot, key string) error {
+	p := namesLinkKeyPath(fjordRoot)
+	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
+		return err
+	}
+	_ = os.Chmod(filepath.Dir(p), 0o700)
+	return os.WriteFile(p, []byte(strings.TrimSpace(key)+"\n"), 0o600)
+}
+
+func loadNamesLinkKey(fjordRoot string, l *NamesLink) string {
+	if b, err := os.ReadFile(namesLinkKeyPath(fjordRoot)); err == nil {
+		if k := strings.TrimSpace(string(b)); k != "" {
+			return k
+		}
+	}
+	if l != nil && l.Key != "" {
+		k := l.Key
+		if saveNamesLinkKey(fjordRoot, k) == nil {
+			_ = updateSettings(fjordRoot, func(st *savedSettings) {
+				if st.NamesLink != nil {
+					st.NamesLink.Key = ""
+				}
+			})
+		}
+		return k
+	}
+	return ""
 }
 
 // instanceID is this fjord's id, set at startup; refs carry it.
@@ -69,7 +104,11 @@ func (s *server) instance() Instance { return ensureInstance(s.fjordRoot) }
 // linkedProvider is the provider linked by hand, nil when none is.
 func (s *server) linkedProvider() *provider {
 	l := loadSettings(s.fjordRoot).NamesLink
-	if l == nil || l.URL == "" || l.Key == "" {
+	if l == nil || l.URL == "" {
+		return nil
+	}
+	key := loadNamesLinkKey(s.fjordRoot, l)
+	if key == "" {
 		return nil
 	}
 	label := l.ProxyName
@@ -78,7 +117,7 @@ func (s *server) linkedProvider() *provider {
 			label = u.Host
 		}
 	}
-	p := &provider{Stack: label, base: l.URL, key: l.Key, linked: true,
+	p := &provider{Stack: label, base: l.URL, key: key, linked: true,
 		pinPath: filepath.Join(s.fjordRoot, "secrets", "names-linked.json")}
 	p.pin = loadPin(p.pinPath)
 	return p
@@ -125,6 +164,7 @@ func (s *server) handleNamesLink(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		os.Remove(filepath.Join(s.fjordRoot, "secrets", "names-linked.json"))
+		os.Remove(namesLinkKeyPath(s.fjordRoot))
 		writeJSONValue(w, s.namesState(r.Context()))
 	default:
 		http.Error(w, "method not allowed", 405)
@@ -198,9 +238,12 @@ func (s *server) linkProvider(ctx context.Context, base, code, origin string) er
 		}
 		return errors.New(out.Error)
 	}
+	if err := saveNamesLinkKey(s.fjordRoot, out.Key); err != nil {
+		return err
+	}
 	settingsMu.Lock()
 	st := loadSettings(s.fjordRoot)
-	st.NamesLink = &NamesLink{URL: base, Key: out.Key, ProxyName: out.ProxyName}
+	st.NamesLink = &NamesLink{URL: base, ProxyName: out.ProxyName}
 	err = saveSettings(s.fjordRoot, st)
 	settingsMu.Unlock()
 	if err != nil {

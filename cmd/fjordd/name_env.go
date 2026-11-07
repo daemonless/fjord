@@ -85,11 +85,17 @@ func stackNames(hosts []providerHost, stackName string) []string {
 			continue
 		}
 		full := u.Hostname()
+		if !validHostname(full) {
+			continue
+		}
 		main = append(main, full)
 		// Extra names are labels under the same ending.
 		if domain, ok := strings.CutPrefix(full, h.Name+"."); ok {
 			for _, e := range h.ExtraNames {
-				extra = append(extra, e+"."+domain)
+				cand := e + "." + domain
+				if e != "" && !strings.Contains(e, ".") && validHostname(cand) {
+					extra = append(extra, cand)
+				}
 			}
 		}
 	}
@@ -187,9 +193,47 @@ func subnetOf(addr string, subnets []string) string {
 	return addr
 }
 
+// validHostname checks that s is a clean DNS hostname with no control chars,
+// whitespace, or non-DNS punctuation.
+func validHostname(s string) bool {
+	if s == "" || len(s) > 253 || strings.HasPrefix(s, ".") || strings.HasSuffix(s, ".") || strings.Contains(s, "..") {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' || c == '.') {
+			return false
+		}
+	}
+	return true
+}
+
+// cleanEnvToken strips control characters (including \r, \n, \x00) so an
+// untrusted value cannot inject new lines into .env.
+func cleanEnvToken(s string) (string, bool) {
+	for _, r := range s {
+		if r < 0x20 || r == 0x7f {
+			return "", false
+		}
+	}
+	return s, true
+}
+
 // setEnvValues sets KEY=VALUE lines in .env text, replacing a key's line
-// where it has one; reports whether anything changed.
+// where it has one; reports whether anything changed. Keys or values with
+// control characters are ignored so no caller can inject lines into .env.
 func setEnvValues(env string, vals map[string]string) (string, bool) {
+	safe := make(map[string]string, len(vals))
+	for k, v := range vals {
+		k = strings.TrimSpace(k)
+		if !manifest.EnvName(k) {
+			continue
+		}
+		if cv, ok := cleanEnvToken(v); ok {
+			safe[k] = cv
+		}
+	}
+	vals = safe
 	lines := strings.Split(strings.TrimRight(env, "\n"), "\n")
 	if env == "" {
 		lines = nil

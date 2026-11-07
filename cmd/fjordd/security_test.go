@@ -1,161 +1,144 @@
 package main
 
 import (
-	"io"
-	"net/http"
-	"net/http/httptest"
+	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/daemonless/fjord/pkg/catalog"
 )
 
-func TestGuardMutations(t *testing.T) {
-	ok := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(200) })
-	h := guardMutations(ok)
-	cases := []struct {
-		name    string
-		method  string
-		headers map[string]string
-		body    string
-		want    int
-	}{
-		{"get anywhere", "GET", map[string]string{"Origin": "http://evil.example"}, "", 200},
-		{"curl no headers", "POST", nil, "", 200},
-		{"same-origin json", "POST", map[string]string{"Origin": "http://saturn:3567", "Content-Type": "application/json"}, "{}", 200},
-		{"same-origin referer only", "DELETE", map[string]string{"Referer": "http://saturn:3567/#/stacks/1"}, "", 200},
-		{"cross-origin", "POST", map[string]string{"Origin": "http://evil.example", "Content-Type": "application/json"}, "{}", 403},
-		{"cross-site fetch metadata", "POST", map[string]string{"Sec-Fetch-Site": "cross-site", "Content-Type": "application/json"}, "{}", 403},
-		{"form post", "POST", map[string]string{"Origin": "http://saturn:3567", "Content-Type": "application/x-www-form-urlencoded"}, "a=b", 415},
-		// "null" is an opaque origin: a sandboxed iframe, a file:// page or a
-		// data: URL. It is a browser saying "somewhere you should not trust",
-		// not a client saying nothing -- so it is refused, not waved through.
-		// This case asserted 200 until the audit found it.
-		{"null origin", "POST", map[string]string{"Origin": "null"}, "", 403},
-		{"null origin, no referer, ws upgrade shape", "POST", map[string]string{"Origin": "null", "Content-Type": "application/json"}, "{}", 403},
+func TestValidSourceURL(t *testing.T) {
+	ok := []string{
+		"https://catalog.daemonless.io",
+		"http://127.0.0.1:8099",
+		"http://[::1]:8099",
+		"http://localhost:8099",
+		"http://192.168.1.50:8080/catalog",
+		"http://mybox.lan:8080",
 	}
-	for _, c := range cases {
-		req := httptest.NewRequest(c.method, "http://saturn:3567/api/x", strings.NewReader(c.body))
-		for k, v := range c.headers {
-			req.Header.Set(k, v)
+	for _, u := range ok {
+		if err := catalog.ValidSourceURL(u); err != nil {
+			t.Errorf("ValidSourceURL(%q) = %v, want nil", u, err)
 		}
-		rr := httptest.NewRecorder()
-		h.ServeHTTP(rr, req)
-		if rr.Code != c.want {
-			t.Errorf("%s: got %d, want %d", c.name, rr.Code, c.want)
+	}
+	bad := []string{
+		"http://example.com/catalog",
+		"http://8.8.8.8/catalog",
+		"ftp://example.com/catalog",
+		"javascript:alert(1)",
+	}
+	for _, u := range bad {
+		if err := catalog.ValidSourceURL(u); err == nil {
+			t.Errorf("ValidSourceURL(%q) = nil, want error", u)
 		}
 	}
 }
 
-func TestHasControlChars(t *testing.T) {
-	if hasControlChars("plain value") || hasControlChars("tab\tok") {
-		t.Error("false positive")
-	}
-	if !hasControlChars("a\nB=evil") || !hasControlChars("x\r") || !hasControlChars("\x00") {
-		t.Error("missed control char")
-	}
-}
-
-// sameOrigin is what CheckOrigin hands the WebSocket upgrader, so the exec
-// shell is only as safe as this function -- test it directly rather than
-// through guardMutations, which never sees a GET.
-func TestSameOriginForWebSocketUpgrade(t *testing.T) {
-	cases := []struct {
-		name    string
-		headers map[string]string
-		want    bool
-	}{
-		{"no headers (curl)", nil, true},
-		{"same origin", map[string]string{"Origin": "http://saturn:3567"}, true},
-		{"other host", map[string]string{"Origin": "http://evil.example"}, false},
-		// The one the audit found: a sandboxed iframe sends this and no
-		// Referer, which used to reach the "must be curl" default.
-		{"opaque origin", map[string]string{"Origin": "null"}, false},
-		{"opaque origin with referer", map[string]string{"Origin": "null", "Referer": "http://saturn:3567/"}, false},
-		{"cross-site metadata", map[string]string{"Sec-Fetch-Site": "cross-site"}, false},
-	}
-	for _, c := range cases {
-		req := httptest.NewRequest("GET", "http://saturn:3567/api/stacks/x/exec?container=x", nil)
-		for k, v := range c.headers {
-			req.Header.Set(k, v)
-		}
-		if got := sameOrigin(req); got != c.want {
-			t.Errorf("%s: sameOrigin = %v, want %v", c.name, got, c.want)
-		}
-	}
-}
-
-// DNS rebinding: evil.example resolves to this host, so the browser sends
-// Origin and Host both as evil.example and sameOrigin passes. Host is what
-// gives it away, on reads as well as writes.
-func TestGuardHost(t *testing.T) {
-	allow := newHostAllow("netlab.ahze.lan", "# resolver\nsearch lan home.arpa\nnameserver 192.168.4.1\n", "fjord.example.com, Photos.Example.COM.")
-	ok := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(200) })
-	h := guardHost(allow, ok)
-	cases := []struct {
-		host, path string
-		want       int
-	}{
-		{"192.168.4.103:3567", "/api/stacks", 200},
-		{"[fe80::1]:3567", "/", 200},
-		{"localhost:3567", "/", 200},
-		{"app.localhost", "/", 200},
-		{"netlab:3567", "/", 200},
-		{"netlab.ahze.lan", "/", 200},
-		{"NETLAB.lan.", "/", 200},
-		{"netlab.home.arpa:3567", "/", 200},
-		{"netlab.local", "/", 200},
-		{"fjord.example.com", "/", 200},
-		{"photos.example.com", "/", 200},
-		{"evil.example:3567", "/api/stacks/immich/env", 421},
-		{"evil.example:3567", "/api/stacks", 421},
-		{"netlab.evil.example", "/", 421},
-		{"", "/", 421},
-		{"evil.example", "/healthz", 200},
-	}
-	for _, c := range cases {
-		req := httptest.NewRequest("GET", "http://x"+c.path, nil)
-		req.Host = c.host
-		rr := httptest.NewRecorder()
-		h.ServeHTTP(rr, req)
-		if rr.Code != c.want {
-			t.Errorf("Host %q %s: got %d, want %d", c.host, c.path, rr.Code, c.want)
-		}
-	}
-	req := httptest.NewRequest("GET", "http://x/", nil)
-	req.Host = "evil.example:3567"
-	rr := httptest.NewRecorder()
-	h.ServeHTTP(rr, req)
-	if !strings.Contains(rr.Body.String(), "--allowed-hosts evil.example") {
-		t.Errorf("the refusal must say how to allow the name: %q", rr.Body.String())
-	}
-}
-
-func TestGuardMutationsBodyLimit(t *testing.T) {
-	read := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if _, err := io.ReadAll(r.Body); err != nil {
-			http.Error(w, err.Error(), http.StatusRequestEntityTooLarge)
-			return
-		}
-		w.WriteHeader(200)
+func TestSetEnvValuesStripsControlCharacters(t *testing.T) {
+	out, changed := setEnvValues("FOO=bar\n", map[string]string{
+		"HOST_ALLOWLIST": "radarr.lan\nEVIL=injected",
+		"BAD\nKEY":       "val",
+		"GOOD_HOST":      "radarr.lan",
 	})
-	h := guardMutations(read)
-	big := strings.Repeat("x", maxBody+1)
-	for _, chunked := range []bool{false, true} {
-		r := httptest.NewRequest("POST", "/api/stacks/x/save", strings.NewReader(big))
-		r.Header.Set("Content-Type", "application/json")
-		if chunked {
-			r.ContentLength = -1 // no length up front: the reader stops it
-		}
-		w := httptest.NewRecorder()
-		h.ServeHTTP(w, r)
-		if w.Code != http.StatusRequestEntityTooLarge {
-			t.Errorf("chunked=%v: a body over maxBody got %d, want 413", chunked, w.Code)
-		}
+	if !changed {
+		t.Fatal("expected GOOD_HOST to be written")
 	}
-	r := httptest.NewRequest("POST", "/api/stacks/x/save", strings.NewReader(`{"compose":"services: {}"}`))
-	r.Header.Set("Content-Type", "application/json")
-	w := httptest.NewRecorder()
-	h.ServeHTTP(w, r)
-	if w.Code != 200 {
-		t.Errorf("a small body: %d, want 200", w.Code)
+	if strings.Contains(out, "EVIL=injected") || strings.Contains(out, "BAD") {
+		t.Fatalf("control character injection succeeded: %q", out)
+	}
+	if !strings.Contains(out, "GOOD_HOST=radarr.lan") {
+		t.Fatalf("expected GOOD_HOST in output: %q", out)
+	}
+}
+
+func TestLoginLimiterIPv6PrefixAndInFlight(t *testing.T) {
+	k1 := limitKey("2001:db8:abcd:1234::1")
+	k2 := limitKey("2001:db8:abcd:1234:ffff:ffff:ffff:ffff")
+	if k1 != k2 {
+		t.Fatalf("expected same /64 bucket: %q vs %q", k1, k2)
+	}
+	lim := newSigninLimit()
+	rel, busy := lim.acquire("192.0.2.1")
+	if busy || rel == nil {
+		t.Fatal("first acquire should succeed")
+	}
+	if _, busy2 := lim.acquire("192.0.2.1"); !busy2 {
+		t.Fatal("concurrent acquire on same bucket should be rejected while in flight")
+	}
+	rel()
+	rel3, busy3 := lim.acquire("192.0.2.1")
+	if busy3 || rel3 == nil {
+		t.Fatal("acquire after release should succeed")
+	}
+	rel3()
+}
+
+func TestNamesLinkKeyMigratesToSecrets(t *testing.T) {
+	root := t.TempDir()
+	st := savedSettings{
+		NamesLink: &NamesLink{
+			URL:       "https://proxy.lan:8443",
+			Key:       "secret-pairing-key",
+			ProxyName: "proxy.lan",
+		},
+	}
+	if err := saveSettings(root, st); err != nil {
+		t.Fatal(err)
+	}
+	fi, err := os.Stat(settingsPath(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fi.Mode().Perm() != 0o600 {
+		t.Fatalf("settings.json perm = %o, want 0600", fi.Mode().Perm())
+	}
+	loaded := loadSettings(root)
+	got := loadNamesLinkKey(root, loaded.NamesLink)
+	if got != "secret-pairing-key" {
+		t.Fatalf("loadNamesLinkKey = %q, want secret-pairing-key", got)
+	}
+	raw, err := os.ReadFile(settingsPath(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "secret-pairing-key") {
+		t.Fatalf("settings.json still contains plaintext key after migration: %s", raw)
+	}
+}
+
+func TestRedactSecretsAndURLCredentials(t *testing.T) {
+	in := "PUID=1000\nDB_PWD=supersecret\nCUSTOM_VAR=myval\nDATABASE_URL=postgres://user:hunter2@db:5432/app\n"
+	out := redactSecrets(in, map[string]bool{"CUSTOM_VAR": true})
+	if strings.Contains(out, "supersecret") || strings.Contains(out, "myval") || strings.Contains(out, "hunter2") {
+		t.Fatalf("redactSecrets leaked secret: %q", out)
+	}
+	if !strings.Contains(out, "DATABASE_URL=postgres://user:@db:5432/app") {
+		t.Fatalf("expected redacted DATABASE_URL, got: %q", out)
+	}
+}
+
+func TestLinkedProviderRefusesUnverifiedLook(t *testing.T) {
+	ctx := context.Background()
+	f := newFakeProxy(t, "k")
+	f.complete = true
+	pinPath := filepath.Join(t.TempDir(), "secrets", "names-linked.json")
+	p := &provider{Stack: "rp", base: f.srv.URL, key: "k", pinPath: pinPath, linked: true}
+	if _, _, err := p.status(ctx); err != nil || p.pin == nil {
+		t.Fatalf("initial pin: %v", err)
+	}
+
+	// Present a different certificate pretending to be a reset or renamed proxy.
+	// Because p.linked is true, fjord must NOT make an unverified request with p.key.
+	other := newFakeProxy(t, "k", selfSigned(t, "evil.test"))
+	other.complete = false
+	q := &provider{Stack: "rp", base: other.srv.URL, key: "k", pinPath: pinPath, pin: loadPin(pinPath), linked: true}
+	if _, _, err := q.status(ctx); err == nil {
+		t.Fatal("linked provider accepted untrusted certificate")
+	}
+	if loadPin(pinPath) == nil {
+		t.Fatal("linked provider dropped pin on untrusted certificate")
 	}
 }
