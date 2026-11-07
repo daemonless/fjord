@@ -506,6 +506,8 @@ msgid "Unpin"
 msgstr "Désépingler"
 
 #. 0: name
+#. 0: name
+#: src/ChangeVersionModal.svelte
 #: src/ChangeVersionModal.svelte
 msgid "Change Version — {0}"
 msgstr "Changer de version — {0}"
@@ -1393,6 +1395,8 @@ msgid "<0/> in .env"
 msgstr "<0/> dans .env"
 
 #. 0: deleting
+#. 0: deleting
+#: src/App.svelte
 #: src/App.svelte
 msgid "Deleting {0}"
 msgstr "Suppression de {0}"
@@ -1521,6 +1525,7 @@ msgstr "Redémarrer"
 msgid "Could not create folder"
 msgstr "Impossible de créer le dossier"
 
+#: src/DirPicker.svelte
 #: src/DirPicker.svelte
 msgid "Choose a directory"
 msgstr "Choisir un répertoire"
@@ -1689,6 +1694,8 @@ msgid "No network at all: nothing in and nothing out."
 msgstr "Aucun réseau : rien n'entre, rien ne sort."
 
 #. 0: appName
+#. 0: appName
+#: src/InstallWizard.svelte
 #: src/InstallWizard.svelte
 msgid "Install {0}"
 msgstr "Installer {0}"
@@ -2291,6 +2298,7 @@ msgstr "MTU"
 msgid "No bridge on this host yet -- make one first (commands above)"
 msgstr "Pas encore de bridge sur cet hôte -- créez-en un d'abord (commandes ci-dessus)"
 
+#: src/Networks.svelte
 #: src/Networks.svelte
 msgid "New Network"
 msgstr "Nouveau réseau"
@@ -3616,6 +3624,7 @@ msgstr "<0/> Lecture seule"
 msgid "mounts <0/>"
 msgstr "monte <0/>"
 
+#: src/Volumes.svelte
 #: src/Volumes.svelte
 msgid "New Volume"
 msgstr "Nouveau volume"
@@ -5170,3 +5179,13 @@ msgstr ""
 #: src/StackDetail.svelte
 msgid "Health check failed"
 msgstr ""
+
+#. 0: selectedStack.name
+#: src/App.svelte
+msgid "Discard unsaved changes to {0}?"
+msgstr "Abandonner les modifications non enregistrées pour {0} ?"
+
+#. 0: err?.message || err
+#: src/App.svelte
+msgid "Save failed: {0}"
+msgstr "Échec de l'enregistrement : {0}"

@@ -94,11 +94,16 @@
     if (stick && scroller) scroller.scrollTop = scroller.scrollHeight;
   });
 
+  let rootEl: HTMLDivElement;
+
   function onKey(e: KeyboardEvent) {
     if ((e.ctrlKey || e.metaKey) && (e.key === 'f' || e.key === 'F')) {
-      e.preventDefault();
-      searchInput?.focus();
-      searchInput?.select();
+      const active = document.activeElement;
+      if (rootEl && (rootEl.contains(active) || active === document.body)) {
+        e.preventDefault();
+        searchInput?.focus();
+        searchInput?.select();
+      }
     }
   }
 
@@ -124,7 +129,7 @@
 
 <svelte:window on:keydown={onKey} />
 
-<div class="flex-1 flex flex-col min-h-0 bg-fjord-card border border-fjord-border rounded-xl overflow-hidden">
+<div bind:this={rootEl} class="flex-1 flex flex-col min-h-0 bg-fjord-card border border-fjord-border rounded-xl overflow-hidden">
   <!-- search / options bar -->
   <div class="flex items-center gap-2 px-3 py-1.5 border-b border-fjord-border text-xs">
     <span class="text-fjord-fg-dim shrink-0"><Icon name="search" size={13} /></span>

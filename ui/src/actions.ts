@@ -13,6 +13,16 @@ export function createRunTracker(): { newRun: (name: string) => () => boolean } 
   };
 }
 
+// latest() tracks the most recent async request in a single slot so earlier
+// slow responses cannot overwrite newer state.
+export function latest(): () => () => boolean {
+  let seq = 0;
+  return () => {
+    const my = ++seq;
+    return () => seq === my;
+  };
+}
+
 // Read an action's output into the stack's log. At the stay-up check the
 // actions come back (see watch.ts). Stops when a newer run takes over;
 // false then.
@@ -33,8 +43,15 @@ export async function readActionStream(
       reader.cancel().catch(() => {});
       return false;
     }
-    if (done) return true;
-    const chunk = decoder.decode(value);
+    if (done) {
+      const tail = decoder.decode();
+      if (tail) {
+        full += tail;
+        onChunk(tail);
+      }
+      return true;
+    }
+    const chunk = decoder.decode(value, { stream: true });
     full += chunk;
     onChunk(chunk);
     // fjordd counts the changes applied from here (clearPendingAfter):

@@ -84,8 +84,12 @@
   }
 
   $: if (editorContainer) {
-    if (!view || view.state.doc.toString() !== content) {
+    if (!view) {
       initEditor();
+    } else if (view.state.doc.toString() !== content) {
+      view.dispatch({
+        changes: { from: 0, to: view.state.doc.length, insert: content },
+      });
     }
   }
 

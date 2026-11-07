@@ -3,6 +3,7 @@ import {
   createOutputFollower,
   createRunTracker,
   formatActionHttpError,
+  latest,
   readActionStream,
 } from './actions';
 
@@ -33,6 +34,38 @@ describe('actions helpers', () => {
     expect(first()).toBe(false);
     expect(second()).toBe(true);
     expect(other()).toBe(true);
+  });
+
+  it('latest() invalidates earlier calls when a newer one starts', () => {
+    const next = latest();
+    const first = next();
+    expect(first()).toBe(true);
+    const second = next();
+    expect(first()).toBe(false);
+    expect(second()).toBe(true);
+  });
+
+  it('decodes multi-byte UTF-8 characters split across stream chunks', async () => {
+    const tracker = createRunTracker();
+    const mine = tracker.newRun('radarr');
+    const bytes = new TextEncoder().encode('Checking — ok 🚀\n');
+    // Split inside both the em-dash (3 bytes) and the rocket emoji (4 bytes).
+    const parts = [bytes.slice(0, 10), bytes.slice(10, 16), bytes.slice(16)];
+    let idx = 0;
+    const res = new Response(
+      new ReadableStream<Uint8Array>({
+        pull(controller) {
+          if (idx < parts.length) controller.enqueue(parts[idx++]);
+          else controller.close();
+        },
+      }),
+    );
+    let out = '';
+    const ok = await readActionStream(res, mine, (chunk) => {
+      out += chunk;
+    });
+    expect(ok).toBe(true);
+    expect(out).toBe('Checking — ok 🚀\n');
   });
 
   it('reads streamed action chunks and fires onWatchStart once when stay-up watch begins', async () => {
