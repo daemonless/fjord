@@ -103,8 +103,10 @@ func (s *server) handleStacksList(w http.ResponseWriter, r *http.Request) {
 		}()
 	}
 	wg.Wait()
+	now := time.Now()
 	for i, st := range stacks {
 		status := statuses[i]
+		s.health.observeContainers(st.Name, &status, now)
 		// The list needs the networks too: without them its Open link cannot
 		// tell "publishes on the host" from "has its own address", and builds
 		// a host URL that times out.
@@ -122,7 +124,8 @@ func (s *server) handleStacksList(w http.ResponseWriter, r *http.Request) {
 			NetworkMode: composepkg.NetworkMode(st.Compose),
 			Services:    svcs,
 			LinkHost:    linkHost(svcs, ownAddress),
-			Restart:     s.restartViewOf(st)}
+			Restart:     s.restartViewOf(st),
+			Recovery:    s.recoveryViewOf(st)}
 		// The legacy single-network fields. With per-service networking they
 		// are an arbitrary pick among several, so nothing new should read them
 		// -- Services carries the truth, and LinkHost the one answer the UI
@@ -226,6 +229,8 @@ func (s *server) handleStackRoutes(w http.ResponseWriter, r *http.Request) {
 		s.stackPolicy(w, r, name)
 	case "restart-policy":
 		s.stackRestart(w, r, name)
+	case "recovery-policy":
+		s.stackRecovery(w, r, name)
 	case "rollback":
 		s.stackRollback(w, r, name)
 	case "unpin":
@@ -247,6 +252,7 @@ func (s *server) stackDetail(w http.ResponseWriter, r *http.Request, name string
 		return
 	}
 	status := s.live.get(s.backendFor(st), st, statusWait)
+	s.health.observeContainers(st.Name, &status, time.Now())
 	w.Header().Set("Content-Type", "application/json")
 	// appjail never reads compose.yaml for networking, so for a director stack
 	// the compose's networks: block is a wish and the director is the fact.
@@ -276,6 +282,7 @@ func (s *server) stackDetail(w http.ResponseWriter, r *http.Request, name string
 		// rather than making the user retype addresses that are still here.
 		StashedNetworks: composepkg.StashedNetworks(st.Compose),
 		Restart:         s.restartViewOf(st),
+		Recovery:        s.recoveryViewOf(st),
 	})
 }
 
@@ -1459,6 +1466,7 @@ func (s *server) lifecycle(w http.ResponseWriter, r *http.Request, name, action 
 			log.Printf("%s %s: persist desired_state: %v", action, name, err)
 		}
 	}
+	s.health.reset(name)
 
 	streamOutput(w, stream)
 

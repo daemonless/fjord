@@ -43,6 +43,11 @@ describe('stack health', () => {
     expect(problem(s)).toBe('is restarting');
   });
 
+  it('catches a crashed container in a partial stack as restarting', () => {
+    const s = stack('partial', 'running', [{ service: 'app', state: 'crashed', detail: 'the app keeps crashing: bad config' }]);
+    expect(problem(s)).toBe('is restarting');
+  });
+
   it('treats a stack with no recorded intent as meant to run', () => {
     expect(problem({ name: 'x', status: { state: 'stopped' } })).toBe('is stopped');
   });

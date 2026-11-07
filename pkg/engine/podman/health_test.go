@@ -117,3 +117,35 @@ func TestDemuxLogs(t *testing.T) {
 		t.Errorf("tty: %q", got)
 	}
 }
+
+func TestUnhealthyStatusAndContainerRestartLoop(t *testing.T) {
+	stubProbes(t, false, "")
+	jailID = func(context.Context, string) string { return "" }
+
+	unhealthy := upContainer("app")
+	unhealthy.Status = "unhealthy"
+	if st, detail := serviceHealth(context.Background(), unhealthy); st != "crashed" || detail == "" {
+		t.Fatalf("unhealthy container: got %q %q, want crashed", st, detail)
+	}
+
+	looping := upContainer("worker")
+	looping.Ports = nil
+	looping.Restarts = 4
+	looping.StartedAt = time.Now().Add(-10 * time.Second).Unix()
+	agg := aggregateStatus([]libpodContainer{looping}, func(c libpodContainer) (string, string) {
+		return serviceHealth(context.Background(), c)
+	})
+	if agg.Containers[0].State != "crashed" || agg.Containers[0].Restarts != 4 {
+		t.Fatalf("looping container: got %+v, want crashed with Restarts=4", agg.Containers[0])
+	}
+
+	exited := libpodContainer{
+		ID: "db-id", Names: []string{"/db"}, State: "exited",
+		Exited: true, ExitCode: 137, Restarts: 2,
+		Labels: map[string]string{"io.podman.compose.service": "db"},
+	}
+	aggExited := aggregateStatus([]libpodContainer{exited}, nil)
+	if aggExited.Containers[0].ExitCode != 137 || aggExited.Containers[0].Detail == "" {
+		t.Fatalf("exited container: got %+v, want ExitCode=137 and Detail", aggExited.Containers[0])
+	}
+}

@@ -89,6 +89,40 @@ type State struct {
 	// disk left the stack reading "stopped" with the reason in a stream
 	// nobody was watching any more.
 	LastFailure *Failure `json:"last_failure,omitempty"`
+	// Recovery is what fjord does when a background health check finds a
+	// stack meant to run is crashed, crash-looping, or down.
+	Recovery *RecoveryPolicy `json:"recovery,omitempty"`
+	// RecoveryEvents is a bounded record of recent failed health checks and
+	// recovery attempts on this stack.
+	RecoveryEvents []RecoveryEvent `json:"recovery_events,omitempty"`
+}
+
+const (
+	RecoveryNone    = "none"
+	RecoveryRestart = "restart"
+	RecoveryStop    = "stop"
+
+	DefaultRecoveryMaxTries = 3
+	DefaultRecoveryCooldown = 60 // seconds
+	MaxRecoveryEvents       = 25
+)
+
+// RecoveryPolicy configures per-stack automatic recovery on a failed health check.
+type RecoveryPolicy struct {
+	Action   string `json:"action"`             // "none" (default) | "restart" | "stop"
+	MaxTries int    `json:"maxTries,omitempty"` // cap on restart attempts (default 3)
+	Cooldown int    `json:"cooldown,omitempty"` // seconds between attempts (default 60)
+}
+
+// RecoveryEvent records one failed background health check or recovery attempt.
+type RecoveryEvent struct {
+	At      time.Time `json:"at"`
+	Check   string    `json:"check"`
+	Action  string    `json:"action"`            // "none" | "restart" | "stop"
+	Attempt int       `json:"attempt,omitempty"` // 1..MaxTries
+	Max     int       `json:"max,omitempty"`
+	Outcome string    `json:"outcome"` // "detected" | "restarted" | "failed" | "stopped" | "exhausted"
+	Message string    `json:"message,omitempty"`
 }
 
 // Failure is one action's [error], as the stack page shows it.

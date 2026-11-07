@@ -374,17 +374,24 @@ func serviceHealth(ctx context.Context, jail string, svc composepkg.Service) (st
 			}
 		}
 		// Nothing listening yet: a crash in the log means it's failing, else
-		// it is still booting.
+		// an empty persistent jail means its entrypoint exited, else it is
+		// still booting.
 		if crashing() {
 			return crashed()
+		}
+		if jailJID(ctx, jail) != "" && jailProcs(ctx, jail) == 0 {
+			return "crashed", "its jail is up with nothing running inside -- see Logs"
 		}
 		return "starting", "jail is up but nothing is listening on its port yet"
 	}
 
-	// No published ports (host-network stacks, databases): the crash log is
-	// the only signal we have.
+	// No published ports (host-network stacks, databases): the crash log or an
+	// empty persistent jail is the signal we have.
 	if crashing() {
 		return crashed()
+	}
+	if jailJID(ctx, jail) != "" && jailProcs(ctx, jail) == 0 {
+		return "crashed", "its jail is up with nothing running inside -- see Logs"
 	}
 	return "running", ""
 }

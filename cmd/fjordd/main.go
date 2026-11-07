@@ -354,6 +354,7 @@ func main() {
 		seen:       newFirstSeen(fjordRoot),
 		live:       newLiveStatus(),
 		conds:      newConditionsState(),
+		health:     newHealthMonitor(),
 	}
 	busyEvents = srv.events
 	srv.segs.load(filepath.Join(fjordRoot, "segments.json"))
@@ -512,6 +513,8 @@ func finishDelete(srv *server, name string) {
 }
 
 func startOnBoot(srv *server) {
+	srv.booting.Store(true)
+	defer srv.booting.Store(false)
 	stacks, err := srv.manager.List()
 	if err != nil {
 		log.Printf("start-on-boot: list stacks: %v", err)

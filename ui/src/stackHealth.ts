@@ -23,8 +23,12 @@ export function problem(s: HealthStack): string {
     return loop ? 'is restarting' : '';
   }
   if (st === 'partial') {
-    const down = (s.status?.containers ?? []).filter((c) => c.state !== 'running').map((c) => c.service || c.name);
-    return down.length ? `is partly down (${down.join(', ')})` : 'is partly down';
+    const down = (s.status?.containers ?? []).filter((c) => c.state !== 'running');
+    if (down.length > 0 && down.every((c) => c.state === 'crashed' || /^crash-looping/i.test(c.detail ?? ''))) {
+      return 'is restarting';
+    }
+    const names = down.map((c) => c.service || c.name);
+    return names.length ? `is partly down (${names.join(', ')})` : 'is partly down';
   }
   if (st === 'stopped') return 'is stopped';
   return `is ${st}`;

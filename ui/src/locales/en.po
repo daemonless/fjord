@@ -5092,3 +5092,92 @@ msgstr "+{0} more"
 #: src/ConditionsBanner.svelte
 msgid "Still not passing: {0}"
 msgstr "Still not passing: {0}"
+
+#. 0: r.attempts; 1: cap
+#: src/RecoveryPolicy.svelte
+msgid "Recover: restart ({0}/{1})"
+msgstr "Recover: restart ({0}/{1})"
+
+#. 0: cap
+#: src/RecoveryPolicy.svelte
+msgid "Recover: restart ({0}×)"
+msgstr "Recover: restart ({0}×)"
+
+#: src/RecoveryPolicy.svelte
+msgid "Recover: stop"
+msgstr "Recover: stop"
+
+#: src/RecoveryPolicy.svelte
+msgid "Recover: do nothing"
+msgstr "Recover: do nothing"
+
+#. 0: r?.maxTries || 3; 1: r?.cooldown || 60
+#: src/RecoveryPolicy.svelte
+msgid "On a failed background health check, restart up to {0} times ({1}s cooldown)."
+msgstr "On a failed background health check, restart up to {0} times ({1}s cooldown)."
+
+#: src/RecoveryPolicy.svelte
+msgid "On a failed background health check, stop the stack so it does not keep looping."
+msgstr "On a failed background health check, stop the stack so it does not keep looping."
+
+#: src/RecoveryPolicy.svelte
+msgid "On a failed background health check, do nothing and report the failure."
+msgstr "On a failed background health check, do nothing and report the failure."
+
+#: src/RecoveryPolicy.svelte
+msgid "Do nothing"
+msgstr "Do nothing"
+
+#: src/RecoveryPolicy.svelte
+msgid "Report the failure on the dashboard and stack page without touching the containers."
+msgstr "Report the failure on the dashboard and stack page without touching the containers."
+
+#: src/RecoveryPolicy.svelte
+msgid "Restart stack"
+msgstr "Restart stack"
+
+#. 0: maxTries; 1: maxTries === 1 ? 'time' \\: 'times'; 2: cooldown
+#: src/RecoveryPolicy.svelte
+msgid "Restart the stack up to {0} {1}, with {2}s cooldown between attempts."
+msgstr "Restart the stack up to {0} {1}, with {2}s cooldown between attempts."
+
+#: src/RecoveryPolicy.svelte
+msgid "Stop stack"
+msgstr "Stop stack"
+
+#: src/RecoveryPolicy.svelte
+msgid "Stop the stack on a failed check so a crash loop does not keep running."
+msgstr "Stop the stack on a failed check so a crash loop does not keep running."
+
+#. 0: (await res.text()).trim()
+#: src/RecoveryPolicy.svelte
+msgid "Recovery policy not saved: {0}"
+msgstr "Recovery policy not saved: {0}"
+
+#: src/RecoveryPolicy.svelte
+msgid "Recovery policy not saved: fjordd did not answer"
+msgstr "Recovery policy not saved: fjordd did not answer"
+
+#: src/RecoveryPolicy.svelte
+msgid "Maximum recovery attempts"
+msgstr "Maximum recovery attempts"
+
+#: src/RecoveryPolicy.svelte
+msgid "Max attempts"
+msgstr "Max attempts"
+
+#: src/RecoveryPolicy.svelte
+msgid "Cooldown seconds between attempts"
+msgstr "Cooldown seconds between attempts"
+
+#: src/RecoveryPolicy.svelte
+msgid "Cooldown (s)"
+msgstr "Cooldown (s)"
+
+#: src/RecoveryPolicy.svelte
+msgid "Recent health events"
+msgstr "Recent health events"
+
+#: src/StackDetail.svelte
+msgid "Health check failed"
+msgstr "Health check failed"
