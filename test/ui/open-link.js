@@ -9,7 +9,7 @@ const note = (id, ok, msg) => console.log(`${ok ? 'PASS' : 'FAIL'} ${id}: ${msg}
   const b = await chromium.launch({ args: ['--no-sandbox'] });
   const page = await (await b.newContext(signedIn({ viewport: { width: 1400, height: 1000 } }))).newPage();
   const stacks = (await (await page.request.get(BASE + '/api/stacks')).json()).filter((s) => s.status?.state === 'running').map((s) => s.name);
-  if (!stacks.length) note('open links', true, 'no running stack to read (nothing to judge)');
+  if (!stacks.length) console.log('SKIP open links: no running stack to read (nothing to judge)');
   for (const s of stacks) {
     await openPage(page, BASE + '/#/stacks/' + s);
     await new Promise((r) => setTimeout(r, 1500));

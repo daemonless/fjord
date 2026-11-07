@@ -26,7 +26,7 @@ const note = (id, ok, msg) => console.log(`${ok ? 'PASS' : 'FAIL'} ${id}: ${msg}
     await page.keyboard.press('Escape');
 
     const stacks = (await (await page.request.get(BASE + '/api/stacks')).json()).map((s) => s.name);
-    if (!stacks.length) { note('stack page', true, 'no stack on the host to open (nothing to judge)'); await b.close(); return; }
+    if (!stacks.length) { console.log('SKIP stack page: no stack on the host to open (nothing to judge)'); await b.close(); return; }
     await openPage(page, BASE + '/?t=' + Date.now() + '#/stacks/' + stacks[0]);
     await sleep(1500);
     const rename = page.locator('h2 button', { hasText: stacks[0] }).first();
