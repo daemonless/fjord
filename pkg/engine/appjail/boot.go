@@ -6,7 +6,11 @@ import (
 	"log"
 	"os/exec"
 	"time"
+
+	"github.com/daemonless/fjord/pkg/hostexec"
 )
+
+var execRuns = hostexec.Default
 
 // appjail's rc service starts every jail marked boot=on with `appjail startup
 // start jails`, under daemon(8), so it returns at once and the jails come up in
@@ -23,7 +27,7 @@ import (
 const bootStartPattern = `^(/bin/sh )?[^ ]*/appjail startup start( |$)`
 
 // pgrepRun runs pgrep; a variable so tests can stand in for it.
-var pgrepRun = func(args ...string) error { return exec.Command("pgrep", args...).Run() }
+var pgrepRun = func(args ...string) error { return execRuns.Run(context.Background(), "pgrep", args...) }
 
 // bootStartRunning reports that appjail's own boot start is still running on
 // the host (-j none: not a nested appjail inside a jail).
