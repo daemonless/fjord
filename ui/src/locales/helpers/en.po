@@ -298,3 +298,80 @@ msgstr "Starting the containers"
 #: src/busyStep.ts
 msgid "Stopping the containers"
 msgstr "Stopping the containers"
+
+#: src/busyStep.ts
+msgid "Installing…"
+msgstr "Installing…"
+
+#: src/busyStep.ts
+msgid "Starting…"
+msgstr "Starting…"
+
+#: src/busyStep.ts
+msgid "Updating…"
+msgstr "Updating…"
+
+#: src/busyStep.ts
+msgid "Restarting…"
+msgstr "Restarting…"
+
+#: src/busyStep.ts
+msgid "Stopping…"
+msgstr "Stopping…"
+
+#: src/busyStep.ts
+msgid "Deleting…"
+msgstr "Deleting…"
+
+#. 0: Math.round(n / 1e3)
+#: src/installSize.ts
+msgid "{0} kB"
+msgstr "{0} kB"
+
+#. 0: a.images.length
+#: src/installSize.ts
+msgid "{0} images already on this host"
+msgstr "{0} images already on this host"
+
+#. 0: pulled; 1: pulled === 1 ? '' \\: 's'
+#: src/installSize.ts
+msgid "{0} image{1}"
+msgstr "{0} image{1}"
+
+#. 0: local
+#: src/installSize.ts
+msgid "{0} already here"
+msgstr "{0} already here"
+
+#. 0: unknown
+#: src/installSize.ts
+msgid "{0} of unknown size"
+msgstr "{0} of unknown size"
+
+#: src/installSize.ts
+msgid "Unpacked on disk, an image takes about two to three times its download."
+msgstr "Unpacked on disk, an image takes about two to three times its download."
+
+#: src/typedVars.ts
+#: src/typedVars.ts
+msgid "Must be a whole number"
+msgstr "Must be a whole number"
+
+#. 0: v.min
+#: src/typedVars.ts
+msgid "Must be at least {0}"
+msgstr "Must be at least {0}"
+
+#. 0: v.max
+#: src/typedVars.ts
+msgid "Must be at most {0}"
+msgstr "Must be at most {0}"
+
+#. 0: opts.map((o) => o.value).join(', ')
+#: src/typedVars.ts
+msgid "Pick one of {0}"
+msgstr "Pick one of {0}"
+
+#: src/typedVars.ts
+msgid "Enter a positive whole number and unit (e.g. 50g or 512m)"
+msgstr "Enter a positive whole number and unit (e.g. 50g or 512m)"

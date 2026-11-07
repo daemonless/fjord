@@ -89,4 +89,8 @@ async function streamed(page, re, timeout = 180000) {
   return '';
 }
 
-module.exports = { signedIn, settled, openPage, keepStreams, streamed };
+const BASE = process.env.FJORD || 'http://127.0.0.1:3567';
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const note = (id, ok, msg) => console.log(`${ok ? 'PASS' : 'FAIL'} ${id}: ${msg}`);
+
+module.exports = { BASE, sleep, note, signedIn, settled, openPage, keepStreams, streamed };

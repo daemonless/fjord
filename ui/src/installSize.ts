@@ -33,4 +33,5 @@ export function sizeWords(a: SizeAnswer | null): string {
   return `${humanBytes(a.download)}${a.images.length > 1 || unknown ? ` (${parts.join(', ')})` : ''}`;
 }
 
-export const SIZE_NOTE = 'Unpacked on disk, an image takes about two to three times its download.';
+export const sizeNote = () => 'Unpacked on disk, an image takes about two to three times its download.';
+export const SIZE_NOTE = sizeNote();
