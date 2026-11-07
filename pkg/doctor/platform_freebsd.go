@@ -901,7 +901,7 @@ func serviceStale(started, installed time.Time, pkg string) (Status, string) {
 // run is the output of a command, or "" if it fails at all. Every caller here
 // treats "cannot tell" as "nothing to report".
 func run(ctx context.Context, name string, args ...string) string {
-	out, err := exec.CommandContext(ctx, name, args...).Output()
+	out, err := execRuns.Output(ctx, name, args...)
 	if err != nil {
 		return ""
 	}

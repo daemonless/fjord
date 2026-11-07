@@ -11,7 +11,10 @@ import (
 	"time"
 
 	"github.com/daemonless/fjord/pkg/engine/podman"
+	"github.com/daemonless/fjord/pkg/hostexec"
 )
+
+var execRuns = hostexec.Default
 
 // binProbe checks a binary is reachable in PATH; ok detail is the resolved
 // path so the operator can spot a wrong/shadowed install.
@@ -119,7 +122,7 @@ func fjorddUpdatedTime(ctx context.Context) time.Time {
 			newest = fi.ModTime()
 		}
 	}
-	if out, err := exec.CommandContext(ctx, "pkg", "query", "%t", "fjord").Output(); err == nil {
+	if out, err := execRuns.Output(ctx, "pkg", "query", "%t", "fjord"); err == nil {
 		line, _, _ := strings.Cut(strings.TrimSpace(string(out)), "\n")
 		if secs, err := strconv.ParseInt(strings.TrimSpace(line), 10, 64); err == nil {
 			if t := time.Unix(secs, 0); t.After(newest) {

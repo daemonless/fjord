@@ -15,15 +15,17 @@ import (
 	"fmt"
 	"net"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
 
 	"github.com/daemonless/fjord/pkg/engine"
+	"github.com/daemonless/fjord/pkg/hostexec"
 	"github.com/daemonless/fjord/pkg/hostnet"
 )
+
+var run = hostexec.Default
 
 // Plugin is the CNI plugin a LAN network names as its type. podman resolves it
 // to a binary; appjail never runs it.
@@ -312,7 +314,7 @@ func vlanNote(nic, up, uplink, id string) string {
 // knows about each -- which one is the uplink, which carry no address.
 func hostInterfaces() []engine.ParentInterface {
 	up := uplinkNIC()
-	out, err := exec.Command("ifconfig", "-a").Output()
+	out, err := run.Output(context.Background(), "ifconfig", "-a")
 	if err != nil {
 		return nil
 	}
@@ -418,7 +420,7 @@ func untaggedSnippet(up, nic, unit, br, uplink string) (string, string) {
 // answers "File exists", and the rest of it quietly does nothing.
 func freeBridge() (unit, name string) {
 	have := map[string]bool{}
-	if out, err := exec.Command("ifconfig", "-g", "bridge").Output(); err == nil {
+	if out, err := run.Output(context.Background(), "ifconfig", "-g", "bridge"); err == nil {
 		for _, n := range strings.Fields(string(out)) {
 			have[n] = true
 		}
@@ -426,7 +428,7 @@ func freeBridge() (unit, name string) {
 	// A unit an earlier setup already claimed is invisible to ifconfig once
 	// it has been renamed, so rc.conf has to be consulted as well or the
 	// second bridge lands on the first one's unit.
-	if out, err := exec.Command("sysrc", "-n", "cloned_interfaces").Output(); err == nil {
+	if out, err := run.Output(context.Background(), "sysrc", "-n", "cloned_interfaces"); err == nil {
 		for _, n := range strings.Fields(string(out)) {
 			have[n] = true
 		}
@@ -464,7 +466,7 @@ func segmentCaveat(nic string) string {
 
 // hasLink reports whether the interface has carrier.
 func hasLink(nic string) bool {
-	out, err := exec.Command("ifconfig", nic).Output()
+	out, err := run.Output(context.Background(), "ifconfig", nic)
 	if err != nil {
 		return false
 	}
@@ -480,7 +482,7 @@ func hasLink(nic string) bool {
 // ends to vnet<hex> and jail-side ends to eth0, so a prefix test would let a
 // container's wire through, while `ifconfig -a` reports the group either way.
 func spareNIC(uplink string) string {
-	out, err := exec.Command("ifconfig", "-a").Output()
+	out, err := run.Output(context.Background(), "ifconfig", "-a")
 	if err != nil {
 		return ""
 	}
@@ -540,7 +542,7 @@ func spareNIC(uplink string) string {
 // whose LAN is bridged for containers -- that bridge's physical member.
 // Falls back to a placeholder rather than a wrong name.
 func uplinkNIC() string {
-	out, err := exec.Command("netstat", "-rn", "-f", "inet").Output()
+	out, err := run.Output(context.Background(), "netstat", "-rn", "-f", "inet")
 	if err != nil {
 		return "<nic>"
 	}
@@ -554,7 +556,7 @@ func uplinkNIC() string {
 	if iface == "" {
 		return "<nic>"
 	}
-	memb, err := exec.Command("ifconfig", iface).Output()
+	memb, err := run.Output(context.Background(), "ifconfig", iface)
 	if err != nil {
 		return iface
 	}
@@ -583,7 +585,7 @@ func isVirtualWire(name string) bool {
 // address -- a bridge built only for containers -- and the form then asks.
 func segmentOf(ctx context.Context, bridge string) (subnet, gateway, hostIP string) {
 	ifaces := []string{bridge}
-	if out, err := exec.CommandContext(ctx, "ifconfig", bridge).Output(); err == nil {
+	if out, err := run.Output(ctx, "ifconfig", bridge); err == nil {
 		for _, ln := range strings.Split(string(out), "\n") {
 			f := strings.Fields(ln)
 			if len(f) >= 2 && f[0] == "member:" && !isVirtualWire(f[1]) {
@@ -609,7 +611,7 @@ func segmentOf(ctx context.Context, bridge string) (subnet, gateway, hostIP stri
 // inetOf reads an interface's first IPv4 address and mask. FreeBSD prints the
 // mask in hex ("netmask 0xffffff00").
 func inetOf(ctx context.Context, iface string) (net.IP, net.IPMask, bool) {
-	out, err := exec.CommandContext(ctx, "ifconfig", iface).Output()
+	out, err := run.Output(ctx, "ifconfig", iface)
 	if err != nil {
 		return nil, nil, false
 	}
@@ -635,7 +637,7 @@ func inetOf(ctx context.Context, iface string) (net.IP, net.IPMask, bool) {
 // segment; otherwise it offers the conventional first address, which is a
 // guess the user can correct.
 func gatewayFor(ctx context.Context, network net.IP, mask net.IPMask) string {
-	if out, err := exec.CommandContext(ctx, "netstat", "-rn", "-f", "inet").Output(); err == nil {
+	if out, err := run.Output(ctx, "netstat", "-rn", "-f", "inet"); err == nil {
 		for _, ln := range strings.Split(string(out), "\n") {
 			f := strings.Fields(ln)
 			if len(f) < 2 || f[0] != "default" {
@@ -657,7 +659,7 @@ func gatewayFor(ctx context.Context, network net.IP, mask net.IPMask) string {
 // the interface list is unreadable.
 func freeVLANID() string {
 	have := map[string]bool{}
-	if out, err := exec.Command("ifconfig", "-g", "vlan").Output(); err == nil {
+	if out, err := run.Output(context.Background(), "ifconfig", "-g", "vlan"); err == nil {
 		for _, name := range strings.Fields(string(out)) {
 			if id, ok := strings.CutPrefix(name, "vlan"); ok {
 				have[id] = true
@@ -765,7 +767,7 @@ func Remove(name string) error {
 // Parents lists the host bridges a LAN network can hang off, with what the
 // host already knows about the segment each is on.
 func Parents(ctx context.Context) ([]engine.NetworkParent, error) {
-	out, err := exec.CommandContext(ctx, "ifconfig", "-g", "bridge").Output()
+	out, err := run.Output(ctx, "ifconfig", "-g", "bridge")
 	if err != nil {
 		return nil, fmt.Errorf("listing bridges: %w", err)
 	}
@@ -934,12 +936,12 @@ func writeConflist(path string, data []byte) error {
 
 // bridgeOf is the bridge nic is a member of, or "".
 func bridgeOf(nic string) string {
-	out, err := exec.Command("ifconfig", "-g", "bridge").Output()
+	out, err := run.Output(context.Background(), "ifconfig", "-g", "bridge")
 	if err != nil {
 		return ""
 	}
 	for _, br := range strings.Fields(string(out)) {
-		info, err := exec.Command("ifconfig", br).Output()
+		info, err := run.Output(context.Background(), "ifconfig", br)
 		if err != nil {
 			continue
 		}
