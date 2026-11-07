@@ -84,11 +84,11 @@ func writeAppjailBundle(dir, stackID string, b *manifest.AppjailBundle, resolved
 	// in the caller, which does not have the director in hand until this has
 	// written it to disk.
 	switch {
-	case stackMode == composepkg.None:
+	case len(atts) == 0 && len(modes) == 0 && stackMode == composepkg.None:
 		if directorYML, err = disableDirectorNetworks(directorYML); err != nil {
 			return "", fmt.Errorf("network none: %w", err)
 		}
-	case stackMode == composepkg.Host:
+	case len(atts) == 0 && len(modes) == 0 && stackMode == composepkg.Host:
 		// Every jail on the host's stack, which is a mode per service:
 		// setDirectorModes below writes it.
 		if modes, err = allHost(directorYML); err != nil {

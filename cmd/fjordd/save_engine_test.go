@@ -84,3 +84,34 @@ func TestSaveRefusesAStaleEditorCopy(t *testing.T) {
 		t.Errorf("current: %d %s", rec.Code, rec.Body)
 	}
 }
+
+// composeHash includes .env and director YAML, and saving with a baseHash
+// after the stack was deleted returns 409 instead of recreating the stack.
+func TestSaveDetectsEnvChangeAndDeletedStack(t *testing.T) {
+	s := &server{
+		manager:   stack.NewManager(t.TempDir()),
+		backends:  map[string]engine.Backend{"podman": engine.Unavailable("podman")},
+		defEngine: "podman",
+	}
+	s.manager.Save(&stack.Stack{Name: "app", Compose: "services:\n  web:\n    image: x\n", Env: "PORT=8080\n"})
+	opened, _ := s.manager.Get("app")
+	stale := composeHash(opened)
+
+	s.manager.Update("app", func(st *stack.Stack) error { st.Env = "PORT=9090\n"; return nil })
+	rec := httptest.NewRecorder()
+	body := `{"compose":"services:\n  web:\n    image: x\n","env":"PORT=8080\n","baseHash":"` + stale + `"}`
+	s.stackSave(rec, httptest.NewRequest(http.MethodPost, "/api/stacks/app/save", strings.NewReader(body)), "app")
+	if rec.Code != http.StatusConflict {
+		t.Errorf("expected 409 on stale .env, got %d: %s", rec.Code, rec.Body)
+	}
+
+	s.manager.Delete("app")
+	rec = httptest.NewRecorder()
+	s.stackSave(rec, httptest.NewRequest(http.MethodPost, "/api/stacks/app/save", strings.NewReader(body)), "app")
+	if rec.Code != http.StatusConflict {
+		t.Errorf("expected 409 when stack was deleted since opened, got %d: %s", rec.Code, rec.Body)
+	}
+	if _, err := s.manager.Get("app"); err == nil {
+		t.Errorf("save with baseHash recreated a deleted stack")
+	}
+}

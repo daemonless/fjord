@@ -694,7 +694,14 @@ func (s *server) handleInstall(w http.ResponseWriter, r *http.Request) {
 		if len(atts) == 0 {
 			atts = req.attachments()
 		}
-		env, err := writeAppjailBundle(st.Dir, id, b, res.Env, hostEnv, composeYAML, atts, svcModes, req.Network)
+		stackMode := ""
+		switch req.networkAction() {
+		case netActionNone:
+			stackMode = composepkg.None
+		case netActionHost:
+			stackMode = composepkg.Host
+		}
+		env, err := writeAppjailBundle(st.Dir, id, b, res.Env, hostEnv, composeYAML, atts, svcModes, stackMode)
 		if err != nil {
 			// Gone again, as above: a stack left with a compose and no bundle
 			// is listed with no engine and can never start.

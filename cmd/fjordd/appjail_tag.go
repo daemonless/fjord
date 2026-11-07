@@ -205,9 +205,9 @@ func setDirectorModes(directorYML string, modes map[string]string) (string, erro
 			}
 		}
 		setServiceOptions(node, mergeServiceOptions(node, opts))
-		// expose is a NAT redirect: on the host's stack there is no NAT to
-		// redirect from, and the app already answers on the host's ports.
-		if mode == composepkg.Host {
+		// expose is a NAT redirect: on the host's stack or with no network at
+		// all there is no NAT to redirect from.
+		if mode == composepkg.Host || mode == composepkg.None {
 			dropExpose(node)
 		}
 		// Back to the template that carries ip4: a host-stack jail needs it,

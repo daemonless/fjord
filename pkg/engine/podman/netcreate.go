@@ -133,8 +133,12 @@ func (b *Backend) createNAT(ctx context.Context, spec engine.NetworkSpec) (engin
 		return engine.Network{}, fmt.Errorf("podman network create: %s", strings.TrimSpace(string(out)))
 	}
 	n := engine.Network{Name: spec.Name, Driver: "bridge", Subnet: spec.Subnet, Gateway: spec.Gateway}
-	if def, ok := hostnet.Get(spec.Name); ok && n.Subnet == "" {
-		n.Subnet, n.Gateway = def.Subnet, def.Gateway
+	if def, ok := hostnet.Get(spec.Name); ok {
+		if n.Subnet == "" {
+			n.Subnet, n.Gateway = def.Subnet, def.Gateway
+		}
+	} else if runtime.GOOS == "freebsd" {
+		return engine.Network{}, fmt.Errorf("podman network create %s: conflist was not written at %s", spec.Name, hostnet.Path(spec.Name))
 	}
 	return n, nil
 }

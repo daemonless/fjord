@@ -284,7 +284,7 @@ func (b *Backend) Status(ctx context.Context, s *stack.Stack) (engine.StackStatu
 	}
 	state := "stopped"
 	switch {
-	case len(svcs) == 0:
+	case len(svcs) == 0 || ctx.Err() != nil:
 		state = "unknown"
 	case up == len(svcs):
 		state = "running"

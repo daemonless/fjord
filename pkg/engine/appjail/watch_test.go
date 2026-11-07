@@ -60,10 +60,10 @@ func TestWatchJails(t *testing.T) {
 	}
 }
 
-// A jail that never came up is the update's to report, not the watch's.
+// A jail that never came up fails the watch with an [error] line.
 func TestWatchJailsNothingToWatch(t *testing.T) {
 	out, err := watch(t, &fakeJail{jids: []string{""}})
-	if err != nil || out != "" {
+	if err == nil || !strings.Contains(out, "[error] not running after the update: web") {
 		t.Fatalf("err %v, out %q", err, out)
 	}
 }

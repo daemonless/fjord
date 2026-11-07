@@ -281,6 +281,7 @@ func directorUpdate(ctx context.Context, s *stack.Stack, jails []svcJail) (io.Re
 			return nil
 		},
 		directorUpStep(ctx, s),
+		func(w io.Writer) error { return checkJailsUp(ctx, w, jails) },
 		func(w io.Writer) error { return watchJails(ctx, w, jails, healthWindow, "the update") })
 }
 
@@ -323,21 +324,23 @@ func directorUpdateServices(ctx context.Context, s *stack.Stack, jails []svcJail
 			return nil
 		},
 		directorUpStep(ctx, s),
-		func(w io.Writer) error {
-			// Director exits 0 on "Nothing to do." as well; ask the jails.
-			var down []string
-			for _, sj := range jails {
-				if exec.CommandContext(ctx, "appjail", "status", "-q", sj.jail).Run() != nil {
-					down = append(down, sj.svc.Name)
-				}
-			}
-			if len(down) > 0 {
-				fmt.Fprintf(w, "[error] not running after the update: %s\n", strings.Join(down, ", "))
-				return fmt.Errorf("not running: %s", strings.Join(down, ", "))
-			}
-			return nil
-		},
+		func(w io.Writer) error { return checkJailsUp(ctx, w, jails) },
 		func(w io.Writer) error { return watchJails(ctx, w, jails, healthWindow, "the update") })
+}
+
+func checkJailsUp(ctx context.Context, w io.Writer, jails []svcJail) error {
+	// Director exits 0 on "Nothing to do." as well; ask the jails.
+	var down []string
+	for _, sj := range jails {
+		if exec.CommandContext(ctx, "appjail", "status", "-q", sj.jail).Run() != nil {
+			down = append(down, sj.svc.Name)
+		}
+	}
+	if len(down) > 0 {
+		fmt.Fprintf(w, "[error] not running after the update: %s\n", strings.Join(down, ", "))
+		return fmt.Errorf("not running: %s", strings.Join(down, ", "))
+	}
+	return nil
 }
 
 // pullNamedImages pulls the image each service is built from.

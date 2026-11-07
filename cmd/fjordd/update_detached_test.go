@@ -262,3 +262,34 @@ func TestUpdateAllUpdatesAvailableStacksInOrder(t *testing.T) {
 		t.Error("ua-two should be forgotten from fleet cache after update")
 	}
 }
+
+// When retagForUpdate fails during a batch update, the daemon records the
+// failure and skips running Update on the old tag.
+func TestUpdateAllRecordsRetagFailureInsteadOfRunningOldTag(t *testing.T) {
+	be := &updatingEngine{Backend: engine.Unavailable("podman")}
+	s := &server{
+		manager:   stack.NewManager(t.TempDir()),
+		fjordRoot: t.TempDir(),
+		backends:  map[string]engine.Backend{"podman": be},
+	}
+	// Invalid YAML in compose causes retagForUpdate to fail.
+	if err := s.manager.Save(&stack.Stack{Name: "ua-bad", Compose: "services: [\n"}); err != nil {
+		t.Fatal(err)
+	}
+	s.manager.SetEngine("ua-bad", "podman")
+	s.fleet.put("ua-bad", updates.Status{State: "upgrade", NewTag: "2.0"})
+
+	w := httptest.NewRecorder()
+	s.handleUpdates(w, httptest.NewRequest(http.MethodPost, "/api/updates", strings.NewReader(`{"stacks":["ua-bad"]}`)))
+	if w.Code != http.StatusOK {
+		t.Fatalf("%d %s", w.Code, w.Body.String())
+	}
+	waitIdle(t, "ua-bad")
+	if len(be.updates()) != 0 {
+		t.Errorf("expected Update to be skipped after retag failure, got %d calls", len(be.updates()))
+	}
+	state, _ := s.manager.LoadState("ua-bad")
+	if state == nil || state.LastFailure == nil || !strings.Contains(state.LastFailure.Message, "retag for update failed") {
+		t.Errorf("expected recorded retag failure, got %+v", state)
+	}
+}
