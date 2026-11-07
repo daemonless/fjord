@@ -1,4 +1,5 @@
 import { statusKey } from './staleNote';
+import { busyWord } from './busyStep';
 import { health } from './stackHealth';
 import { networkLabel, HOST_NETWORK, DEFAULT_NETWORK } from './network';
 import type { StackRestart } from './restartPolicy';
@@ -112,14 +113,10 @@ export type Attachment = { network: string; service?: string; ip?: string; mac?:
 
 // What fjordd says it is doing to a stack. An install or up shows no
 // container for the whole pull; without this the page said "stopped".
-export const BUSY_LABEL: Record<string, string> = {
-  installing: 'Installing…',
-  up: 'Starting…',
-  update: 'Updating…',
-  restart: 'Restarting…',
-  down: 'Stopping…',
-  deleting: 'Deleting…',
-};
+// Evaluated on lookup via busyWord so the active locale catalog is used.
+export const BUSY_LABEL: Record<string, string> = new Proxy({} as Record<string, string>, {
+  get: (_, k) => (typeof k === 'string' ? busyWord(k) || (undefined as unknown as string) : (undefined as unknown as string)),
+});
 
 // What the UI shows for a stack: its label, falling back to the id.
 export function stackLabel(s: { name: string; displayName?: string } | null | undefined): string {

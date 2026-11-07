@@ -16,7 +16,7 @@
   import { appjailMissing, askValue, chosenServices, choiceVars, isToggle, pickedPhrase } from './choices';
   import { resolveDefault, seedInterfaces, splitPlan, joinable, keepAttachable, addressesNeeded, type Iface } from './planSeed';
   import RestartChoice from './RestartChoice.svelte';
-  import { sizeWords, SIZE_NOTE, type SizeAnswer } from './installSize';
+  import { sizeWords, sizeNote, type SizeAnswer } from './installSize';
   import { DEFAULT_RETRIES } from './restartPolicy';
   import {
     boolChecked,
@@ -1413,7 +1413,7 @@
               {/if}
               {#if sizeLine}
                 <dt class="text-fjord-fg-dim">Download</dt>
-                <dd class="text-fjord-fg-body" title={SIZE_NOTE} data-install-size>{sizeLine}</dd>
+                <dd class="text-fjord-fg-body" title={sizeNote()} data-install-size>{sizeLine}</dd>
               {/if}
             </dl>
             <button

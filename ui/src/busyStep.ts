@@ -2,6 +2,19 @@
 // action's output. The header said only "Installing…" for the whole pull;
 // the step and the download's size were in the Output panel at the bottom.
 
+/** busyWord names what fjordd is doing to a stack, evaluated after locale load. */
+export function busyWord(k?: string): string {
+  switch (k) {
+    case 'installing': return 'Installing…';
+    case 'up': return 'Starting…';
+    case 'update': return 'Updating…';
+    case 'restart': return 'Restarting…';
+    case 'down': return 'Stopping…';
+    case 'deleting': return 'Deleting…';
+    default: return '';
+  }
+}
+
 /** busyStep names the step the output is on, or '' when it says nothing known. */
 export function busyStep(output: string): string {
   // eslint-disable-next-line no-control-regex
