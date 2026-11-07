@@ -54,6 +54,29 @@ func (s *server) oldestFetch() time.Time {
 	return oldest
 }
 
+const catalogRetryBackoff = 15 * time.Minute
+
+func (s *server) catalogAutoDue(interval time.Duration, now time.Time) bool {
+	if interval <= 0 || len(s.cat.Sources()) == 0 {
+		return false
+	}
+	oldest := s.oldestFetch()
+	if !oldest.IsZero() {
+		return now.Sub(oldest) >= interval
+	}
+	// At least one source has never succeeded (or its catalog.json is absent).
+	// Throttle retries by catalogAutoAt so one dead source does not re-fetch
+	// every working catalog and wipe cached manifests once per minute.
+	s.catalogAutoMu.Lock()
+	lastTry := s.catalogAutoAt
+	s.catalogAutoMu.Unlock()
+	if lastTry.IsZero() {
+		return true
+	}
+	backoff := min(interval, catalogRetryBackoff)
+	return now.Sub(lastTry) >= backoff
+}
+
 // runCatalogScheduler refreshes every catalog once the stalest one is older
 // than the configured interval. Checked each minute so a settings change
 // applies without a restart; the interval is measured from the last fetch,
@@ -61,8 +84,8 @@ func (s *server) oldestFetch() time.Time {
 func runCatalogScheduler(s *server) {
 	for {
 		interval := catalogRefreshIntervals[catalogRefreshOf(loadSettings(s.fjordRoot))]
-		if interval > 0 && len(s.cat.Sources()) > 0 && time.Since(s.oldestFetch()) >= interval {
-			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+		if s.catalogAutoDue(interval, time.Now()) {
+			ctx, cancel := context.WithTimeout(daemonCtx, 3*time.Minute)
 			err := s.cat.RefreshAll(ctx)
 			cancel()
 			s.catalogAutoMu.Lock()
@@ -76,7 +99,11 @@ func runCatalogScheduler(s *server) {
 			}
 			s.catalogAutoMu.Unlock()
 		}
-		time.Sleep(time.Minute)
+		select {
+		case <-daemonCtx.Done():
+			return
+		case <-time.After(time.Minute):
+		}
 	}
 }
 

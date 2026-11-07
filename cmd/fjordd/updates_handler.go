@@ -79,6 +79,26 @@ type fleetUpdates struct {
 
 const fleetCacheTTL = 30 * time.Minute
 
+// runFleetScheduler refreshes the cached fleet update status in the background
+// when it expires, so the cache stays warm even when no browser has polled
+// GET /api/updates yet.
+func runFleetScheduler(s *server) {
+	for {
+		s.fleet.mu.Lock()
+		stale := time.Since(s.fleet.checkedAt) > fleetCacheTTL
+		if stale && !s.fleet.refreshing {
+			s.fleet.refreshing = true
+			go s.refreshFleet()
+		}
+		s.fleet.mu.Unlock()
+		select {
+		case <-daemonCtx.Done():
+			return
+		case <-time.After(5 * time.Minute):
+		}
+	}
+}
+
 // fleetResponse is the /api/updates wire format.
 type fleetResponse struct {
 	Stacks     map[string]updates.Status `json:"stacks"`
