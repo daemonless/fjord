@@ -475,8 +475,10 @@ func TestSetServiceModes(t *testing.T) {
   web:
     image: nginx
     networks: [lan]
+    mac_address: 02:1a:2b:3c:4d:5e
   db:
     image: postgres
+    mac_address: 02:1a:2b:3c:4d:5f
   cache:
     image: redis
 `
@@ -486,6 +488,15 @@ func TestSetServiceModes(t *testing.T) {
 	}
 	if !strings.Contains(out, "network_mode: host") || !strings.Contains(out, "network_mode: none") {
 		t.Errorf("modes not written:\n%s", out)
+	}
+	if !strings.Contains(out, "org.freebsd.jail.vnet: new") {
+		t.Errorf("none mode did not add org.freebsd.jail.vnet: new:\n%s", out)
+	}
+	if strings.Contains(out, "02:1a:2b:3c:4d:5f") {
+		t.Errorf("db mac_address survived SetServiceModes:\n%s", out)
+	}
+	if !strings.Contains(out, "x-fjord-networks:") || !strings.Contains(out, "02:1a:2b:3c:4d:5e") {
+		t.Errorf("web mac_address was not stashed into x-fjord-networks:\n%s", out)
 	}
 	// bridge is the engine's default, which in compose is the absence of both.
 	if strings.Count(out, "network_mode:") != 2 {

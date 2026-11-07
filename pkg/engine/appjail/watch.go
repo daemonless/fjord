@@ -50,10 +50,17 @@ func watchJails(ctx context.Context, w io.Writer, jails []svcJail, window time.D
 		failed bool
 	}
 	var ws []*watched
+	var missing []string
 	for _, sj := range jails {
 		if jid := jailJID(ctx, sj.jail); jid != "" {
 			ws = append(ws, &watched{sj: sj, jid: jid})
+		} else {
+			missing = append(missing, sj.svc.Name)
 		}
+	}
+	if len(missing) > 0 {
+		fmt.Fprintf(w, "[error] not running after %s: %s\n", after, strings.Join(missing, ", "))
+		return fmt.Errorf("not running after %s: %s", after, strings.Join(missing, ", "))
 	}
 	if len(ws) == 0 {
 		return nil

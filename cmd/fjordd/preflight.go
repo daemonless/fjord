@@ -41,6 +41,11 @@ func (s *server) preflight(ctx context.Context, st *stack.Stack) []string {
 	// against a container id. Install and save refuse it too -- this is for
 	// the stack that already exists, or whose network changed under it.
 	atts := composepkg.AttachedNetworks(st.Compose)
+	if len(atts) == 0 {
+		for _, list := range composepkg.ServiceAttachments(st.Compose) {
+			atts = append(atts, list...)
+		}
+	}
 	if st.Director != "" {
 		atts = directorAttachments(st.Director)
 	}

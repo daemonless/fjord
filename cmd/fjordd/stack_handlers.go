@@ -338,17 +338,28 @@ func (s *server) removeStack(name string, data bool) (int, string) {
 			io.Copy(io.Discard, stream) // block until teardown finishes
 			stream.Close()
 		}
-		if status, err := be.Status(ctx, st); err == nil {
-			var alive []string
-			for _, c := range status.Containers {
-				if c.State != "stopped" && c.State != "" {
-					alive = append(alive, c.Name+" ("+c.State+")")
-				}
+		checkCtx, checkCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer checkCancel()
+		status, err := be.Status(checkCtx, st)
+		if err != nil || checkCtx.Err() != nil || status.State == "unknown" {
+			keep()
+			why := "engine status is unknown"
+			if err != nil {
+				why = err.Error()
+			} else if checkCtx.Err() != nil {
+				why = checkCtx.Err().Error()
 			}
-			if len(alive) > 0 {
-				keep()
-				return http.StatusConflict, "not deleted: containers are still up after the stop attempt -- " + strings.Join(alive, ", ") + ". Check Output/Logs, stop them, then delete again."
+			return http.StatusConflict, "not deleted: could not verify that containers are stopped (" + why + "). Check Output/Logs, stop them, then delete again."
+		}
+		var alive []string
+		for _, c := range status.Containers {
+			if c.State != "stopped" && c.State != "" {
+				alive = append(alive, c.Name+" ("+c.State+")")
 			}
+		}
+		if len(alive) > 0 {
+			keep()
+			return http.StatusConflict, "not deleted: containers are still up after the stop attempt -- " + strings.Join(alive, ", ") + ". Check Output/Logs, stop them, then delete again."
 		}
 		if data {
 			for _, d := range s.planDelete(ctx, st).AppData {
@@ -581,7 +592,8 @@ func (s *server) stackSave(w http.ResponseWriter, r *http.Request, name string) 
 	// So a save must say which version it edited, and a stale one is refused.
 	// Checked here, before the slow part, and again as it writes (below).
 	if payload.BaseHash != "" {
-		if existing, err := s.manager.Get(name); err == nil && composeHash(existing) != payload.BaseHash {
+		existing, err := s.manager.Get(name)
+		if err != nil || composeHash(existing) != payload.BaseHash {
 			replyErr(w, changedSinceOpened(name))
 			return
 		}
@@ -763,6 +775,10 @@ func (s *server) stackSave(w http.ResponseWriter, r *http.Request, name string) 
 		}
 		st = existing
 	} else {
+		if base != "" {
+			replyErr(w, changedSinceOpened(name))
+			return
+		}
 		created = true
 		// A new native appjail stack is director + Makejail, no compose.
 		if payload.Engine == "appjail" && payload.Director != "" {
@@ -888,7 +904,7 @@ func changedSinceOpened(name string) httpError {
 }
 
 func composeHash(st *stack.Stack) string {
-	sum := sha256.Sum256([]byte(st.Compose + "\x00" + st.Director))
+	sum := sha256.Sum256([]byte(st.Compose + "\x00" + st.Director + "\x00" + st.Env))
 	return hex.EncodeToString(sum[:8])
 }
 

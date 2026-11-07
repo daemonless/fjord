@@ -91,7 +91,7 @@ func refreshDNS(ctx context.Context) {
 		return
 	}
 	if changed, err := WriteDNSConf(ctx); err == nil && changed {
-		restartDNS(ctx)
+		_ = restartDNS(ctx)
 	}
 }
 
@@ -99,9 +99,14 @@ func refreshDNS(ctx context.Context) {
 // when the names change and exits when that fails, which it does while
 // dnsmasq is restarting ("dnsmasq not running?", netlab 2026-10-17): the
 // names then stopped being written at all.
-func restartDNS(ctx context.Context) {
-	_ = exec.CommandContext(ctx, "service", "dnsmasq", "restart").Run()
-	_ = exec.CommandContext(ctx, "service", "appjail-dns", "restart").Run()
+func restartDNS(ctx context.Context) error {
+	if err := exec.CommandContext(ctx, "service", "dnsmasq", "restart").Run(); err != nil {
+		return fmt.Errorf("service dnsmasq restart: %w", err)
+	}
+	if err := exec.CommandContext(ctx, "service", "appjail-dns", "restart").Run(); err != nil {
+		return fmt.Errorf("service appjail-dns restart: %w", err)
+	}
+	return nil
 }
 
 // Virtualnets are appjail's own networks (name, subnet, gateway).
@@ -122,7 +127,7 @@ func followNewBridges(ctx context.Context) {
 	}
 	for _, n := range listVirtualnets(ctx) {
 		if n.Gateway != "" && interfaceExists(ctx, n.Name) && !listensOn(string(out), n.Gateway) {
-			restartDNS(ctx)
+			_ = restartDNS(ctx)
 			return
 		}
 	}

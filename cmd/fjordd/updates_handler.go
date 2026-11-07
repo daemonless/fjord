@@ -214,8 +214,19 @@ func (s *server) handleUpdateAll(w http.ResponseWriter, r *http.Request) {
 					q.unlock()
 					continue
 				}
+				var retagErr error
 				for _, rt := range q.retags {
-					s.retagForUpdate(q.name, rt.service, rt.tag)
+					if err := s.retagForUpdate(q.name, rt.service, rt.tag); err != nil {
+						retagErr = err
+						break
+					}
+				}
+				if retagErr != nil {
+					stream := errorStream("retag for update failed: " + retagErr.Error())
+					io.Copy(io.Discard, s.recordOutcome(q.name, "update", stream))
+					stream.Close()
+					q.unlock()
+					continue
 				}
 				s.runDetachedUpdate(q.name, q.services)
 				q.unlock()
@@ -321,22 +332,24 @@ func (f *fleetUpdates) touch(name string) {
 
 // retagForUpdate rewrites a service's tag before an explicitly requested
 // update from the Update all review panel.
-func (s *server) retagForUpdate(name, service, tag string) {
+func (s *server) retagForUpdate(name, service, tag string) error {
+	if tag == "" {
+		return nil
+	}
 	st, err := s.manager.Get(name)
-	if err != nil || tag == "" {
-		return
+	if err != nil {
+		return err
 	}
 	if service != "" && st.Director != "" && composeImage(st.Compose, service) == "" {
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()
-		_ = s.directorSetTag(ctx, st, service, tag, false)
-		return
+		return s.directorSetTag(ctx, st, service, tag, false)
 	}
 	newCompose, newEnv, err := retag(st.Compose, st.Env, service, tag)
 	if err != nil {
-		return
+		return err
 	}
-	_, _ = s.manager.Update(name, func(fresh *stack.Stack) error {
+	_, err = s.manager.Update(name, func(fresh *stack.Stack) error {
 		fresh.Compose, fresh.Env = newCompose, newEnv
 		var only []string
 		if service != "" {
@@ -344,4 +357,5 @@ func (s *server) retagForUpdate(name, service, tag string) {
 		}
 		return directorFollowsCompose(fresh, only)
 	})
+	return err
 }

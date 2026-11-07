@@ -100,7 +100,12 @@ func (b *Backend) UnmanagedContainers(ctx context.Context, skip func(name, proje
 			list = append(list, u)
 			continue
 		}
-		info := inspectJail(ctx, u.Name)
+		info, err := inspectJail(ctx, u.Name)
+		if err != nil {
+			u.Unadoptable = "could not inspect jail configuration: " + err.Error()
+			list = append(list, u)
+			continue
+		}
 		info.Image, info.State, info.Project = u.Image, u.State, u.Project
 		u.Spec = convertJail(info)
 		list = append(list, u)
@@ -146,10 +151,11 @@ func (b *Backend) AdoptableNames(ctx context.Context, skip func(name, project st
 // RemoveContainer stops and destroys the jail (and its buildah container)
 // so the adopted stack can recreate it under the same name.
 func (b *Backend) RemoveContainer(ctx context.Context, name string) error {
-	exec.CommandContext(ctx, "appjail", "stop", "--", name).Run() // already down is fine
-	if out, err := exec.CommandContext(ctx, "appjail", "jail", "destroy", "-Rf", name).CombinedOutput(); err != nil {
-		return fmt.Errorf("appjail jail destroy %s: %v: %s", name, err, strings.TrimSpace(string(out)))
+	var buf strings.Builder
+	if err := destroyJail(ctx, &buf, name); err != nil {
+		return fmt.Errorf("appjail jail destroy %s: %v: %s", name, err, strings.TrimSpace(buf.String()))
 	}
+	_ = exec.CommandContext(ctx, "buildah", "rm", "appjail-"+name).Run()
 	return nil
 }
 
@@ -189,17 +195,23 @@ func recordedImage(ctx context.Context, name string) string {
 	return ""
 }
 
-// inspectJail gathers a jail's settings with the appjail CLI. Every query is
-// best-effort: a missing piece becomes a note, never a failure.
-func inspectJail(ctx context.Context, name string) jailInfo {
+// inspectJail gathers a jail's settings with the appjail CLI.
+func inspectJail(ctx context.Context, name string) (jailInfo, error) {
+	var firstErr error
 	run := func(args ...string) string {
-		out, _ := exec.CommandContext(ctx, args[0], args[1:]...).Output()
+		out, err := exec.CommandContext(ctx, args[0], args[1:]...).Output()
+		if err != nil && firstErr == nil {
+			firstErr = fmt.Errorf("%s: %w", strings.Join(args, " "), err)
+		}
 		return strings.TrimSpace(string(out))
 	}
 	info := jailInfo{Name: name, Env: map[string]string{}}
 	// No -H here: on `jail get` it ADDS the header, where on the list
 	// commands below it takes it away.
 	info.Network, info.Address = jailNetwork(run("appjail", "jail", "get", "-Ipt", "--", name, "networks", "network_ip4"))
+	if firstErr != nil {
+		return info, firstErr
+	}
 	for _, line := range strings.Split(run("appjail", "expose", "list", "-HIpt", name, "hport", "jport", "protocol"), "\n") {
 		if f := strings.Fields(line); len(f) == 3 {
 			info.Exposes = append(info.Exposes, exposeEntry{f[0], f[1], f[2]})
@@ -232,7 +244,7 @@ func inspectJail(ctx context.Context, name string) jailInfo {
 	info.NAT = strings.Contains(strings.Join(info.Params, "\n"), "appjail nat on")
 	info.HasLimits = run("appjail", "limits", "list", "-HIpt", name) != ""
 	info.HasDevfs = run("appjail", "devfs", "list", "-HIpt", name) != ""
-	return info
+	return info, firstErr
 }
 
 // jailNetwork reads `appjail jail get -Ipt <jail> networks network_ip4`:

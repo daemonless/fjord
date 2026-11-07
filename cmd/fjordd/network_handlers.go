@@ -768,11 +768,18 @@ func (s *server) stackNetworkUsers() map[string][]string {
 			continue
 		}
 		atts := composepkg.AttachedNetworks(st.Compose)
+		if len(atts) == 0 {
+			for _, list := range composepkg.ServiceAttachments(st.Compose) {
+				atts = append(atts, list...)
+			}
+		}
 		if st.Director != "" {
 			atts = directorAttachments(st.Director)
 		}
+		seen := map[string]bool{}
 		for _, a := range atts {
-			if a.Network != "" {
+			if a.Network != "" && !seen[a.Network] {
+				seen[a.Network] = true
 				out[a.Network] = append(out[a.Network], st.Name)
 			}
 		}

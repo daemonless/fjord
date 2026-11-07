@@ -26,8 +26,11 @@ var quietEvery = 15 * time.Second
 // nothing else has been written for quietEvery, until the returned stop.
 func quietNotice(out *stampedWriter, what string) (stop func()) {
 	start := time.Now()
+	every := quietEvery
 	done := make(chan struct{})
+	exited := make(chan struct{})
 	go func() {
+		defer close(exited)
 		tick := time.NewTicker(time.Second)
 		defer tick.Stop()
 		for {
@@ -36,12 +39,15 @@ func quietNotice(out *stampedWriter, what string) (stop func()) {
 				return
 			case <-tick.C:
 			}
-			if time.Since(out.lastWrite()) >= quietEvery {
+			if time.Since(out.lastWrite()) >= every {
 				out.note(fmt.Sprintf("[fjord] still %s · %s\n", what, time.Since(start).Round(time.Second)))
 			}
 		}
 	}()
-	return func() { close(done) }
+	return func() {
+		close(done)
+		<-exited
+	}
 }
 
 // runNoticed is runStreaming with quietNotice around the command.

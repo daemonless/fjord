@@ -29,14 +29,16 @@ func TestStackNetworkUsers(t *testing.T) {
 	write("jailed", "appjail-director.yml", "options:\n  - virtualnet: 'ajnet:jailed address:10.0.0.7'\nservices:\n  app:\n    name: jailed_app\n")
 	// on no network at all
 	write("plain", "compose.yaml", "services:\n  app:\n    image: x\n")
+	// mixed per-service stack (immich-style: web on lan6, db on immich_priv)
+	write("mixed", "compose.yaml", "services:\n  web:\n    image: x\n    networks:\n      - lan6\n  db:\n    image: y\n    networks:\n      - immich_priv\nnetworks:\n  lan6:\n    external: true\n  immich_priv:\n    external: true\n")
 
 	s := &server{manager: stack.NewManager(dir)}
 	users := s.stackNetworkUsers()
 
-	for net, want := range map[string]string{"lan6": "web", "ajnet": "jailed"} {
+	for net, want := range map[string][]string{"lan6": {"mixed", "web"}, "ajnet": {"jailed"}, "immich_priv": {"mixed"}} {
 		got := users[net]
-		if len(got) != 1 || got[0] != want {
-			t.Errorf("%s: got %v, want [%s]", net, got, want)
+		if len(got) != len(want) {
+			t.Errorf("%s: got %v, want %v", net, got, want)
 		}
 	}
 	for _, net := range []string{"nosuch", "bridge"} {
@@ -46,7 +48,7 @@ func TestStackNetworkUsers(t *testing.T) {
 	}
 	// The whole point: this must work off the files, not off anything the
 	// engine reports, since nothing here is running.
-	if len(users) != 2 {
-		t.Errorf("want exactly lan6 and ajnet, got %v", users)
+	if len(users) != 3 {
+		t.Errorf("want lan6, ajnet and immich_priv, got %v", users)
 	}
 }

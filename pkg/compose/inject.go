@@ -1018,10 +1018,21 @@ func SetServiceModes(composeYAML string, modes map[string]string) (string, error
 		// nowhere).
 		stashNetworks(svc)
 		mapDelete(svc, "networks")
+		mapDelete(svc, "mac_address")
 		clearMode(svc)
 		if mode != Bridge {
 			stashPorts(svc)
 			mapSet(svc, "network_mode", scalar(mode))
+			if mode == None {
+				ann := mapGet(svc, "annotations")
+				if ann == nil || ann.Kind != yaml.MappingNode {
+					ann = &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+					mapSet(svc, "annotations", ann)
+				}
+				if mapGet(ann, "org.freebsd.jail.vnet") == nil {
+					ann.Content = append(ann.Content, scalar("org.freebsd.jail.vnet"), scalar("new"))
+				}
+			}
 		} else if p := mapGet(svc, "x-fjord-published"); p != nil && mapGet(svc, "ports") == nil {
 			mapSet(svc, "ports", p)
 			mapDelete(svc, "x-fjord-published")

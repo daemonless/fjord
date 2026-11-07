@@ -5,8 +5,10 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
+	"github.com/daemonless/fjord/pkg/engine"
 	"github.com/daemonless/fjord/pkg/stack"
 )
 
@@ -42,13 +44,20 @@ func deleteFixture(t *testing.T) (*server, string) {
 
 	addStack := func(name, compose string) {
 		writeFile(t, filepath.Join(root, "stacks", name, "compose.yaml"), compose)
+		writeFile(t, filepath.Join(root, "stacks", name, "state.json"), `{"engine":"podman"}`)
 	}
 	addStack("notes", "services:\n  db:\n    image: x\n    volumes:\n      - "+apps+"/notes/db:/config\n      - "+media+":/media:ro\n      - cache:/cache\n  web:\n    image: x\n    volumes:\n      - ${DATA}/web:/config\nvolumes:\n  cache:\n")
 	writeFile(t, filepath.Join(root, "stacks/notes/.env"), "DATA="+apps+"/notes\n")
 	addStack("pair-a", "services:\n  a:\n    image: x\n    volumes:\n      - "+apps+"/pair-a/config:/config\n")
 	addStack("pair-b", "services:\n  b:\n    image: x\n    volumes:\n      - "+apps+"/pair-a/config:/shared:ro\n")
 	addStack("linky", "services:\n  l:\n    image: x\n    volumes:\n      - "+apps+"/linky:/config\n")
-	return &server{manager: stack.NewManager(filepath.Join(root, "stacks")), fjordRoot: root}, root
+	be := &cliMockBackend{stopped: true}
+	return &server{
+		manager:   stack.NewManager(filepath.Join(root, "stacks")),
+		fjordRoot: root,
+		backends:  map[string]engine.Backend{"podman": be},
+		defEngine: "podman",
+	}, root
 }
 
 func plan(t *testing.T, s *server, name string) deletePlan {
@@ -177,5 +186,23 @@ func TestDeletePlanDirectorStack(t *testing.T) {
 	}
 	if !anyInside(s.otherStacksBinds("notes"), filepath.Join(apps, "heim")) {
 		t.Error("another stack's plan does not see the folder in use")
+	}
+}
+
+// When the engine cannot confirm containers are stopped (unknown state or
+// unavailable engine), removeStack refuses to delete the stack or its app data.
+func TestDeleteRefusesWhenStatusUnknown(t *testing.T) {
+	s, root := deleteFixture(t)
+	s.backends = nil // unavailable engine -> Status returns ErrUnavailable
+	rec := httptest.NewRecorder()
+	s.stackDelete(rec, "notes", true)
+	if rec.Code != 409 || !strings.Contains(rec.Body.String(), "could not verify that containers are stopped") {
+		t.Fatalf("expected 409 refusal, got %d: %s", rec.Code, rec.Body)
+	}
+	if _, err := os.Stat(filepath.Join(root, "apps/notes/db/ibdata1")); err != nil {
+		t.Errorf("app data was deleted when engine status could not be verified: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "stacks/notes")); err != nil {
+		t.Errorf("stack was deleted when engine status could not be verified: %v", err)
 	}
 }

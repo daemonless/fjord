@@ -169,12 +169,21 @@ func (b *Backend) bringUp(ctx context.Context, pw *io.PipeWriter, s *stack.Stack
 		fmt.Fprintf(pw, "\n[error] cannot reach podman to list this stack's containers: %v\n", err)
 		return
 	}
-	names := containerNames(ofServices(cs, only))
+	targets := ofServices(cs, only)
+	names := containerNames(targets)
 	if len(names) == 0 {
 		if why := pullError(seen.String()); why != "" {
 			fmt.Fprintf(pw, "\n[error] %s\n", why)
 		} else {
 			fmt.Fprintf(pw, "\n[error] compose created no containers to start\n")
+		}
+		return
+	}
+	if missing := missingServices(s, only, targets); len(missing) > 0 {
+		if why := pullError(seen.String()); why != "" {
+			fmt.Fprintf(pw, "\n[error] %s\n", why)
+		} else {
+			fmt.Fprintf(pw, "\n[error] compose did not create container(s) for: %s\n", strings.Join(missing, ", "))
 		}
 		return
 	}
@@ -207,6 +216,28 @@ func (b *Backend) lastLogs(ctx context.Context, w io.Writer, dir string, names [
 		fmt.Fprintf(w, "\n%s's last log lines:\n", n)
 		b.runStreaming(ctx, w, dir, "podman", "logs", "--tail", "15", n)
 	}
+}
+
+func missingServices(s *stack.Stack, only []string, present []libpodContainer) []string {
+	want := only
+	if len(want) == 0 {
+		for _, svc := range composepkg.ParseServices(s.Compose, s.EnvMap()) {
+			want = append(want, svc.Name)
+		}
+	}
+	have := map[string]bool{}
+	for _, c := range present {
+		if svc := composeService(c.Labels); svc != "" {
+			have[svc] = true
+		}
+	}
+	var missing []string
+	for _, svc := range want {
+		if !have[svc] {
+			missing = append(missing, svc)
+		}
+	}
+	return missing
 }
 
 // explainNoDHCP says in plain words why a container on a DHCP network did not

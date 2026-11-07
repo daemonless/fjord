@@ -356,7 +356,10 @@ func (s *server) handleAdopt(w http.ResponseWriter, r *http.Request) {
 		copyStackIcon(st.Dir, s.cat.AppIconPath(a.Service))
 		log.Printf("adopt %s <- container %s (%s)", id, found.Name, req.Engine)
 		if req.Replace {
-			if err := ad.RemoveContainer(ctx, found.ID); err != nil {
+			rmCtx, rmCancel := context.WithTimeout(context.Background(), 2*time.Minute)
+			err := ad.RemoveContainer(rmCtx, found.ID)
+			rmCancel()
+			if err != nil {
 				http.Error(w, "stack "+id+" created, but removing the old container failed: "+err.Error(), 502)
 				return
 			}
