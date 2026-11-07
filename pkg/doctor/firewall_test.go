@@ -27,3 +27,14 @@ func TestUfwAllows(t *testing.T) {
 		t.Error("DENY read as allowed")
 	}
 }
+
+func TestListenPort(t *testing.T) {
+	t.Setenv("FJORD_LISTEN", "")
+	if got := listenPort(); got != "3567" {
+		t.Errorf("default listenPort = %q, want 3567", got)
+	}
+	t.Setenv("FJORD_LISTEN", "127.0.0.1:4000")
+	if got := listenPort(); got != "4000" {
+		t.Errorf("listenPort = %q, want 4000", got)
+	}
+}
