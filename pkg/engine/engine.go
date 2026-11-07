@@ -53,6 +53,11 @@ type ContainerStatus struct {
 	// Exposed is the TCP ports the image declares and nothing publishes: the
 	// only port there is for an app on its own address that maps none.
 	Exposed []int `json:"exposed,omitempty"`
+	// Restarts is how many times the runtime has restarted this container
+	// since it was created.
+	Restarts int `json:"restarts,omitempty"`
+	// ExitCode is the container's last exit status when it has exited.
+	ExitCode int `json:"exitCode,omitempty"`
 	// Detail explains a non-running state in one line (e.g. "crash-looping:
 	// see Logs") -- shown as a hint, never parsed.
 	Detail string `json:"detail,omitempty"`

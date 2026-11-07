@@ -111,22 +111,21 @@ func (s *server) runEventLoop() {
 		time.Sleep(1500 * time.Millisecond)
 		idle++
 		watched := s.events.count() > 0
-		if !watched && (idle < 20 || !s.namesInPlay()) {
-			// Nobody watching: skip the (shell-out) status calls, unless
-			// names are in play. A port changed by Apply from the API, or a
-			// lease that moved at night, left a name pointing at nothing
-			// until someone opened fjord (and then only on the next change).
-			// So with a provider the loop still looks, every 30 s.
+		if !watched && idle < 20 {
+			// Nobody watching: skip the (shell-out) status calls between
+			// 30 s background passes. Every 30 s the loop still checks each
+			// stack's health, runs recovery if needed, and keeps names synced.
 			continue
 		}
-		checkProvider := idle >= 20
-		if checkProvider {
+		backgroundTick := idle >= 20
+		if backgroundTick {
 			idle = 0
 		}
 		stacks, err := s.manager.List()
 		if err != nil {
 			continue
 		}
+		now := time.Now()
 		seen := map[string]bool{}
 		for _, st := range stacks {
 			full, err := s.manager.Get(st.Name)
@@ -138,18 +137,21 @@ func (s *server) runEventLoop() {
 			// stale, where a timeout here used to publish "unknown" and then
 			// the real state again.
 			status := s.live.get(s.backendFor(full), full, statusWait)
+			s.health.observeContainers(full.Name, &status, now)
+			if backgroundTick {
+				s.observeStackHealth(full, status, now)
+			}
 			state := status.State
 			// Where Open goes changes without the state changing: a DHCP
 			// lease lands after "running". Sent with the status, or the page
 			// kept the empty link it saw mid-recreate and opened 10.89.x.
 			link := linkHost(stackServices(full, status), ownAddress)
-			// The published ports are part of the key: a port changed in
-			// .env and applied recreates the container too fast for the
-			// poll to see it stop, and the name kept pointing at the old
-			// port (a 503 behind the name).
-			key := fmt.Sprintf("%s|%s|%t|%s", state, link, !status.StaleSince.IsZero(), publishedPorts(status))
+			// The published ports and container health are part of the key:
+			// a port changed in .env or a container that transitions from
+			// starting to crashed (both stack state "partial") must push.
+			key := fmt.Sprintf("%s|%s|%t|%s|%s", state, link, !status.StaleSince.IsZero(), publishedPorts(status), containerHealthKey(status))
 			if last[full.Name] == key {
-				if checkProvider && state == "running" && s.providerUnpinned(full) {
+				if backgroundTick && state == "running" && s.providerUnpinned(full) {
 					s.syncTargets(full, status)
 				}
 				continue
@@ -180,12 +182,24 @@ func (s *server) runEventLoop() {
 			if !seen[name] {
 				delete(last, name)
 				s.live.forget(name)
+				s.health.reset(name)
 				if b, err := json.Marshal(map[string]any{"type": "stack-removed", "name": name}); err == nil {
 					s.events.publish(b)
 				}
 			}
 		}
 	}
+}
+
+// containerHealthKey summarizes each container's state, restart count, and
+// detail so a change within "partial" or "running" is published to watchers.
+func containerHealthKey(status engine.StackStatus) string {
+	var parts []string
+	for _, c := range status.Containers {
+		parts = append(parts, fmt.Sprintf("%s:%s:%d:%s", c.Name, c.State, c.Restarts, c.Detail))
+	}
+	sort.Strings(parts)
+	return strings.Join(parts, ",")
 }
 
 // publishedPorts is every host port a stack's containers publish, sorted,

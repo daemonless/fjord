@@ -3,6 +3,7 @@ package podman
 import (
 	"context"
 	"encoding/binary"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -86,23 +87,41 @@ var startGrace = 60 * time.Second
 // serviceHealthWithin is serviceHealth with the grace given: the watches
 // after an update or install judge with none, at the end of their window.
 func serviceHealthWithin(ctx context.Context, c libpodContainer, grace time.Duration) (state, detail string) {
+	if strings.EqualFold(c.Status, "unhealthy") {
+		if why := engine.CrashReason(logTail(ctx, c.ID)); why != "" {
+			return "crashed", "container healthcheck reports unhealthy: " + why
+		}
+		return "crashed", "container healthcheck reports unhealthy -- see Logs"
+	}
 	jid := jailID(ctx, c.ID)
+	probed := false
+	if jid != "" {
+		for _, p := range c.Ports {
+			if p.ContainerPort <= 0 {
+				continue
+			}
+			proto := p.Protocol
+			if proto == "" {
+				proto = "tcp"
+			}
+			probed = true
+			if listening(ctx, jid, proto, p.ContainerPort) {
+				return "running", ""
+			}
+		}
+	}
+	// A container that podman has already restarted more than once and whose
+	// current run is still inside the startup window is crash-looping at the
+	// container level (restart: always / unless-stopped), even on Linux where
+	// jid is empty or when the app inside does not run under s6.
+	if c.Restarts >= 2 && (grace == 0 || (c.StartedAt > 0 && time.Since(time.Unix(c.StartedAt, 0)) < grace)) {
+		if why := engine.CrashReason(logTail(ctx, c.ID)); why != "" {
+			return "crashed", fmt.Sprintf("crash-looping (restarted %d times): %s", c.Restarts, why)
+		}
+		return "crashed", fmt.Sprintf("crash-looping: restarted %d times -- see Logs", c.Restarts)
+	}
 	if jid == "" {
 		return "running", ""
-	}
-	probed := false
-	for _, p := range c.Ports {
-		if p.ContainerPort <= 0 {
-			continue
-		}
-		proto := p.Protocol
-		if proto == "" {
-			proto = "tcp"
-		}
-		probed = true
-		if listening(ctx, jid, proto, p.ContainerPort) {
-			return "running", ""
-		}
 	}
 	if tail := logTail(ctx, c.ID); engine.CrashedInLog(tail) {
 		if c.StartedAt > 0 && time.Since(time.Unix(c.StartedAt, 0)) < grace {

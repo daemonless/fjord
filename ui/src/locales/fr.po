@@ -5081,3 +5081,92 @@ msgstr ""
 #: src/ConditionsBanner.svelte
 msgid "Still not passing: {0}"
 msgstr ""
+
+#. 0: r.attempts; 1: cap
+#: src/RecoveryPolicy.svelte
+msgid "Recover: restart ({0}/{1})"
+msgstr ""
+
+#. 0: cap
+#: src/RecoveryPolicy.svelte
+msgid "Recover: restart ({0}×)"
+msgstr ""
+
+#: src/RecoveryPolicy.svelte
+msgid "Recover: stop"
+msgstr ""
+
+#: src/RecoveryPolicy.svelte
+msgid "Recover: do nothing"
+msgstr ""
+
+#. 0: r?.maxTries || 3; 1: r?.cooldown || 60
+#: src/RecoveryPolicy.svelte
+msgid "On a failed background health check, restart up to {0} times ({1}s cooldown)."
+msgstr ""
+
+#: src/RecoveryPolicy.svelte
+msgid "On a failed background health check, stop the stack so it does not keep looping."
+msgstr ""
+
+#: src/RecoveryPolicy.svelte
+msgid "On a failed background health check, do nothing and report the failure."
+msgstr ""
+
+#: src/RecoveryPolicy.svelte
+msgid "Do nothing"
+msgstr ""
+
+#: src/RecoveryPolicy.svelte
+msgid "Report the failure on the dashboard and stack page without touching the containers."
+msgstr ""
+
+#: src/RecoveryPolicy.svelte
+msgid "Restart stack"
+msgstr ""
+
+#. 0: maxTries; 1: maxTries === 1 ? 'time' \\: 'times'; 2: cooldown
+#: src/RecoveryPolicy.svelte
+msgid "Restart the stack up to {0} {1}, with {2}s cooldown between attempts."
+msgstr ""
+
+#: src/RecoveryPolicy.svelte
+msgid "Stop stack"
+msgstr ""
+
+#: src/RecoveryPolicy.svelte
+msgid "Stop the stack on a failed check so a crash loop does not keep running."
+msgstr ""
+
+#. 0: (await res.text()).trim()
+#: src/RecoveryPolicy.svelte
+msgid "Recovery policy not saved: {0}"
+msgstr ""
+
+#: src/RecoveryPolicy.svelte
+msgid "Recovery policy not saved: fjordd did not answer"
+msgstr ""
+
+#: src/RecoveryPolicy.svelte
+msgid "Maximum recovery attempts"
+msgstr ""
+
+#: src/RecoveryPolicy.svelte
+msgid "Max attempts"
+msgstr ""
+
+#: src/RecoveryPolicy.svelte
+msgid "Cooldown seconds between attempts"
+msgstr ""
+
+#: src/RecoveryPolicy.svelte
+msgid "Cooldown (s)"
+msgstr ""
+
+#: src/RecoveryPolicy.svelte
+msgid "Recent health events"
+msgstr ""
+
+#: src/StackDetail.svelte
+msgid "Health check failed"
+msgstr ""

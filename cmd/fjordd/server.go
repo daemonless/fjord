@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/daemonless/fjord/pkg/catalog"
@@ -47,6 +48,8 @@ type server struct {
 	live       *liveStatus  // status for the pages, never waiting long on the engine
 	events     *eventHub    // SSE pub/sub; fed by runEventLoop
 	conds      *conditionsState
+	health     *healthMonitor
+	booting    atomic.Bool
 
 	segs segmentCache // what each bridge's wire said when probed (network_segment.go)
 
@@ -331,6 +334,8 @@ type stackWithStatus struct {
 	// Restart is the stack's restart policy, and whether its engine takes one
 	// from fjord.
 	Restart restartView `json:"restart"`
+	// Recovery is what fjord does when a background health check fails.
+	Recovery recoveryView `json:"recovery"`
 }
 
 // restartView is a stack's restart policy for the stack page, with what its

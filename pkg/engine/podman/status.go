@@ -27,6 +27,10 @@ type libpodContainer struct {
 	Created  time.Time         `json:"Created"`
 	// StartedAt is when the container last started, in Unix seconds.
 	StartedAt int64       `json:"StartedAt"`
+	Restarts  int         `json:"Restarts"`
+	Exited    bool        `json:"Exited"`
+	ExitCode  int         `json:"ExitCode"`
+	Status    string      `json:"Status"`
 	Ports     libpodPorts `json:"Ports"`
 	// ExposedPorts is "80": ["tcp"], the image's EXPOSE minus what is published.
 	ExposedPorts map[string][]string `json:"ExposedPorts"`
@@ -286,11 +290,19 @@ func aggregateStatus(containers []libpodContainer, health func(libpodContainer) 
 			}
 		}
 		cs := engine.ContainerStatus{Name: name, ID: c.ID, Service: composeService(c.Labels), State: c.State, Ports: ports, Exposed: exposedTCP(c),
+			Restarts: c.Restarts, ExitCode: c.ExitCode,
 			Address: containerAddress(c), Addresses: containerAddresses(c), MACs: c.reportedMAC}
 		if cs.State == "running" {
 			up++
 			if health != nil {
 				cs.State, cs.Detail = health(c)
+			}
+		} else if cs.Detail == "" && c.Exited && c.ExitCode != 0 {
+			if c.Restarts > 0 {
+				cs.Detail = fmt.Sprintf("exited with code %d after %d restart%s -- see Logs",
+					c.ExitCode, c.Restarts, map[bool]string{true: "", false: "s"}[c.Restarts == 1])
+			} else {
+				cs.Detail = fmt.Sprintf("exited with code %d -- see Logs", c.ExitCode)
 			}
 		}
 		// Attached but address-less: the CNI plugin failed and podman started

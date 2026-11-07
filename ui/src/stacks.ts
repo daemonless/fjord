@@ -7,9 +7,30 @@ export type ContainerStatus = {
   name: string;
   service?: string; // the compose service it runs
   state: string;
+  restarts?: number;
+  exitCode?: number;
   ports?: { hostPort: number; containerPort: number; protocol?: string }[];
   detail?: string; // one-line reason for a non-running state (appjail: crash-looping app)
   address?: string; // the container's own IP on an attachable network
+};
+
+export type RecoveryEvent = {
+  at: string;
+  check: string;
+  action: string;
+  attempt?: number;
+  max?: number;
+  outcome: string;
+  message?: string;
+};
+
+export type StackRecovery = {
+  action: string; // 'none' | 'restart' | 'stop'
+  maxTries: number;
+  cooldown: number;
+  attempts?: number;
+  exhausted?: boolean;
+  events?: RecoveryEvent[];
 };
 
 export type StackStatus = {
@@ -46,6 +67,7 @@ export type Stack = {
   busy?: string;
   linkHost?: string;
   restart?: StackRestart;
+  recovery?: StackRecovery;
   listOnly?: boolean;
 };
 

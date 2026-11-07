@@ -6,6 +6,7 @@
   import BottomDrawer from './BottomDrawer.svelte';
   import ChangeVersionModal from './ChangeVersionModal.svelte';
   import RestartPolicy from './RestartPolicy.svelte';
+  import RecoveryPolicy from './RecoveryPolicy.svelte';
   import DirPicker from './DirPicker.svelte';
   import Spinner from './Spinner.svelte';
   import LoginButton from './LoginButton.svelte';
@@ -595,7 +596,17 @@
           ? `${execMessage[stack.name] || 'Working…'} — actions come back when it finishes`
           : '';
 
-  const FAILED: Record<string, string> = { install: 'Install failed', up: 'Start failed', update: 'Update failed', restart: 'Restart failed', down: 'Stop failed' };
+  function failedLabel(action: string): string {
+    switch (action) {
+      case 'install': return 'Install failed';
+      case 'up': return 'Start failed';
+      case 'update': return 'Update failed';
+      case 'restart': return 'Restart failed';
+      case 'down': return 'Stop failed';
+      case 'health': return 'Health check failed';
+      default: return 'Failed';
+    }
+  }
   const failedWhen = (at: string) => {
     const d = new Date(at);
     const sameDay = d.toDateString() === new Date().toDateString();
@@ -722,6 +733,17 @@
         on:changed={async () => {
           const name = stack.name;
           applyDismissed[name] = false;
+          await onSelectStack({ name } as Stack);
+          await onLoadStacks();
+        }}
+      />
+      <RecoveryPolicy
+        name={stack.name}
+        recovery={stack.recovery}
+        disabled={busyNow}
+        reason={busyReason}
+        on:changed={async () => {
+          const name = stack.name;
           await onSelectStack({ name } as Stack);
           await onLoadStacks();
         }}
@@ -1035,7 +1057,7 @@
     {@const f = stack.state.last_failure}
     <div class="flex items-center gap-3 mb-4 shrink-0 px-4 py-2.5 rounded-lg bg-fjord-danger/10 border border-fjord-danger/25 text-sm text-fjord-fg-body">
       <span class="flex-1 min-w-0"
-        ><b>{FAILED[f.action] ?? 'Failed'}</b> at {failedWhen(f.at)} — {f.message}</span
+        ><b>{failedLabel(f.action)}</b> at {failedWhen(f.at)} — {f.message}</span
       >
       <button
         on:click={() => onDismissFailure(stack.name)}
