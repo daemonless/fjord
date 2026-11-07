@@ -67,14 +67,28 @@ func MkdirOwned(path string, mode os.FileMode, uid, gid int) (created bool, err 
 	if len(missing) == 0 {
 		return false, nil
 	}
-	// The real place, links resolved: create the missing levels there.
-	real := cur
+	// The real place, links resolved: create the missing levels inside an
+	// os.Root so no symlink planted after the Lstat walk can be traversed.
+	base := cur
 	for i := len(missing) - 1; i >= 0; i-- {
-		real = filepath.Dir(real)
+		base = filepath.Dir(base)
 	}
+	root, err := os.OpenRoot(base)
+	if err != nil {
+		return false, fmt.Errorf("open root %s: %w", base, err)
+	}
+	defer root.Close()
+	rel := ""
+	real := base
 	for _, m := range missing {
-		real = filepath.Join(real, filepath.Base(m))
-		if err := os.Mkdir(real, mode); err != nil {
+		part := filepath.Base(m)
+		if rel == "" {
+			rel = part
+		} else {
+			rel = filepath.Join(rel, part)
+		}
+		real = filepath.Join(real, part)
+		if err := root.Mkdir(rel, mode); err != nil {
 			return false, fmt.Errorf("mkdir %s: %w", real, err)
 		}
 		if err := os.Lchown(real, uid, gid); err != nil {

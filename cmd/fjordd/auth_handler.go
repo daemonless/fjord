@@ -114,10 +114,12 @@ func (g *authGate) clientAddr(r *http.Request) string {
 		return host
 	}
 	if g.trusted(peer) {
-		hops := strings.Split(r.Header.Get("X-Forwarded-For"), ",")
-		if last := strings.TrimSpace(hops[len(hops)-1]); last != "" {
-			if a, err := netip.ParseAddr(last); err == nil {
-				return a.Unmap().String()
+		for _, hdr := range slices.Backward(r.Header.Values("X-Forwarded-For")) {
+			hops := strings.Split(hdr, ",")
+			if last := strings.TrimSpace(hops[len(hops)-1]); last != "" {
+				if a, err := netip.ParseAddr(last); err == nil {
+					return a.Unmap().String()
+				}
 			}
 		}
 	}
@@ -269,6 +271,13 @@ func (g *authGate) handleSetup(w http.ResponseWriter, r *http.Request) {
 	if g.wait(w, addr) {
 		return
 	}
+	release, busy := g.limit.acquire(addr)
+	if busy {
+		w.Header().Set("Retry-After", "1")
+		writeAuthError(w, http.StatusTooManyRequests, "sign-in already in progress: wait a moment")
+		return
+	}
+	defer release()
 	if !g.store.checkSetupCode(c.Code) {
 		g.failed(addr, "setup code")
 		writeAuthError(w, http.StatusForbidden, "that is not the setup code: on the host, cat "+g.store.setupCodePath())
@@ -301,6 +310,13 @@ func (g *authGate) handleLogin(w http.ResponseWriter, r *http.Request) {
 	if g.wait(w, addr) {
 		return
 	}
+	release, busy := g.limit.acquire(addr)
+	if busy {
+		w.Header().Set("Retry-After", "1")
+		writeAuthError(w, http.StatusTooManyRequests, "sign-in already in progress: wait a moment")
+		return
+	}
+	defer release()
 	if !g.store.checkPassword(c.User, c.Password) {
 		g.failed(addr, "user name or password")
 		writeAuthError(w, http.StatusUnauthorized, "wrong user name or password")
@@ -420,6 +436,13 @@ func (g *authGate) recheck(w http.ResponseWriter, addr, password string) bool {
 	if g.wait(w, addr) {
 		return false
 	}
+	release, busy := g.limit.acquire(addr)
+	if busy {
+		w.Header().Set("Retry-After", "1")
+		writeAuthError(w, http.StatusTooManyRequests, "sign-in already in progress: wait a moment")
+		return false
+	}
+	defer release()
 	f, _ := g.store.read()
 	if !g.store.checkPassword(f.User, password) {
 		g.failed(addr, "current password")
@@ -498,12 +521,15 @@ func (g *authGate) logAuthStart() {
 const (
 	signinFreeTries = 5
 	signinMaxWait   = 5 * time.Minute
+	signinMaxGlobal = 8
 )
 
 type signinLimit struct {
-	mu  sync.Mutex
-	m   map[string]*signinTries
-	now func() time.Time
+	mu       sync.Mutex
+	m        map[string]*signinTries
+	inFlight map[string]bool
+	sem      chan struct{}
+	now      func() time.Time
 }
 
 type signinTries struct {
@@ -513,19 +539,68 @@ type signinTries struct {
 }
 
 func newSigninLimit() *signinLimit {
-	return &signinLimit{m: map[string]*signinTries{}, now: time.Now}
+	return &signinLimit{
+		m:        map[string]*signinTries{},
+		inFlight: map[string]bool{},
+		sem:      make(chan struct{}, signinMaxGlobal),
+		now:      time.Now,
+	}
+}
+
+// limitKey normalizes IPv6 addresses to their /64 prefix so rotating addresses
+// within one /64 allocation share a single rate-limit bucket.
+func limitKey(addr string) string {
+	a, err := netip.ParseAddr(addr)
+	if err != nil {
+		return addr
+	}
+	a = a.Unmap()
+	if a.Is6() {
+		if p, err := a.Prefix(64); err == nil {
+			return p.Masked().String()
+		}
+	}
+	return a.String()
+}
+
+// acquire reserves a single in-flight slot for addr's bucket and a global
+// bcrypt concurrency token. Returns busy=true when a try is already in flight
+// for this bucket or the global semaphore is full.
+func (l *signinLimit) acquire(addr string) (release func(), busy bool) {
+	key := limitKey(addr)
+	l.mu.Lock()
+	if l.inFlight[key] {
+		l.mu.Unlock()
+		return nil, true
+	}
+	select {
+	case l.sem <- struct{}{}:
+	default:
+		l.mu.Unlock()
+		return nil, true
+	}
+	l.inFlight[key] = true
+	l.mu.Unlock()
+	return func() {
+		l.mu.Lock()
+		delete(l.inFlight, key)
+		l.mu.Unlock()
+		<-l.sem
+	}, false
 }
 
 func (l *signinLimit) wait(addr string) time.Duration {
+	key := limitKey(addr)
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if t := l.m[addr]; t != nil {
+	if t := l.m[key]; t != nil {
 		return t.until.Sub(l.now())
 	}
 	return 0
 }
 
 func (l *signinLimit) fail(addr string) int {
+	key := limitKey(addr)
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	now := l.now()
@@ -534,10 +609,10 @@ func (l *signinLimit) fail(addr string) int {
 			delete(l.m, a)
 		}
 	}
-	t := l.m[addr]
+	t := l.m[key]
 	if t == nil {
 		t = &signinTries{}
-		l.m[addr] = t
+		l.m[key] = t
 	}
 	t.n++
 	t.last = now
@@ -549,9 +624,10 @@ func (l *signinLimit) fail(addr string) int {
 }
 
 func (l *signinLimit) ok(addr string) {
+	key := limitKey(addr)
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	delete(l.m, addr)
+	delete(l.m, key)
 }
 
 // passwdCommand is how to run fjordd passwd for this daemon: an interactive

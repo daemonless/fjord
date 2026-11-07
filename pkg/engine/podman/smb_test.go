@@ -2,6 +2,7 @@ package podman
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -9,6 +10,11 @@ import (
 )
 
 func TestWriteNsmbSectionManagedBlock(t *testing.T) {
+	if _, err := exec.LookPath("smbutil"); err != nil {
+		orig := smbutilCrypt
+		t.Cleanup(func() { smbutilCrypt = orig })
+		smbutilCrypt = func(pw string) (string, error) { return "$$1" + pw, nil }
+	}
 	dir := t.TempDir()
 	nsmbConf = filepath.Join(dir, "nsmb.conf")
 	defer func() { nsmbConf = "/etc/nsmb.conf" }()

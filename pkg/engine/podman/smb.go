@@ -105,15 +105,25 @@ func nsmbSection(server, username string) string {
 	return strings.ToUpper(server) + ":" + strings.ToUpper(username)
 }
 
+var smbutilCrypt = func(password string) (string, error) {
+	cryptOut, err := exec.Command("smbutil", "crypt", password).Output()
+	if err != nil {
+		return "", fmt.Errorf("smbutil crypt: %w", err)
+	}
+	obf := strings.TrimSpace(string(cryptOut))
+	if !strings.HasPrefix(obf, "$$1") {
+		return "", fmt.Errorf("smbutil crypt returned unexpected format")
+	}
+	return obf, nil
+}
+
 // writeNsmbSection (re)writes one [SERVER:USER] section inside the managed
 // block of /etc/nsmb.conf, leaving anything outside the markers untouched.
 // The [SERVER] section pins addr= so the name resolves without NetBIOS.
 func writeNsmbSection(server, username, password string) error {
-	obf := password
-	if out, err := exec.Command("smbutil", "crypt", password).Output(); err == nil {
-		if v := strings.TrimSpace(string(out)); strings.HasPrefix(v, "$$1") {
-			obf = v
-		}
+	obf, err := smbutilCrypt(password)
+	if err != nil {
+		return err
 	}
 	existing, _ := os.ReadFile(nsmbConf)
 	text := string(existing)
