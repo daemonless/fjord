@@ -472,31 +472,6 @@ func fjordName(network string) string {
 	return network
 }
 
-func serviceNetworkNode(network, ip string) *yaml.Node {
-	if ip == "" {
-		seq := &yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq"}
-		seq.Content = append(seq.Content, scalar(network))
-		return seq
-	}
-	inner := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
-	inner.Content = append(inner.Content, scalar("ipv4_address"), scalar(ip))
-	outer := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
-	outer.Content = append(outer.Content, scalar(network), inner)
-	return outer
-}
-
-// declaredNetworks counts the networks a service's `networks:` key names, in
-// either compose form: a list of names, or a mapping of name to options.
-func declaredNetworks(n *yaml.Node) int {
-	switch n.Kind {
-	case yaml.SequenceNode:
-		return len(n.Content)
-	case yaml.MappingNode:
-		return len(n.Content) / 2
-	}
-	return 0
-}
-
 // macRe bounds a MAC address: six colon- or dash-separated hex pairs. It ends
 // up in a compose file and on an ifconfig command line.
 var macRe = regexp.MustCompile(`^([0-9a-fA-F]{2}[:-]){5}[0-9a-fA-F]{2}$`)
@@ -762,31 +737,6 @@ func AttachedNetwork(composeYAML string) (network, ip string) {
 		return atts[0].Network, atts[0].IP
 	}
 	return "", ""
-}
-
-// serviceNetwork reads one service's `networks:` value, which compose allows
-// as either a mapping ({net: {ipv4_address: x}}) or a plain list ([net]).
-func serviceNetwork(n *yaml.Node) (name, ip string) {
-	if n == nil {
-		return "", ""
-	}
-	switch n.Kind {
-	case yaml.MappingNode:
-		if len(n.Content) < 2 {
-			return "", ""
-		}
-		name = n.Content[0].Value
-		if opts := n.Content[1]; opts != nil && opts.Kind == yaml.MappingNode {
-			if a := mapGet(opts, "ipv4_address"); a != nil {
-				ip = a.Value
-			}
-		}
-	case yaml.SequenceNode:
-		if len(n.Content) > 0 {
-			name = n.Content[0].Value
-		}
-	}
-	return name, ip
 }
 
 // Built-in network choices: not networks anyone creates, but the two states a

@@ -121,15 +121,15 @@ func TestEpairName(t *testing.T) {
 // default route -- more than one and the jail's routing table is a coin toss.
 func TestSetDirectorNetworksTwo(t *testing.T) {
 	seedNetwork(t)
-	out, err := setDirectorNetworks(context.Background(), natDirector, "zensical", []composepkg.Attachment{
+	if _, err := setDirectorNetworks(context.Background(), natDirector, "zensical", []composepkg.Attachment{
 		{Network: "vlan5", IP: "192.168.5.222", MAC: "02:1a:2b:3c:4d:5e"},
 		{Network: "vlan5", IP: "192.168.5.223"},
-	})
-	if err == nil {
+	}); err == nil {
 		t.Fatal("accepted the same network twice")
 	}
-	out, err = setDirectorNetworks(context.Background(), natDirector, "zensical", []composepkg.Attachment{
+	out, err := setDirectorNetworks(context.Background(), natDirector, "zensical", []composepkg.Attachment{
 		{Network: "vlan5", IP: "192.168.5.222", MAC: "02:1a:2b:3c:4d:5e"},
+		{Network: "vlan6", IP: "192.168.6.222"},
 	})
 	if err != nil {
 		t.Fatalf("setDirectorNetworks: %v", err)
@@ -137,6 +137,8 @@ func TestSetDirectorNetworksTwo(t *testing.T) {
 	for _, want := range []string{
 		"bridge: 'epair:zensical bridge:vlan5bridge'",
 		"macaddr: 'sb_zensical:02:1a:2b:3c:4d:5e'",
+		"bridge: 'epair:zensical1 bridge:vlan6bridge'",
+		"ifconfig: 'sb_zensical1:192.168.6.222/24'",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("missing %q in:\n%s", want, out)

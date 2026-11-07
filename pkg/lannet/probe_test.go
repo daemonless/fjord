@@ -24,10 +24,12 @@ func TestParseLease(t *testing.T) {
 
 // Stable per bridge, so a daily ask reuses one lease; distinct per bridge.
 func TestProbeMACIsStablePerBridge(t *testing.T) {
-	if probeMAC("lanbridge") != probeMAC("lanbridge") {
+	first := probeMAC("lanbridge")
+	second := probeMAC("lanbridge")
+	if first != second {
 		t.Error("probe MAC changes between asks")
 	}
-	if probeMAC("lanbridge") == probeMAC("lanbridge2") {
+	if first == probeMAC("lanbridge2") {
 		t.Error("two bridges share a probe MAC")
 	}
 }
