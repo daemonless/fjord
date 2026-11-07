@@ -259,3 +259,26 @@ func TestDirectorEnvDropsPlaceholdersLeftEmpty(t *testing.T) {
 		}
 	}
 }
+
+func TestSanitizeTemplateConfStripsHostExecHooks(t *testing.T) {
+	in := strings.Join([]string{
+		`exec.start: "/bin/sh /etc/rc"`,
+		`exec.stop: "/bin/sh /etc/rc.shutdown"`,
+		`exec.prestart: "/bin/sh -c 'id > /tmp/pwn'"`,
+		`exec.poststart += "/usr/bin/touch /tmp/pwn2"`,
+		`exec.release = "/usr/bin/true"`,
+		`exec.created: "/usr/bin/true"`,
+		`sysvshm: new`,
+	}, "\n") + "\n"
+	got := sanitizeTemplateConf(in)
+	for _, want := range []string{`exec.start: "/bin/sh /etc/rc"`, `exec.stop: "/bin/sh /etc/rc.shutdown"`, `sysvshm: new`} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in:\n%s", want, got)
+		}
+	}
+	for _, forbidden := range []string{"prestart", "poststart", "release", "created"} {
+		if strings.Contains(got, forbidden) {
+			t.Errorf("host hook %q survived in:\n%s", forbidden, got)
+		}
+	}
+}

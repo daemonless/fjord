@@ -152,7 +152,7 @@ func writeAppjailBundle(dir, stackID string, b *manifest.AppjailBundle, resolved
 	}{
 		{"appjail-director.yml", directorYML, 0o644},
 		{"Makejail", b.Makejail, 0o644},
-		{"template.conf", b.TemplateConf, 0o644},
+		{"template.conf", sanitizeTemplateConf(b.TemplateConf), 0o644},
 		{".env", env, 0o600},
 	}
 	// Sidecar jail templates and other bundle extras go next to director.yml
@@ -161,6 +161,9 @@ func writeAppjailBundle(dir, stackID string, b *manifest.AppjailBundle, resolved
 	for name, body := range b.Extras {
 		if name == "" || name != filepath.Base(name) || strings.HasPrefix(name, ".") {
 			return "", fmt.Errorf("appjail bundle: refusing extra file name %q", name)
+		}
+		if strings.HasSuffix(name, ".conf") {
+			body = sanitizeTemplateConf(body)
 		}
 		writes = append(writes, struct {
 			name string
@@ -187,6 +190,43 @@ func writeAppjailBundle(dir, stackID string, b *manifest.AppjailBundle, resolved
 		return "", fmt.Errorf("jail templates: %w", err)
 	}
 	return env, nil
+}
+
+var allowedPrisonExec = map[string]bool{
+	"exec.start":            true,
+	"exec.stop":             true,
+	"exec.clean":            true,
+	"exec.consolelog":       true,
+	"exec.fib":              true,
+	"exec.jail_user":        true,
+	"exec.system_jail_user": true,
+	"exec.system_user":      true,
+	"exec.timeout":          true,
+}
+
+// sanitizeTemplateConf strips host-side jail(8) hooks (exec.prestart,
+// exec.poststart, exec.prestop, exec.poststop, exec.created, exec.release,
+// exec.prepare) that execute in the host system environment as root, keeping
+// in-jail parameters like exec.start and exec.stop.
+func sanitizeTemplateConf(conf string) string {
+	if conf == "" {
+		return ""
+	}
+	var kept []string
+	for _, line := range strings.Split(conf, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "exec.") {
+			key := trimmed
+			if idx := strings.IndexAny(trimmed, " \t:+="); idx > 0 {
+				key = trimmed[:idx]
+			}
+			if !allowedPrisonExec[key] {
+				continue
+			}
+		}
+		kept = append(kept, line)
+	}
+	return strings.Join(kept, "\n")
 }
 
 // materializeDirector fills the director.yml's volume devices from resolved
