@@ -36,3 +36,16 @@ updates:
       prefix: "chore"
     labels: ["dependencies"]
     open-pull-requests-limit: 3
+
+  - package-ecosystem: "npm"
+    directory: "/ui"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    groups:
+      npm-dependencies:
+        patterns: ["*"]
+    commit-message:
+      prefix: "chore"
+    labels: ["dependencies"]
+    open-pull-requests-limit: 3
