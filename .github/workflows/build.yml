@@ -31,9 +31,11 @@ jobs:
       GOARCH: amd64
       CGO_ENABLED: "0"
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: "24"
           cache: npm
@@ -45,18 +47,20 @@ jobs:
           npm ci
           npm run build
 
-      - uses: actions/setup-go@v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
-          go-version-file: go.mod
+          go-version: "1.26.x"
           cache: true
 
-      - name: Cross-compile fjordd (freebsd/amd64)
+      - name: Cross-compile fjordd (freebsd/amd64, freebsd/arm64, linux/arm64)
         run: |
           go build -trimpath -ldflags "-s -w" -o fjordd ./cmd/fjordd
+          GOARCH=arm64 go build -trimpath -ldflags "-s -w" -o /dev/null ./cmd/fjordd
+          GOOS=linux GOARCH=arm64 go build -trimpath -ldflags "-s -w" -o /dev/null ./cmd/fjordd
           file fjordd
 
       - name: Upload binary
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: fjordd-freebsd-amd64
           path: |
@@ -84,11 +88,12 @@ jobs:
       # (which also checks that tag out, so assets match the tag, not main).
       TAG: ${{ github.event.inputs.tag || github.ref_name }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ github.event.inputs.tag || github.ref }}
+          persist-credentials: false
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: "24"
           cache: npm
@@ -100,9 +105,9 @@ jobs:
           npm ci
           npm run build
 
-      - uses: actions/setup-go@v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
-          go-version-file: go.mod
+          go-version: "1.26.x"
           cache: true
 
       - name: Assemble source tarball (vendored deps + prebuilt UI)
@@ -160,8 +165,8 @@ jobs:
           GOTOOLCHAIN=auto go install github.com/goreleaser/nfpm/v2/cmd/nfpm@v2.48.0
           PATH="$(go env GOPATH)/bin:$PATH" packaging/linux/build-packages.sh "${TAG#v}"
 
-      # Create the release, or refresh the assets of an existing one (re-run on
-      # the same tag after a workflow fix) -- never a second release.
+      # Create the release, or upload missing assets on a re-run -- never
+      # overwrite an already-published release asset.
       - name: Publish release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -170,13 +175,20 @@ jobs:
           BINS="fjordd-freebsd-amd64 fjordd-freebsd-arm64 fjordd.rc fjordd-linux-amd64 fjordd-linux-arm64 fjordd.service install-linux.sh"
           BINS="$BINS $(ls fjord-${VERSION}-linux-*.deb fjord-${VERSION}-linux-*.rpm)"
           ASSETS="fjord-${VERSION}.tar.gz $BINS"
+          sha256sum $ASSETS > SHA256SUMS
+          cat SHA256SUMS
+          ASSETS="$ASSETS SHA256SUMS"
           if gh release view "${TAG}" --repo "${{ github.repository }}" >/dev/null 2>&1; then
-            # A published tarball is immutable (ports pin its checksum): only
-            # the binaries and rc script are refreshed on a re-run.
-            if gh release view "${TAG}" --repo "${{ github.repository }}" --json assets --jq '.assets[].name' | grep -qx "fjord-${VERSION}.tar.gz"; then
-              ASSETS="$BINS"
+            EXISTING=$(gh release view "${TAG}" --repo "${{ github.repository }}" --json assets --jq '.assets[].name')
+            MISSING=""
+            for a in $ASSETS; do
+              if ! printf '%s\n' "$EXISTING" | grep -qx "$a"; then
+                MISSING="$MISSING $a"
+              fi
+            done
+            if [ -n "$MISSING" ]; then
+              gh release upload "${TAG}" --repo "${{ github.repository }}" $MISSING
             fi
-            gh release upload "${TAG}" --repo "${{ github.repository }}" --clobber $ASSETS
           else
             # A tag with a hyphen (v0.3.0-rc1) is a pre-release: published for
             # testing, never marked Latest, so "the latest fjord" stays the

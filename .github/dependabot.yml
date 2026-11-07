@@ -45,6 +45,11 @@ updates:
     groups:
       npm-dependencies:
         patterns: ["*"]
+    ignore:
+      - dependency-name: "typescript"
+        versions: [">= 7.0.0"]
+      - dependency-name: "@types/node"
+        versions: [">= 25.0.0"]
     commit-message:
       prefix: "chore"
     labels: ["dependencies"]
