@@ -82,7 +82,12 @@ func DropServices(composeYAML string, names []string) (string, error) {
 	}
 	services.Content = kept
 	for i := 1; i < len(services.Content); i += 2 {
-		dep := mapGet(services.Content[i], "depends_on")
+		svc := deref(services.Content[i])
+		if svc == nil || svc.Kind != yaml.MappingNode || mapGet(svc, "depends_on") == nil {
+			continue
+		}
+		svc = prepareServiceForWrite(root, services, i)
+		dep := mapGet(svc, "depends_on")
 		if dep == nil {
 			continue
 		}

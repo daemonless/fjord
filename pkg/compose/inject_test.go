@@ -749,34 +749,22 @@ func TestInjectAndDetachPreserveServiceAliases(t *testing.T) {
     ports:
       - "8080:8080"
 `
-	// Attach stack to lan: db should keep its [database, pg] aliases on lan.
+	// Attach stack to lan: db's default aliases must NOT be copied onto external lan,
+	// and instead are stashed so DetachNetworks can restore them on default.
 	onLan, err := InjectNetworks(in, []Attachment{{Network: "lan", IP: "10.0.1.50"}})
 	if err != nil {
 		t.Fatalf("InjectNetworks: %v", err)
 	}
 	m := mustParse(t, onLan)
-	dbNets, ok := m["services"].(map[string]any)["db"].(map[string]any)["networks"].(map[string]any)
-	if !ok {
-		t.Fatalf("db networks should be a mapping to preserve aliases:\n%s", onLan)
-	}
-	lanCfg, ok := dbNets["lan"].(map[string]any)
-	if !ok {
-		t.Fatalf("db.networks.lan should be a mapping:\n%s", onLan)
-	}
-	aliases, ok := lanCfg["aliases"].([]any)
-	if !ok || len(aliases) != 2 || aliases[0] != "database" || aliases[1] != "pg" {
-		t.Fatalf("db.networks.lan.aliases = %#v, want [database pg]:\n%s", lanCfg["aliases"], onLan)
+	dbNets, ok := m["services"].(map[string]any)["db"].(map[string]any)["networks"].([]any)
+	if !ok || len(dbNets) != 1 || dbNets[0] != "lan" {
+		t.Fatalf("db.networks on lan = %#v, want plain [lan] (aliases not copied to shared lan):\n%s", m["services"].(map[string]any)["db"].(map[string]any)["networks"], onLan)
 	}
 
-	// Re-attaching with a different network or IP preserves the aliases on the new network.
+	// Re-attaching with a different network or IP keeps the stashed default aliases.
 	onVlan, err := InjectNetworks(onLan, []Attachment{{Network: "vlan20", IP: "10.0.20.50"}})
 	if err != nil {
 		t.Fatalf("InjectNetworks(vlan20): %v", err)
-	}
-	m2 := mustParse(t, onVlan)
-	vlanCfg := m2["services"].(map[string]any)["db"].(map[string]any)["networks"].(map[string]any)["vlan20"].(map[string]any)
-	if got, ok := vlanCfg["aliases"].([]any); !ok || len(got) != 2 || got[0] != "database" || got[1] != "pg" {
-		t.Fatalf("db.networks.vlan20.aliases = %#v, want [database pg]:\n%s", vlanCfg["aliases"], onVlan)
 	}
 
 	// DetachNetworks restores db's original default network with aliases intact,
@@ -870,7 +858,7 @@ networks:
 }
 
 func TestRestoreAndStashPortsMergeLiveAndStashed(t *testing.T) {
-	// Service already has stashed ports in x-fjord-published (or x-fjord-ports) AND
+	// Service already has stashed ports in x-fjord-published AND
 	// the user added a live ports: entry while on a LAN network.
 	const withLiveAndStash = `services:
   caddy:
@@ -900,13 +888,13 @@ networks:
 		t.Errorf("x-fjord-published should be removed after restore:\n%s", detached)
 	}
 
-	// Also verify when stashing (e.g. DisableNetwork when both live ports and x-fjord-ports exist):
+	// Also verify when stashing (e.g. DisableNetwork when both live ports and x-fjord-published exist):
 	const beforeStash = `services:
   caddy:
     image: caddy
     ports:
       - "9090:9090"
-    x-fjord-ports:
+    x-fjord-published:
       - "80:80"
 `
 	disabled, err := DisableNetwork(beforeStash)
@@ -1307,5 +1295,120 @@ func TestAnchorOwnerMutationDoesNotCorruptAliasingService(t *testing.T) {
 	}
 	if len(byName2["svc2"].Ports) != 1 || byName2["svc2"].Ports[0].Host != 8080 {
 		t.Errorf("svc2 lost its inherited ports 8080:80 after InjectNetworks on svc1: %+v\n%s", byName2["svc2"].Ports, injected)
+	}
+}
+
+func TestDetachNetworksPreservesCustomDefaultNetwork(t *testing.T) {
+	const customDefault = `services:
+  app:
+    image: nginx
+    networks:
+      - lan
+  db:
+    image: postgres:16
+networks:
+  lan:
+    external: true
+  default:
+    ipam:
+      config:
+        - subnet: 10.89.7.0/24
+`
+	detached, err := DetachNetworks(customDefault)
+	if err != nil {
+		t.Fatalf("DetachNetworks: %v", err)
+	}
+	m := mustParse(t, detached)
+	nets, ok := m["networks"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected top-level networks to be kept for custom default:\n%s", detached)
+	}
+	if _, hasLan := nets["lan"]; hasLan {
+		t.Errorf("expected external lan network to be removed on detach:\n%s", detached)
+	}
+	def, ok := nets["default"].(map[string]any)
+	if !ok || def["ipam"] == nil {
+		t.Errorf("expected custom default network ipam config to be preserved, got %#v:\n%s", nets["default"], detached)
+	}
+}
+
+func TestDefaultAliasesNotCopiedToExternalLan(t *testing.T) {
+	const withDefaultAliases = `services:
+  app:
+    image: gitea
+    ports:
+      - "3000:3000"
+  db:
+    image: postgres:16
+    networks:
+      default:
+        aliases:
+          - db
+          - postgres
+`
+	onLan, err := InjectNetworks(withDefaultAliases, []Attachment{{Network: "lan", IP: "10.0.1.50"}})
+	if err != nil {
+		t.Fatalf("InjectNetworks: %v", err)
+	}
+	m := mustParse(t, onLan)
+	dbNets := m["services"].(map[string]any)["db"].(map[string]any)["networks"]
+	// db should join lan as a plain list [- lan], never with aliases: [db, postgres] on shared lan.
+	list, ok := dbNets.([]any)
+	if !ok || len(list) != 1 || list[0] != "lan" {
+		t.Errorf("db.networks on lan = %#v, want plain [lan] without default aliases:\n%s", dbNets, onLan)
+	}
+}
+
+func TestSubtreeAnchorReferencedOutsideServicesAndUntouchedSiblings(t *testing.T) {
+	const withTopLevelAlias = `x-common: &common
+  restart: unless-stopped
+
+services:
+  app:
+    <<: *common
+    image: nginx
+    ports:
+      - "8080:80"
+    environment: &env
+      TZ: UTC
+  worker:
+    <<: *common
+    image: alpine
+
+x-copy:
+  environment: *env
+`
+	// Moving only app to host must produce valid YAML even when x-copy references *env
+	// inside services.app, and must leave untouched worker's <<: *common merge intact.
+	out, err := SetServiceModes(withTopLevelAlias, map[string]string{"app": "host"})
+	if err != nil {
+		t.Fatalf("SetServiceModes: %v", err)
+	}
+	m := mustParse(t, out)
+	xCopy := m["x-copy"].(map[string]any)["environment"].(map[string]any)
+	if xCopy["TZ"] != "UTC" {
+		t.Errorf("x-copy.environment.TZ = %#v, want UTC:\n%s", xCopy["TZ"], out)
+	}
+	if !strings.Contains(out, "<<: *common") {
+		t.Errorf("untouched worker should keep <<: *common merge:\n%s", out)
+	}
+
+	// SetRepoTag on a matching repo must not copy inherited keys into an untouched service.
+	const repoAnchored = `x-common: &common
+  image: example/other:1
+  restart: unless-stopped
+
+services:
+  app:
+    image: ghcr.io/daemonless/radarr:latest
+  side:
+    <<: *common
+`
+	retagged, err := SetRepoTag(repoAnchored, "ghcr.io/daemonless/radarr", "pkg")
+	if err != nil {
+		t.Fatalf("SetRepoTag: %v", err)
+	}
+	if strings.Contains(retagged, "side:\n    <<: *common\n    image:") {
+		t.Errorf("SetRepoTag copied inherited image onto untouched side service:\n%s", retagged)
 	}
 }

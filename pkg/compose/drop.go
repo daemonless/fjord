@@ -60,10 +60,14 @@ func dropSeqEntriesReferencing(composeYAML, key string, vars []string) (string, 
 		return composeYAML, nil
 	}
 	for i := 1; i < len(services.Content); i += 2 {
-		svc := services.Content[i]
-		if svc.Kind != yaml.MappingNode {
+		svc := deref(services.Content[i])
+		if svc == nil || svc.Kind != yaml.MappingNode {
 			continue
 		}
+		if mapGet(svc, key) == nil {
+			continue
+		}
+		svc = prepareServiceForWrite(root, services, i)
 		seq := mapGet(svc, key)
 		if seq == nil || seq.Kind != yaml.SequenceNode {
 			continue
@@ -105,10 +109,14 @@ func DropVolumesReferencing(composeYAML string, vars []string) (string, error) {
 		return composeYAML, nil
 	}
 	for i := 1; i < len(services.Content); i += 2 {
-		svc := services.Content[i]
-		if svc.Kind != yaml.MappingNode {
+		svc := deref(services.Content[i])
+		if svc == nil || svc.Kind != yaml.MappingNode {
 			continue
 		}
+		if mapGet(svc, "volumes") == nil {
+			continue
+		}
+		svc = prepareServiceForWrite(root, services, i)
 		vols := mapGet(svc, "volumes")
 		if vols == nil || vols.Kind != yaml.SequenceNode {
 			continue
@@ -205,7 +213,12 @@ func DropEnvReferencing(composeYAML string, vars []string) (string, error) {
 		return composeYAML, nil
 	}
 	for i := 1; i < len(services.Content); i += 2 {
-		env := mapGet(services.Content[i], "environment")
+		svc := deref(services.Content[i])
+		if svc == nil || svc.Kind != yaml.MappingNode || mapGet(svc, "environment") == nil {
+			continue
+		}
+		svc = prepareServiceForWrite(root, services, i)
+		env := mapGet(svc, "environment")
 		if env == nil {
 			continue
 		}

@@ -33,9 +33,12 @@ func AbsolutePaths(composeYAML, dir string) (string, error) {
 		return encodeRoot(root)
 	}
 	for i := 1; i < len(services.Content); i += 2 {
-		svc := services.Content[i]
-		if svc.Kind != yaml.MappingNode {
+		svc := deref(services.Content[i])
+		if svc == nil || svc.Kind != yaml.MappingNode {
 			continue
+		}
+		if mapGet(svc, "volumes") != nil || mapGet(svc, "env_file") != nil {
+			svc = prepareServiceForWrite(root, services, i)
 		}
 		if vols := mapGet(svc, "volumes"); vols != nil && vols.Kind == yaml.SequenceNode {
 			for _, v := range vols.Content {
