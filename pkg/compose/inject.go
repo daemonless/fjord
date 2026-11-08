@@ -135,14 +135,15 @@ func InjectNetworks(composeYAML string, atts []Attachment) (string, error) {
 		return "", fmt.Errorf("compose has no services")
 	}
 
-	// Collect (name, node) for each service; service values sit at odd indices.
+	// Collect (name, valueIdx, node) for each service; service values sit at odd indices.
 	type svc struct {
 		name string
+		idx  int
 		node *yaml.Node
 	}
 	var svcs []svc
 	for i := 0; i+1 < len(services.Content); i += 2 {
-		svcs = append(svcs, svc{services.Content[i].Value, services.Content[i+1]})
+		svcs = append(svcs, svc{services.Content[i].Value, i + 1, deref(services.Content[i+1])})
 	}
 	if len(svcs) == 0 {
 		return "", fmt.Errorf("compose has no services")
@@ -153,7 +154,7 @@ func InjectNetworks(composeYAML string, atts []Attachment) (string, error) {
 	if pinned && !perService && len(svcs) > 1 {
 		var published []string
 		for _, sv := range svcs {
-			if sv.node.Kind == yaml.MappingNode && hasPublishedPorts(sv.node) {
+			if sv.node != nil && sv.node.Kind == yaml.MappingNode && hasPublishedPorts(sv.node) {
 				published = append(published, sv.name)
 			}
 		}
@@ -185,7 +186,7 @@ func InjectNetworks(composeYAML string, atts []Attachment) (string, error) {
 	}
 
 	for _, s := range svcs {
-		if s.node.Kind != yaml.MappingNode {
+		if s.node == nil || s.node.Kind != yaml.MappingNode {
 			return "", fmt.Errorf("service %q is not a mapping", s.name)
 		}
 		use := atts
@@ -202,7 +203,8 @@ func InjectNetworks(composeYAML string, atts []Attachment) (string, error) {
 				use[i] = Attachment{Network: a.Network}
 			}
 		}
-		if err := moveService(s.node, s.name, "", use, keepOwn); err != nil {
+		svcNode := prepareServiceForWrite(root, services, s.idx)
+		if err := moveService(svcNode, s.name, "", use, keepOwn); err != nil {
 			return "", err
 		}
 	}
@@ -385,59 +387,88 @@ func lookupMerged(m *yaml.Node, key string, seen map[*yaml.Node]bool) *yaml.Node
 	return nil
 }
 
-func hasAnchorsOrAliases(n *yaml.Node) bool {
-	return hasAnchorsOrAliasesSeen(n, map[*yaml.Node]bool{})
+func unshareSubtree(root, sub *yaml.Node) {
+	if root == nil || sub == nil {
+		return
+	}
+	subSet := map[*yaml.Node]bool{}
+	collectNodes(sub, subSet)
+	detachSubtreeRefs(root, subSet, map[*yaml.Node]bool{})
 }
 
-func hasAnchorsOrAliasesSeen(n *yaml.Node, seen map[*yaml.Node]bool) bool {
-	if n == nil || seen[n] {
-		return false
+func collectNodes(n *yaml.Node, out map[*yaml.Node]bool) {
+	if n == nil || out[n] {
+		return
+	}
+	out[n] = true
+	for _, c := range n.Content {
+		collectNodes(c, out)
+	}
+}
+
+func detachSubtreeRefs(n *yaml.Node, subSet, seen map[*yaml.Node]bool) {
+	if n == nil || seen[n] || subSet[n] {
+		return
 	}
 	seen[n] = true
-	if n.Anchor != "" || n.Kind == yaml.AliasNode || isMergeKey(n) {
-		return true
+	if n.Kind == yaml.MappingNode && hasMergeInto(n, subSet) {
+		inlineMerges(n, nil)
 	}
-	for _, c := range n.Content {
-		if hasAnchorsOrAliasesSeen(c, seen) {
+	for i, c := range n.Content {
+		if c != nil && c.Kind == yaml.AliasNode && subSet[deref(c)] {
+			n.Content[i] = cloneResolved(c)
+			continue
+		}
+		detachSubtreeRefs(c, subSet, seen)
+	}
+}
+
+func hasMergeInto(m *yaml.Node, subSet map[*yaml.Node]bool) bool {
+	for i := 0; i+1 < len(m.Content); i += 2 {
+		if !isMergeKey(m.Content[i]) {
+			continue
+		}
+		mv := deref(m.Content[i+1])
+		if mv == nil {
+			continue
+		}
+		if subSet[mv] {
 			return true
+		}
+		if mv.Kind == yaml.SequenceNode {
+			for _, item := range mv.Content {
+				if subSet[deref(item)] {
+					return true
+				}
+			}
 		}
 	}
 	return false
 }
 
-func mapGet(m *yaml.Node, key string) *yaml.Node {
-	m = deref(m)
-	if m == nil || m.Kind != yaml.MappingNode {
+func prepareServiceForWrite(root, services *yaml.Node, valueIdx int) *yaml.Node {
+	svc := services.Content[valueIdx]
+	if svc == nil {
 		return nil
 	}
-	for i := 0; i+1 < len(m.Content); i += 2 {
-		if !isMergeKey(m.Content[i]) && m.Content[i].Value == key {
-			v := m.Content[i+1]
-			if v != nil && (v.Kind == yaml.AliasNode || hasDirectMerge(v) || hasAliasElem(v)) {
-				v = cloneResolved(v)
-				m.Content[i+1] = v
-			}
-			if key == "services" && v != nil && v.Kind == yaml.MappingNode && hasAnchorsOrAliases(v) {
-				for j := 1; j < len(v.Content); j += 2 {
-					if v.Content[j] != nil {
-						v.Content[j] = cloneResolved(v.Content[j])
-					}
-				}
-			}
-			return v
-		}
-	}
-	if v := lookupMerged(m, key, nil); v != nil {
-		c := cloneResolved(v)
-		m.Content = append(m.Content, scalar(key), c)
-		return c
-	}
-	return nil
+	unshareSubtree(root, svc)
+	svc = cloneResolved(svc)
+	services.Content[valueIdx] = svc
+	return svc
+}
+
+func isEmptyMappingNode(n *yaml.Node) bool {
+	n = deref(n)
+	return n == nil || (n.Kind == yaml.MappingNode && len(n.Content) == 0)
+}
+
+func mapGet(m *yaml.Node, key string) *yaml.Node {
+	return mapGetSeen(m, key, nil)
 }
 
 func mapSet(m *yaml.Node, key string, val *yaml.Node) {
 	for i := 0; i+1 < len(m.Content); i += 2 {
-		if m.Content[i].Value == key {
+		if !isMergeKey(m.Content[i]) && m.Content[i].Value == key {
 			m.Content[i+1] = val
 			return
 		}
@@ -447,11 +478,33 @@ func mapSet(m *yaml.Node, key string, val *yaml.Node) {
 
 // mapEnsure returns the mapping node at key, creating an empty one if absent.
 func mapEnsure(m *yaml.Node, key string) *yaml.Node {
-	if v := mapGet(m, key); v != nil {
-		if v.Kind != yaml.MappingNode {
-			v.Kind, v.Tag, v.Value, v.Style = yaml.MappingNode, "!!map", "", 0
+	m = deref(m)
+	if m == nil || m.Kind != yaml.MappingNode {
+		return &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+	}
+	for i := 0; i+1 < len(m.Content); i += 2 {
+		if !isMergeKey(m.Content[i]) && m.Content[i].Value == key {
+			v := m.Content[i+1]
+			if v != nil && (v.Kind == yaml.AliasNode || hasDirectMerge(v) || hasAliasElem(v)) {
+				v = cloneResolved(v)
+				m.Content[i+1] = v
+			}
+			if v == nil {
+				v = &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+				m.Content[i+1] = v
+			} else if v.Kind != yaml.MappingNode {
+				v.Kind, v.Tag, v.Value, v.Style = yaml.MappingNode, "!!map", "", 0
+			}
+			return v
 		}
-		return v
+	}
+	if v := lookupMerged(m, key, nil); v != nil {
+		c := cloneResolved(v)
+		if c.Kind != yaml.MappingNode {
+			c.Kind, c.Tag, c.Value, c.Style = yaml.MappingNode, "!!map", "", 0
+		}
+		m.Content = append(m.Content, scalar(key), c)
+		return c
 	}
 	nv := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
 	m.Content = append(m.Content, scalar(key), nv)
@@ -471,14 +524,7 @@ func externalNetworkNode() *yaml.Node {
 }
 
 func hasPublishedPorts(svc *yaml.Node) bool {
-	return mapGet(svc, "ports") != nil || mapGet(svc, "x-fjord-published") != nil || mapGet(svc, "x-fjord-ports") != nil
-}
-
-func stashedPortsNode(svc *yaml.Node) *yaml.Node {
-	if p := mapGet(svc, "x-fjord-published"); p != nil {
-		return p
-	}
-	return mapGet(svc, "x-fjord-ports")
+	return mapGet(svc, "ports") != nil || mapGet(svc, "x-fjord-published") != nil
 }
 
 func mergePortNodes(a, b *yaml.Node) *yaml.Node {
@@ -519,17 +565,16 @@ func stashPorts(svc *yaml.Node) {
 	if ports == nil {
 		return
 	}
-	if prev := stashedPortsNode(svc); prev != nil {
+	if prev := mapGet(svc, "x-fjord-published"); prev != nil {
 		mapSet(svc, "x-fjord-published", mergePortNodes(prev, ports))
 	} else {
 		mapSet(svc, "x-fjord-published", ports)
 	}
-	mapDelete(svc, "x-fjord-ports")
 	mapDelete(svc, "ports")
 }
 
 func restorePorts(svc *yaml.Node) bool {
-	stashed := stashedPortsNode(svc)
+	stashed := mapGet(svc, "x-fjord-published")
 	if stashed == nil {
 		return false
 	}
@@ -539,7 +584,6 @@ func restorePorts(svc *yaml.Node) bool {
 		mapSet(svc, "ports", stashed)
 	}
 	mapDelete(svc, "x-fjord-published")
-	mapDelete(svc, "x-fjord-ports")
 	return true
 }
 
@@ -568,7 +612,7 @@ func stashSelectedNetworks(svc *yaml.Node, skip map[string]bool) {
 	if len(atts) == 0 {
 		return
 	}
-	byNetAliases, _ := serviceAliases(svc)
+	byNetAliases := serviceAliases(svc)
 	if len(atts) == 1 && atts[0].Network == Bridge &&
 		atts[0].IP == "" && atts[0].IP6 == "" && atts[0].MAC == "" &&
 		mapGet(svc, "mac_address") == nil && len(byNetAliases[Bridge]) == 0 {
@@ -615,9 +659,8 @@ func networkPinsNode(a Attachment, aliases []string) *yaml.Node {
 	return pins
 }
 
-func serviceAliases(svc *yaml.Node) (map[string][]string, []string) {
+func serviceAliases(svc *yaml.Node) map[string][]string {
 	byNet := map[string][]string{}
-	var fallback []string
 	for _, key := range []string{"networks", "x-fjord-networks"} {
 		n := mapGet(svc, key)
 		if n == nil || n.Kind != yaml.MappingNode {
@@ -645,16 +688,13 @@ func serviceAliases(svc *yaml.Node) (map[string][]string, []string) {
 			if len(byNet[netName]) == 0 {
 				byNet[netName] = list
 			}
-			if len(fallback) == 0 {
-				fallback = list
-			}
 		}
 	}
-	return byNet, fallback
+	return byNet
 }
 
-func matchAliases(atts []Attachment, byNet map[string][]string, fallback []string) map[string][]string {
-	if len(atts) == 0 || (len(byNet) == 0 && len(fallback) == 0) {
+func matchAliases(atts []Attachment, byNet map[string][]string) map[string][]string {
+	if len(atts) == 0 || len(byNet) == 0 {
 		return nil
 	}
 	out := map[string][]string{}
@@ -662,9 +702,6 @@ func matchAliases(atts []Attachment, byNet map[string][]string, fallback []strin
 		if als := byNet[a.Network]; len(als) > 0 {
 			out[a.Network] = als
 		}
-	}
-	if len(out) == 0 && len(fallback) > 0 {
-		out[atts[0].Network] = fallback
 	}
 	return out
 }
@@ -689,6 +726,9 @@ func StashedNetworks(composeYAML string) []Attachment {
 		raw := serviceAttachments(mapGet(services.Content[i], "x-fjord-networks"))
 		var atts []Attachment
 		for _, a := range raw {
+			if a.Network == Bridge && a.IP == "" && a.IP6 == "" && a.MAC == "" {
+				continue
+			}
 			if !own[a.Network] {
 				atts = append(atts, a)
 			}
@@ -780,7 +820,7 @@ func moveService(svc *yaml.Node, name, mode string, atts []Attachment, own map[s
 		return nil
 	}
 
-	byNetAliases, fallbackAliases := serviceAliases(svc)
+	byNetAliases := serviceAliases(svc)
 
 	if len(atts) > 0 {
 		clearMode(svc)
@@ -798,8 +838,13 @@ func moveService(svc *yaml.Node, name, mode string, atts []Attachment, own map[s
 				}
 			}
 		}
-		netAliases := matchAliases(use, byNetAliases, fallbackAliases)
-		mapDelete(svc, "x-fjord-networks")
+		netAliases := matchAliases(use, byNetAliases)
+		if bridgeAliases := byNetAliases[Bridge]; len(bridgeAliases) > 0 && !have[Bridge] {
+			st := mapEnsure(svc, "x-fjord-networks")
+			mapSet(st, Bridge, networkPinsNode(Attachment{Network: Bridge}, bridgeAliases))
+		} else {
+			mapDelete(svc, "x-fjord-networks")
+		}
 		mapSet(svc, "networks", serviceNetworksNodeWithAliases(use, netAliases))
 		mapDelete(svc, "mac_address")
 		nameSelf(svc, name)
@@ -828,12 +873,12 @@ func moveService(svc *yaml.Node, name, mode string, atts []Attachment, own map[s
 			}
 		}
 		if len(ownAtts) > 0 {
-			netAliases := matchAliases(ownAtts, byNetAliases, fallbackAliases)
+			netAliases := matchAliases(ownAtts, byNetAliases)
 			mapSet(svc, "networks", serviceNetworksNodeWithAliases(ownAtts, netAliases))
-		} else if len(fallbackAliases) > 0 {
+		} else if bridgeAliases := byNetAliases[Bridge]; len(bridgeAliases) > 0 {
 			mapSet(svc, "networks", serviceNetworksNodeWithAliases(
 				[]Attachment{{Network: Bridge}},
-				map[string][]string{Bridge: fallbackAliases},
+				map[string][]string{Bridge: bridgeAliases},
 			))
 			if st := mapGet(svc, "x-fjord-networks"); st != nil && st.Kind == yaml.MappingNode {
 				mapDelete(st, composeDefault)
@@ -976,10 +1021,11 @@ func DetachNetworks(composeYAML string) (string, error) {
 
 	own := ownNetworks(root)
 	for i := 0; i+1 < len(services.Content); i += 2 {
-		name, svc := services.Content[i].Value, services.Content[i+1]
-		if svc.Kind != yaml.MappingNode {
+		name, svc := services.Content[i].Value, deref(services.Content[i+1])
+		if svc == nil || svc.Kind != yaml.MappingNode {
 			continue
 		}
+		svc = prepareServiceForWrite(root, services, i+1)
 		if err := moveService(svc, name, Bridge, nil, own); err != nil {
 			return "", err
 		}
@@ -993,7 +1039,7 @@ func DetachNetworks(composeYAML string) (string, error) {
 		for i := 0; i+1 < len(nets.Content); i += 2 {
 			name := nets.Content[i].Value
 			v := nets.Content[i+1]
-			if name == composeDefault && !defaultUsed {
+			if name == composeDefault && !defaultUsed && isEmptyMappingNode(v) {
 				continue
 			}
 			if v == nil || v.Kind != yaml.MappingNode || mapGet(v, "external") == nil {
@@ -1266,10 +1312,11 @@ func setMode(composeYAML, mode string) (string, error) {
 	}
 	own := ownNetworks(root)
 	for i := 0; i+1 < len(services.Content); i += 2 {
-		name, svc := services.Content[i].Value, services.Content[i+1]
-		if svc.Kind != yaml.MappingNode {
+		name, svc := services.Content[i].Value, deref(services.Content[i+1])
+		if svc == nil || svc.Kind != yaml.MappingNode {
 			continue
 		}
+		svc = prepareServiceForWrite(root, services, i+1)
 		if err := moveService(svc, name, mode, nil, own); err != nil {
 			return "", err
 		}
@@ -1415,19 +1462,29 @@ func SeedPublished(composeYAML, service, port string) (string, error) {
 	if len(doc.Content) == 0 || doc.Content[0].Kind != yaml.MappingNode {
 		return "", fmt.Errorf("compose is not a YAML mapping")
 	}
-	services := mapGet(doc.Content[0], "services")
+	root := doc.Content[0]
+	services := mapGet(root, "services")
 	if services == nil || services.Kind != yaml.MappingNode {
 		return composeYAML, nil
 	}
-	svc := mapGet(services, service)
+	var svc *yaml.Node
+	var svcIdx int
+	for i := 0; i+1 < len(services.Content); i += 2 {
+		if services.Content[i].Value == service {
+			svc = deref(services.Content[i+1])
+			svcIdx = i + 1
+			break
+		}
+	}
 	if svc == nil || svc.Kind != yaml.MappingNode || hasPublishedPorts(svc) {
 		return composeYAML, nil
 	}
+	svc = prepareServiceForWrite(root, services, svcIdx)
 	mapSet(svc, "x-fjord-published", &yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq", Content: []*yaml.Node{scalar(port + ":" + port)}})
 	var buf bytes.Buffer
 	enc := yaml.NewEncoder(&buf)
 	enc.SetIndent(2)
-	if err := enc.Encode(doc.Content[0]); err != nil {
+	if err := enc.Encode(root); err != nil {
 		return "", err
 	}
 	enc.Close()
@@ -1462,11 +1519,12 @@ func SetServiceModes(composeYAML string, modes map[string]string) (string, error
 	}
 	own := ownNetworks(root)
 	for i := 0; i+1 < len(services.Content); i += 2 {
-		name, svc := services.Content[i].Value, services.Content[i+1]
+		name, svc := services.Content[i].Value, deref(services.Content[i+1])
 		mode, want := modes[name]
-		if !want || svc.Kind != yaml.MappingNode {
+		if !want || svc == nil || svc.Kind != yaml.MappingNode {
 			continue
 		}
+		svc = prepareServiceForWrite(root, services, i+1)
 		if err := moveService(svc, name, mode, nil, own); err != nil {
 			return "", err
 		}
@@ -1510,16 +1568,21 @@ func RepublishPorts(composeYAML string, services []string) (string, error) {
 	if len(doc.Content) == 0 || doc.Content[0].Kind != yaml.MappingNode {
 		return "", fmt.Errorf("compose is not a YAML mapping")
 	}
-	svcs := mapGet(doc.Content[0], "services")
+	root := doc.Content[0]
+	svcs := mapGet(root, "services")
 	if svcs == nil || svcs.Kind != yaml.MappingNode {
 		return composeYAML, nil
 	}
 	changed := false
 	for i := 0; i+1 < len(svcs.Content); i += 2 {
-		name, svc := svcs.Content[i].Value, svcs.Content[i+1]
-		if !want[name] || svc.Kind != yaml.MappingNode {
+		name, svc := svcs.Content[i].Value, deref(svcs.Content[i+1])
+		if !want[name] || svc == nil || svc.Kind != yaml.MappingNode {
 			continue
 		}
+		if mapGet(svc, "x-fjord-published") == nil {
+			continue
+		}
+		svc = prepareServiceForWrite(root, svcs, i+1)
 		if restorePorts(svc) {
 			changed = true
 		}
@@ -1530,7 +1593,7 @@ func RepublishPorts(composeYAML string, services []string) (string, error) {
 	var buf bytes.Buffer
 	enc := yaml.NewEncoder(&buf)
 	enc.SetIndent(2)
-	if err := enc.Encode(doc.Content[0]); err != nil {
+	if err := enc.Encode(root); err != nil {
 		return "", err
 	}
 	enc.Close()
@@ -1559,14 +1622,24 @@ func pinOnNetwork(composeYAML, service, network, key, value string) (string, err
 	if len(doc.Content) == 0 {
 		return "", fmt.Errorf("empty compose")
 	}
-	services := mapGet(doc.Content[0], "services")
+	root := doc.Content[0]
+	services := mapGet(root, "services")
 	if services == nil { // mapGet does not take a nil node
 		return "", fmt.Errorf("compose has no services")
 	}
-	svc := mapGet(services, service)
+	var svc *yaml.Node
+	var svcIdx int
+	for i := 0; i+1 < len(services.Content); i += 2 {
+		if services.Content[i].Value == service {
+			svc = deref(services.Content[i+1])
+			svcIdx = i + 1
+			break
+		}
+	}
 	if svc == nil {
 		return "", fmt.Errorf("no service %q", service)
 	}
+	svc = prepareServiceForWrite(root, services, svcIdx)
 	nets := mapGet(svc, "networks")
 	if nets == nil {
 		return "", fmt.Errorf("%s is on no named network", service)
@@ -1593,7 +1666,7 @@ func pinOnNetwork(composeYAML, service, network, key, value string) (string, err
 	var buf bytes.Buffer
 	enc := yaml.NewEncoder(&buf)
 	enc.SetIndent(2)
-	if err := enc.Encode(doc.Content[0]); err != nil {
+	if err := enc.Encode(root); err != nil {
 		return "", err
 	}
 	enc.Close()

@@ -29,19 +29,25 @@ func SetRepoTag(composeYAML, repo, tag string) (string, error) {
 	if len(doc.Content) == 0 || doc.Content[0].Kind != yaml.MappingNode {
 		return "", fmt.Errorf("compose is not a YAML mapping")
 	}
-	services := mapGet(doc.Content[0], "services")
+	root := doc.Content[0]
+	services := mapGet(root, "services")
 	if services == nil || services.Kind != yaml.MappingNode {
 		return "", fmt.Errorf("compose has no services")
 	}
 	for i := 1; i < len(services.Content); i += 2 {
-		svc := services.Content[i]
-		if svc.Kind != yaml.MappingNode {
+		svc := deref(services.Content[i])
+		if svc == nil || svc.Kind != yaml.MappingNode {
 			continue
 		}
-		if img := mapGet(svc, "image"); img != nil && img.Kind == yaml.ScalarNode {
-			if repo != "" && imageRepo(img.Value) != repo {
-				continue
-			}
+		img := mapGet(svc, "image")
+		if img == nil || img.Kind != yaml.ScalarNode {
+			continue
+		}
+		if repo != "" && imageRepo(img.Value) != repo {
+			continue
+		}
+		svc = prepareServiceForWrite(root, services, i)
+		if img = mapGet(svc, "image"); img != nil && img.Kind == yaml.ScalarNode {
 			img.Value = replaceTag(img.Value, tag)
 			img.Style = 0
 		}
@@ -50,7 +56,7 @@ func SetRepoTag(composeYAML, repo, tag string) (string, error) {
 	var buf bytes.Buffer
 	enc := yaml.NewEncoder(&buf)
 	enc.SetIndent(2)
-	if err := enc.Encode(doc.Content[0]); err != nil {
+	if err := enc.Encode(root); err != nil {
 		return "", err
 	}
 	enc.Close()
@@ -157,13 +163,14 @@ func eachNamedImage(composeYAML string, fn func(service, image string) (string, 
 	if len(doc.Content) == 0 || doc.Content[0].Kind != yaml.MappingNode {
 		return "", fmt.Errorf("compose is not a YAML mapping")
 	}
-	services := mapGet(doc.Content[0], "services")
+	root := doc.Content[0]
+	services := mapGet(root, "services")
 	if services == nil || services.Kind != yaml.MappingNode {
 		return "", fmt.Errorf("compose has no services")
 	}
 	for i := 1; i < len(services.Content); i += 2 {
-		svc := services.Content[i]
-		if svc.Kind != yaml.MappingNode {
+		svc := deref(services.Content[i])
+		if svc == nil || svc.Kind != yaml.MappingNode {
 			continue
 		}
 		img := mapGet(svc, "image")
@@ -175,14 +182,17 @@ func eachNamedImage(composeYAML string, fn func(service, image string) (string, 
 			return "", err
 		}
 		if nv != img.Value {
-			img.Value = nv
-			img.Style = 0
+			svc = prepareServiceForWrite(root, services, i)
+			if img = mapGet(svc, "image"); img != nil && img.Kind == yaml.ScalarNode {
+				img.Value = nv
+				img.Style = 0
+			}
 		}
 	}
 	var buf bytes.Buffer
 	enc := yaml.NewEncoder(&buf)
 	enc.SetIndent(2)
-	if err := enc.Encode(doc.Content[0]); err != nil {
+	if err := enc.Encode(root); err != nil {
 		return "", err
 	}
 	enc.Close()
