@@ -93,7 +93,8 @@ func SetRestart(composeYAML string, r Restart) (string, error) {
 	if len(doc.Content) == 0 {
 		return "", fmt.Errorf("empty compose")
 	}
-	services := mapGet(doc.Content[0], "services")
+	root := doc.Content[0]
+	services := mapGet(root, "services")
 	if services == nil || services.Kind != yaml.MappingNode {
 		return "", fmt.Errorf("compose has no services")
 	}
@@ -103,17 +104,18 @@ func SetRestart(composeYAML string, r Restart) (string, error) {
 		allNo = allNo && v == RestartNo
 	}
 	for i := 0; i+1 < len(services.Content); i += 2 {
-		svc := services.Content[i+1]
-		if svc.Kind != yaml.MappingNode {
+		svc := deref(services.Content[i+1])
+		if svc == nil || svc.Kind != yaml.MappingNode {
 			continue
 		}
 		if current[services.Content[i].Value] == RestartNo && !allNo {
 			continue
 		}
+		svc = prepareServiceForWrite(root, services, i+1)
 		// Quoted: an unquoted `no` is a boolean to a YAML 1.1 reader.
 		mapSet(svc, "restart", quotedScalar(r.String()))
 	}
-	return encodeRoot(doc.Content[0])
+	return encodeRoot(root)
 }
 
 // StackRestart is a stack's restart policy as one answer: the policy its

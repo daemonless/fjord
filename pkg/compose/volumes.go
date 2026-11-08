@@ -49,19 +49,21 @@ func serviceNode(root *yaml.Node, service string) (*yaml.Node, error) {
 		return nil, fmt.Errorf("compose has no services")
 	}
 	if service == FirstService {
-		if services.Content[1].Kind != yaml.MappingNode {
+		svc := deref(services.Content[1])
+		if svc == nil || svc.Kind != yaml.MappingNode {
 			return nil, fmt.Errorf("first service is not a mapping")
 		}
-		return services.Content[1], nil
+		return prepareServiceForWrite(root, services, 1), nil
 	}
 	for i := 0; i+1 < len(services.Content); i += 2 {
 		if services.Content[i].Value != service {
 			continue
 		}
-		if services.Content[i+1].Kind != yaml.MappingNode {
+		svc := deref(services.Content[i+1])
+		if svc == nil || svc.Kind != yaml.MappingNode {
 			return nil, fmt.Errorf("service %q is not a mapping", service)
 		}
-		return services.Content[i+1], nil
+		return prepareServiceForWrite(root, services, i+1), nil
 	}
 	return nil, fmt.Errorf("no service named %q", service)
 }
@@ -238,13 +240,19 @@ func ExpandFolderMountsNamed(composeYAML, varName string, mounts []FolderMount, 
 	if len(doc.Content) == 0 || doc.Content[0].Kind != yaml.MappingNode {
 		return "", fmt.Errorf("compose is not a YAML mapping")
 	}
-	services := mapGet(doc.Content[0], "services")
+	root := doc.Content[0]
+	services := mapGet(root, "services")
 	if services == nil || services.Kind != yaml.MappingNode {
 		return composeYAML, nil
 	}
 	ref := "${" + varName + "}"
 	for i := 1; i < len(services.Content); i += 2 {
-		vols := mapGet(services.Content[i], "volumes")
+		svc := deref(services.Content[i])
+		if svc == nil || svc.Kind != yaml.MappingNode || mapGet(svc, "volumes") == nil {
+			continue
+		}
+		svc = prepareServiceForWrite(root, services, i)
+		vols := mapGet(svc, "volumes")
 		if vols == nil || vols.Kind != yaml.SequenceNode {
 			continue
 		}
