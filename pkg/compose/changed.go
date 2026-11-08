@@ -46,7 +46,8 @@ func canonicalServices(composeYAML string, env map[string]string) map[string]str
 	}
 	envJSON, _ := json.Marshal(env) // encoding/json sorts map keys
 	for i := 0; i+1 < len(services.Content); i += 2 {
-		name, node := services.Content[i].Value, services.Content[i+1]
+		name := services.Content[i].Value
+		node := cloneResolved(services.Content[i+1])
 		text, err := yaml.Marshal(node)
 		if err != nil {
 			continue

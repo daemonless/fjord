@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"fmt"
 	"regexp"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -146,57 +147,13 @@ func InjectNetworks(composeYAML string, atts []Attachment) (string, error) {
 	if len(svcs) == 0 {
 		return "", fmt.Errorf("compose has no services")
 	}
-	// network_mode and networks are mutually exclusive, and a stack wired this
-	// way reaches its own parts over localhost -- moving it onto a network
-	// gives every service a separate address and breaks all of it.
-	for _, sv := range svcs {
-		if perService && len(attachmentsForService(atts, sv.name)) == 0 {
-			continue // not named: left exactly as it is
-		}
-		m := mapGet(sv.node, "network_mode")
-		if sv.node.Kind != yaml.MappingNode || m == nil {
-			continue
-		}
-		// "none" and "host" are fjord's own doing -- both are choices on the
-		// stack's network picker -- so attaching is how either is undone.
-		//
-		// host with several services used to be refused here. The hazard is
-		// real: under "host" they share one stack and DB_HOST=localhost works
-		// TODAY, so giving each its own address breaks a running stack at
-		// runtime. But refusing outright also made the choice unreachable for
-		// a stack whose services address each other by name, and left no way
-		// to say "I know". The operator is told what breaks, on the page, and
-		// decides; fjord no longer decides for them.
-		//
-		// Until networking is per service, this is all-or-nothing: every
-		// service lands on the network, not just the one that serves.
-		if m.Value == None || m.Value == Host {
-			clearMode(sv.node)
-			continue
-		}
-		return "", fmt.Errorf("service %q uses network_mode: %s, which fjord does not know how to move onto a network", sv.name, m.Value)
-	}
-	// The stash exists to survive a trip through a mode, and attaching is the
-	// end of that trip. It is dropped whether or not the caller used it: the
-	// attachments written here are the literal truth, and a stash left behind
-	// would shadow the next one.
-	//
-	// Deliberately NOT merged into the request. Filling a blank address from
-	// it would resurrect a pin the user may have just cleared, and would leave
-	// no way to say "attach lan with no address at all".
-	for _, sv := range svcs {
-		if sv.node.Kind == yaml.MappingNode {
-			mapDelete(sv.node, "x-fjord-networks")
-		}
-	}
-
 	// A pinned address or MAC belongs to the service that serves: with several
 	// services it can only go on the published one.
 	target := svcs[0].name
 	if pinned && !perService && len(svcs) > 1 {
 		var published []string
 		for _, sv := range svcs {
-			if sv.node.Kind == yaml.MappingNode && mapGet(sv.node, "ports") != nil {
+			if sv.node.Kind == yaml.MappingNode && hasPublishedPorts(sv.node) {
 				published = append(published, sv.name)
 			}
 		}
@@ -205,6 +162,8 @@ func InjectNetworks(composeYAML string, atts []Attachment) (string, error) {
 		}
 		target = published[0]
 	}
+
+	own := ownNetworks(root)
 
 	// Top-level networks: {<network>: {external: true}} (idempotent). The
 	// built-in bridge is the project's own "default", which podman-compose
@@ -217,6 +176,9 @@ func InjectNetworks(composeYAML string, atts []Attachment) (string, error) {
 			}
 			continue
 		}
+		if own[a.Network] {
+			continue
+		}
 		if mapGet(networks, a.Network) == nil {
 			mapSet(networks, a.Network, externalNetworkNode())
 		}
@@ -227,10 +189,12 @@ func InjectNetworks(composeYAML string, atts []Attachment) (string, error) {
 			return "", fmt.Errorf("service %q is not a mapping", s.name)
 		}
 		use := atts
+		keepOwn := own
 		if perService {
 			if use = attachmentsForService(atts, s.name); len(use) == 0 {
 				continue // not named: left exactly as it is
 			}
+			keepOwn = nil
 		} else if s.name != target {
 			// Only the target carries pins; the others just join.
 			use = make([]Attachment, len(atts))
@@ -238,13 +202,11 @@ func InjectNetworks(composeYAML string, atts []Attachment) (string, error) {
 				use[i] = Attachment{Network: a.Network}
 			}
 		}
-		mapSet(s.node, "networks", serviceNetworksNode(use))
-		// A service-level mac_address can only describe one interface, and
-		// podman-compose warns when it conflicts with a per-network one.
-		mapDelete(s.node, "mac_address")
-		nameSelf(s.node, s.name)
-		stashPorts(s.node)
+		if err := moveService(s.node, s.name, "", use, keepOwn); err != nil {
+			return "", err
+		}
 	}
+	ensureDefaultTopNetwork(root, services)
 
 	var buf bytes.Buffer
 	enc := yaml.NewEncoder(&buf)
@@ -258,11 +220,217 @@ func InjectNetworks(composeYAML string, atts []Attachment) (string, error) {
 
 // --- yaml.Node helpers ---
 
-func mapGet(m *yaml.Node, key string) *yaml.Node {
+// deref follows YAML alias nodes to their target.
+func deref(n *yaml.Node) *yaml.Node {
+	for steps := 0; n != nil && n.Kind == yaml.AliasNode && steps < 32; steps++ {
+		n = n.Alias
+	}
+	return n
+}
+
+func isMergeKey(k *yaml.Node) bool {
+	return k != nil && (k.Value == "<<" || k.Tag == "!!merge")
+}
+
+func hasDirectMerge(m *yaml.Node) bool {
+	if m == nil || m.Kind != yaml.MappingNode {
+		return false
+	}
 	for i := 0; i+1 < len(m.Content); i += 2 {
-		if m.Content[i].Value == key {
-			return m.Content[i+1]
+		if isMergeKey(m.Content[i]) {
+			return true
 		}
+	}
+	return false
+}
+
+func hasAliasElem(s *yaml.Node) bool {
+	if s == nil || s.Kind != yaml.SequenceNode {
+		return false
+	}
+	for _, it := range s.Content {
+		if it != nil && it.Kind == yaml.AliasNode {
+			return true
+		}
+	}
+	return false
+}
+
+// cloneResolved returns a deep copy of n with all YAML aliases dereferenced,
+// anchors cleared, and << merge keys expanded into their mappings.
+func cloneResolved(n *yaml.Node) *yaml.Node {
+	return cloneResolvedSeen(n, map[*yaml.Node]bool{})
+}
+
+func cloneResolvedSeen(n *yaml.Node, active map[*yaml.Node]bool) *yaml.Node {
+	n = deref(n)
+	if n == nil {
+		return nil
+	}
+	if active[n] {
+		return &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+	}
+	active[n] = true
+	defer delete(active, n)
+
+	cp := *n
+	cp.Anchor = ""
+	cp.Alias = nil
+	if len(n.Content) > 0 {
+		cp.Content = make([]*yaml.Node, len(n.Content))
+		for i, c := range n.Content {
+			cp.Content[i] = cloneResolvedSeen(c, active)
+		}
+	}
+	if cp.Kind == yaml.MappingNode && hasDirectMerge(&cp) {
+		inlineMerges(&cp, active)
+	}
+	return &cp
+}
+
+func inlineMerges(m *yaml.Node, active map[*yaml.Node]bool) {
+	if m == nil || m.Kind != yaml.MappingNode {
+		return
+	}
+	if active == nil {
+		active = map[*yaml.Node]bool{}
+	}
+	have := map[string]bool{}
+	for i := 0; i+1 < len(m.Content); i += 2 {
+		if !isMergeKey(m.Content[i]) {
+			have[m.Content[i].Value] = true
+		}
+	}
+	var out []*yaml.Node
+	addFrom := func(src *yaml.Node) {
+		src = cloneResolvedSeen(src, active)
+		if src == nil || src.Kind != yaml.MappingNode {
+			return
+		}
+		for j := 0; j+1 < len(src.Content); j += 2 {
+			k, v := src.Content[j], src.Content[j+1]
+			if !have[k.Value] {
+				have[k.Value] = true
+				out = append(out, k, v)
+			}
+		}
+	}
+	for i := 0; i+1 < len(m.Content); i += 2 {
+		if !isMergeKey(m.Content[i]) {
+			out = append(out, m.Content[i], m.Content[i+1])
+			continue
+		}
+		mv := deref(m.Content[i+1])
+		if mv == nil {
+			continue
+		}
+		switch mv.Kind {
+		case yaml.MappingNode:
+			addFrom(mv)
+		case yaml.SequenceNode:
+			for _, item := range mv.Content {
+				addFrom(item)
+			}
+		}
+	}
+	m.Content = out
+}
+
+func mapGetSeen(m *yaml.Node, key string, seen map[*yaml.Node]bool) *yaml.Node {
+	m = deref(m)
+	if m == nil || m.Kind != yaml.MappingNode {
+		return nil
+	}
+	for i := 0; i+1 < len(m.Content); i += 2 {
+		if !isMergeKey(m.Content[i]) && m.Content[i].Value == key {
+			return deref(m.Content[i+1])
+		}
+	}
+	return lookupMerged(m, key, seen)
+}
+
+func lookupMerged(m *yaml.Node, key string, seen map[*yaml.Node]bool) *yaml.Node {
+	m = deref(m)
+	if m == nil || m.Kind != yaml.MappingNode {
+		return nil
+	}
+	if seen == nil {
+		seen = map[*yaml.Node]bool{}
+	}
+	if seen[m] {
+		return nil
+	}
+	seen[m] = true
+	for i := 0; i+1 < len(m.Content); i += 2 {
+		if !isMergeKey(m.Content[i]) {
+			continue
+		}
+		mv := deref(m.Content[i+1])
+		if mv == nil {
+			continue
+		}
+		switch mv.Kind {
+		case yaml.MappingNode:
+			if v := mapGetSeen(mv, key, seen); v != nil {
+				return v
+			}
+		case yaml.SequenceNode:
+			for _, item := range mv.Content {
+				if v := mapGetSeen(deref(item), key, seen); v != nil {
+					return v
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func hasAnchorsOrAliases(n *yaml.Node) bool {
+	return hasAnchorsOrAliasesSeen(n, map[*yaml.Node]bool{})
+}
+
+func hasAnchorsOrAliasesSeen(n *yaml.Node, seen map[*yaml.Node]bool) bool {
+	if n == nil || seen[n] {
+		return false
+	}
+	seen[n] = true
+	if n.Anchor != "" || n.Kind == yaml.AliasNode || isMergeKey(n) {
+		return true
+	}
+	for _, c := range n.Content {
+		if hasAnchorsOrAliasesSeen(c, seen) {
+			return true
+		}
+	}
+	return false
+}
+
+func mapGet(m *yaml.Node, key string) *yaml.Node {
+	m = deref(m)
+	if m == nil || m.Kind != yaml.MappingNode {
+		return nil
+	}
+	for i := 0; i+1 < len(m.Content); i += 2 {
+		if !isMergeKey(m.Content[i]) && m.Content[i].Value == key {
+			v := m.Content[i+1]
+			if v != nil && (v.Kind == yaml.AliasNode || hasDirectMerge(v) || hasAliasElem(v)) {
+				v = cloneResolved(v)
+				m.Content[i+1] = v
+			}
+			if key == "services" && v != nil && v.Kind == yaml.MappingNode && hasAnchorsOrAliases(v) {
+				for j := 1; j < len(v.Content); j += 2 {
+					if v.Content[j] != nil {
+						v.Content[j] = cloneResolved(v.Content[j])
+					}
+				}
+			}
+			return v
+		}
+	}
+	if v := lookupMerged(m, key, nil); v != nil {
+		c := cloneResolved(v)
+		m.Content = append(m.Content, scalar(key), c)
+		return c
 	}
 	return nil
 }
@@ -280,6 +448,9 @@ func mapSet(m *yaml.Node, key string, val *yaml.Node) {
 // mapEnsure returns the mapping node at key, creating an empty one if absent.
 func mapEnsure(m *yaml.Node, key string) *yaml.Node {
 	if v := mapGet(m, key); v != nil {
+		if v.Kind != yaml.MappingNode {
+			v.Kind, v.Tag, v.Value, v.Style = yaml.MappingNode, "!!map", "", 0
+		}
 		return v
 	}
 	nv := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
@@ -299,9 +470,40 @@ func externalNetworkNode() *yaml.Node {
 	return n
 }
 
-// serviceNetworkNode builds the per-service networks value, using the two forms
-// verified against podman-compose on FreeBSD: list form for auto-assign,
-// mapping form with ipv4_address for a predictable IP.
+func hasPublishedPorts(svc *yaml.Node) bool {
+	return mapGet(svc, "ports") != nil || mapGet(svc, "x-fjord-published") != nil || mapGet(svc, "x-fjord-ports") != nil
+}
+
+func stashedPortsNode(svc *yaml.Node) *yaml.Node {
+	if p := mapGet(svc, "x-fjord-published"); p != nil {
+		return p
+	}
+	return mapGet(svc, "x-fjord-ports")
+}
+
+func mergePortNodes(a, b *yaml.Node) *yaml.Node {
+	if a == nil || a.Kind != yaml.SequenceNode {
+		return b
+	}
+	if b == nil || b.Kind != yaml.SequenceNode {
+		return a
+	}
+	out := &yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq"}
+	seen := map[string]bool{}
+	for _, src := range []*yaml.Node{a, b} {
+		for _, it := range src.Content {
+			if it.Kind == yaml.ScalarNode {
+				if seen[it.Value] {
+					continue
+				}
+				seen[it.Value] = true
+			}
+			out.Content = append(out.Content, it)
+		}
+	}
+	return out
+}
+
 // stashPorts takes a service's published ports out of service.
 //
 // A stack with its own address does not need them: the app is reachable at
@@ -317,10 +519,28 @@ func stashPorts(svc *yaml.Node) {
 	if ports == nil {
 		return
 	}
-	if mapGet(svc, "x-fjord-published") == nil {
+	if prev := stashedPortsNode(svc); prev != nil {
+		mapSet(svc, "x-fjord-published", mergePortNodes(prev, ports))
+	} else {
 		mapSet(svc, "x-fjord-published", ports)
 	}
+	mapDelete(svc, "x-fjord-ports")
 	mapDelete(svc, "ports")
+}
+
+func restorePorts(svc *yaml.Node) bool {
+	stashed := stashedPortsNode(svc)
+	if stashed == nil {
+		return false
+	}
+	if live := mapGet(svc, "ports"); live != nil {
+		mapSet(svc, "ports", mergePortNodes(stashed, live))
+	} else {
+		mapSet(svc, "ports", stashed)
+	}
+	mapDelete(svc, "x-fjord-published")
+	mapDelete(svc, "x-fjord-ports")
+	return true
 }
 
 // stashNetworks keeps a service's attachments where putting it on a mode would
@@ -328,14 +548,38 @@ func stashPorts(svc *yaml.Node) {
 // for the same reason: lan,lan2 -> none -> host must not let the second
 // transition overwrite the real stash with the empty one it finds.
 //
-// The stash is normalised to a mapping of network -> pins rather than a copy
+// The stash is normalized to a mapping of network -> pins rather than a copy
 // of whatever `networks:` held, so the service-level mac_address (the old
 // single-network form, and the one a DHCP reservation is keyed on) has
 // somewhere to go. Without that it is the most expensive thing on the page to
 // lose, and it would vanish silently.
 func stashNetworks(svc *yaml.Node) {
-	atts := serviceAttachments(mapGet(svc, "networks"))
-	if len(atts) == 0 || mapGet(svc, "x-fjord-networks") != nil {
+	stashSelectedNetworks(svc, nil)
+}
+
+func stashSelectedNetworks(svc *yaml.Node, skip map[string]bool) {
+	raw := serviceAttachments(mapGet(svc, "networks"))
+	var atts []Attachment
+	for _, a := range raw {
+		if !skip[a.Network] {
+			atts = append(atts, a)
+		}
+	}
+	if len(atts) == 0 {
+		return
+	}
+	byNetAliases, _ := serviceAliases(svc)
+	if len(atts) == 1 && atts[0].Network == Bridge &&
+		atts[0].IP == "" && atts[0].IP6 == "" && atts[0].MAC == "" &&
+		mapGet(svc, "mac_address") == nil && len(byNetAliases[Bridge]) == 0 {
+		return
+	}
+	if existing := mapGet(svc, "x-fjord-networks"); existing != nil && existing.Kind == yaml.MappingNode {
+		for _, a := range atts {
+			if mapGet(existing, a.Network) == nil {
+				existing.Content = append(existing.Content, scalar(a.Network), networkPinsNode(a, byNetAliases[a.Network]))
+			}
+		}
 		return
 	}
 	if atts[0].MAC == "" {
@@ -345,19 +589,84 @@ func stashNetworks(svc *yaml.Node) {
 	}
 	out := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
 	for _, a := range atts {
-		pins := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
-		if a.IP != "" {
-			pins.Content = append(pins.Content, scalar("ipv4_address"), scalar(a.IP))
-		}
-		if a.IP6 != "" {
-			pins.Content = append(pins.Content, scalar("ipv6_address"), scalar(a.IP6))
-		}
-		if a.MAC != "" {
-			pins.Content = append(pins.Content, scalar("mac_address"), scalar(a.MAC))
-		}
-		out.Content = append(out.Content, scalar(a.Network), pins)
+		out.Content = append(out.Content, scalar(a.Network), networkPinsNode(a, byNetAliases[a.Network]))
 	}
 	mapSet(svc, "x-fjord-networks", out)
+}
+
+func networkPinsNode(a Attachment, aliases []string) *yaml.Node {
+	pins := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+	if a.IP != "" {
+		pins.Content = append(pins.Content, scalar("ipv4_address"), scalar(a.IP))
+	}
+	if a.IP6 != "" {
+		pins.Content = append(pins.Content, scalar("ipv6_address"), scalar(a.IP6))
+	}
+	if a.MAC != "" {
+		pins.Content = append(pins.Content, scalar("mac_address"), scalar(a.MAC))
+	}
+	if len(aliases) > 0 {
+		seq := &yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq"}
+		for _, al := range aliases {
+			seq.Content = append(seq.Content, scalar(al))
+		}
+		pins.Content = append(pins.Content, scalar("aliases"), seq)
+	}
+	return pins
+}
+
+func serviceAliases(svc *yaml.Node) (map[string][]string, []string) {
+	byNet := map[string][]string{}
+	var fallback []string
+	for _, key := range []string{"networks", "x-fjord-networks"} {
+		n := mapGet(svc, key)
+		if n == nil || n.Kind != yaml.MappingNode {
+			continue
+		}
+		for i := 0; i+1 < len(n.Content); i += 2 {
+			netName := fjordName(n.Content[i].Value)
+			opts := n.Content[i+1]
+			if opts == nil || opts.Kind != yaml.MappingNode {
+				continue
+			}
+			al := mapGet(opts, "aliases")
+			if al == nil || al.Kind != yaml.SequenceNode {
+				continue
+			}
+			var list []string
+			for _, it := range al.Content {
+				if it.Kind == yaml.ScalarNode && it.Value != "" {
+					list = append(list, it.Value)
+				}
+			}
+			if len(list) == 0 {
+				continue
+			}
+			if len(byNet[netName]) == 0 {
+				byNet[netName] = list
+			}
+			if len(fallback) == 0 {
+				fallback = list
+			}
+		}
+	}
+	return byNet, fallback
+}
+
+func matchAliases(atts []Attachment, byNet map[string][]string, fallback []string) map[string][]string {
+	if len(atts) == 0 || (len(byNet) == 0 && len(fallback) == 0) {
+		return nil
+	}
+	out := map[string][]string{}
+	for _, a := range atts {
+		if als := byNet[a.Network]; len(als) > 0 {
+			out[a.Network] = als
+		}
+	}
+	if len(out) == 0 && len(fallback) > 0 {
+		out[atts[0].Network] = fallback
+	}
+	return out
 }
 
 // StashedNetworks reports the attachments a stack had before it was put on a
@@ -368,14 +677,23 @@ func StashedNetworks(composeYAML string) []Attachment {
 	if yaml.Unmarshal([]byte(composeYAML), &doc) != nil || len(doc.Content) == 0 {
 		return nil
 	}
-	services := mapGet(doc.Content[0], "services")
+	root := doc.Content[0]
+	services := mapGet(root, "services")
 	if services == nil || services.Kind != yaml.MappingNode {
 		return nil
 	}
+	own := ownNetworks(root)
 	// The first service that has one: they are written together and read back
 	// as one set, the same as AttachedNetworks reports one set for the stack.
 	for i := 1; i < len(services.Content); i += 2 {
-		if atts := serviceAttachments(mapGet(services.Content[i], "x-fjord-networks")); len(atts) > 0 {
+		raw := serviceAttachments(mapGet(services.Content[i], "x-fjord-networks"))
+		var atts []Attachment
+		for _, a := range raw {
+			if !own[a.Network] {
+				atts = append(atts, a)
+			}
+		}
+		if len(atts) > 0 {
 			return atts
 		}
 	}
@@ -384,12 +702,21 @@ func StashedNetworks(composeYAML string) []Attachment {
 
 // mapDelete removes a key and its value from a mapping node.
 func mapDelete(m *yaml.Node, key string) {
+	m = deref(m)
+	if m == nil || m.Kind != yaml.MappingNode {
+		return
+	}
+	if lookupMerged(m, key, nil) != nil {
+		inlineMerges(m, nil)
+	}
+	kept := m.Content[:0]
 	for i := 0; i+1 < len(m.Content); i += 2 {
 		if m.Content[i].Value == key {
-			m.Content = append(m.Content[:i], m.Content[i+2:]...)
-			return
+			continue
 		}
+		kept = append(kept, m.Content[i], m.Content[i+1])
 	}
+	m.Content = kept
 }
 
 // nameSelf gives a service a hostname it can resolve.
@@ -416,11 +743,144 @@ func nameSelf(svc *yaml.Node, name string) {
 	}
 }
 
+func unnameSelf(svc *yaml.Node, name string) {
+	if h := mapGet(svc, "extra_hosts"); h != nil && h.Kind == yaml.SequenceNode {
+		kept := h.Content[:0]
+		for _, e := range h.Content {
+			if e.Value != name+":0.0.0.0" {
+				kept = append(kept, e)
+			}
+		}
+		h.Content = kept
+		if len(h.Content) == 0 {
+			mapDelete(svc, "extra_hosts")
+		}
+	}
+}
+
+func hasSharedNetworkMode(svc *yaml.Node) (string, bool) {
+	m := mapGet(svc, "network_mode")
+	if m == nil {
+		return "", false
+	}
+	if strings.HasPrefix(m.Value, "service:") || strings.HasPrefix(m.Value, "container:") {
+		return m.Value, true
+	}
+	return "", false
+}
+
+// moveService transitions one service node to the requested network state:
+// either a list of network attachments (atts non-empty) or a built-in mode
+// (Bridge, None, Host).
+func moveService(svc *yaml.Node, name, mode string, atts []Attachment, own map[string]bool) error {
+	if sharedMode, shared := hasSharedNetworkMode(svc); shared {
+		if len(atts) > 0 {
+			return fmt.Errorf("service %q uses network_mode: %s, which fjord does not know how to move onto a network", name, sharedMode)
+		}
+		return nil
+	}
+
+	byNetAliases, fallbackAliases := serviceAliases(svc)
+
+	if len(atts) > 0 {
+		clearMode(svc)
+		use := make([]Attachment, len(atts))
+		copy(use, atts)
+		have := map[string]bool{}
+		for _, a := range use {
+			have[a.Network] = true
+		}
+		for _, key := range []string{"networks", "x-fjord-networks"} {
+			for _, e := range serviceAttachments(mapGet(svc, key)) {
+				if own[e.Network] && !have[e.Network] {
+					have[e.Network] = true
+					use = append(use, e)
+				}
+			}
+		}
+		netAliases := matchAliases(use, byNetAliases, fallbackAliases)
+		mapDelete(svc, "x-fjord-networks")
+		mapSet(svc, "networks", serviceNetworksNodeWithAliases(use, netAliases))
+		mapDelete(svc, "mac_address")
+		nameSelf(svc, name)
+		stashPorts(svc)
+		return nil
+	}
+
+	if mode == Bridge || mode == "" {
+		var ownAtts []Attachment
+		haveOwn := map[string]bool{}
+		for _, key := range []string{"networks", "x-fjord-networks"} {
+			for _, e := range serviceAttachments(mapGet(svc, key)) {
+				if own[e.Network] && !haveOwn[e.Network] {
+					haveOwn[e.Network] = true
+					ownAtts = append(ownAtts, e)
+				}
+			}
+		}
+		stashSelectedNetworks(svc, own)
+		if st := mapGet(svc, "x-fjord-networks"); st != nil && st.Kind == yaml.MappingNode && len(own) > 0 {
+			for o := range own {
+				mapDelete(st, o)
+			}
+			if len(st.Content) == 0 {
+				mapDelete(svc, "x-fjord-networks")
+			}
+		}
+		if len(ownAtts) > 0 {
+			netAliases := matchAliases(ownAtts, byNetAliases, fallbackAliases)
+			mapSet(svc, "networks", serviceNetworksNodeWithAliases(ownAtts, netAliases))
+		} else if len(fallbackAliases) > 0 {
+			mapSet(svc, "networks", serviceNetworksNodeWithAliases(
+				[]Attachment{{Network: Bridge}},
+				map[string][]string{Bridge: fallbackAliases},
+			))
+			if st := mapGet(svc, "x-fjord-networks"); st != nil && st.Kind == yaml.MappingNode {
+				mapDelete(st, composeDefault)
+				mapDelete(st, Bridge)
+				if len(st.Content) == 0 {
+					mapDelete(svc, "x-fjord-networks")
+				}
+			}
+		} else {
+			mapDelete(svc, "networks")
+		}
+		mapDelete(svc, "mac_address")
+		clearMode(svc)
+		restorePorts(svc)
+		unnameSelf(svc, name)
+		return nil
+	}
+
+	stashNetworks(svc)
+	mapDelete(svc, "networks")
+	mapDelete(svc, "mac_address")
+	stashPorts(svc)
+	clearMode(svc)
+	unnameSelf(svc, name)
+	mapSet(svc, "network_mode", scalar(mode))
+	if mode == None {
+		ann := mapGet(svc, "annotations")
+		if ann == nil || ann.Kind != yaml.MappingNode {
+			ann = &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+			mapSet(svc, "annotations", ann)
+		}
+		if mapGet(ann, "org.freebsd.jail.vnet") == nil {
+			ann.Content = append(ann.Content, scalar("org.freebsd.jail.vnet"), scalar("new"))
+		}
+	}
+	return nil
+}
+
 // serviceNetworksNode renders the service-level `networks:` key. A plain list
 // when nothing is pinned -- the form most compose files already use -- and a
 // mapping as soon as any entry carries an address or a MAC.
 func serviceNetworksNode(atts []Attachment) *yaml.Node {
-	plain := true
+	return serviceNetworksNodeWithAliases(atts, nil)
+}
+
+func serviceNetworksNodeWithAliases(atts []Attachment, aliases map[string][]string) *yaml.Node {
+	plain := len(aliases) == 0
 	for _, a := range atts {
 		if a.IP != "" || a.IP6 != "" || a.MAC != "" {
 			plain = false
@@ -435,16 +895,7 @@ func serviceNetworksNode(atts []Attachment) *yaml.Node {
 	}
 	outer := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
 	for _, a := range atts {
-		inner := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
-		if a.IP != "" {
-			inner.Content = append(inner.Content, scalar("ipv4_address"), scalar(a.IP))
-		}
-		if a.IP6 != "" {
-			inner.Content = append(inner.Content, scalar("ipv6_address"), scalar(a.IP6))
-		}
-		if a.MAC != "" {
-			inner.Content = append(inner.Content, scalar("mac_address"), scalar(a.MAC))
-		}
+		inner := networkPinsNode(a, aliases[a.Network])
 		if len(inner.Content) == 0 {
 			inner.Style = yaml.FlowStyle // "net: {}" -- an empty mapping, not null
 		}
@@ -476,7 +927,35 @@ func fjordName(network string) string {
 // up in a compose file and on an ifconfig command line.
 var macRe = regexp.MustCompile(`^([0-9a-fA-F]{2}[:-]){5}[0-9a-fA-F]{2}$`)
 
-// AttachedMAC reports the MAC a stack pins, empty when it pins none.
+func anyServiceUsesNetwork(services *yaml.Node, netName string) bool {
+	if services == nil || services.Kind != yaml.MappingNode {
+		return false
+	}
+	target := fjordName(netName)
+	for i := 1; i < len(services.Content); i += 2 {
+		svc := services.Content[i]
+		if svc == nil || svc.Kind != yaml.MappingNode {
+			continue
+		}
+		for _, a := range serviceAttachments(mapGet(svc, "networks")) {
+			if a.Network == target {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func ensureDefaultTopNetwork(root, services *yaml.Node) {
+	if !anyServiceUsesNetwork(services, composeDefault) {
+		return
+	}
+	networks := mapEnsure(root, "networks")
+	if mapGet(networks, composeDefault) == nil {
+		mapSet(networks, composeDefault, &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map", Style: yaml.FlowStyle})
+	}
+}
+
 // DetachNetworks takes a stack back off its networks and gives back what
 // attaching took away: the published ports it stashed, and the self-hostname
 // it added. Without this, removing the last network left a stack that showed
@@ -495,43 +974,29 @@ func DetachNetworks(composeYAML string) (string, error) {
 		return "", fmt.Errorf("compose has no services")
 	}
 
+	own := ownNetworks(root)
 	for i := 0; i+1 < len(services.Content); i += 2 {
 		name, svc := services.Content[i].Value, services.Content[i+1]
 		if svc.Kind != yaml.MappingNode {
 			continue
 		}
-		stashNetworks(svc)
-		mapDelete(svc, "networks")
-		mapDelete(svc, "mac_address")
-		// Bridge is reached by asking for nothing, so a mode fjord set has to
-		// come off here -- without this, none -> bridge wrote the compose back
-		// unchanged and the stack stayed isolated.
-		clearMode(svc)
-		if p := mapGet(svc, "x-fjord-published"); p != nil {
-			mapSet(svc, "ports", p)
-			mapDelete(svc, "x-fjord-published")
-		}
-		// Only the entry attaching added: anything else there is the user's.
-		if h := mapGet(svc, "extra_hosts"); h != nil && h.Kind == yaml.SequenceNode {
-			kept := h.Content[:0]
-			for _, e := range h.Content {
-				if e.Value != name+":0.0.0.0" {
-					kept = append(kept, e)
-				}
-			}
-			h.Content = kept
-			if len(h.Content) == 0 {
-				mapDelete(svc, "extra_hosts")
-			}
+		if err := moveService(svc, name, Bridge, nil, own); err != nil {
+			return "", err
 		}
 	}
 
 	// Top-level declarations of networks nothing joins any more. Only the
 	// external ones -- an internal network is part of the stack's own design.
+	defaultUsed := anyServiceUsesNetwork(services, composeDefault)
 	if nets := mapGet(root, "networks"); nets != nil && nets.Kind == yaml.MappingNode {
 		kept := nets.Content[:0]
 		for i := 0; i+1 < len(nets.Content); i += 2 {
-			if v := nets.Content[i+1]; v == nil || v.Kind != yaml.MappingNode || mapGet(v, "external") == nil {
+			name := nets.Content[i].Value
+			v := nets.Content[i+1]
+			if name == composeDefault && !defaultUsed {
+				continue
+			}
+			if v == nil || v.Kind != yaml.MappingNode || mapGet(v, "external") == nil {
 				kept = append(kept, nets.Content[i], nets.Content[i+1])
 			}
 		}
@@ -540,6 +1005,7 @@ func DetachNetworks(composeYAML string) (string, error) {
 			mapDelete(root, "networks")
 		}
 	}
+	ensureDefaultTopNetwork(root, services)
 
 	var buf bytes.Buffer
 	enc := yaml.NewEncoder(&buf)
@@ -798,29 +1264,17 @@ func setMode(composeYAML, mode string) (string, error) {
 	if services == nil || services.Kind != yaml.MappingNode {
 		return "", fmt.Errorf("compose has no services")
 	}
+	own := ownNetworks(root)
 	for i := 0; i+1 < len(services.Content); i += 2 {
-		svc := services.Content[i+1]
+		name, svc := services.Content[i].Value, services.Content[i+1]
 		if svc.Kind != yaml.MappingNode {
 			continue
 		}
-		stashNetworks(svc)
-		mapDelete(svc, "networks")
-		mapDelete(svc, "mac_address")
-		stashPorts(svc)
-		clearMode(svc)
-		mapSet(svc, "network_mode", scalar(mode))
-		if mode != None {
-			continue
-		}
-		ann := mapGet(svc, "annotations")
-		if ann == nil || ann.Kind != yaml.MappingNode {
-			ann = &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
-			mapSet(svc, "annotations", ann)
-		}
-		if mapGet(ann, "org.freebsd.jail.vnet") == nil {
-			ann.Content = append(ann.Content, scalar("org.freebsd.jail.vnet"), scalar("new"))
+		if err := moveService(svc, name, mode, nil, own); err != nil {
+			return "", err
 		}
 	}
+	ensureDefaultTopNetwork(root, services)
 	var buf bytes.Buffer
 	enc := yaml.NewEncoder(&buf)
 	enc.SetIndent(2)
@@ -835,7 +1289,9 @@ func setMode(composeYAML, mode string) (string, error) {
 // the vnet annotation that made "none" mean isolated. The annotations map goes
 // too when nothing else is in it, so a round trip leaves no residue.
 func clearMode(svc *yaml.Node) {
-	mapDelete(svc, "network_mode")
+	if _, shared := hasSharedNetworkMode(svc); !shared {
+		mapDelete(svc, "network_mode")
+	}
 	ann := mapGet(svc, "annotations")
 	if ann == nil || ann.Kind != yaml.MappingNode {
 		return
@@ -964,7 +1420,7 @@ func SeedPublished(composeYAML, service, port string) (string, error) {
 		return composeYAML, nil
 	}
 	svc := mapGet(services, service)
-	if svc == nil || svc.Kind != yaml.MappingNode || mapGet(svc, "ports") != nil || mapGet(svc, "x-fjord-published") != nil {
+	if svc == nil || svc.Kind != yaml.MappingNode || hasPublishedPorts(svc) {
 		return composeYAML, nil
 	}
 	mapSet(svc, "x-fjord-published", &yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq", Content: []*yaml.Node{scalar(port + ":" + port)}})
@@ -1004,40 +1460,18 @@ func SetServiceModes(composeYAML string, modes map[string]string) (string, error
 	if services == nil || services.Kind != yaml.MappingNode {
 		return "", fmt.Errorf("compose has no services")
 	}
+	own := ownNetworks(root)
 	for i := 0; i+1 < len(services.Content); i += 2 {
 		name, svc := services.Content[i].Value, services.Content[i+1]
 		mode, want := modes[name]
 		if !want || svc.Kind != yaml.MappingNode {
 			continue
 		}
-		// A mode and a network are mutually exclusive; the stash lets a trip
-		// through one come back to what it was on. Ports mean nothing on
-		// host or none and are stashed with the networks; bridge is reached
-		// through them, so there they come back (a host-networked app moved
-		// to the bridge used to land with nothing published and answer
-		// nowhere).
-		stashNetworks(svc)
-		mapDelete(svc, "networks")
-		mapDelete(svc, "mac_address")
-		clearMode(svc)
-		if mode != Bridge {
-			stashPorts(svc)
-			mapSet(svc, "network_mode", scalar(mode))
-			if mode == None {
-				ann := mapGet(svc, "annotations")
-				if ann == nil || ann.Kind != yaml.MappingNode {
-					ann = &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
-					mapSet(svc, "annotations", ann)
-				}
-				if mapGet(ann, "org.freebsd.jail.vnet") == nil {
-					ann.Content = append(ann.Content, scalar("org.freebsd.jail.vnet"), scalar("new"))
-				}
-			}
-		} else if p := mapGet(svc, "x-fjord-published"); p != nil && mapGet(svc, "ports") == nil {
-			mapSet(svc, "ports", p)
-			mapDelete(svc, "x-fjord-published")
+		if err := moveService(svc, name, mode, nil, own); err != nil {
+			return "", err
 		}
 	}
+	ensureDefaultTopNetwork(root, services)
 	var buf bytes.Buffer
 	enc := yaml.NewEncoder(&buf)
 	enc.SetIndent(2)
@@ -1086,13 +1520,9 @@ func RepublishPorts(composeYAML string, services []string) (string, error) {
 		if !want[name] || svc.Kind != yaml.MappingNode {
 			continue
 		}
-		p := mapGet(svc, "x-fjord-published")
-		if p == nil {
-			continue
+		if restorePorts(svc) {
+			changed = true
 		}
-		mapSet(svc, "ports", p)
-		mapDelete(svc, "x-fjord-published")
-		changed = true
 	}
 	if !changed {
 		return composeYAML, nil
