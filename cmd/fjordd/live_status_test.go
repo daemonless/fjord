@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -94,4 +95,78 @@ func TestLiveStatusUnknownBeforeFirstAnswer(t *testing.T) {
 		t.Fatalf("got %+v", got)
 	}
 	close(e.gate)
+}
+
+type containerSliceEngine struct {
+	engine.Backend
+	gate   chan struct{}
+	status engine.StackStatus
+}
+
+func (e *containerSliceEngine) Status(ctx context.Context, _ *stack.Stack) (engine.StackStatus, error) {
+	select {
+	case <-e.gate:
+	case <-ctx.Done():
+		return engine.StackStatus{}, ctx.Err()
+	}
+	return e.status, nil
+}
+
+func TestLiveStatusConcurrentGetAndMutate(t *testing.T) {
+	open := make(chan struct{})
+	close(open)
+	e := &containerSliceEngine{
+		gate: open,
+		status: engine.StackStatus{
+			State: "running",
+			Containers: []engine.ContainerStatus{{
+				Name:      "app_1",
+				ID:        "c1",
+				Service:   "app",
+				State:     "running",
+				Restarts:  3,
+				Ports:     []engine.Port{{HostPort: 8080, ContainerPort: 80}},
+				Exposed:   []int{80},
+				Addresses: map[string]string{"lan": "10.0.0.2"},
+				MACs:      map[string]string{"lan": "02:00:00:00:00:01"},
+			}},
+		},
+	}
+	st := &stack.Stack{Name: "app"}
+	l := newLiveStatus()
+
+	// Seed the cache and verify caller mutations do not leak back into it.
+	first := l.get(e, st, time.Second)
+	first.Containers[0].Detail = "mutated by caller"
+	first.Containers[0].Addresses["lan"] = "0.0.0.0"
+
+	// Hold the next engine call so subsequent get() calls read from l.last.
+	e.gate = make(chan struct{})
+	defer close(e.gate)
+
+	second := l.get(e, st, 5*time.Millisecond)
+	if second.Containers[0].Detail != "" {
+		t.Fatalf("cached Detail was mutated: got %q, want empty", second.Containers[0].Detail)
+	}
+	if second.Containers[0].Addresses["lan"] != "10.0.0.2" {
+		t.Fatalf("cached Addresses was mutated: got %q", second.Containers[0].Addresses["lan"])
+	}
+
+	var wg sync.WaitGroup
+	for range 8 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for range 50 {
+				got := l.get(e, st, time.Millisecond)
+				if len(got.Containers) > 0 {
+					got.Containers[0].Detail = "crash-looping: restarted 3 times"
+					got.Containers[0].Ports[0].HostPort = 9090
+					got.Containers[0].Addresses["lan"] = "10.0.0.99"
+				}
+				_, _ = json.Marshal(got)
+			}
+		}()
+	}
+	wg.Wait()
 }
