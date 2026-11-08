@@ -3,7 +3,6 @@ name: Test
 on:
   push:
     branches: [main]
-    tags: ["v*"]
   pull_request:
   workflow_call:
     inputs:
@@ -22,9 +21,11 @@ on:
 permissions:
   contents: read
 
-# A new push to the same PR supersedes the previous run.
+# A new push to the same PR supersedes the previous run. Static prefix so
+# workflow_call from Build (where github.workflow is "Build") does not share
+# Build's concurrency group and cancel itself.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: test-${{ inputs.ref || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -94,10 +95,10 @@ jobs:
         run: go vet ./...
 
       - name: staticcheck
-        run: GOTOOLCHAIN=auto go run honnef.co/go/tools/cmd/staticcheck@latest -checks "SA*" ./...
+        run: GOTOOLCHAIN=auto go run honnef.co/go/tools/cmd/staticcheck@v0.8.2 -checks "SA*" ./...
 
       - name: govulncheck
-        run: GOTOOLCHAIN=auto go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+        run: GOTOOLCHAIN=auto go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
 
       # fjord runs on Linux too (0.4.0): the tests run here as well as in the
       # FreeBSD VM below, so a FreeBSD-only assumption fails a PR.
