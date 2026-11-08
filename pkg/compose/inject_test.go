@@ -734,3 +734,578 @@ networks:
 		t.Fatalf("declared network rewritten:\n%s", out)
 	}
 }
+
+func TestInjectAndDetachPreserveServiceAliases(t *testing.T) {
+	const in = `services:
+  db:
+    image: postgres:16
+    networks:
+      default:
+        aliases:
+          - database
+          - pg
+  app:
+    image: myapp
+    ports:
+      - "8080:8080"
+`
+	// Attach stack to lan: db should keep its [database, pg] aliases on lan.
+	onLan, err := InjectNetworks(in, []Attachment{{Network: "lan", IP: "10.0.1.50"}})
+	if err != nil {
+		t.Fatalf("InjectNetworks: %v", err)
+	}
+	m := mustParse(t, onLan)
+	dbNets, ok := m["services"].(map[string]any)["db"].(map[string]any)["networks"].(map[string]any)
+	if !ok {
+		t.Fatalf("db networks should be a mapping to preserve aliases:\n%s", onLan)
+	}
+	lanCfg, ok := dbNets["lan"].(map[string]any)
+	if !ok {
+		t.Fatalf("db.networks.lan should be a mapping:\n%s", onLan)
+	}
+	aliases, ok := lanCfg["aliases"].([]any)
+	if !ok || len(aliases) != 2 || aliases[0] != "database" || aliases[1] != "pg" {
+		t.Fatalf("db.networks.lan.aliases = %#v, want [database pg]:\n%s", lanCfg["aliases"], onLan)
+	}
+
+	// Re-attaching with a different network or IP preserves the aliases on the new network.
+	onVlan, err := InjectNetworks(onLan, []Attachment{{Network: "vlan20", IP: "10.0.20.50"}})
+	if err != nil {
+		t.Fatalf("InjectNetworks(vlan20): %v", err)
+	}
+	m2 := mustParse(t, onVlan)
+	vlanCfg := m2["services"].(map[string]any)["db"].(map[string]any)["networks"].(map[string]any)["vlan20"].(map[string]any)
+	if got, ok := vlanCfg["aliases"].([]any); !ok || len(got) != 2 || got[0] != "database" || got[1] != "pg" {
+		t.Fatalf("db.networks.vlan20.aliases = %#v, want [database pg]:\n%s", vlanCfg["aliases"], onVlan)
+	}
+
+	// DetachNetworks restores db's original default network with aliases intact,
+	// and declares default at top-level so podman-compose accepts it.
+	detached, err := DetachNetworks(onVlan)
+	if err != nil {
+		t.Fatalf("DetachNetworks: %v", err)
+	}
+	m3 := mustParse(t, detached)
+	defCfg := m3["services"].(map[string]any)["db"].(map[string]any)["networks"].(map[string]any)["default"].(map[string]any)
+	if got, ok := defCfg["aliases"].([]any); !ok || len(got) != 2 || got[0] != "database" || got[1] != "pg" {
+		t.Fatalf("restored db.networks.default.aliases = %#v, want [database pg]:\n%s", defCfg["aliases"], detached)
+	}
+	topNets, ok := m3["networks"].(map[string]any)
+	if !ok || topNets["default"] == nil {
+		t.Fatalf("expected top-level networks.default declaration when service uses default:\n%s", detached)
+	}
+}
+
+func TestInjectAndDetachPreserveOwnDeclaredNetworks(t *testing.T) {
+	const in = `services:
+  app:
+    image: immich-server
+    ports:
+      - "2283:2283"
+    networks:
+      - backend
+  db:
+    image: postgres:16
+    networks:
+      backend:
+        aliases:
+          - database
+networks:
+  backend:
+    internal: true
+`
+	// Attaching stack to "lan" keeps "backend" attached on both services alongside "lan".
+	onLan, err := InjectNetworks(in, []Attachment{{Network: "lan", IP: "10.0.1.60"}})
+	if err != nil {
+		t.Fatalf("InjectNetworks: %v", err)
+	}
+	sa := ServiceAttachments(onLan)
+	for _, svc := range []string{"app", "db"} {
+		atts := sa[svc]
+		var hasLan, hasBackend bool
+		for _, a := range atts {
+			if a.Network == "lan" && !a.Own {
+				hasLan = true
+			}
+			if a.Network == "backend" && a.Own {
+				hasBackend = true
+			}
+		}
+		if !hasLan || !hasBackend {
+			t.Errorf("%s attachments = %+v, want both lan and own backend:\n%s", svc, atts, onLan)
+		}
+	}
+	// db keeps its database alias on backend.
+	m := mustParse(t, onLan)
+	dbBackend := m["services"].(map[string]any)["db"].(map[string]any)["networks"].(map[string]any)["backend"].(map[string]any)
+	if got, ok := dbBackend["aliases"].([]any); !ok || len(got) != 1 || got[0] != "database" {
+		t.Errorf("db.networks.backend.aliases = %#v, want [database]:\n%s", dbBackend["aliases"], onLan)
+	}
+	// Re-attaching stack with a new IP on lan does not lose the stashed ports or backend network.
+	rePinned, err := InjectNetworks(onLan, []Attachment{{Network: "lan", IP: "10.0.1.61"}})
+	if err != nil {
+		t.Fatalf("re-pin InjectNetworks: %v", err)
+	}
+	if got := ServiceAttachments(rePinned)["app"]; len(got) != 2 || got[0].IP != "10.0.1.61" {
+		t.Errorf("re-pinned app attachments = %+v, want IP 10.0.1.61 and backend:\n%s", got, rePinned)
+	}
+
+	// DetachNetworks strips "lan" and restores "ports", while keeping stack-owned "backend".
+	detached, err := DetachNetworks(rePinned)
+	if err != nil {
+		t.Fatalf("DetachNetworks: %v", err)
+	}
+	if !strings.Contains(detached, "2283:2283") {
+		t.Errorf("DetachNetworks did not restore ports:\n%s", detached)
+	}
+	if !strings.Contains(detached, "internal: true") {
+		t.Errorf("DetachNetworks lost top-level backend network:\n%s", detached)
+	}
+	for _, svc := range []string{"app", "db"} {
+		atts := ServiceAttachments(detached)[svc]
+		if len(atts) != 1 || atts[0].Network != "backend" || !atts[0].Own {
+			t.Errorf("after DetachNetworks, %s attachments = %+v, want [backend (own)]:\n%s", svc, atts, detached)
+		}
+	}
+}
+
+func TestRestoreAndStashPortsMergeLiveAndStashed(t *testing.T) {
+	// Service already has stashed ports in x-fjord-published (or x-fjord-ports) AND
+	// the user added a live ports: entry while on a LAN network.
+	const withLiveAndStash = `services:
+  caddy:
+    image: caddy
+    ports:
+      - "8443:8443"
+    x-fjord-published:
+      - "80:80"
+      - "443:443"
+      - "8443:8443"
+    networks:
+      - lan
+networks:
+  lan:
+    external: true
+`
+	// Detaching restores stashed ports without discarding the live port (deduplicated).
+	detached, err := DetachNetworks(withLiveAndStash)
+	if err != nil {
+		t.Fatalf("DetachNetworks: %v", err)
+	}
+	ports := PublishedPorts(detached, nil)
+	if len(ports) != 3 || ports[0].Host != 80 || ports[1].Host != 443 || ports[2].Host != 8443 {
+		t.Fatalf("PublishedPorts after DetachNetworks = %+v, want [80 443 8443]:\n%s", ports, detached)
+	}
+	if strings.Contains(detached, "x-fjord-published") {
+		t.Errorf("x-fjord-published should be removed after restore:\n%s", detached)
+	}
+
+	// Also verify when stashing (e.g. DisableNetwork when both live ports and x-fjord-ports exist):
+	const beforeStash = `services:
+  caddy:
+    image: caddy
+    ports:
+      - "9090:9090"
+    x-fjord-ports:
+      - "80:80"
+`
+	disabled, err := DisableNetwork(beforeStash)
+	if err != nil {
+		t.Fatalf("DisableNetwork: %v", err)
+	}
+	restored, err := DetachNetworks(disabled)
+	if err != nil {
+		t.Fatalf("DetachNetworks: %v", err)
+	}
+	gotPorts := PublishedPorts(restored, nil)
+	if len(gotPorts) != 2 || gotPorts[0].Host != 80 || gotPorts[1].Host != 9090 {
+		t.Fatalf("PublishedPorts after stash+restore = %+v, want [80 9090]:\n%s", gotPorts, restored)
+	}
+}
+
+func TestPerServiceInjectKeepsUntouchedServiceStashes(t *testing.T) {
+	// Service "a" was previously moved to network_mode: host (so its ports and networks
+	// were stashed in x-fjord-published and x-fjord-networks). Now we call per-service
+	// InjectNetworks touching only service "b". Service "a"'s stashes must not be stripped.
+	const twoServices = `services:
+  a:
+    image: app-a
+    ports:
+      - "8080:8080"
+    networks:
+      default:
+        aliases:
+          - alpha
+  b:
+    image: app-b
+    ports:
+      - "9090:9090"
+`
+	aHost, err := SetServiceModes(twoServices, map[string]string{"a": "host"})
+	if err != nil {
+		t.Fatalf("SetServiceModes: %v", err)
+	}
+	if !strings.Contains(aHost, "x-fjord-published") || !strings.Contains(aHost, "x-fjord-networks") {
+		t.Fatalf("expected stashes on service a:\n%s", aHost)
+	}
+
+	// Attach only service "b" to lan.
+	bLan, err := InjectNetworks(aHost, []Attachment{{Service: "b", Network: "lan", IP: "10.0.1.25"}})
+	if err != nil {
+		t.Fatalf("InjectNetworks(b): %v", err)
+	}
+	m := mustParse(t, bLan)
+	svcA := m["services"].(map[string]any)["a"].(map[string]any)
+	if svcA["x-fjord-published"] == nil {
+		t.Errorf("untouched service a lost x-fjord-published:\n%s", bLan)
+	}
+	if svcA["x-fjord-networks"] == nil {
+		t.Errorf("untouched service a lost x-fjord-networks:\n%s", bLan)
+	}
+
+	// Clearing host mode on "a" now restores its stashed ports and aliases.
+	aBridge, err := SetServiceModes(bLan, map[string]string{"a": ""})
+	if err != nil {
+		t.Fatalf("SetServiceModes(clear a): %v", err)
+	}
+	m2 := mustParse(t, aBridge)
+	svcA2 := m2["services"].(map[string]any)["a"].(map[string]any)
+	if svcA2["ports"] == nil {
+		t.Errorf("service a did not restore ports after clearing host mode:\n%s", aBridge)
+	}
+	if svcA2["networks"] == nil {
+		t.Errorf("service a did not restore networks after clearing host mode:\n%s", aBridge)
+	}
+}
+
+func TestMapEnsureBareTopLevelNetworks(t *testing.T) {
+	// A compose file with a bare top-level `networks:` key (YAML null scalar)
+	// or a bare service `networks:` key must not fail or drop the declaration.
+	const bareNetworks = `services:
+  app:
+    image: nginx
+    networks:
+networks:
+  existing_net:
+`
+	out, err := InjectNetworks(bareNetworks, []Attachment{{Network: "lan", IP: "10.0.1.99"}})
+	if err != nil {
+		t.Fatalf("InjectNetworks on bare networks key: %v", err)
+	}
+	m := mustParse(t, out)
+	topNets, ok := m["networks"].(map[string]any)
+	if !ok {
+		t.Fatalf("top-level networks is not a map:\n%s", out)
+	}
+	if _, ok := topNets["lan"]; !ok {
+		t.Errorf("top-level networks missing lan:\n%s", out)
+	}
+	if _, ok := topNets["existing_net"]; !ok {
+		t.Errorf("top-level networks lost existing_net:\n%s", out)
+	}
+}
+
+func TestPreserveServiceAndContainerNetworkMode(t *testing.T) {
+	const sidecarCompose = `services:
+  gluetun:
+    image: qmcgaw/gluetun
+    ports:
+      - "8888:8888"
+  app:
+    image: curlimages/curl
+    network_mode: service:gluetun
+  helper:
+    image: busybox
+    network_mode: container:vpn
+`
+	readModes := func(raw string) map[string]string {
+		m := mustParse(t, raw)
+		out := map[string]string{}
+		for name, v := range m["services"].(map[string]any) {
+			if nm, ok := v.(map[string]any)["network_mode"].(string); ok {
+				out[name] = nm
+			}
+		}
+		return out
+	}
+
+	// Stack-wide DisableNetwork / HostNetwork / DetachNetworks must not overwrite or delete
+	// network_mode: service:gluetun or container:vpn on sidecar services.
+	disabled, err := DisableNetwork(sidecarCompose)
+	if err != nil {
+		t.Fatalf("DisableNetwork: %v", err)
+	}
+	modes := readModes(disabled)
+	if modes["gluetun"] != "none" {
+		t.Errorf("gluetun network_mode = %q, want none", modes["gluetun"])
+	}
+	if modes["app"] != "service:gluetun" {
+		t.Errorf("app network_mode = %q, want service:gluetun", modes["app"])
+	}
+	if modes["helper"] != "container:vpn" {
+		t.Errorf("helper network_mode = %q, want container:vpn", modes["helper"])
+	}
+
+	reEnabled, err := DetachNetworks(disabled)
+	if err != nil {
+		t.Fatalf("DetachNetworks: %v", err)
+	}
+	modesAfter := readModes(reEnabled)
+	if modesAfter["gluetun"] != "" {
+		t.Errorf("gluetun network_mode after DetachNetworks = %q, want empty", modesAfter["gluetun"])
+	}
+	if modesAfter["app"] != "service:gluetun" {
+		t.Errorf("app network_mode after DetachNetworks = %q, want service:gluetun", modesAfter["app"])
+	}
+	if modesAfter["helper"] != "container:vpn" {
+		t.Errorf("helper network_mode after DetachNetworks = %q, want container:vpn", modesAfter["helper"])
+	}
+
+	// SetServiceModes with bridge/empty mode on app must also leave service:gluetun intact.
+	cleared, err := SetServiceModes(sidecarCompose, map[string]string{"app": "bridge", "helper": "bridge"})
+	if err != nil {
+		t.Fatalf("SetServiceModes: %v", err)
+	}
+	modesCleared := readModes(cleared)
+	if modesCleared["app"] != "service:gluetun" || modesCleared["helper"] != "container:vpn" {
+		t.Errorf("modes after SetServiceModes = %+v, want service:gluetun and container:vpn preserved", modesCleared)
+	}
+
+	// DetachNetworks must also leave service:gluetun and container:vpn intact.
+	onLan, err := InjectNetworks(sidecarCompose, []Attachment{{Service: "gluetun", Network: "lan", IP: "10.0.1.77"}})
+	if err != nil {
+		t.Fatalf("InjectNetworks(gluetun): %v", err)
+	}
+	detached, err := DetachNetworks(onLan)
+	if err != nil {
+		t.Fatalf("DetachNetworks: %v", err)
+	}
+	modesDetached := readModes(detached)
+	if modesDetached["app"] != "service:gluetun" || modesDetached["helper"] != "container:vpn" {
+		t.Errorf("modes after DetachNetworks = %+v, want service:gluetun and container:vpn preserved", modesDetached)
+	}
+}
+
+func TestInjectNetworksWithYAMLAnchors(t *testing.T) {
+	const anchored = `x-common: &common
+  restart: unless-stopped
+  ports:
+    - "8080:8080"
+
+services:
+  app:
+    <<: *common
+    image: nginx:alpine
+`
+	onLan, err := InjectNetworks(anchored, []Attachment{{Network: "lan", IP: "10.0.1.88"}})
+	if err != nil {
+		t.Fatalf("InjectNetworks on anchored service: %v", err)
+	}
+	// Inherited ports from *common should be stashed into x-fjord-published on app.
+	if len(PublishedPorts(onLan, nil)) != 0 {
+		t.Errorf("expected live published ports to be stashed when IP is pinned:\n%s", onLan)
+	}
+	detached, err := DetachNetworks(onLan)
+	if err != nil {
+		t.Fatalf("DetachNetworks on anchored service: %v", err)
+	}
+	ports := PublishedPorts(detached, nil)
+	if len(ports) != 1 || ports[0].Host != 8080 {
+		t.Errorf("PublishedPorts after DetachNetworks = %+v, want [8080]:\n%s", ports, detached)
+	}
+}
+
+func TestBridgeAndPastaNetworkModesReplacedAndCleared(t *testing.T) {
+	for _, startMode := range []string{"bridge", "pasta", "slirp4netns"} {
+		in := "services:\n  app:\n    image: nginx\n    network_mode: " + startMode + "\n    ports:\n      - \"8080:80\"\n"
+
+		hosted, err := HostNetwork(in)
+		if err != nil {
+			t.Fatalf("HostNetwork(%s): %v", startMode, err)
+		}
+		if got := NetworkMode(hosted); got != Host {
+			t.Errorf("HostNetwork(%s): got mode %q, want %q:\n%s", startMode, got, Host, hosted)
+		}
+
+		disabled, err := DisableNetwork(in)
+		if err != nil {
+			t.Fatalf("DisableNetwork(%s): %v", startMode, err)
+		}
+		if got := NetworkMode(disabled); got != None {
+			t.Errorf("DisableNetwork(%s): got mode %q, want %q:\n%s", startMode, got, None, disabled)
+		}
+
+		bridged, err := SetServiceModes(in, map[string]string{"app": "bridge"})
+		if err != nil {
+			t.Fatalf("SetServiceModes(%s -> bridge): %v", startMode, err)
+		}
+		if strings.Contains(bridged, "network_mode") {
+			t.Errorf("SetServiceModes(%s -> bridge) left network_mode:\n%s", startMode, bridged)
+		}
+
+		detached, err := DetachNetworks(in)
+		if err != nil {
+			t.Fatalf("DetachNetworks(%s): %v", startMode, err)
+		}
+		if strings.Contains(detached, "network_mode") {
+			t.Errorf("DetachNetworks(%s) left network_mode:\n%s", startMode, detached)
+		}
+
+		attached, err := InjectNetworks(in, []Attachment{{Network: "lan", IP: "10.0.1.55"}})
+		if err != nil {
+			t.Fatalf("InjectNetworks(%s): %v", startMode, err)
+		}
+		if strings.Contains(attached, "network_mode") {
+			t.Errorf("InjectNetworks(%s) left network_mode:\n%s", startMode, attached)
+		}
+		if got := AttachedNetworks(attached); len(got) != 1 || got[0].Network != "lan" || got[0].IP != "10.0.1.55" {
+			t.Errorf("InjectNetworks(%s) attachments = %+v:\n%s", startMode, got, attached)
+		}
+	}
+}
+
+func TestPerServiceOwnNetworkKeepAndRemove(t *testing.T) {
+	const in = `services:
+  app:
+    image: mealie
+    ports:
+      - "9000:9000"
+    networks:
+      - mealie_internal
+  db:
+    image: postgres
+    networks:
+      - mealie_internal
+networks:
+  mealie_internal:
+    driver: bridge
+`
+	// (a) Per-service InjectNetworks keeps an own network when included in attachments
+	// without turning its top-level declaration into external: true.
+	kept, err := InjectNetworks(in, []Attachment{
+		{Service: "app", Network: "lan", IP: "10.0.1.40"},
+		{Service: "app", Network: "mealie_internal"},
+	})
+	if err != nil {
+		t.Fatalf("InjectNetworks(keep own): %v", err)
+	}
+	mKept := mustParse(t, kept)
+	internalDef, ok := mKept["networks"].(map[string]any)["mealie_internal"].(map[string]any)
+	if !ok || internalDef["driver"] != "bridge" || internalDef["external"] != nil {
+		t.Fatalf("top-level mealie_internal was altered: %#v\n%s", internalDef, kept)
+	}
+	appAtts := ServiceAttachments(kept)["app"]
+	if len(appAtts) != 2 || appAtts[0].Network != "lan" || appAtts[1].Network != "mealie_internal" || !appAtts[1].Own {
+		t.Fatalf("app attachments = %+v, want [lan mealie_internal(own)]:\n%s", appAtts, kept)
+	}
+
+	// (b) Per-service InjectNetworks removes an own network from a service when omitted
+	// from that service's attachments.
+	removed, err := InjectNetworks(kept, []Attachment{
+		{Service: "app", Network: "lan", IP: "10.0.1.40"},
+	})
+	if err != nil {
+		t.Fatalf("InjectNetworks(remove own): %v", err)
+	}
+	appAttsAfter := ServiceAttachments(removed)["app"]
+	if len(appAttsAfter) != 1 || appAttsAfter[0].Network != "lan" {
+		t.Fatalf("expected mealie_internal removed from app, got %+v:\n%s", appAttsAfter, removed)
+	}
+	// db was not targeted and still has mealie_internal.
+	dbAttsAfter := ServiceAttachments(removed)["db"]
+	if len(dbAttsAfter) != 1 || dbAttsAfter[0].Network != "mealie_internal" || !dbAttsAfter[0].Own {
+		t.Fatalf("expected db to keep mealie_internal, got %+v:\n%s", dbAttsAfter, removed)
+	}
+}
+
+func TestDetachNetworksNeverLeavesUndeclaredDefault(t *testing.T) {
+	// Service with default + lan (no aliases): DetachNetworks must remove default from
+	// both the service and top-level networks.
+	withBridgeAndLan, err := InjectNetworks(caddyCompose, []Attachment{
+		{Service: "caddy", Network: Bridge},
+		{Service: "caddy", Network: "lan", IP: "10.0.1.70"},
+	})
+	if err != nil {
+		t.Fatalf("InjectNetworks: %v", err)
+	}
+	detached, err := DetachNetworks(withBridgeAndLan)
+	if err != nil {
+		t.Fatalf("DetachNetworks: %v", err)
+	}
+	m := mustParse(t, detached)
+	svc := m["services"].(map[string]any)["caddy"].(map[string]any)
+	if svc["networks"] != nil {
+		t.Errorf("expected caddy.networks to be removed after DetachNetworks, got %#v:\n%s", svc["networks"], detached)
+	}
+	if m["networks"] != nil {
+		t.Errorf("expected top-level networks to be removed after DetachNetworks, got %#v:\n%s", m["networks"], detached)
+	}
+
+	// Service with undeclared default in input (no aliases): DetachNetworks cleans it up.
+	const undeclaredDefault = `services:
+  app:
+    image: nginx
+    networks:
+      - default
+`
+	detached2, err := DetachNetworks(undeclaredDefault)
+	if err != nil {
+		t.Fatalf("DetachNetworks(undeclaredDefault): %v", err)
+	}
+	m2 := mustParse(t, detached2)
+	if m2["services"].(map[string]any)["app"].(map[string]any)["networks"] != nil {
+		t.Errorf("expected undeclared default to be removed from app.networks:\n%s", detached2)
+	}
+}
+
+func TestAnchorOwnerMutationDoesNotCorruptAliasingService(t *testing.T) {
+	const ownerAnchored = `services:
+  svc1: &base
+    image: nginx:alpine
+    ports:
+      - "8080:80"
+  svc2:
+    <<: *base
+    image: caddy:alpine
+`
+	// Mutating svc1 (which owns &base) via SetServiceModes must not strip ports from svc2
+	// or leak network_mode: host onto svc2.
+	moded, err := SetServiceModes(ownerAnchored, map[string]string{"svc1": "host"})
+	if err != nil {
+		t.Fatalf("SetServiceModes(svc1=host): %v", err)
+	}
+	svcs := ParseServices(moded, nil)
+	if len(svcs) != 2 {
+		t.Fatalf("ParseServices: got %d services, want 2", len(svcs))
+	}
+	byName := map[string]Service{}
+	for _, s := range svcs {
+		byName[s.Name] = s
+	}
+	if !byName["svc1"].NetworkHost || len(byName["svc1"].Ports) != 0 {
+		t.Errorf("svc1 = %+v, want NetworkHost=true and no live ports:\n%s", byName["svc1"], moded)
+	}
+	if byName["svc2"].NetworkHost {
+		t.Errorf("svc2 inherited network_mode: host from mutated anchor owner:\n%s", moded)
+	}
+	if len(byName["svc2"].Ports) != 1 || byName["svc2"].Ports[0].Host != 8080 || byName["svc2"].Ports[0].Container != 80 {
+		t.Errorf("svc2 lost its inherited ports 8080:80: %+v\n%s", byName["svc2"].Ports, moded)
+	}
+
+	// Same check when mutating svc1 via per-service InjectNetworks.
+	injected, err := InjectNetworks(ownerAnchored, []Attachment{{Service: "svc1", Network: "lan", IP: "10.0.1.90"}})
+	if err != nil {
+		t.Fatalf("InjectNetworks(svc1): %v", err)
+	}
+	svcs2 := ParseServices(injected, nil)
+	byName2 := map[string]Service{}
+	for _, s := range svcs2 {
+		byName2[s.Name] = s
+	}
+	if len(byName2["svc1"].Ports) != 0 {
+		t.Errorf("svc1 ports should be stashed after InjectNetworks:\n%s", injected)
+	}
+	if len(byName2["svc2"].Ports) != 1 || byName2["svc2"].Ports[0].Host != 8080 {
+		t.Errorf("svc2 lost its inherited ports 8080:80 after InjectNetworks on svc1: %+v\n%s", byName2["svc2"].Ports, injected)
+	}
+}
