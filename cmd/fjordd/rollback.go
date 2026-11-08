@@ -91,7 +91,14 @@ func (s *server) stackRollback(w http.ResponseWriter, r *http.Request, name stri
 	r2 := r.WithContext(context.WithValue(r.Context(), isRollbackKey{}, true))
 	r2.Body = io.NopCloser(bytes.NewReader(body))
 	s.lifecycle(w, r2, name, "update", func() error {
-		_, err := s.manager.Update(name, func(st *stack.Stack) error {
+		st, err := s.manager.Get(name)
+		if err != nil {
+			return httpError{404, "Stack not found"}
+		}
+		if problems := s.preflight(r.Context(), st); len(problems) > 0 {
+			return httpError{http.StatusConflict, "pre-flight failed:\n  " + strings.Join(problems, "\n  ")}
+		}
+		_, err = s.manager.Update(name, func(st *stack.Stack) error {
 			state, err := s.manager.LoadState(name)
 			if err != nil || state == nil {
 				return httpError{500, "no state for " + name}
@@ -126,6 +133,12 @@ func (s *server) stackUnpin(w http.ResponseWriter, r *http.Request, name string)
 		http.Error(w, `send {"service": "..."}`, 400)
 		return
 	}
+	unlock, ok := lockStackTakingOver(name)
+	if !ok {
+		http.Error(w, anotherOperation(name), http.StatusConflict)
+		return
+	}
+	defer unlock()
 	if _, err := s.manager.Update(name, func(st *stack.Stack) error {
 		cur := serviceImage(st, req.Service)
 		if !strings.Contains(cur, "@") {
