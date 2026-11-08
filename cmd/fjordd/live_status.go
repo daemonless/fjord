@@ -64,15 +64,50 @@ func (l *liveStatus) get(be engine.Backend, st *stack.Stack, wait time.Duration)
 	k, ok := l.last[st.Name]
 	select {
 	case <-done:
-		return k.status
+		return cloneStackStatus(k.status)
 	default:
 	}
 	// Still waiting on the engine: what it said last, and since when.
 	if !ok {
 		return engine.StackStatus{State: "unknown", StaleSince: time.Now()}
 	}
-	k.status.StaleSince = k.at
-	return k.status
+	out := cloneStackStatus(k.status)
+	out.StaleSince = k.at
+	return out
+}
+
+// cloneStackStatus deep-copies a StackStatus so callers that annotate
+// ContainerStatus fields (such as observeContainers) cannot race with
+// concurrent readers or JSON encoders of the cached status.
+func cloneStackStatus(s engine.StackStatus) engine.StackStatus {
+	if s.Containers != nil {
+		cs := make([]engine.ContainerStatus, len(s.Containers))
+		for i, c := range s.Containers {
+			if c.Ports != nil {
+				c.Ports = append([]engine.Port(nil), c.Ports...)
+			}
+			if c.Exposed != nil {
+				c.Exposed = append([]int(nil), c.Exposed...)
+			}
+			if c.Addresses != nil {
+				addrs := make(map[string]string, len(c.Addresses))
+				for k, v := range c.Addresses {
+					addrs[k] = v
+				}
+				c.Addresses = addrs
+			}
+			if c.MACs != nil {
+				macs := make(map[string]string, len(c.MACs))
+				for k, v := range c.MACs {
+					macs[k] = v
+				}
+				c.MACs = macs
+			}
+			cs[i] = c
+		}
+		s.Containers = cs
+	}
+	return s
 }
 
 // ask runs one engine call and records its answer. The call is not tied to
@@ -86,7 +121,7 @@ func (l *liveStatus) ask(be engine.Backend, st *stack.Stack, done chan struct{})
 		status = engine.StackStatus{State: "unknown"}
 	}
 	l.mu.Lock()
-	l.last[st.Name] = knownStatus{status: status, at: time.Now()}
+	l.last[st.Name] = knownStatus{status: cloneStackStatus(status), at: time.Now()}
 	delete(l.inflight, st.Name)
 	l.mu.Unlock()
 	close(done)

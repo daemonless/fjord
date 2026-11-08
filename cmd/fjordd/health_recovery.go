@@ -7,10 +7,12 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
 
+	composepkg "github.com/daemonless/fjord/pkg/compose"
 	"github.com/daemonless/fjord/pkg/engine"
 	"github.com/daemonless/fjord/pkg/stack"
 )
@@ -242,11 +244,51 @@ func (s *server) stackRecovery(w http.ResponseWriter, r *http.Request, name stri
 	json.NewEncoder(w).Encode(map[string]any{"status": "saved"})
 }
 
+// restartCountRe matches dynamic restart count fragments inside health Detail
+// strings so a continuing crash loop on the same container deduplicates to one
+// event per episode under policy "none".
+var restartCountRe = regexp.MustCompile(`\b(?:restarted \d+ times?|after \d+ restarts?|\d+ restarts?)\b`)
+
+func normalizeHealthReason(why string) string {
+	return restartCountRe.ReplaceAllString(why, "<restarts>")
+}
+
+// isOneShotCleanExit reports whether a container belongs to a one-shot
+// service ("no" beside others that restart, matching compose.RestartOf) and
+// has actually exited cleanly with status 0.
+func isOneShotCleanExit(restarts map[string]string, svc string, c engine.ContainerStatus) bool {
+	if c.State != "exited" || c.ExitCode != 0 || c.Detail != "" {
+		return false
+	}
+	if restarts[svc] != composepkg.RestartNo && restarts[c.Name] != composepkg.RestartNo {
+		return false
+	}
+	for _, v := range restarts {
+		if v != composepkg.RestartNo {
+			return true
+		}
+	}
+	return false
+}
+
+func stillStarting(status engine.StackStatus) bool {
+	for _, c := range status.Containers {
+		if c.State == "starting" {
+			return true
+		}
+	}
+	return status.State != "running" && len(status.Containers) == 0
+}
+
 // unhealthyReason inspects a stack's live status and returns why it failed its
 // health check ("" when healthy or still starting), plus whether the failure is
 // already confirmed (a crash loop or unhealthy probe vs a container that just
 // read stopped once).
-func unhealthyReason(status engine.StackStatus) (why string, confirmed bool) {
+func unhealthyReason(st *stack.Stack, status engine.StackStatus) (why string, confirmed bool) {
+	var restarts map[string]string
+	if st != nil && st.Compose != "" {
+		restarts = composepkg.ServiceRestarts(st.Compose)
+	}
 	n := len(status.Containers)
 	for _, c := range status.Containers {
 		svc := c.Service
@@ -278,6 +320,9 @@ func unhealthyReason(status engine.StackStatus) (why string, confirmed bool) {
 		if svc == "" {
 			svc = c.Name
 		}
+		if isOneShotCleanExit(restarts, svc, c) {
+			continue
+		}
 		detail := c.Detail
 		if detail == "" {
 			detail = "stopped unexpectedly (" + c.State + ")"
@@ -287,7 +332,7 @@ func unhealthyReason(status engine.StackStatus) (why string, confirmed bool) {
 		}
 		return detail, false
 	}
-	if status.State == "stopped" {
+	if status.State == "stopped" && len(status.Containers) == 0 {
 		return "stopped unexpectedly", false
 	}
 	return "", false
@@ -306,7 +351,7 @@ func (s *server) observeStackHealth(st *stack.Stack, status engine.StackStatus, 
 		return
 	}
 
-	why, confirmed := unhealthyReason(status)
+	why, confirmed := unhealthyReason(st, status)
 
 	s.health.mu.Lock()
 	s.health.ensure()
@@ -317,7 +362,7 @@ func (s *server) observeStackHealth(st *stack.Stack, status engine.StackStatus, 
 	}
 
 	if why == "" {
-		if status.State != "running" {
+		if stillStarting(status) {
 			// Still starting: wait without resetting or failing.
 			s.health.mu.Unlock()
 			return
@@ -354,14 +399,15 @@ func (s *server) observeStackHealth(st *stack.Stack, status engine.StackStatus, 
 
 	policy := recoveryPolicyOf(st)
 	run := s.health.run
+	normWhy := normalizeHealthReason(why)
 
 	switch policy.Action {
 	case stack.RecoveryNone:
-		if hs.reportedWhy == why {
+		if hs.reportedWhy == normWhy {
 			s.health.mu.Unlock()
 			return
 		}
-		hs.reportedWhy = why
+		hs.reportedWhy = normWhy
 		s.health.mu.Unlock()
 
 		log.Printf("health %s: %s (recovery: none)", st.Name, why)
@@ -382,13 +428,16 @@ func (s *server) observeStackHealth(st *stack.Stack, status engine.StackStatus, 
 			s.health.mu.Unlock()
 			return
 		}
+		// Try Down once per unhealthy episode; if Down fails, the failure is
+		// recorded once rather than retrying Down on every check tick.
+		prevAttempt := hs.lastAttempt
 		hs.attempts = 1
 		hs.lastAttempt = now
-		hs.reportedWhy = why
+		hs.reportedWhy = normWhy
 		s.health.mu.Unlock()
 
 		run(func() {
-			s.recoverStop(st.Name, why, now)
+			s.recoverStop(st.Name, why, now, prevAttempt)
 		})
 
 	case stack.RecoveryRestart:
@@ -423,14 +472,15 @@ func (s *server) observeStackHealth(st *stack.Stack, status engine.StackStatus, 
 			s.health.mu.Unlock()
 			return
 		}
+		prevAttempt := hs.lastAttempt
 		hs.attempts++
 		attempt := hs.attempts
 		hs.lastAttempt = now
-		hs.reportedWhy = why
+		hs.reportedWhy = normWhy
 		s.health.mu.Unlock()
 
 		run(func() {
-			s.recoverRestart(st.Name, why, attempt, policy.MaxTries, now)
+			s.recoverRestart(st.Name, why, attempt, policy.MaxTries, now, prevAttempt)
 		})
 	default:
 		s.health.mu.Unlock()
@@ -456,37 +506,106 @@ func (s *server) recordRecoveryState(name string, failure *stack.Failure, ev sta
 	}
 }
 
-func (s *server) recoverStop(name, why string, now time.Time) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
-	defer cancel()
-	st, err := s.manager.Get(name)
-	if err != nil {
+// cancelRecoveryAttempt refunds an attempt and restores lastAttempt when
+// recovery could not take the stack lock or found the stack stopped, busy,
+// or healthy under the lock.
+func (s *server) cancelRecoveryAttempt(name string, prevAttempt time.Time) {
+	if s.health == nil {
 		return
 	}
-	unlock, ok := lockStackAs(name, "down")
+	s.health.mu.Lock()
+	defer s.health.mu.Unlock()
+	if hs, ok := s.health.stacks[name]; ok && hs.attempts > 0 {
+		hs.attempts--
+		hs.lastAttempt = prevAttempt
+	}
+}
+
+// lockStackForRecovery acquires the stack lock without taking over a user's
+// stay-up watch, records the stack in busyOps while holding the lock, and
+// re-checks with a bounded statusWait timeout that the stack still wants to
+// run and is still unhealthy before publishing busy to open pages.
+func (s *server) lockStackForRecovery(ctx context.Context, name, action string, now time.Time) (*stack.Stack, func(), bool) {
+	if loadBusy(name) != nil {
+		return nil, nil, false
+	}
+	u, ok := lockStack(name)
 	if !ok {
+		return nil, nil, false
+	}
+	if loadBusy(name) != nil {
+		u()
+		return nil, nil, false
+	}
+	busyOps.Store(name, &busyOp{action: action, since: time.Now()})
+	abort := func() {
+		busyOps.Delete(name)
+		u()
+	}
+
+	st, err := s.manager.Get(name)
+	if err != nil || st.State == nil || st.State.DesiredState != "running" {
+		abort()
+		return nil, nil, false
+	}
+	sctx, cancel := context.WithTimeout(ctx, statusWait)
+	status, err := s.backendFor(st).Status(sctx, st)
+	cancel()
+	if err != nil || status.State == "unknown" || !status.StaleSince.IsZero() {
+		abort()
+		return nil, nil, false
+	}
+	s.health.observeContainers(name, &status, now)
+	if why, _ := unhealthyReason(st, status); why == "" {
+		abort()
+		return nil, nil, false
+	}
+	outputs.start(name, action)
+	publishBusy(name, action)
+	return st, func() {
+		outputs.finish(name)
+		busyOps.Delete(name)
+		publishBusy(name, "")
+		u()
+	}, true
+}
+
+func (s *server) recoverStop(name, why string, now, prevAttempt time.Time) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+	st, unlock, ok := s.lockStackForRecovery(ctx, name, "down", now)
+	if !ok {
+		s.cancelRecoveryAttempt(name, prevAttempt)
 		return
 	}
 	defer unlock()
 
 	log.Printf("health %s: %s — stopping stack per recovery policy", name, why)
 	header := fmt.Sprintf("[fjord] health check failed (%s); stopping stack per recovery policy\n", why)
+	kept := outputs.current(name, "down")
+	_, _ = io.WriteString(kept, header)
+	watch := &errorWatch{}
 	stream, err := s.backendFor(st).Down(ctx, st)
 	if err != nil {
-		stream = io.NopCloser(strings.NewReader(header + "[error] " + err.Error() + "\n"))
+		_, _ = io.WriteString(io.MultiWriter(kept, watch), "[error] "+err.Error()+"\n")
 	} else {
-		stream = struct {
-			io.Reader
-			io.Closer
-		}{io.MultiReader(strings.NewReader(header), stream), stream}
+		_, _ = io.Copy(io.MultiWriter(kept, watch), stream)
+		stream.Close()
 	}
-	kept := outputs.current(name, "down")
-	_, _ = io.Copy(kept, stream)
-	stream.Close()
 	kept.finish()
 
-	_ = s.manager.SetDesiredState(name, "stopped")
+	outcome := "stopped"
 	msg := why + " — stopped by recovery policy"
+	if err != nil || watch.seen {
+		outcome = "failed"
+		errMsg := watch.Message()
+		if errMsg == "" && err != nil {
+			errMsg = err.Error()
+		}
+		msg = fmt.Sprintf("%s — recovery stop failed: %s", why, errMsg)
+	} else {
+		_ = s.manager.SetDesiredState(name, "stopped")
+	}
 	s.recordRecoveryState(name, &stack.Failure{
 		Action:  "health",
 		At:      now,
@@ -496,39 +615,33 @@ func (s *server) recoverStop(name, why string, now time.Time) {
 		Check:   why,
 		Action:  stack.RecoveryStop,
 		Attempt: 1,
-		Outcome: "stopped",
+		Outcome: outcome,
 		Message: msg,
 	})
 }
 
-func (s *server) recoverRestart(name, why string, attempt, maxTries int, now time.Time) {
+func (s *server) recoverRestart(name, why string, attempt, maxTries int, now, prevAttempt time.Time) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
-	st, err := s.manager.Get(name)
-	if err != nil {
-		return
-	}
-	unlock, ok := lockStackAs(name, "restart")
+	st, unlock, ok := s.lockStackForRecovery(ctx, name, "restart", now)
 	if !ok {
+		s.cancelRecoveryAttempt(name, prevAttempt)
 		return
 	}
 	defer unlock()
 
 	log.Printf("health %s: %s — recovery restart %d/%d", name, why, attempt, maxTries)
 	header := fmt.Sprintf("[fjord] health check failed (%s) — recovery restart %d/%d\n", why, attempt, maxTries)
+	kept := outputs.current(name, "restart")
+	_, _ = io.WriteString(kept, header)
+	watch := &errorWatch{}
 	stream, err := s.backendFor(st).Restart(ctx, st)
 	if err != nil {
-		stream = io.NopCloser(strings.NewReader(header + "[error] " + err.Error() + "\n"))
+		_, _ = io.WriteString(io.MultiWriter(kept, watch), "[error] "+err.Error()+"\n")
 	} else {
-		stream = struct {
-			io.Reader
-			io.Closer
-		}{io.MultiReader(strings.NewReader(header), s.keepAfter(ctx, st, stream)), stream}
+		_, _ = io.Copy(io.MultiWriter(kept, watch), s.keepAfter(ctx, st, stream))
+		stream.Close()
 	}
-	watch := &errorWatch{}
-	kept := outputs.current(name, "restart")
-	_, _ = io.Copy(io.MultiWriter(kept, watch), stream)
-	stream.Close()
 	kept.finish()
 
 	outcome := "restarted"
