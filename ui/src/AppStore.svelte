@@ -1,5 +1,6 @@
 <script lang="ts">
   import { forwardDeploy } from './installForward';
+  import { safeHttpUrl } from './appUrl';
   import { matchesSearch, partLabels, type AppPart } from './storeParts';
   import { isAppInstalled, readStoreView, writeStoreView, type StoreView } from './storeView';
   import { onMount, createEventDispatcher } from 'svelte';
@@ -529,18 +530,18 @@
         {/if}
 
         <div class="flex items-center gap-4 mt-6 pt-5 border-t border-fjord-border">
-          {#if detailApp.web_url}
+          {#if safeHttpUrl(detailApp.web_url)}
             <a
-              href={detailApp.web_url}
+              href={safeHttpUrl(detailApp.web_url)}
               target="_blank"
               rel="noreferrer"
               class="flex items-center gap-1 text-sm text-fjord-accent hover:underline"
               >Website <Icon name="external" size={12} /></a
             >
           {/if}
-          {#if detailApp.upstream_url}
+          {#if safeHttpUrl(detailApp.upstream_url)}
             <a
-              href={detailApp.upstream_url}
+              href={safeHttpUrl(detailApp.upstream_url)}
               target="_blank"
               rel="noreferrer"
               class="flex items-center gap-1 text-sm text-fjord-accent hover:underline"

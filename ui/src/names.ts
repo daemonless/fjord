@@ -6,7 +6,7 @@
 // else the address as before.
 
 import { get, writable } from 'svelte/store';
-import { appUrl, noWebUI, type AppUrlStack } from './appUrl';
+import { appUrl, noWebUI, safeHttpUrl, type AppUrlStack } from './appUrl';
 import { serviceLinks } from './serviceLinks';
 
 export type AppName = { id: string; name: string; url: string; access?: string };
@@ -173,7 +173,8 @@ export function nameTargets(stack: NamedStack | null): NameTarget[] {
  *  that cannot load is no link. The shield beside it says why. */
 export function linkUrl(p: NamesState, key: string, address: string, by: OpenBy, trust: DeviceTrust = 'unknown'): string {
   const n = p.names?.[key];
-  return n && by === 'name' && trust !== 'no-dns' ? n.url : address;
+  const named = n && by === 'name' && trust !== 'no-dns' ? safeHttpUrl(n.url) : '';
+  return named || address;
 }
 
 /** Where Open goes: the stack's main app (the first), by name or address.
@@ -228,10 +229,11 @@ export function providerSettingsUrl(p: NamesState, stacks: (AppUrlStack & { name
 /** The trust page: by name when this device finds the provider's names, else
  *  by address, which works before DNS is set up. */
 export function trustPage(p: NamesState, stacks: (AppUrlStack & { name: string })[], trust: DeviceTrust = 'unknown'): string {
-  if (trust === 'untrusted' && p.trustUrl) return p.trustUrl;
+  const safeTrust = safeHttpUrl(p.trustUrl);
+  if (trust === 'untrusted' && safeTrust) return safeTrust;
   const s = stacks.find((x) => x.name === p.provider) || null;
   const base = appUrl(s);
-  if (!base) return p.trustUrl || '';
+  if (!base) return safeTrust;
   const u = new URL(base);
   return `http://${u.hostname}/trust`;
 }

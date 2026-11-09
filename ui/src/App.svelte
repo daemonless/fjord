@@ -40,11 +40,14 @@
     type UpdateInfo,
   } from './stacks';
   import {
+    actionOutcome,
     createOutputFollower,
     createRunTracker,
     formatActionHttpError,
+    hasErrorLine,
     latest,
     readActionStream,
+    type OutputPollPayload,
   } from './actions';
 
   let stacks: Stack[] = [];
@@ -304,8 +307,8 @@
   // did not say it was updating.
   async function followUpdate(name: string, res: Response, services?: string[]) {
     const updating = !!(await res.json().catch(() => ({})))?.updating;
-    await selectStack({ name } as Stack); // the compose now names the new tag
     if (!updating) {
+      if (stillWatching(name)) await refreshOpenStack(name); // the compose now names the new tag
       await update(name, services);
       return;
     }
@@ -315,11 +318,29 @@
       drawerTab = 'output';
       drawerOpen = true;
     }
-    await showActionOutput(name);
-    if (!services?.length) needsApply[name] = false;
-    await refreshState(name);
+    const outputDone = showActionOutput(name, true, 'update');
+    if (stillWatching(name)) await refreshOpenStack(name); // the compose now names the new tag
+    const finalOut = await outputDone;
+    const refreshed = await refreshState(name);
+    const lastFailure = refreshed?.state?.last_failure;
+    const pendingServices = refreshed?.state?.pending_services ?? [];
+    if (
+      !services?.length &&
+      finalOut?.done &&
+      (!finalOut.action || finalOut.action === 'update') &&
+      !hasErrorLine(finalOut.text || logs[name] || '') &&
+      !!refreshed &&
+      !lastFailure &&
+      pendingServices.length === 0 &&
+      execStatus[name] !== 'error'
+    ) {
+      needsApply[name] = false;
+    }
     await loadStacks();
-    if (selectedStack?.name === name) checkForUpdate(name); // refresh the badge
+    if (stillWatching(name)) {
+      await refreshOpenStack(name);
+      checkForUpdate(name); // refresh the badge
+    }
     loadFleetUpdates(true);
   }
   // The picked services, new versions retagged first -- one service each, so
@@ -402,8 +423,16 @@
     if (!isLatest()) return;
     if (!full) stack = { ...stack!, listOnly: true };
     selectedStack = stack;
-    if (switching) currentView = 'stacks'; // selecting a stack always means the Stacks section
-    showActionOutput(stack!.name);
+    if (switching) {
+      currentView = 'stacks'; // selecting a stack always means the Stacks section
+      if (execStatus[stack!.name] === 'error') {
+        execStatus[stack!.name] = 'idle';
+        execMessage[stack!.name] = '';
+      }
+    }
+    if (switching || stack!.busy || !logs[stack!.name]) {
+      showActionOutput(stack!.name);
+    }
     originalCompose = stack!.compose;
     originalEnv = stack!.env;
     originalDirector = stack!.director ?? '';
@@ -875,14 +904,10 @@
       // A streamed action answers 200 before it knows how it ends, so its
       // outcome is in the output: the daemon marks every failure "[error]".
       // Reading only the status made a failed update look like a success.
-      if (/^\[error\]/m.test(logs[name])) {
-        execStatus[name] = 'error';
-        execMessage[name] = startError(logs[name]) || 'Failed — see Output';
-        if (watching) drawerOpen = true;
-      } else {
-        execStatus[name] = 'idle';
-        execMessage[name] = '';
-      }
+      const outcome = actionOutcome(logs[name], 'Failed — see Output');
+      execStatus[name] = outcome.status;
+      execMessage[name] = outcome.message;
+      if (outcome.status === 'error' && watching) drawerOpen = true;
       await loadStacks();
       await refreshOpenStack(name);
       // The stack may still be "partial" (yellow) the instant an action
@@ -958,14 +983,20 @@
     } catch {}
   }
   const outputFollower = createOutputFollower();
-  function showActionOutput(name: string): Promise<void> {
+  function showActionOutput(name: string, untilDone = false, expectedAction?: string): Promise<OutputPollPayload | null> {
     return outputFollower.follow(name, {
       isStreamingHere: () => execStatus[name] === 'running' || execStatus[name] === 'watching',
       shouldKeepPolling: () => selectedStack?.name === name,
+      untilDone,
+      expectedAction,
+      maxFailures: 2,
       onUpdate: (o, watching) => {
         if (o.text && (!logs[name] || logs[name] !== o.text)) logs[name] = o.text;
         if (o.text && !o.done) {
           execMessage[name] = watching ? 'Checking it stays up' : (BUSY_LABEL[o.action ?? ''] ?? `${o.action}…`);
+        } else if (o.done) {
+          execStatus[name] = 'idle';
+          execMessage[name] = '';
         }
         following[name] = !!o.text && !o.done;
       },
@@ -1006,12 +1037,13 @@
   // fjordd's own record of what a Save left unapplied (pending_services): it
   // clears it only once the recreate is confirmed, so it is re-read after an
   // action rather than guessed from how the stream ended.
-  async function refreshState(name: string) {
+  async function refreshState(name: string): Promise<Stack | null> {
     const r = await fetch(`/api/stacks/${encodeURIComponent(name)}`).catch(() => null);
-    if (!r?.ok) return;
-    const d = await r.json();
+    if (!r?.ok) return null;
+    const d: Stack = await r.json();
     stacks = stacks.map((s) => (s.name === name ? { ...s, state: d.state } : s));
     if (selectedStack?.name === name) selectedStack = { ...selectedStack, state: d.state };
+    return d;
   }
   // "Not now" on the banner, for this session.
   let applyDismissed: Record<string, boolean> = {};
@@ -1023,6 +1055,10 @@
   // Hidden at once; fjordd forgets it too, so a reload does not bring it back.
   async function dismissFailure(name: string) {
     failureDismissed[name] = true;
+    if (execStatus[name] === 'error') {
+      execStatus[name] = 'idle';
+      execMessage[name] = '';
+    }
     const res = await fetch(`/api/stacks/${name}/dismiss-failure`, { method: 'POST' }).catch(() => null);
     if (!res?.ok) toast(`Could not dismiss: ${res ? await res.text() : 'fjordd did not answer'}`, { kind: 'error' });
   }
@@ -1079,8 +1115,10 @@
       await followUpdate(name, res, services);
       return;
     }
-    await selectStack({ name } as Stack); // re-fetch: compose now has the new ref
-    checkForUpdate(name); // a pin alone runs the same bytes: nothing to recreate
+    if (stillWatching(name)) {
+      await refreshOpenStack(name); // re-fetch: compose now has the new ref
+      checkForUpdate(name); // a pin alone runs the same bytes: nothing to recreate
+    }
   }
 
   // Prominent blocking overlay while a delete runs -- tearing containers down
@@ -1231,8 +1269,10 @@
         loadStacks();
       })();
       if (!(await readRun(key, res, mine))) return;
-      execStatus[key] = 'idle';
-      execMessage[key] = '';
+      const outcome = actionOutcome(logs[key], 'Failed — see Output');
+      execStatus[key] = outcome.status;
+      execMessage[key] = outcome.message;
+      if (outcome.status === 'error' && stillWatching(key)) drawerOpen = true;
       await loadStacks();
       const found = stacks.find((s) => s.name === key) || null;
       // Only if the operator is still looking at it. An install runs for as

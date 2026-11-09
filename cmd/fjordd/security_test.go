@@ -2,6 +2,10 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -140,5 +144,43 @@ func TestLinkedProviderRefusesUnverifiedLook(t *testing.T) {
 	}
 	if loadPin(pinPath) == nil {
 		t.Fatal("linked provider dropped pin on untrusted certificate")
+	}
+}
+
+func TestUIContentSecurityPolicy(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "..", "ui", "index.html"))
+	if err != nil {
+		t.Fatalf("read ui/index.html: %v", err)
+	}
+	html := string(raw)
+	start := strings.Index(html, "<script>")
+	end := strings.Index(html, "</script>")
+	if start < 0 || end <= start {
+		t.Fatal("inline theme script not found in ui/index.html")
+	}
+	scriptBody := html[start+len("<script>") : end]
+	sum := sha256.Sum256([]byte(scriptBody))
+	wantHash := "'sha256-" + base64.StdEncoding.EncodeToString(sum[:]) + "'"
+
+	h := cacheControl(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	for _, path := range []string{"/", "/index.html"} {
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+		csp := rec.Header().Get("Content-Security-Policy")
+		for _, directive := range []string{
+			"default-src 'self'",
+			"script-src 'self' " + wantHash,
+			"style-src 'self' 'unsafe-inline'",
+			"connect-src 'self' ws: wss: https: http:",
+			"object-src 'none'",
+			"base-uri 'self'",
+			"frame-ancestors 'none'",
+		} {
+			if !strings.Contains(csp, directive) {
+				t.Errorf("GET %s CSP %q missing %q", path, csp, directive)
+			}
+		}
 	}
 }

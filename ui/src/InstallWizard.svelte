@@ -1,5 +1,6 @@
 <script lang="ts">
   import { setFor } from './folderMatch';
+  import { detectHostCapabilities } from './capabilities';
   import { insidePort, ownAddress } from './ownPort';
   import { publicUrlProblem, suggestedPublicUrl } from './publicUrl';
   import { onMount, createEventDispatcher } from 'svelte';
@@ -54,6 +55,7 @@
   // the wizard shows a picker. The choice drives path hints + {{appdata}}.
   let appDataLocations: string[] = [];
   let appDataChoice = '';
+  let folderSets: { id: string; name: string; folders: string[]; match?: string }[] = [];
   $: storageBase = appDataChoice || appDataLocations[0] || '/containers';
   // Whether the install makes a folder under Data at all: only a path or
   // a dataset variable does (a volume the app writes to).
@@ -71,6 +73,15 @@
       }
     } catch {
       // keep the default base
+    }
+    try {
+      const lres = await fetch('/api/folder-sets');
+      if (lres.ok) {
+        folderSets = (await lres.json()).sets || [];
+        applyDefaultSets();
+      }
+    } catch {
+      // no folder sets -> plain path fields
     }
   })();
   // Storage slug of the install name -- mirrors the server's storageSlug():
@@ -513,6 +524,27 @@
     ...askedNow.filter((a) => !String(formData[a.name] ?? '').trim()).map((a) => ({ name: a.label || a.name })),
   ];
   $: badTyped = listedVars.filter((v) => typedVarProblem(v, formData[v.name] ?? '') !== '');
+  $: requestedCapabilities = detectHostCapabilities({
+    compose: manifestText,
+    choices,
+    picks,
+    variables,
+    formData,
+    paths,
+    appDataLocations,
+    storageBase: appDataChoice || appDataLocations[0] || '',
+    folderSets,
+  });
+  let allowCapabilities = false;
+  let lastCapKey = '';
+  $: {
+    const capKey = requestedCapabilities.join('|');
+    if (capKey !== lastCapKey) {
+      lastCapKey = capKey;
+      allowCapabilities = false;
+    }
+  }
+  $: needsCapabilityApproval = requestedCapabilities.length > 0 && !allowCapabilities;
 
   // Why Install is held, on screen beside it: in a tooltip alone nobody saw it
   // (woodpecker's empty WOODPECKER_HOST read as a dead button).
@@ -538,14 +570,13 @@
               ? `${netChoice} allocates nothing — give this app an address`
               : needAddress.length
                 ? `Give an address: ${needAddress.join(', ')} (in Networking above)`
-                : '';
+                : needsCapabilityApproval
+                  ? 'Confirm the host capabilities requested by this app'
+                  : '';
 
   // Folder lists per host-path variable. One folder mounts as-is; several are
   // mounted as sub-folders of the app's own mount point (server-side expansion).
   let paths: Record<string, string[]> = {};
-  // Folder sets (Settings → Storage): named host-folder sets the user can drop
-  // into any list. fjord never guesses which app wants which set.
-  let folderSets: { id: string; name: string; folders: string[]; match?: string }[] = [];
   // Sets applied as defaults (var name -> set name), for the caption under the list.
   let defaultedFrom: Record<string, string> = {};
   // A set whose "Applies to" keywords hit the variable name seeds that field's
@@ -880,15 +911,6 @@
       // no networks -> host ports only
     }
     await storageReady;
-    try {
-      const lres = await fetch('/api/folder-sets');
-      if (lres.ok) {
-        folderSets = (await lres.json()).sets || [];
-        applyDefaultSets();
-      }
-    } catch {
-      // no folder sets -> plain path fields
-    }
   });
 
   // (Re)load the manifest whenever the chosen source changes. All per-manifest
@@ -1709,6 +1731,22 @@
       {/if}
     </div>
 
+    {#if requestedCapabilities.length > 0 && !loading && !error}
+      <div class="px-4 py-3 border-t border-fjord-warning/40 bg-fjord-warning/10">
+        <label class="flex items-start gap-2.5 text-xs text-fjord-fg-body cursor-pointer select-none">
+          <input
+            type="checkbox"
+            bind:checked={allowCapabilities}
+            class="mt-0.5 rounded border-fjord-border bg-fjord-inset text-fjord-accent focus:ring-fjord-accent"
+          />
+          <span>
+            Allow host capabilities requested by this app:
+            <span class="font-mono text-fjord-fg-strong">{requestedCapabilities.join(', ')}</span>
+          </span>
+        </label>
+      </div>
+    {/if}
+
     <div class="p-4 border-t border-fjord-border bg-fjord-card flex items-center justify-end gap-3">
       {#if submitError}
         <p class="mr-auto text-xs text-fjord-danger">{submitError}</p>
@@ -1723,7 +1761,7 @@
       {/if}
       <button
         on:click={deploy}
-        disabled={busy || loading || !enginesKnown || !!error || !validName || !!nameTaken || missingRequired.length > 0 || badUrls.length > 0 || (ipRequired && !netIP.trim()) || !!ipProblem || needAddress.length > 0 || !!noBuild}
+        disabled={busy || loading || !enginesKnown || !!error || !validName || !!nameTaken || missingRequired.length > 0 || badUrls.length > 0 || badTyped.length > 0 || noJail.length > 0 || (ipRequired && !netIP.trim()) || !!ipProblem || needAddress.length > 0 || !!noBuild || needsCapabilityApproval}
         title={blockReason || undefined}
         class="bg-fjord-accent hover:bg-fjord-accent-hover text-white px-6 py-2 rounded-md font-medium shadow-lg transition-all disabled:opacity-50 flex items-center gap-2"
       >

@@ -11,6 +11,12 @@
   import DirPicker from './DirPicker.svelte';
   import FolderRows from './FolderRows.svelte';
   import SetupReady from './SetupReady.svelte';
+  import {
+    buildSavedFolderSets,
+    mergeAppDataLocations,
+    splitFolderSetsForSetup,
+    type SetupFolderSet as FolderSet,
+  } from './setupPlan';
   import { toast } from './toast';
   const dispatch = createEventDispatcher<{ done: void }>();
   const STEPS = ['Welcome', 'Storage', 'Catalog', 'Already running', 'How it works'];
@@ -66,12 +72,13 @@
   }
 
   // ---- 2. storage + homelab ----
-  type FolderSet = { id?: string; name: string; folders: string[]; match?: string };
   let appData = '';
+  let existingLocations: string[] = [];
   let appDataDefault = '';
   let pickDir = false;
   let homelab = true;
   let savingStorage = false;
+  let folderSetsLoaded = false;
   // Homelab folder presets (Movies, TV, ...) and their host paths. With homelab on
   // the wizard asks where each preset folder lives so apps pick them up at
   // install; off, it asks nothing. Presets and their match come from the API
@@ -95,7 +102,8 @@
       const r = await fetch('/api/settings/storage');
       if (r.ok) {
         const d = await r.json();
-        appData = (d.locations && d.locations[0]) || d.base || '';
+        existingLocations = Array.isArray(d.locations) ? d.locations : d.base ? [d.base] : [];
+        appData = existingLocations[0] || d.base || '';
         appDataDefault = d.default || '';
       }
       const p = await fetch('/api/plugins');
@@ -106,31 +114,21 @@
       await loadFolderSets();
     } catch {}
   }
-  // Split saved sets into presets (match-bearing, or a known preset name) and
-  // custom sets. Preset paths seed the reveal; custom sets ride through save
+  // Split saved sets into presets (matching a known preset name) and custom
+  // sets. Preset paths seed the reveal; custom sets ride through save
   // untouched so re-running setup never drops them.
   async function loadFolderSets() {
+    folderSetsLoaded = false;
     try {
       const r = await fetch('/api/folder-sets');
       if (!r.ok) return;
       const d = await r.json();
       presets = d.presets || [];
-      const presetNames = new Set(presets.map((p) => p.name.trim().toLowerCase()));
-      const folders: Record<string, string[]> = {};
-      const ids: Record<string, string> = {};
-      const custom: FolderSet[] = [];
-      for (const s of (d.sets || []) as FolderSet[]) {
-        const isPreset = !!s.match || presetNames.has((s.name || '').trim().toLowerCase());
-        if (isPreset) {
-          folders[s.name] = [...(s.folders || [])];
-          if (s.id) ids[s.name] = s.id;
-        } else custom.push(s);
-      }
-      // Every preset gets an array to bind to; unconfigured ones start empty.
-      for (const pr of presets) if (!folders[pr.name]) folders[pr.name] = [];
-      presetFolders = folders;
-      presetIds = ids;
-      customSets = custom;
+      const split = splitFolderSetsForSetup((d.sets || []) as FolderSet[], presets);
+      presetFolders = split.presetFolders;
+      presetIds = split.presetIds;
+      customSets = split.customSets;
+      folderSetsLoaded = true;
     } catch {}
   }
   // The presets list is gated on the plugin server-side, so persist the toggle
@@ -150,33 +148,28 @@
   async function saveStorage(): Promise<boolean> {
     savingStorage = true;
     try {
-      const loc = appData.trim();
+      const locations = mergeAppDataLocations(appData, existingLocations);
       const r = await fetch('/api/settings/storage', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ locations: loc ? [loc] : [] }),
+        body: JSON.stringify({ locations }),
       });
       if (!r.ok) throw new Error((await r.text()).trim() || `HTTP ${r.status}`);
+      existingLocations = locations;
       const p = await fetch('/api/plugins', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: 'homelab', enabled: homelab }),
       });
       if (!p.ok) throw new Error((await p.text()).trim() || `HTTP ${p.status}`);
-      // Only touch folder sets when homelab is on; off, leave them as-is.
-      // Merge preset rows the user actually filled in with the preserved
-      // custom sets, then replace the whole list.
-      if (homelab) {
-        const rows: FolderSet[] = [];
-        for (const pr of presets) {
-          const folders = (presetFolders[pr.name] || []).map((f) => f.trim()).filter(Boolean);
-          if (!folders.length) continue; // empty preset => not saved
-          rows.push({ id: presetIds[pr.name], name: pr.name, match: pr.match, folders });
-        }
+      // Only touch folder sets when homelab is on and sets were loaded;
+      // otherwise leave them as-is.
+      if (homelab && folderSetsLoaded) {
+        const sets = buildSavedFolderSets(presets, presetFolders, presetIds, customSets);
         const fs = await fetch('/api/folder-sets', {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ sets: [...customSets, ...rows] }),
+          body: JSON.stringify({ sets }),
         });
         if (!fs.ok) throw new Error((await fs.text()).trim() || `HTTP ${fs.status}`);
       }

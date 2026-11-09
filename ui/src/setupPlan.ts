@@ -125,3 +125,62 @@ export function outcome(all: string): string | null {
   if (last.startsWith('[error]')) return last.slice('[error]'.length).trim();
   return 'the connection ended before the install finished';
 }
+
+export type SetupFolderSet = { id?: string; name: string; folders: string[]; match?: string };
+export type SetupPreset = { name: string; match: string };
+
+export function mergeAppDataLocations(primary: string, existing: string[] = []): string[] {
+  const loc = (primary || '').trim();
+  const rest = (existing || [])
+    .slice(1)
+    .map((x) => (x || '').trim())
+    .filter(Boolean);
+  if (!loc) return rest;
+  return [loc, ...rest.filter((x) => x !== loc)];
+}
+
+export function splitFolderSetsForSetup(
+  sets: SetupFolderSet[],
+  presets: SetupPreset[],
+): {
+  presetFolders: Record<string, string[]>;
+  presetIds: Record<string, string>;
+  customSets: SetupFolderSet[];
+} {
+  const byName = new Map<string, SetupPreset>();
+  for (const pr of presets || []) {
+    byName.set(pr.name.trim().toLowerCase(), pr);
+  }
+  const presetFolders: Record<string, string[]> = {};
+  const presetIds: Record<string, string> = {};
+  const customSets: SetupFolderSet[] = [];
+  for (const s of sets || []) {
+    const key = (s.name || '').trim().toLowerCase();
+    const pr = byName.get(key);
+    if (pr && !presetFolders[pr.name]) {
+      presetFolders[pr.name] = [...(s.folders || [])];
+      if (s.id) presetIds[pr.name] = s.id;
+    } else {
+      customSets.push(s);
+    }
+  }
+  for (const pr of presets || []) {
+    if (!presetFolders[pr.name]) presetFolders[pr.name] = [];
+  }
+  return { presetFolders, presetIds, customSets };
+}
+
+export function buildSavedFolderSets(
+  presets: SetupPreset[],
+  presetFolders: Record<string, string[]>,
+  presetIds: Record<string, string>,
+  customSets: SetupFolderSet[],
+): SetupFolderSet[] {
+  const rows: SetupFolderSet[] = [];
+  for (const pr of presets || []) {
+    const folders = (presetFolders[pr.name] || []).map((f) => f.trim()).filter(Boolean);
+    if (!folders.length) continue;
+    rows.push({ id: presetIds[pr.name], name: pr.name, match: pr.match, folders });
+  }
+  return [...(customSets || []), ...rows];
+}

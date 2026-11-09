@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
+  actionOutcome,
   createOutputFollower,
   createRunTracker,
   formatActionHttpError,
+  hasErrorLine,
   latest,
   readActionStream,
 } from './actions';
@@ -150,5 +152,69 @@ describe('actions helpers', () => {
     expect(updates[0].watching).toBe(false);
     expect(updates[1].watching).toBe(true);
     expect(finishedCount).toBe(1);
+  });
+
+  it('detects [error] lines in install and action streams and marks outcome failed', () => {
+    expect(hasErrorLine('Installing radarr...\n[fjord] radarr stayed up\n')).toBe(false);
+    expect(actionOutcome('Installing radarr...\n[fjord] radarr stayed up\n')).toEqual({
+      status: 'idle',
+      message: '',
+    });
+
+    const failedInstall = 'Installing radarr...\n[error] up failed: port 7878 is in use\n';
+    expect(hasErrorLine(failedInstall)).toBe(true);
+    expect(actionOutcome(failedInstall, 'Failed — see Output')).toEqual({
+      status: 'error',
+      message: 'up failed: port 7878 is in use',
+    });
+  });
+
+  it('keeps polling until done when untilDone is set and tolerates transient failed polls', async () => {
+    const follower = createOutputFollower();
+    const responses = [
+      { text: '$ pull\n', action: 'update', done: false },
+      null,
+      { text: '$ pull\n[error] pull failed\n', action: 'update', done: true },
+    ];
+    let idx = 0;
+    const last = await follower.follow('radarr', {
+      isStreamingHere: () => false,
+      shouldKeepPolling: () => false,
+      untilDone: true,
+      maxFailures: 1,
+      intervalMs: 1,
+      fetchOutput: async () => responses[idx++] ?? null,
+      onUpdate: () => {},
+      onFinish: () => {},
+    });
+    expect(last?.done).toBe(true);
+    expect(hasErrorLine(last?.text || '')).toBe(true);
+  });
+
+  it('ignores previous completed action output when expectedAction is set', async () => {
+    const follower = createOutputFollower();
+    const responses = [
+      { text: '$ up\n[fjord] ok\n', action: 'up', done: true },
+      { text: '$ pull\n', action: 'update', done: false },
+      { text: '$ pull\n[fjord] updated\n', action: 'update', done: true },
+    ];
+    let idx = 0;
+    const seen: string[] = [];
+    const last = await follower.follow('radarr', {
+      isStreamingHere: () => false,
+      shouldKeepPolling: () => true,
+      untilDone: true,
+      expectedAction: 'update',
+      maxFailures: 2,
+      intervalMs: 1,
+      fetchOutput: async () => responses[idx++] ?? null,
+      onUpdate: (o) => {
+        if (o.text) seen.push(o.text);
+      },
+      onFinish: () => {},
+    });
+    expect(last?.action).toBe('update');
+    expect(last?.done).toBe(true);
+    expect(seen).toEqual(['$ pull\n', '$ pull\n[fjord] updated\n']);
   });
 });

@@ -1,4 +1,24 @@
+import { startError } from './adopt';
 import { watchStarted } from './watch';
+
+const ERROR_LINE = /^\[error\]/m;
+
+export function hasErrorLine(log: string): boolean {
+  return ERROR_LINE.test(log || '');
+}
+
+export function actionOutcome(
+  log: string,
+  fallbackError = 'Failed',
+): { status: 'idle' | 'error'; message: string } {
+  if (hasErrorLine(log)) {
+    return {
+      status: 'error',
+      message: startError(log) || fallbackError,
+    };
+  }
+  return { status: 'idle', message: '' };
+}
 
 // Each run of an action on a stack has a number. One taken while another is
 // down to its stay-up check ends that check; from then on the older run must
@@ -89,6 +109,9 @@ export type OutputFollowCallbacks = {
   onFinish: () => void;
   fetchOutput?: (name: string) => Promise<OutputPollPayload | null>;
   intervalMs?: number;
+  maxFailures?: number;
+  untilDone?: boolean;
+  expectedAction?: string;
 };
 
 // The output of an action this page did not start (another tab, the API,
@@ -98,10 +121,21 @@ export type OutputFollowCallbacks = {
 // One follow per stack at a time; a second caller waits on the same one,
 // so what starts a daemon-side action can wait for its end.
 export function createOutputFollower() {
-  const inFlight = new Map<string, Promise<void>>();
+  const inFlight = new Map<string, Promise<OutputPollPayload | null>>();
+  const mustFinish = new Set<string>();
+  const requiredSeq = new Map<string, number>();
+  const expectedActions = new Map<string, string>();
+  let seq = 0;
   return {
-    follow(name: string, cb: OutputFollowCallbacks): Promise<void> {
-      if (cb.isStreamingHere()) return Promise.resolve();
+    follow(name: string, cb: OutputFollowCallbacks): Promise<OutputPollPayload | null> {
+      if (cb.isStreamingHere()) return Promise.resolve(null);
+      if (cb.untilDone) {
+        mustFinish.add(name);
+        requiredSeq.set(name, ++seq);
+      }
+      if (cb.expectedAction) {
+        expectedActions.set(name, cb.expectedAction);
+      }
       const existing = inFlight.get(name);
       if (existing) return existing;
       const fetcher =
@@ -112,19 +146,47 @@ export function createOutputFollower() {
           return r.json();
         });
       const waitMs = cb.intervalMs ?? 1500;
+      const maxFailures = cb.maxFailures ?? 0;
+      const keepPolling = () => mustFinish.has(name) || cb.shouldKeepPolling();
       const p = (async () => {
+        let last: OutputPollPayload | null = null;
+        let failures = 0;
+        let staleActionPolls = 0;
         try {
           for (;;) {
+            const pollSeq = ++seq;
             const o = await fetcher(name);
-            if (!o) break;
+            if (!o) {
+              if (++failures > maxFailures || !keepPolling()) break;
+              await new Promise((res) => setTimeout(res, waitMs));
+              continue;
+            }
+            failures = 0;
             if (cb.isStreamingHere()) break; // this page started one meanwhile
+            if (mustFinish.has(name) && pollSeq < (requiredSeq.get(name) ?? 0)) {
+              continue;
+            }
+            const wantAction = expectedActions.get(name);
+            if (wantAction && o.done && o.action !== wantAction) {
+              if (++staleActionPolls <= Math.max(maxFailures, 2) && keepPolling()) {
+                await new Promise((res) => setTimeout(res, waitMs));
+                continue;
+              }
+              break;
+            }
+            staleActionPolls = 0;
+            last = o;
             // Down to the stay-up check, the badge says so, as it does for an
             // action this page streamed; the actions are back by then.
             cb.onUpdate(o, !!o.text && watchStarted(o.text));
-            if (o.done || !cb.shouldKeepPolling()) break;
+            if (o.done || !keepPolling()) break;
             await new Promise((res) => setTimeout(res, waitMs));
           }
+          return last;
         } finally {
+          mustFinish.delete(name);
+          requiredSeq.delete(name);
+          expectedActions.delete(name);
           cb.onFinish();
           inFlight.delete(name);
         }

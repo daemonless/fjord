@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { openHow, appUrl } from './appUrl';
+import { openHow, appUrl, safeHttpUrl } from './appUrl';
 
 describe('appUrl', () => {
   // On its own LAN address a service publishes nothing, so the port comes from
@@ -94,5 +94,24 @@ describe('openHow', () => {
   it('says nothing for an app behind the host', () => {
     const behind = 'services:\n  app:\n    ports:\n      - "8094:80"\n\nx-fjord:\n  web_port: "8094"\n';
     expect(openHow({ compose: behind, env: '' } as any)).toBe('');
+  });
+});
+
+describe('safeHttpUrl', () => {
+  it('accepts http and https URLs', () => {
+    expect(safeHttpUrl('http://192.168.1.10:8080')).toBe('http://192.168.1.10:8080');
+    expect(safeHttpUrl('https://radarr.apps.lan/')).toBe('https://radarr.apps.lan/');
+    expect(safeHttpUrl('  https://example.com/path  ')).toBe('https://example.com/path');
+  });
+
+  it('rejects non-http schemes and invalid URLs', () => {
+    expect(safeHttpUrl('javascript:alert(1)')).toBe('');
+    expect(safeHttpUrl('data:text/html,<script>alert(1)</script>')).toBe('');
+    expect(safeHttpUrl('vbscript:msgbox(1)')).toBe('');
+    expect(safeHttpUrl('file:///etc/passwd')).toBe('');
+    expect(safeHttpUrl('not a url')).toBe('');
+    expect(safeHttpUrl('')).toBe('');
+    expect(safeHttpUrl(null)).toBe('');
+    expect(safeHttpUrl(undefined)).toBe('');
   });
 });

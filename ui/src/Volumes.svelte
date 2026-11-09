@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { latest } from './actions';
   import Icon from './Icon.svelte';
   import Spinner from './Spinner.svelte';
   import EmptyState from './EmptyState.svelte';
@@ -20,6 +21,9 @@
   let loading = true;
   let error = '';
   let showAnonymous = false;
+  let activeEngines: string[] = [];
+  let defaultEngine = '';
+  let selectedEngine = '';
 
   // The backend classifies volumes (kind, anonymous) -- runtime naming
   // conventions are its business, not the UI's.
@@ -28,21 +32,51 @@
   $: named = volumes.filter((v) => showAnonymous || !v.anonymous);
   $: anonCount = volumes.filter((v) => v.anonymous).length;
 
+  const nextLoad = latest();
+  const engineQuery = (eng: string) => (eng ? `?engine=${encodeURIComponent(eng)}` : '');
+
+  async function loadEngines() {
+    try {
+      const r = await fetch('/api/engine');
+      if (!r.ok) return;
+      const d = await r.json();
+      defaultEngine = d.default || '';
+      activeEngines = ((d.engines || []) as { name: string; enabled: boolean; available?: boolean }[])
+        .filter((e) => e.enabled && e.available !== false)
+        .map((e) => e.name);
+      if (!selectedEngine) selectedEngine = defaultEngine || activeEngines[0] || '';
+    } catch {}
+  }
+
+  async function pickEngine(name: string) {
+    if (selectedEngine === name) return;
+    selectedEngine = name;
+    confirmDelete = '';
+    forceDelete = '';
+    await load();
+  }
+
   async function load() {
+    const isLatest = nextLoad();
     loading = true;
     error = '';
     try {
-      const res = await fetch('/api/volumes');
+      const res = await fetch(`/api/volumes${engineQuery(selectedEngine)}`);
+      if (!isLatest()) return;
       if (!res.ok) throw new Error(await res.text());
       volumes = await res.json();
     } catch (e: any) {
+      if (!isLatest()) return;
       error = e.message || 'Failed to load volumes';
     } finally {
-      loading = false;
+      if (isLatest()) loading = false;
     }
   }
 
-  onMount(load);
+  onMount(async () => {
+    await loadEngines();
+    await load();
+  });
 
   // ---- create ----
   let creating = false;
@@ -93,7 +127,7 @@
       body.readOnly = form.ro;
     }
     try {
-      const res = await fetch('/api/volumes', {
+      const res = await fetch(`/api/volumes${engineQuery(selectedEngine)}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
@@ -113,7 +147,10 @@
   let forceDelete = ''; // set after a 409: the row offers a force-remove instead
   async function del(name: string, force = false) {
     try {
-      const q = force ? '?force=true' : '';
+      const params = new URLSearchParams();
+      if (force) params.set('force', 'true');
+      if (selectedEngine) params.set('engine', selectedEngine);
+      const q = params.toString() ? `?${params.toString()}` : '';
       const res = await fetch(`/api/volumes/${encodeURIComponent(name)}${q}`, { method: 'DELETE' });
       // In-use: surface the clean message and turn the row into a force-remove.
       if (res.status === 409 && !force) {
@@ -146,6 +183,20 @@
       ><Icon name="plus" size={14} /> New Volume…</button
     >
   </div>
+
+  {#if activeEngines.length > 1}
+    <div class="flex items-center gap-1 mb-3 shrink-0">
+      {#each activeEngines as e}
+        <button
+          on:click={() => pickEngine(e)}
+          class="px-3 py-1.5 rounded-lg text-sm font-medium transition-colors {selectedEngine === e
+            ? 'bg-fjord-accent text-white'
+            : 'bg-fjord-card border border-fjord-border text-fjord-fg-secondary hover:text-fjord-fg'}"
+          >{e}{#if e === defaultEngine}<span class="ml-1.5 text-[10px] uppercase tracking-wide opacity-70">default</span>{/if}</button
+        >
+      {/each}
+    </div>
+  {/if}
 
   {#if anonCount > 0}
     <label class="flex items-center gap-2 text-xs text-fjord-fg-dim mb-3 shrink-0 cursor-pointer select-none">
