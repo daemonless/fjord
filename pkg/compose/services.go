@@ -25,6 +25,9 @@ type Service struct {
 	NetworkNone bool     // network_mode: none
 	DependsOn   []string // services that must start first
 	Annotations map[string]string
+	// Built is an image made on this host (build:, or pull_policy never/build):
+	// no registry has it, so a failed pull of it means nothing.
+	Built bool
 }
 
 // PortMap is one published port of a service.
@@ -75,6 +78,14 @@ func ParseServices(composeYAML string, env map[string]string) []Service {
 
 		if img := mapGet(svc, "image"); img != nil {
 			s.Image = resolve(img.Value)
+		}
+		if mapGet(svc, "build") != nil {
+			s.Built = true
+		}
+		if pp := mapGet(svc, "pull_policy"); pp != nil {
+			if v := resolve(pp.Value); v == "never" || v == "build" {
+				s.Built = true
+			}
 		}
 		if nm := mapGet(svc, "network_mode"); nm != nil {
 			s.NetworkHost = resolve(nm.Value) == "host"

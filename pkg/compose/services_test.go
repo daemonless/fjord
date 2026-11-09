@@ -44,3 +44,24 @@ volumes:
 		t.Errorf("odd: %+v, want nothing", v)
 	}
 }
+
+// An image made on this host is not pulled: no registry has it.
+func TestParseServicesBuilt(t *testing.T) {
+	svcs := ParseServices(`services:
+  made:
+    image: localhost/made
+    build: .
+  never:
+    image: localhost/never
+    pull_policy: never
+  pulled:
+    image: ghcr.io/x/app:1
+`, nil)
+	got := map[string]bool{}
+	for _, s := range svcs {
+		got[s.Name] = s.Built
+	}
+	if !got["made"] || !got["never"] || got["pulled"] {
+		t.Errorf("Built: %v", got)
+	}
+}

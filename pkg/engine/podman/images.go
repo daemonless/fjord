@@ -217,7 +217,7 @@ func (b *Backend) wrongPlatform(ctx context.Context, s *stack.Stack, services []
 func (b *Backend) pullMissing(ctx context.Context, pw io.Writer, s *stack.Stack, services []string) error {
 	var missing []string
 	for _, svc := range composepkg.ParseServices(s.Compose, s.EnvMap()) {
-		if len(services) > 0 && !slices.Contains(services, svc.Name) || svc.Image == "" {
+		if len(services) > 0 && !slices.Contains(services, svc.Name) || svc.Image == "" || svc.Built {
 			continue
 		}
 		if p, err := b.ImagePlatform(ctx, svc.Image); err != nil || p != "" {
@@ -229,7 +229,19 @@ func (b *Backend) pullMissing(ctx context.Context, pw io.Writer, s *stack.Stack,
 		return err
 	}
 	for _, img := range missing {
-		b.pullNoticed(ctx, pw, s.Dir, img)
+		seen := &lastBytes{}
+		if err := b.pullNoticed(ctx, io.MultiWriter(pw, seen), s.Dir, img); err != nil {
+			fmt.Fprintf(pw, "\n[error] %s\n", pullFailure(seen.String(), img, err))
+			return err
+		}
 	}
 	return nil
+}
+
+// pullFailure says why img could not be pulled, from podman's own output.
+func pullFailure(out, img string, err error) string {
+	if why := pullError(out); why != "" {
+		return why
+	}
+	return "the image " + img + " could not be downloaded: " + commandError(out, err)
 }
