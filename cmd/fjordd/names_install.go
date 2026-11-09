@@ -32,6 +32,17 @@ func (s *server) nameAfter(ctx context.Context, st *stack.Stack, label, origin s
 	return &thenReader{r: out, c: out, after: func() string { return s.giveNameNow(ctx, st, label, origin) }}
 }
 
+// namedFrom is the stack a name is given for: cur, read back for an address
+// keepAfter pinned, unless a Save during the stay-up check left edits not
+// applied yet. Those are not running: a new WEB_PORT saved then had the
+// provider retry a port nothing answers on, under the stack's lock.
+func namedFrom(installed, cur *stack.Stack) *stack.Stack {
+	if cur.State != nil && len(cur.State.PendingServices) > 0 {
+		return installed
+	}
+	return cur
+}
+
 // giveNameNow gives one stack the name asked for at install and returns the
 // Output line about it. The stack is read back first: keepAfter may have
 // pinned an address into its compose by now, and the engine's status says
@@ -43,7 +54,7 @@ func (s *server) giveNameNow(ctx context.Context, st *stack.Stack, label, origin
 		return noNameLine(st, cmpErr(err, "nothing installed gives names"))
 	}
 	if cur, err := s.manager.Get(st.Name); err == nil {
-		st = cur
+		st = namedFrom(st, cur)
 	}
 	status, err := s.backendFor(st).Status(ctx, st)
 	if err != nil {

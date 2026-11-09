@@ -36,6 +36,26 @@ func TestInstallNameRequestFollowsOpen(t *testing.T) {
 	}
 }
 
+// A Save during the stay-up check is not running yet: the name goes to the
+// port the app was installed on, not the one saved. Without pending edits
+// the stack read back wins, for an address keepAfter pinned.
+func TestNameGoesToWhatRuns(t *testing.T) {
+	compose := "services:\n  web:\n    ports:\n      - \"${WEB_PORT}:3000\"\nx-fjord:\n  web_port: \"${WEB_PORT}\"\n"
+	installed := &stack.Stack{Name: "t", Compose: compose, Env: "WEB_PORT=3110\n"}
+	saved := &stack.Stack{Name: "t", Compose: compose, Env: "WEB_PORT=3111\n",
+		State: &stack.State{PendingServices: []string{"web"}}}
+	st := engine.StackStatus{State: "running"}
+	none := func(string) bool { return false }
+	n, ok := installNameRequest(namedFrom(installed, saved), st, "t", "http://192.168.4.103:3567", none)
+	if !ok || n.Port != 3110 {
+		t.Fatalf("pending Save: ok=%v port %d, want 3110 (what runs)", ok, n.Port)
+	}
+	saved.State.PendingServices = nil
+	if got := namedFrom(installed, saved); got != saved {
+		t.Fatal("no pending edits: the stack read back is not the one named")
+	}
+}
+
 // A provider that cannot reach the app yet is asked again, a few times,
 // ten seconds apart: the stay-up check saw the process, a page can take
 // longer. Any other refusal is final, and so is success.
