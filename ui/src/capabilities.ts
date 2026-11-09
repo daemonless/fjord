@@ -114,6 +114,22 @@ function collectCompose(
   return { services: baseServices, volumes: baseVolumes };
 }
 
+// A value the user typed, browsed or picked differs from the catalog's; that
+// location is their choice, so only catalog-supplied values ask.
+function userChose(
+  varName: string,
+  inlineDef: string | undefined,
+  varDefaults: Record<string, string>,
+  mergedValues: Record<string, string>,
+  paths: Record<string, string[]>,
+): boolean {
+  const catalog = (varDefaults[varName] ?? inlineDef ?? '').trim();
+  const pathList = (paths[varName] || []).map((p) => p.trim()).filter(Boolean);
+  if (pathList.length > 0) return pathList.some((p) => p !== catalog);
+  if (!(varName in mergedValues)) return false;
+  return (mergedValues[varName] ?? '').trim() !== catalog;
+}
+
 function expandVolumeSources(
   rawSource: string,
   varDefaults: Record<string, string>,
@@ -123,6 +139,17 @@ function expandVolumeSources(
 ): string[] {
   const trimmed = rawSource.trim();
   if (!trimmed) return [];
+
+  // A '..' in the compose's own text can climb out of any folder, chosen or not.
+  const literal = trimmed.replace(/\$\{[A-Za-z_][A-Za-z0-9_]*(?::-[^}]*)?\}/g, 'x');
+  const vars = [...trimmed.matchAll(/\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}/g)];
+  if (
+    vars.length > 0 &&
+    !hasDotDotSegment(literal) &&
+    vars.every(([, n, d]) => userChose(n, d, varDefaults, mergedValues, paths))
+  ) {
+    return [];
+  }
 
   // Check if the entire source or its prefix is a single ${VAR} or ${VAR:-default}
   const exactVar = trimmed.match(/^\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}(.*)$/);
@@ -220,6 +247,7 @@ function extractJailAnnotations(annotations: unknown): string[] {
     if (
       k.startsWith('org.freebsd.jail.') &&
       k !== 'org.freebsd.jail.vnet' &&
+      k !== 'org.freebsd.jail.allow.mlock' && // .NET runtimes need it; no host access
       v !== 'false' &&
       v !== '0' &&
       v !== 'no' &&

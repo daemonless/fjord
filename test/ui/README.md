@@ -75,6 +75,7 @@ wire.
 | adopt-replace | a container started by hand, adopted with replace from the Adopt page and the browser closed the moment Adopt & Restart is clicked: fjord brings the stack up itself, its start is in the kept Output, a page opened later shows it running (FreeBSD) | t-byhand |
 | shortcuts | the keyboard: ? opens the overlay with every row of the table, Esc closes it, g a / g s switch views, / focuses the search, r refreshes, and keys typed in a field are text | (none) |
 | folders | a second copy of an app gets folders of its own; one inside another stack's is refused | |
+| host-caps | the install wizard asks before host capabilities only for what the catalog sets: Radarr's defaults (allow.mlock) and a library folder the user typed outside every folder set install without the prompt | (none) |
 | outcome | a failed install is said on the page and in the log; rows with no container say so | t-fail |
 | arch | a tag with no build for this host is refused before and after | t-arch |
 | change-version | Change Version is one job of the daemon's: Change & Redeploy clicked and the browser closed as set-tag answers, the stack still ends up on the new tag with the rollback recorded (the page used to run the update as a second call); with the page open, the Output pane follows the daemon's update and the page ends idle on the new version | t-cv |

@@ -224,7 +224,7 @@ services:
       'ipc: host',
       'userns_mode: host',
       'network_mode: host',
-      'annotations (org.freebsd.jail.allow.raw_sockets, org.freebsd.jail.allow.mlock)',
+      'annotations (org.freebsd.jail.allow.raw_sockets)',
     ]);
   });
 
@@ -316,5 +316,50 @@ services:
         picks: { mode: 'hw' },
       }),
     ).toEqual(['devices (/dev/dri)']);
+  });
+
+  it('does not ask for a folder the user chose, only for catalog-supplied ones', () => {
+    const lib = `
+services:
+  app:
+    image: ghcr.io/example/app:latest
+    volumes:
+      - \${AUDIOBOOKS_PATH}:/audiobooks
+`;
+    const variables = [{ name: 'AUDIOBOOKS_PATH', type: 'path', default: '' }];
+    const base = { compose: lib, variables, appDataLocations: ['/srv/fjord/apps'], folderSets: [{ folders: ['/mnt/audiobooks'] }] };
+    expect(detectHostCapabilities({ ...base, paths: { AUDIOBOOKS_PATH: ['/mnt/media/audiobooks'] } })).toEqual([]);
+    expect(detectHostCapabilities({ ...base, formData: { AUDIOBOOKS_PATH: '/mnt/media/audiobooks2' } })).toEqual([]);
+
+    const sock = `
+services:
+  app:
+    image: ghcr.io/example/app:latest
+    volumes:
+      - \${SOCK}:/var/run/podman.sock
+      - \${DATA}/../../etc:/etc
+`;
+    expect(
+      detectHostCapabilities({
+        compose: sock,
+        variables: [
+          { name: 'SOCK', type: 'path', default: '/var/run/podman/podman.sock' },
+          { name: 'DATA', type: 'path', default: '' },
+        ],
+        formData: { SOCK: '/var/run/podman/podman.sock', DATA: '/srv/fjord/apps/x' },
+        appDataLocations: ['/srv/fjord/apps'],
+      }),
+    ).toEqual(['bind mount /var/run/podman/podman.sock', 'bind mount /srv/fjord/etc']);
+  });
+
+  it('does not ask for org.freebsd.jail.allow.mlock alone', () => {
+    const dotnet = `
+services:
+  radarr:
+    image: ghcr.io/example/radarr:latest
+    annotations:
+      org.freebsd.jail.allow.mlock: "true"
+`;
+    expect(detectHostCapabilities({ compose: dotnet, appDataLocations: ['/srv/fjord/apps'] })).toEqual([]);
   });
 });
