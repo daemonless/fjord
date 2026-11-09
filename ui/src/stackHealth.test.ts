@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { problem, health } from './stackHealth';
+import { failedAction, problem, health } from './stackHealth';
 
 const stack = (state: string, desired = 'running', containers: any[] = []) => ({
   name: 'x',
@@ -50,5 +50,26 @@ describe('stack health', () => {
 
   it('treats a stack with no recorded intent as meant to run', () => {
     expect(problem({ name: 'x', status: { state: 'stopped' } })).toBe('is stopped');
+  });
+});
+
+describe('failedAction', () => {
+  const running = { status: { state: 'running' } };
+  it('names the action that last ended in an error, until it is busy again', () => {
+    const s = { name: 'a', ...running, state: { last_failure: { action: 'update', message: 'the registry has no such version' } } };
+    expect(failedAction(s)).toEqual({ label: 'Update failed', verb: 'could not update', message: 'the registry has no such version' });
+    expect(problem(s)).toBe('could not update');
+    expect(health(s)).toBe('problem');
+    expect(failedAction({ ...s, busy: 'update' })).toBeNull();
+  });
+  it('leaves health failures to the health words, and a stopped stack is still said first', () => {
+    expect(failedAction({ name: 'a', ...running, state: { last_failure: { action: 'health' } } })).toBeNull();
+    const down = { name: 'a', status: { state: 'stopped' }, state: { last_failure: { action: 'up' } } };
+    expect(problem(down)).toBe('is stopped');
+    expect(failedAction(down)?.label).toBe('Start failed');
+  });
+  it('says nothing when nothing failed', () => {
+    expect(failedAction({ name: 'a', ...running })).toBeNull();
+    expect(problem({ name: 'a', ...running })).toBe('');
   });
 });
