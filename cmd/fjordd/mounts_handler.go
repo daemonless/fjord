@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	composepkg "github.com/daemonless/fjord/pkg/compose"
+	"github.com/daemonless/fjord/pkg/engine"
 	"github.com/daemonless/fjord/pkg/stack"
 )
 
@@ -100,6 +101,12 @@ func (s *server) handleComposeMounts(w http.ResponseWriter, r *http.Request) {
 // ops on appjail-director.yml, handing back that file and the services as
 // read from it. A named volume is podman's; an appjail mount is a host path.
 func (s *server) handleDirectorMounts(w http.ResponseWriter, director, name, env, op, service, kind, source, dest string, opts []string) {
+	st := &stack.Stack{Name: name, Director: director, Env: env}
+	if name != "" && s.manager != nil {
+		if saved, err := s.manager.Get(name); err == nil {
+			st.State = saved.State
+		}
+	}
 	var out string
 	var err error
 	switch op {
@@ -110,11 +117,9 @@ func (s *server) handleDirectorMounts(w http.ResponseWriter, director, name, env
 			http.Error(w, "an AppJail stack mounts host folders; named volumes are podman's", 400)
 			return
 		}
-		out, err = directorAttachBindMount(director, service, source, dest, opts)
-	case "remove":
-		out, err = directorRemoveMount(director, service, dest)
-	case "options":
-		out, err = directorSetMountOptions(director, service, dest, opts)
+		out, err = s.editDirectorMount(st, op, director, service, source, dest, opts)
+	case "remove", "options":
+		out, err = s.editDirectorMount(st, op, director, service, source, dest, opts)
 	default:
 		http.Error(w, "unknown op: "+op, 400)
 		return
@@ -138,6 +143,29 @@ func (s *server) handleDirectorMounts(w http.ResponseWriter, director, name, env
 		return
 	}
 	json.NewEncoder(w).Encode(map[string]any{"director": out, "services": views})
+}
+
+func (s *server) editDirectorMount(st *stack.Stack, op, director, service, source, dest string, opts []string) (string, error) {
+	if ed, ok := s.backendFor(st).(engine.SpecMountEditor); ok {
+		switch op {
+		case "add":
+			return ed.AttachSpecBindMount(director, service, source, dest, opts)
+		case "remove":
+			return ed.RemoveSpecMount(director, service, dest)
+		case "options":
+			return ed.SetSpecMountOptions(director, service, dest, opts)
+		}
+	}
+	switch op {
+	case "add":
+		return directorAttachBindMount(director, service, source, dest, opts)
+	case "remove":
+		return directorRemoveMount(director, service, dest)
+	case "options":
+		return directorSetMountOptions(director, service, dest, opts)
+	default:
+		return "", nil
+	}
 }
 
 // transformed is what a mount change hands back: the new compose, and the

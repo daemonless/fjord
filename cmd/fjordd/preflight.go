@@ -14,6 +14,7 @@ import (
 
 	composepkg "github.com/daemonless/fjord/pkg/compose"
 	"github.com/daemonless/fjord/pkg/doctor"
+	"github.com/daemonless/fjord/pkg/engine"
 	"github.com/daemonless/fjord/pkg/manifest"
 	"github.com/daemonless/fjord/pkg/stack"
 )
@@ -180,12 +181,6 @@ type hostPort struct {
 	container string // the container name the engine reports for the service
 }
 
-// imageExposer is implemented by engines that can read a local image's EXPOSE
-// entries; others simply skip this layer of pre-flight.
-type imageExposer interface {
-	ImageExposedPorts(ctx context.Context, ref string) ([]string, error)
-}
-
 // hostNetworkPorts lists the ports every network_mode: host service will
 // take, for images already present. Two stacks that both ship a host-network
 // postgres collide on 5432 and the second one crash-loops with nothing but a
@@ -196,7 +191,7 @@ type imageExposer interface {
 // app whose page port another stack publishes is refused at install, not
 // found crash-looping (plausible over zensical's 8000, netlab 2026-10-25).
 func (s *server) hostNetworkPorts(ctx context.Context, st *stack.Stack, env map[string]string) []hostPort {
-	be, exposes := s.backendFor(st).(imageExposer)
+	be, exposes := s.backendFor(st).(engine.ImageExposer)
 	var out []hostPort
 	hint := webPortHint(st)
 	for _, svc := range composepkg.ParseServices(st.Compose, env) {

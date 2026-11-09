@@ -106,9 +106,9 @@ func conditionsFromChecks(checks []doctor.Result, since map[string]time.Time, no
 		if c.Status != doctor.Fail && c.Status != doctor.Warn {
 			continue
 		}
-		// "appjail" withEngine=="" warns when pre-5.5 or missing director on a
-		// host that may not use AppJail; only report it when AppJail is an
-		// active engine, which the caller filters via Config.Engines.
+		// An un-scoped engine check (Engine == "") warns on a host that may
+		// not use that engine; only report it when the engine is active,
+		// which the caller filters via Config.Engines.
 		sev := "warning"
 		if c.Status == doctor.Fail {
 			sev = "critical"
@@ -185,6 +185,11 @@ func (s *server) triggerConditions() {
 	}
 }
 
+func isKnownEngine(id string) bool {
+	_, ok := descriptor(id)
+	return ok
+}
+
 // refreshConditions runs the doctor checks for the active engines, updates the
 // cached condition list, and publishes an SSE event if the list changed.
 func (s *server) refreshConditions(ctx context.Context) []Condition {
@@ -198,13 +203,12 @@ func (s *server) refreshConditions(ctx context.Context) []Condition {
 	cctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 	report := doctor.Run(cctx, doctor.Config{Engines: engines, FjordRoot: s.fjordRoot})
-	// Filter out the un-scoped "appjail" check when appjail is not one of the
-	// active engines on this host, so a podman-only host does not get a banner
-	// about an optional engine.
-	hasAppjail := slices.Contains(engines, "appjail")
+	// Filter out an un-scoped engine check when that engine is not one of the
+	// active engines on this host, so a single-engine host does not get a
+	// banner about an optional engine.
 	filtered := make([]doctor.Result, 0, len(report.Checks))
 	for _, ch := range report.Checks {
-		if ch.ID == "appjail" && !hasAppjail {
+		if isKnownEngine(ch.ID) && !slices.Contains(engines, ch.ID) {
 			continue
 		}
 		filtered = append(filtered, ch)

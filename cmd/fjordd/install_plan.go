@@ -99,7 +99,7 @@ func (s *server) handleAppPlan(w http.ResponseWriter, r *http.Request, appID str
 			picks[id] = opt
 		}
 	}
-	if eng == "appjail" {
+	if s.usesDirectorBundles(eng) {
 		for _, c := range m.Choices {
 			for _, o := range c.Options {
 				if o.ID == picks[c.ID] && strings.TrimSpace(o.Services) != "" && o.Appjail == nil {
@@ -342,6 +342,18 @@ var (
 	portVarRefRe    = regexp.MustCompile(`^\$\{([A-Za-z_][A-Za-z0-9_]*)`)
 	digitsPortRe    = regexp.MustCompile(`^\d{2,5}$`)
 )
+
+// usesDirectorBundles reports whether eng orchestrates stacks through AppJail
+// director bundles rather than compose services directly.
+func (s *server) usesDirectorBundles(eng string) bool {
+	if be, ok := s.backend(eng); ok && be.Capabilities().DirectorBundles {
+		return true
+	}
+	if d, ok := descriptor(eng); ok && d.DirectorBundles {
+		return true
+	}
+	return eng != "" && eng != "podman"
+}
 
 // pathHintFor mirrors the wizard's pathHint:
 // <base>/<slug>/<var-lowercased-sans-suffix>.

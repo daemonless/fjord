@@ -406,6 +406,9 @@ type Descriptor struct {
 	// OS is the GOOS the engine runs on, "" for any. An engine for another
 	// OS is not listed at all, rather than offered with an Install button.
 	OS string
+	// DirectorBundles indicates the engine runs AppJail director bundles
+	// rather than compose services directly.
+	DirectorBundles bool
 	// Available reports whether the engine can run here: ok, a reason when it
 	// can't, and a non-fatal warning when it can but with caveats (e.g. an old
 	// version). ok=false with reason means unavailable; ok=true with warning
@@ -525,6 +528,9 @@ type Capabilities struct {
 	// only decides what fjord starts at boot, and lives in the stack's state.
 	RestartPolicies []string `json:"restartPolicies,omitempty"`
 	RestartOnExit   bool     `json:"restartOnExit,omitempty"`
+	// DirectorBundles indicates the engine runs AppJail director bundles
+	// rather than compose services directly.
+	DirectorBundles bool `json:"directorBundles,omitempty"`
 }
 
 // PruneReport summarizes a prune run: a human total and the raw command output.
@@ -645,6 +651,40 @@ type Backend interface {
 // engine without it leaves left-over data unconfirmed, never assumed unused.
 type MountLister interface {
 	HostMounts(ctx context.Context) ([]string, error)
+}
+
+// Adopter is implemented by engines that can list containers no stack owns
+// and say how to recreate each: podman hands over the run line, appjail a
+// director bundle read back from the jail.
+type Adopter interface {
+	UnmanagedContainers(ctx context.Context, skip func(name, project string) bool) ([]Unmanaged, error)
+	RemoveContainer(ctx context.Context, name string) error
+}
+
+// AdoptableNamer names what an engine can adopt without building each spec.
+// An engine without it is asked for the full list.
+type AdoptableNamer interface {
+	AdoptableNames(ctx context.Context, skip func(name, project string) bool) ([]string, error)
+}
+
+// JailOwner is implemented by engines whose stacks own named jails, so
+// fjord's own can be left out of the candidates.
+type JailOwner interface {
+	StackJails(s *stack.Stack) []string
+}
+
+// ImageExposer is implemented by engines that can read a local image's EXPOSE
+// entries; others simply skip this layer of pre-flight.
+type ImageExposer interface {
+	ImageExposedPorts(ctx context.Context, ref string) ([]string, error)
+}
+
+// SpecMountEditor is implemented by engines whose stack spec file stores
+// bind mounts separately from compose.yaml (such as appjail-director.yml).
+type SpecMountEditor interface {
+	AttachSpecBindMount(specYML, service, hostPath, dest string, opts []string) (string, error)
+	RemoveSpecMount(specYML, service, dest string) (string, error)
+	SetSpecMountOptions(specYML, service, dest string, opts []string) (string, error)
 }
 
 // RunningImage is the image one service's container was created from.
