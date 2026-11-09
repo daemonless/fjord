@@ -95,18 +95,33 @@ func TestSetDirectorNetworksRejects(t *testing.T) {
 // short enough that the prefix still fits IFNAMSIZ.
 func TestEpairName(t *testing.T) {
 	cases := map[string]string{
-		"zensical":                 "zensical",
-		"My-Stack_01":              "mystack01",
-		"averyveryverylongstackid": "averyveryver",
-		"123":                      "j123",
-		"!!!":                      "fjord",
+		"zensical":    "zensical",
+		"My-Stack_01": "mystack01",
+		"radarr":      "radarr",
+		"123":         "j123",
+		"!!!":         "fjord",
 	}
 	for in, want := range cases {
 		if got := epairName(in, "", 0, 0); got != want {
 			t.Errorf("epairName(%q) = %q, want %q", in, got, want)
 		}
 	}
-	for in := range cases {
+	// Names that already fit within ifaceMax (12) must not be hashed.
+	if got := epairName("paperless", "db", 0, 0); got != "paperlessdb0" {
+		t.Errorf("epairName(paperless, db, 0, 0) = %q, want paperlessdb0", got)
+	}
+	if got := epairName("immich", "redis", 1, 0); got != "immichredis1" {
+		t.Errorf("epairName(immich, redis, 1, 0) = %q, want immichredis1", got)
+	}
+	// Names that overflow ifaceMax (12) are hashed so sibling stacks with a
+	// shared prefix do not collide on the host epair interface.
+	if a, b := epairName("audiobookshelf", "", 0, 0), epairName("audiobookshelf-2", "", 0, 0); a == b {
+		t.Errorf("single-service long stack epairs collided: %q", a)
+	}
+	if a, b := epairName("paperless-ngx", "redis", 1, 0), epairName("paperless-ngx-2", "redis", 1, 0); a == b {
+		t.Errorf("multi-service long stack epairs collided: %q", a)
+	}
+	for _, in := range []string{"zensical", "My-Stack_01", "averyveryverylongstackid", "audiobookshelf", "audiobookshelf-2", "123", "!!!"} {
 		got := epairName(in, "", 0, 0)
 		if len("sb_"+got) > 15 {
 			t.Errorf("sb_%s exceeds IFNAMSIZ", got)
@@ -379,5 +394,44 @@ func TestSetDirectorNetworksIPv6NeedsASegment(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "IPv6") {
 		t.Errorf("error should name the problem, got: %v", err)
+	}
+}
+
+func TestDisableDirectorNetworksClearsPerServiceAndKeepsDeviceRules(t *testing.T) {
+	seedNetwork(t)
+	const directorWithGPU = `options:
+  - virtualnet: ':<random> default'
+  - nat:
+services:
+  immich:
+    name: immich_immich
+    options:
+      - container: 'args:--pull'
+      - device: 'path dri unhide'
+      - expose: '2283:2283 proto:tcp'
+`
+	attached, err := setDirectorNetworks(context.Background(), directorWithGPU, "immich", []composepkg.Attachment{{Network: "vlan6"}})
+	if err != nil {
+		t.Fatalf("setDirectorNetworks: %v", err)
+	}
+	if !strings.Contains(attached, "device: 'path dri unhide'") {
+		t.Fatalf("attach stripped non-BPF device rule:\n%s", attached)
+	}
+	if !strings.Contains(attached, "device: 'path bpf unhide'") {
+		t.Fatalf("attach did not add BPF device rule for DHCP:\n%s", attached)
+	}
+	disabled, err := disableDirectorNetworks(attached)
+	if err != nil {
+		t.Fatalf("disableDirectorNetworks: %v", err)
+	}
+	for _, gone := range []string{"bridge:", "dhcp:", "ifconfig:", "defaultrouter", "path bpf unhide", "virtualnet", "nat:", "expose"} {
+		if strings.Contains(disabled, gone) {
+			t.Errorf("%q survived disableDirectorNetworks:\n%s", gone, disabled)
+		}
+	}
+	for _, keep := range []string{"device: 'path dri unhide'", "container: 'args:--pull'"} {
+		if !strings.Contains(disabled, keep) {
+			t.Errorf("lost %q after disableDirectorNetworks:\n%s", keep, disabled)
+		}
 	}
 }

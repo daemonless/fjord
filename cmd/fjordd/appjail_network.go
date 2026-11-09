@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"hash/fnv"
 	"strconv"
 	"strings"
 
@@ -19,10 +20,28 @@ import (
 // to spare.
 const ifaceMax = 12
 
+// cleanIfaceChars keeps only lowercase ASCII letters and digits.
+func cleanIfaceChars(s string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(s) {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
+// epairShortHash returns a 4-character hex FNV-1a tag for a stack ID.
+func epairShortHash(s string) string {
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(s))
+	return fmt.Sprintf("%04x", h.Sum32()&0xffff)
+}
+
 // epairName turns a stack id into a valid, deterministic epair name.
 //
 // It must be deterministic: appjail's "<random>" placeholder is resolved at
-// run time, and the ifconfig option has to name "sb_<iface>" -- fjord cannot
+// run time, and the ifconfig option has to name "sb_<iface>": fjord cannot
 // reference a name it will not know. Anything outside [a-z0-9] is dropped
 // rather than substituted, since an interface name has a narrow charset.
 // epairName builds the host-side interface name for one service's attachment
@@ -33,33 +52,25 @@ const ifaceMax = 12
 // the first takes sb_<stack> into its vnet and the rest fail to start with
 // "interface sb_<stack> does not exist". Each jail needs its own epair.
 func epairName(stackID, service string, svcIdx, n int) string {
-	if service != "" {
-		stackID = stackID + service
-	}
-	var b strings.Builder
-	for _, r := range strings.ToLower(stackID) {
-		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
-			b.WriteRune(r)
-		}
-	}
-	name := b.String()
+	name := cleanIfaceChars(stackID)
 	if name == "" {
 		name = "fjord"
 	}
 	// An interface name may not start with a digit on FreeBSD. Do this BEFORE
 	// trimming: prefixing afterwards pushed the name over the limit again, and
-	// the re-trim ate the suffix -- so every network of a stack whose id was
+	// the re-trim ate the suffix, so every network of a stack whose id was
 	// long enough and began with a digit got the same interface name.
 	if name[0] >= '0' && name[0] <= '9' {
 		name = "j" + name
 	}
+	svcClean := cleanIfaceChars(service)
 	// The suffix is what makes the name unique; the letters before it are only
-	// there to be recognisable. Both indices are in it, because both can
+	// there to be recognizable. Both indices are in it, because both can
 	// collide once the name is trimmed to fit: immich's immich-server and
 	// immich-machine-learning are twenty-odd characters that differ late and
 	// both trim to "immichimmich", so the second jail started looking for an
-	// interface the first had already taken into its vnet -- "interface
-	// sb_immichimmich does not exist", with the app blamed for it.
+	// interface the first had already taken into its vnet ("interface
+	// sb_immichimmich does not exist", with the app blamed for it).
 	//
 	// A single-service stack takes neither index: its bare name is what every
 	// existing stack has on disk and in its jail.
@@ -70,8 +81,24 @@ func epairName(stackID, service string, svcIdx, n int) string {
 	if n > 0 {
 		suffix += strconv.Itoa(n)
 	}
-	if len(name)+len(suffix) > ifaceMax {
-		name = name[:ifaceMax-len(suffix)]
+	budget := ifaceMax - len(suffix)
+	if len(name)+len(svcClean) > budget {
+		stackMax := budget
+		if svcClean != "" && stackMax > 8 {
+			stackMax = max(8, budget-len(svcClean))
+		}
+		if len(name) > stackMax {
+			tag := epairShortHash(stackID)
+			if stackMax > len(tag) {
+				name = name[:stackMax-len(tag)] + tag
+			} else {
+				name = tag[:stackMax]
+			}
+		}
+	}
+	name += svcClean
+	if len(name) > budget {
+		name = name[:budget]
 	}
 	return name + suffix
 }
@@ -463,7 +490,7 @@ func mergeServiceOptions(svc, generated *yaml.Node) *yaml.Node {
 	out := &yaml.Node{Kind: yaml.SequenceNode}
 	if cur := mapKey(svc, "options"); cur != nil && cur.Kind == yaml.SequenceNode {
 		for _, item := range cur.Content {
-			if item.Kind == yaml.MappingNode && len(item.Content) >= 1 && directorNetOptions[item.Content[0].Value] {
+			if isDirectorNetOption(item) {
 				continue
 			}
 			out.Content = append(out.Content, item)
@@ -600,8 +627,27 @@ func setMapKey(n *yaml.Node, key string, val *yaml.Node) {
 var directorNetOptions = map[string]bool{
 	"bridge": true, "dhcp": true, "ifconfig": true, "defaultrouter": true,
 	"defaultrouter6": true,
-	"macaddr":        true, "device": true, "virtualnet": true, "nat": true,
+	"macaddr":        true, "virtualnet": true, "nat": true,
 	"alias": true, "ip4_inherit": true, "ip6_inherit": true,
+}
+
+// isDirectorNetOption reports whether an options sequence entry is a
+// networking option fjord manages. User device rules (such as GPU devfs paths)
+// are preserved, while the BPF unhide rule fjord writes for DHCP is treated as
+// a networking option.
+func isDirectorNetOption(item *yaml.Node) bool {
+	if item == nil || item.Kind != yaml.MappingNode || len(item.Content) < 1 {
+		return false
+	}
+	key := item.Content[0].Value
+	if directorNetOptions[key] {
+		return true
+	}
+	if key == "device" && len(item.Content) >= 2 {
+		val := strings.TrimSpace(item.Content[1].Value)
+		return val == "path bpf unhide" || val == "include $devfsrules_bpf"
+	}
+	return false
 }
 
 // mergeDirectorOptions puts the generated networking options after whatever
@@ -611,7 +657,7 @@ func mergeDirectorOptions(root, generated *yaml.Node) *yaml.Node {
 	if cur := mapKey(root, "options"); cur != nil && cur.Kind == yaml.SequenceNode {
 		for _, item := range cur.Content {
 			// Each option is a one-key mapping: `- bridge: 'epair:… bridge:…'`.
-			if item.Kind == yaml.MappingNode && len(item.Content) >= 1 && directorNetOptions[item.Content[0].Value] {
+			if isDirectorNetOption(item) {
 				continue
 			}
 			out.Content = append(out.Content, item)
@@ -850,6 +896,13 @@ func disableDirectorNetworks(directorYML string) (string, error) {
 	}
 	root := doc.Content[0]
 	setDirectorOptions(root, mergeDirectorOptions(root, &yaml.Node{Kind: yaml.SequenceNode}))
+	for _, name := range directorServiceNames(root) {
+		svc := directorService(root, name)
+		if mapKey(svc, "options") == nil {
+			continue
+		}
+		setServiceOptions(svc, mergeServiceOptions(svc, &yaml.Node{Kind: yaml.SequenceNode}))
+	}
 	dropServiceExpose(root)
 
 	var sb strings.Builder

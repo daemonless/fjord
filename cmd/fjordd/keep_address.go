@@ -47,6 +47,8 @@ func (s *server) keepAddresses(ctx context.Context, st *stack.Stack) (kept, skip
 	if list, err := s.manager.List(); err == nil {
 		for _, other := range list {
 			private[privateNetworkName(other.Name)] = true
+			private[s.stackPrivateNetwork(other.Name)] = true
+			private[legacyPrivateNetworkName(other.Name)] = true
 		}
 	}
 	held := map[string]map[string]string{} // service -> network -> address

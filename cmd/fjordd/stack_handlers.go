@@ -690,7 +690,7 @@ func (s *server) stackSave(w http.ResponseWriter, r *http.Request, name string) 
 			}
 			composeYAML = moded
 		}
-		republished, err := composepkg.RepublishPorts(composeYAML, hostOnlyServices(atts, s.hostOnlyNetworks(r.Context(), eng, privateNetworkName(name))))
+		republished, err := composepkg.RepublishPorts(composeYAML, hostOnlyServices(atts, s.hostOnlyNetworks(r.Context(), eng, s.stackPrivateNetwork(name))))
 		if err != nil {
 			http.Error(w, "network: "+err.Error(), 400)
 			return
@@ -1501,23 +1501,39 @@ func (s *server) lifecycle(w http.ResponseWriter, r *http.Request, name, action 
 
 // dropPrivateNetwork removes the segment fjord made for a stack once the stack
 // is gone. Nothing did, so every multi-network install left one behind
-// (zensical_priv on netlab, listed as an ordinary network with its stack long
-// deleted). One something still uses is left alone.
+// (listed as an ordinary network with its stack long deleted). One something
+// still uses is left alone.
 func (s *server) dropPrivateNetwork(be engine.Backend, stackName string) {
-	net := privateNetworkName(stackName)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	nets, err := be.Networks(ctx)
-	if err != nil || !slices.ContainsFunc(nets, func(n engine.Network) bool { return n.Name == net }) {
+	if err != nil {
 		return
 	}
-	switch err := be.RemoveNetwork(ctx, net, false); {
-	case err == nil:
-		log.Printf("delete %s: removed its private network %s", stackName, net)
-	case errors.Is(err, engine.ErrInUse):
-		log.Printf("delete %s: kept its private network %s, still in use", stackName, net)
-	default:
-		log.Printf("delete %s: could not remove its private network %s: %v", stackName, net, err)
+	claimed := map[string]bool{}
+	if s.manager != nil {
+		if list, err := s.manager.List(); err == nil {
+			for _, other := range list {
+				if other.Name == stackName {
+					continue
+				}
+				claimed[privateNetworkName(other.Name)] = true
+				claimed[s.stackPrivateNetwork(other.Name)] = true
+			}
+		}
+	}
+	for _, net := range privateNetworkNames(stackName) {
+		if claimed[net] || !slices.ContainsFunc(nets, func(n engine.Network) bool { return n.Name == net }) {
+			continue
+		}
+		switch err := be.RemoveNetwork(ctx, net, false); {
+		case err == nil:
+			log.Printf("delete %s: removed its private network %s", stackName, net)
+		case errors.Is(err, engine.ErrInUse):
+			log.Printf("delete %s: kept its private network %s, still in use", stackName, net)
+		default:
+			log.Printf("delete %s: could not remove its private network %s: %v", stackName, net, err)
+		}
 	}
 }
 

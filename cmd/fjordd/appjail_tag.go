@@ -294,7 +294,7 @@ func projectNetOptions(root *yaml.Node) *yaml.Node {
 	out := &yaml.Node{Kind: yaml.SequenceNode}
 	if cur := mapKey(root, "options"); cur != nil && cur.Kind == yaml.SequenceNode {
 		for _, item := range cur.Content {
-			if item.Kind == yaml.MappingNode && len(item.Content) >= 1 && directorNetOptions[item.Content[0].Value] {
+			if isDirectorNetOption(item) {
 				out.Content = append(out.Content, item)
 			}
 		}
@@ -306,7 +306,7 @@ func projectNetOptions(root *yaml.Node) *yaml.Node {
 func hasNetOptions(svc *yaml.Node) bool {
 	if cur := mapKey(svc, "options"); cur != nil && cur.Kind == yaml.SequenceNode {
 		for _, item := range cur.Content {
-			if item.Kind == yaml.MappingNode && len(item.Content) >= 1 && directorNetOptions[item.Content[0].Value] {
+			if isDirectorNetOption(item) {
 				return true
 			}
 		}

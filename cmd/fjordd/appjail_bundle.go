@@ -157,9 +157,10 @@ func writeAppjailBundle(dir, stackID string, b *manifest.AppjailBundle, resolved
 	}
 	// Sidecar jail templates and other bundle extras go next to director.yml
 	// under their own names (director references them as ${PWD}/<name>).
-	// Names are file names only -- never a path that could escape the dir.
+	// Names are file names only, never a path that could escape the dir or
+	// overwrite a stack file fjord owns.
 	for name, body := range b.Extras {
-		if name == "" || name != filepath.Base(name) || strings.HasPrefix(name, ".") {
+		if name == "" || name != filepath.Base(name) || strings.HasPrefix(name, ".") || reservedBundleFiles[name] {
 			return "", fmt.Errorf("appjail bundle: refusing extra file name %q", name)
 		}
 		if strings.HasSuffix(name, ".conf") {
@@ -190,6 +191,15 @@ func writeAppjailBundle(dir, stackID string, b *manifest.AppjailBundle, resolved
 		return "", fmt.Errorf("jail templates: %w", err)
 	}
 	return env, nil
+}
+
+var reservedBundleFiles = map[string]bool{
+	"appjail-director.yml": true,
+	"compose.yaml":         true,
+	"compose.yml":          true,
+	"Makejail":             true,
+	"template.conf":        true,
+	"state.json":           true,
 }
 
 var allowedPrisonExec = map[string]bool{

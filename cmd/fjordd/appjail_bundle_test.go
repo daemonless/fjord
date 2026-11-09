@@ -100,11 +100,22 @@ func TestWriteAppjailBundleWritesExtras(t *testing.T) {
 	}
 }
 
-// A name that is a path is refused rather than written: these come from a
-// catalog manifest, and one escaping the stack dir would land anywhere fjordd
-// can write.
+// A name that is a path or a reserved stack file is refused rather than
+// written: these come from a catalog manifest, and one escaping the stack dir
+// or overwriting a primary bundle file would corrupt the stack.
 func TestWriteAppjailBundleRefusesEscapingExtra(t *testing.T) {
-	for _, bad := range []string{"../escape.conf", "/etc/passwd", ".hidden", "sub/dir.conf"} {
+	for _, bad := range []string{
+		"../escape.conf",
+		"/etc/passwd",
+		".hidden",
+		"sub/dir.conf",
+		"appjail-director.yml",
+		"compose.yaml",
+		"compose.yml",
+		"Makejail",
+		"template.conf",
+		"state.json",
+	} {
 		b := &manifest.AppjailBundle{
 			Director: testDirector,
 			Extras:   map[string]string{bad: "x\n"},
