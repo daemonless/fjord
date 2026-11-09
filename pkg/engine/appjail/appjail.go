@@ -44,12 +44,13 @@ func NewBackend() *Backend { return &Backend{} }
 // pre-5.5.0 gets a non-fatal warning since it lacks the OCI maturity some apps
 // need. All of appjail's engine-specific knowledge lives here.
 var Descriptor = engine.Descriptor{
-	Name:        "appjail",
-	Description: "Native FreeBSD jails from OCI images, orchestrated by appjail-director.",
-	Package:     "appjail sysutils/py-director", // appjail + appjail-director (py-director)
-	OS:          "freebsd",
-	Available:   available,
-	New:         func() engine.Backend { return NewBackend() },
+	Name:            "appjail",
+	Description:     "Native FreeBSD jails from OCI images, orchestrated by appjail-director.",
+	Package:         "appjail sysutils/py-director", // appjail + appjail-director (py-director)
+	OS:              "freebsd",
+	DirectorBundles: true,
+	Available:       available,
+	New:             func() engine.Backend { return NewBackend() },
 }
 
 func available() (ok bool, reason, warning string) {

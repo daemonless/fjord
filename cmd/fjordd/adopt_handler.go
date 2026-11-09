@@ -23,26 +23,6 @@ import (
 	"github.com/daemonless/fjord/pkg/updates"
 )
 
-// adopter is implemented by engines that can list containers no stack owns
-// and say how to recreate each: podman hands over the run line, appjail a
-// director bundle read back from the jail.
-type adopter interface {
-	UnmanagedContainers(ctx context.Context, skip func(name, project string) bool) ([]engine.Unmanaged, error)
-	RemoveContainer(ctx context.Context, name string) error
-}
-
-// jailOwner is implemented by engines whose stacks own named jails, so
-// fjord's own can be left out of the candidates.
-// adoptableNamer names what an engine can adopt without building each spec.
-// An engine without it is asked for the full list.
-type adoptableNamer interface {
-	AdoptableNames(ctx context.Context, skip func(name, project string) bool) ([]string, error)
-}
-
-type jailOwner interface {
-	StackJails(s *stack.Stack) []string
-}
-
 // adoptCandidate is one unmanaged container with the stack it would become.
 type adoptCandidate struct {
 	engine.Unmanaged
@@ -126,7 +106,7 @@ func adoptSpec(u engine.Unmanaged) (*engine.AdoptSpec, error) {
 // ownedJails names every jail fjord's stacks on this engine already own.
 func (s *server) ownedJails(be engine.Backend, engineName string) map[string]bool {
 	owned := map[string]bool{}
-	jo, ok := be.(jailOwner)
+	jo, ok := be.(engine.JailOwner)
 	if !ok {
 		return owned
 	}
@@ -174,7 +154,7 @@ func (s *server) handleAdoptable(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		skip := s.fjordOwns(be, d.Name)
-		if an, ok := be.(adoptableNamer); ok {
+		if an, ok := be.(engine.AdoptableNamer); ok {
 			list, err := an.AdoptableNames(ctx, skip)
 			if err != nil {
 				log.Printf("adoptable: %s: %v", d.Name, err)
@@ -182,7 +162,7 @@ func (s *server) handleAdoptable(w http.ResponseWriter, r *http.Request) {
 			names = append(names, list...)
 			continue
 		}
-		ad, ok := be.(adopter)
+		ad, ok := be.(engine.Adopter)
 		if !ok {
 			continue
 		}
@@ -218,7 +198,7 @@ func (s *server) handleAdopt(w http.ResponseWriter, r *http.Request) {
 			if !ok {
 				continue
 			}
-			ad, ok := be.(adopter)
+			ad, ok := be.(engine.Adopter)
 			if !ok {
 				continue
 			}
@@ -263,7 +243,7 @@ func (s *server) handleAdopt(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "engine not available: "+req.Engine, 400)
 			return
 		}
-		ad, ok := be.(adopter)
+		ad, ok := be.(engine.Adopter)
 		if !ok {
 			http.Error(w, "engine "+req.Engine+" can't adopt containers", 400)
 			return
@@ -403,9 +383,7 @@ func (s *server) adoptWebHint(ctx context.Context, be engine.Backend, appID, com
 		}
 	}
 	exposed := func(string) []string { return nil }
-	if ex, ok := be.(interface {
-		ImageExposedPorts(context.Context, string) ([]string, error)
-	}); ok {
+	if ex, ok := be.(engine.ImageExposer); ok {
 		exposed = func(image string) []string {
 			keys, _ := ex.ImageExposedPorts(ctx, image)
 			return keys
