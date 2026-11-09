@@ -66,6 +66,7 @@ wire.
 | default-install | the day-one path: install from the store with nothing changed but the name, on podman and on AppJail, on the engine's default network; the Open address answers from off-host | t-def-podman, t-def-appjail |
 | update | an update through the panel, end to end: syncthing 2.1.3 installed, the panel's sentence with a real package diff from the registry, Update taken, the container replaced and running 2.1.5, the health watch clean, Roll back offered, the port answering from off-host | t-upd |
 | update-badtag | Update from the Stacks list with the compose on a tag the registry does not have: the row says Updating…, then the stack still runs its old container and the Output says why and that nothing was replaced (podman-compose exits 0 on a failed pull) | t-badtag |
+| row-failed | a failed action says so on its Stacks row: Start from the list on a tag the registry does not have ends in a red Start failed pill with the reason as its tooltip, kept through a reload, gone after a clean Start | t-rowfail |
 | wording | the wizard says what "private" is; a busy stack says why its buttons are grey | t-word |
 | busy | installing reads as busy, not a problem; a second up is refused | t-busy |
 | output-elsewhere | an update started over the API shows its output on a page opened mid-action, running until it is done | t-out |

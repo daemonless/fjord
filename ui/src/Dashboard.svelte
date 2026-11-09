@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { problem } from './stackHealth';
+  import { failedAction, problem } from './stackHealth';
   import { statusKey } from './staleNote';
   import { onMount, createEventDispatcher } from 'svelte';
   import Icon from './Icon.svelte';
@@ -517,6 +517,11 @@
                       class="inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full text-fjord-accent bg-fjord-accent/10 border border-fjord-accent/30"
                       ><Spinner size={10} /> Updating…</span
                     >
+                  {:else if failedAction(s)}
+                    <span
+                      class="inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full text-fjord-danger bg-fjord-danger/10 border border-fjord-danger/30"
+                      title={failedAction(s)?.message}><Icon name="alert" size={11} /> {failedAction(s)?.label}</span
+                    >
                   {:else if !u && fleetRefreshing}
                     <span class="text-xs text-fjord-fg-faint">…</span>
                   {:else if u?.state === 'available'}
@@ -639,6 +644,11 @@
               {#if s.busy === 'update'}
                 <span class="inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full text-fjord-accent bg-fjord-accent/10 border border-fjord-accent/30"
                   ><Spinner size={10} /> Updating…</span
+                >
+              {:else if failedAction(s)}
+                <span
+                  class="inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full text-fjord-danger bg-fjord-danger/10 border border-fjord-danger/30"
+                  title={failedAction(s)?.message}><Icon name="alert" size={11} /> {failedAction(s)?.label}</span
                 >
               {:else if !u && fleetRefreshing}
                 <span class="text-xs text-fjord-fg-faint">…</span>

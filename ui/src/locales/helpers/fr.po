@@ -375,3 +375,31 @@ msgstr "Choisissez parmi {0}"
 #: src/typedVars.ts
 msgid "Enter a positive whole number and unit (e.g. 50g or 512m)"
 msgstr "Entrez un nombre entier positif et une unité (ex. 50g ou 512m)"
+
+#: src/stackHealth.ts
+msgid "Update failed"
+msgstr "Échec de la mise à jour"
+
+#: src/stackHealth.ts
+msgid "Start failed"
+msgstr "Échec du démarrage"
+
+#: src/stackHealth.ts
+msgid "Start on boot failed"
+msgstr "Échec du démarrage avec l'hôte"
+
+#: src/stackHealth.ts
+msgid "Install failed"
+msgstr "Échec de l'installation"
+
+#: src/stackHealth.ts
+msgid "Stop failed"
+msgstr "Échec de l'arrêt"
+
+#: src/stackHealth.ts
+msgid "Restart failed"
+msgstr "Échec du redémarrage"
+
+#: src/stackHealth.ts
+msgid "Failed"
+msgstr "Échec"
