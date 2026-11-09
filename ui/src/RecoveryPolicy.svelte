@@ -17,8 +17,8 @@
   let cooldown = 60;
 
   $: action = recovery?.action || 'none';
-  $: if (recovery?.maxTries) maxTries = recovery.maxTries;
-  $: if (recovery?.cooldown) cooldown = recovery.cooldown;
+  $: if (!open && !saving && recovery?.maxTries) maxTries = recovery.maxTries;
+  $: if (!open && !saving && recovery?.cooldown) cooldown = recovery.cooldown;
   $: off = disabled || saving;
   $: if (off && !saving) open = false;
 

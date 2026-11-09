@@ -610,6 +610,7 @@ msgid "Checking it stays up"
 msgstr "Vérification qu'elle reste en marche"
 
 #: src/App.svelte
+#: src/App.svelte
 msgid "Failed — see Output"
 msgstr "Échec — voir la Sortie"
 
@@ -2721,6 +2722,7 @@ msgstr "À propos du dossier des données d'application"
 #: src/Settings.svelte
 #: src/System.svelte
 #: src/VarsPanel.svelte
+#: src/Volumes.svelte
 msgid "default"
 msgstr "par défaut"
 
@@ -4083,6 +4085,7 @@ msgid "<0/> Open <1/>"
 msgstr "<0/> Ouvrir <1/>"
 
 #: src/StackDetail.svelte
+#: src/StackDetail.svelte
 msgid "Save or discard your edits first"
 msgstr "Enregistrez ou abandonnez d'abord vos modifications"
 
@@ -5189,3 +5192,11 @@ msgstr "Abandonner les modifications non enregistrées pour {0} ?"
 #: src/App.svelte
 msgid "Save failed: {0}"
 msgstr "Échec de l'enregistrement : {0}"
+
+#: src/InstallWizard.svelte
+msgid "Confirm the host capabilities requested by this app"
+msgstr "Confirmez les capacités de l'hôte demandées par cette application"
+
+#: src/InstallWizard.svelte
+msgid "Allow host capabilities requested by this app: <0/>"
+msgstr "Autoriser les capacités de l'hôte demandées par cette application : <0/>"

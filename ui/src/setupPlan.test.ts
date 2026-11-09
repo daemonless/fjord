@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { plan, purpose, outcome, installStream, type Check } from './setupPlan';
+import {
+  buildSavedFolderSets,
+  installStream,
+  mergeAppDataLocations,
+  outcome,
+  plan,
+  purpose,
+  splitFolderSetsForSetup,
+  type Check,
+} from './setupPlan';
 
 const ENGINES = ['podman', 'appjail'];
 const c = (id: string, over: Partial<Check> = {}): Check => ({ id, name: id, status: 'fail', ...over });
@@ -122,5 +131,49 @@ describe('install stream when the connection drops', () => {
     } finally {
       globalThis.fetch = real;
     }
+  });
+});
+
+describe('setup storage preservation', () => {
+  it('preserves additional App data locations when re-running setup', () => {
+    expect(mergeAppDataLocations('/containers', ['/containers', '/tank/apps', '/nvme/apps'])).toEqual([
+      '/containers',
+      '/tank/apps',
+      '/nvme/apps',
+    ]);
+    expect(mergeAppDataLocations('/fast/apps', ['/containers', '/tank/apps'])).toEqual([
+      '/fast/apps',
+      '/tank/apps',
+    ]);
+    expect(mergeAppDataLocations('', ['/containers', '/tank/apps'])).toEqual(['/tank/apps']);
+  });
+
+  it('preserves custom folder sets (including ones with match rules) and case-insensitive preset sets', () => {
+    const presets = [
+      { name: 'Movies', match: 'MOVIE|FILM' },
+      { name: 'TV', match: 'TV|SHOW' },
+    ];
+    const existing = [
+      { id: '1', name: 'movies', folders: ['/tank/movies'], match: 'MOVIE|FILM' },
+      { id: '2', name: 'Anime', folders: ['/tank/anime'], match: 'ANIME' },
+      { id: '3', name: 'Backups', folders: ['/tank/backups'] },
+    ];
+    const split = splitFolderSetsForSetup(existing, presets);
+    expect(split.presetFolders).toEqual({
+      Movies: ['/tank/movies'],
+      TV: [],
+    });
+    expect(split.presetIds).toEqual({ Movies: '1' });
+    expect(split.customSets).toEqual([
+      { id: '2', name: 'Anime', folders: ['/tank/anime'], match: 'ANIME' },
+      { id: '3', name: 'Backups', folders: ['/tank/backups'] },
+    ]);
+
+    const saved = buildSavedFolderSets(presets, split.presetFolders, split.presetIds, split.customSets);
+    expect(saved).toEqual([
+      { id: '2', name: 'Anime', folders: ['/tank/anime'], match: 'ANIME' },
+      { id: '3', name: 'Backups', folders: ['/tank/backups'] },
+      { id: '1', name: 'Movies', folders: ['/tank/movies'], match: 'MOVIE|FILM' },
+    ]);
   });
 });

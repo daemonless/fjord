@@ -45,6 +45,8 @@ const note = (id, ok, msg) => console.log(`${ok ? 'PASS' : 'FAIL'} ${id}: ${msg}
     await cfg.fill(R + '/t-own/config');
     await page.locator('#DB_PASSWORD').fill('lnms-db-t3st');
     await page.locator('#ADMIN_PASSWORD').fill('Fjord-t3st-9d7c2a41');
+    const cap = page.getByRole('checkbox', { name: /Allow host capabilities/ });
+    if (await cap.isVisible().catch(() => false)) await cap.check();
     await install.click();
     const refusal = page.getByText(/is inside t-own's folder/).first();
     await refusal.waitFor({ timeout: 30000 }).catch(() => {});

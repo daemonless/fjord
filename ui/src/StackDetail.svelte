@@ -400,6 +400,15 @@
   let addSource = '';
   let addingTo = '';
   let pickingMount = false; // host-path DirPicker open
+  let lastStackName = '';
+  $: if (stack?.name && stack.name !== lastStackName) {
+    lastStackName = stack.name;
+    addSource = '';
+    addingTo = '';
+    pickingMount = false;
+    varPop = null;
+    changeVersion = null;
+  }
   // Folder sets (Settings) for "Add folder set…": N folders become N binds under
   // the container path. Placeholders resolve against THIS stack's folder name and
   // the default App data location (an installed stack has no recorded pick).
@@ -741,11 +750,19 @@
       <RecoveryPolicy
         name={stack.name}
         recovery={stack.recovery}
-        disabled={busyNow}
-        reason={busyReason}
+        disabled={busyNow || isDirty}
+        reason={busyReason || (isDirty ? 'Save or discard your edits first' : '')}
         on:changed={async () => {
           const name = stack.name;
-          await onSelectStack({ name } as Stack);
+          if (!isDirty) {
+            await onSelectStack({ name } as Stack);
+          } else {
+            const r = await fetch(`/api/stacks/${encodeURIComponent(name)}`).catch(() => null);
+            if (r?.ok && stack?.name === name) {
+              const fresh = await r.json();
+              stack = { ...stack, recovery: fresh.recovery, state: fresh.state };
+            }
+          }
           await onLoadStacks();
         }}
       />
@@ -1419,44 +1436,46 @@
                 .join(' · ')}
             </p>
           {/if}
-          <ServiceResources
-            services={stack.services ?? []}
-            iconOf={(image) => serviceIcon($imageIcons, image)}
-            oneBridgePerService={(stack.state?.engine || stack.engine || defaultEngine) === 'appjail'}
-            bridgeAlone={(stack.state?.engine || stack.engine || defaultEngine) === 'appjail'}
-            updates={svcUpdates}
-            rollbacks={updateInfo?.rollback ?? {}}
-            pinned={svcPinned}
-            on:openUpdate={() => openUpdatePanel(stack.name)}
-            on:rollback={(e) => onRollback(stack.name, e.detail)}
-            on:unpin={(e) => onUnpin(stack.name, e.detail)}
-            versionable={!stack.director || (!!updateInfo?.pinServices && !!stack.compose?.trim())}
-            on:version={(e) =>
-              (changeVersion = {
-                name: stack.name,
-                service: e.detail.service,
-                image: e.detail.image,
-                suggest: svcUpdates[e.detail.service]?.newTag,
-              })}
-            {networks}
-            {unsupportedModes}
-            stackName={stack.name}
-            bind:edits={svcNets}
-            {canUseVolumes}
-            {namedVolumes}
-            {folderSets}
-            bind:addSource
-            {addingTo}
-            on:change={() => (svcNets = svcNets)}
-            on:unmount={(e) => removeMount(e.detail)}
-            on:add={(e) => addMount(e.detail)}
-            on:remote={(e) => addRemoteMount(e.detail)}
-            on:folderset={(e) => addFolderSet(e.detail.service, e.detail.id, e.detail.dest, e.detail.readOnly, e.detail.options)}
-            on:mountoptions={(e) => setMountOptions(e.detail)}
-            on:browse={() => (pickingMount = true)}
-            on:openAdd={(e) => { addingTo = e.detail; addSource = ''; }}
-            on:closeAdd={() => { addingTo = ''; addSource = ''; }}
-          />
+          {#key stack.name}
+            <ServiceResources
+              services={stack.services ?? []}
+              iconOf={(image) => serviceIcon($imageIcons, image)}
+              oneBridgePerService={(stack.state?.engine || stack.engine || defaultEngine) === 'appjail'}
+              bridgeAlone={(stack.state?.engine || stack.engine || defaultEngine) === 'appjail'}
+              updates={svcUpdates}
+              rollbacks={updateInfo?.rollback ?? {}}
+              pinned={svcPinned}
+              on:openUpdate={() => openUpdatePanel(stack.name)}
+              on:rollback={(e) => onRollback(stack.name, e.detail)}
+              on:unpin={(e) => onUnpin(stack.name, e.detail)}
+              versionable={!stack.director || (!!updateInfo?.pinServices && !!stack.compose?.trim())}
+              on:version={(e) =>
+                (changeVersion = {
+                  name: stack.name,
+                  service: e.detail.service,
+                  image: e.detail.image,
+                  suggest: svcUpdates[e.detail.service]?.newTag,
+                })}
+              {networks}
+              {unsupportedModes}
+              stackName={stack.name}
+              bind:edits={svcNets}
+              {canUseVolumes}
+              {namedVolumes}
+              {folderSets}
+              bind:addSource
+              {addingTo}
+              on:change={() => (svcNets = svcNets)}
+              on:unmount={(e) => removeMount(e.detail)}
+              on:add={(e) => addMount(e.detail)}
+              on:remote={(e) => addRemoteMount(e.detail)}
+              on:folderset={(e) => addFolderSet(e.detail.service, e.detail.id, e.detail.dest, e.detail.readOnly, e.detail.options)}
+              on:mountoptions={(e) => setMountOptions(e.detail)}
+              on:browse={() => (pickingMount = true)}
+              on:openAdd={(e) => { addingTo = e.detail; addSource = ''; }}
+              on:closeAdd={() => { addingTo = ''; addSource = ''; }}
+            />
+          {/key}
           {/if}
         </div>
       {/if}

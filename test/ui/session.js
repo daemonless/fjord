@@ -57,7 +57,7 @@ async function keepStreams(page) {
       const res = await fetch0(input, init);
       const url = typeof input === 'string' ? input : input.url;
       const method = (init?.method || (typeof input === 'string' ? 'GET' : input.method) || 'GET').toUpperCase();
-      if (method !== 'POST' || !/\/api\/stacks\//.test(url) || !res.body) return res;
+      if (method !== 'POST' || !/\/api\/stacks\//.test(url) || !res.body || [204, 205, 304].includes(res.status)) return res;
       const [mine, kept] = res.body.tee();
       const rec = { url: new URL(url, location.href).pathname, text: '', done: false };
       window.__streams.push(rec);

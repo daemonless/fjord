@@ -38,6 +38,19 @@ export function noWebUI(stack: AppUrlStack | null): boolean {
   return stack?.state?.origin?.type === 'catalog' && !/^\s*web_port:/m.test(stack.compose || '');
 }
 
+/** Allow only http: and https: URLs before rendering an external link or opening a window. */
+export function safeHttpUrl(u: string | undefined | null): string {
+  if (!u || typeof u !== 'string') return '';
+  const trimmed = u.trim();
+  if (!trimmed) return '';
+  try {
+    const parsed = new URL(trimmed);
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:' ? trimmed : '';
+  } catch {
+    return '';
+  }
+}
+
 export function appUrl(stack: AppUrlStack | null): string {
   if (!stack || noWebUI(stack)) return '';
   const c = stack.compose || '';

@@ -113,6 +113,11 @@ func buildBackends(fjordRoot string) (map[string]engine.Backend, string) {
 	return backends, def
 }
 
+// uiCSP blocks arbitrary inline script execution and javascript: URLs while
+// allowing the inline pre-paint theme script in ui/index.html, the Svelte
+// bundle, CodeMirror inline styles, WebSockets, name-trust probes, and catalog icons.
+const uiCSP = "default-src 'self'; script-src 'self' 'sha256-tgTmSEbYpQj5629RZ4PLdv8iOoP8fH7Bgwv/EI7vOrU='; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: http:; connect-src 'self' ws: wss: https: http:; font-src 'self' data:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
+
 // cacheControl keeps the SPA shell out of the browser's cache altogether,
 // while letting the content-hashed assets cache forever. The embedded FS
 // sends no ETag or Last-Modified (embed files have zero modtime), so a
@@ -128,6 +133,7 @@ func cacheControl(next http.Handler) http.Handler {
 			w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
 		} else {
 			w.Header().Set("Cache-Control", "no-store")
+			w.Header().Set("Content-Security-Policy", uiCSP)
 		}
 		next.ServeHTTP(w, r)
 	})

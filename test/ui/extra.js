@@ -98,6 +98,8 @@ async function paperless(page, name, engine) {
   const says = /expects host networking/.test(warn);
   note(`${name}: wizard default matches a host-networking app`, !says || chosen === 'host',
     `network picker shows "${chosen}"${says ? ' under "This app expects host networking"' : ''}`);
+  const cap = page.getByRole('checkbox', { name: /Allow host capabilities/ });
+  if (await cap.isVisible().catch(() => false)) await cap.check();
   const btn = page.getByRole('button', { name: 'Install', exact: true });
   if (await btn.isDisabled()) {
     note(`${name}: install`, false, `Install disabled: "${warn.trim() || 'no reason shown'}"`);

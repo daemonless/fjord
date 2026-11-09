@@ -6,6 +6,7 @@
   // name per app; its other apps' list (▾ N) follows the same choice, and
   // Change name is for a stack of one app (one name to change).
   import { names, deviceTrust, openBy, nameTargets, nameLabel, providerUrl, addNames, removeName, renameName, freeLabels } from './names';
+  import { safeHttpUrl } from './appUrl';
   import { toast } from './toast';
   import Icon from './Icon.svelte';
   import Spinner from './Spinner.svelte';
@@ -79,7 +80,8 @@
   function pick(by: 'name' | 'address') {
     openBy.set(by);
     open = false;
-    const url = by === 'name' ? ownUrl || firstName?.url || first?.url : first?.url;
+    const raw = by === 'name' ? safeHttpUrl(ownUrl) || safeHttpUrl(firstName?.url) || first?.url : first?.url;
+    const url = safeHttpUrl(raw);
     if (url) window.open(url, '_blank', 'noreferrer');
   }
 

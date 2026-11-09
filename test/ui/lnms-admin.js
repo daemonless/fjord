@@ -28,6 +28,8 @@ const shot = (page, n) => page.screenshot({ path: `/out/${n}.png`, fullPage: tru
     await page.getByRole('button', { name: /^Options/ }).first().click();
     await page.locator('#CONFIG_LOCATION').fill('/containers/t-lnms/config');
     await page.locator('#DB_DATA_LOCATION').fill('/containers/t-lnms/mariadb');
+    const cap = page.getByRole('checkbox', { name: /Allow host capabilities/ });
+    if (await cap.isVisible().catch(() => false)) await cap.check();
     await shot(page, 'lnms-admin-wizard');
     await install.click();
     let d;
