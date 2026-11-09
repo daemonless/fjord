@@ -193,7 +193,7 @@ func (s *server) isPrivateNetwork(network string) bool {
 		return false
 	}
 	for _, other := range list {
-		if privateNetworkName(other.Name) == network {
+		if privateNetworkName(other.Name) == network || s.stackPrivateNetwork(other.Name) == network || legacyPrivateNetworkName(other.Name) == network {
 			return true
 		}
 	}

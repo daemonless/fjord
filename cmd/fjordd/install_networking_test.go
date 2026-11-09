@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"net"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -11,6 +13,7 @@ import (
 	composepkg "github.com/daemonless/fjord/pkg/compose"
 	"github.com/daemonless/fjord/pkg/engine"
 	"github.com/daemonless/fjord/pkg/manifest"
+	"github.com/daemonless/fjord/pkg/stack"
 )
 
 // immich's declaration: the server on whatever the install chose, everything
@@ -120,20 +123,152 @@ func TestPrivateNetworkName(t *testing.T) {
 		"immich-2":                "immich-2_priv",
 		"My Stack!":               "My-Stack_priv",
 		"-weird-":                 "weird_priv",
-		"averyverylongstackname":  "averyveryl_priv",
-		"trailing-separator--xyz": "trailing-s_priv",
+		"averyverylongstackname":  legacyPrivateNetworkName("averyverylongstackname"),
+		"trailing-separator--xyz": legacyPrivateNetworkName("trailing-separator--xyz"),
 		"!!!":                     "stack_priv",
 	} {
-		if got := privateNetworkName(in); got != want {
-			t.Errorf("privateNetworkName(%q) = %q, want %q", in, got, want)
+		if len(strings.Trim(in, "!- ")) <= privateNetNameMax-len(privateNetSuffix) {
+			if got := privateNetworkName(in); got != want {
+				t.Errorf("privateNetworkName(%q) = %q, want %q", in, got, want)
+			}
+		}
+	}
+	// Long stack names that share a 10-character prefix must not collide, and
+	// every generated name must fit within privateNetNameMax (15 chars).
+	pairs := [][2]string{
+		{"paperless", "paperless-2"},
+		{"audiobookshelf", "audiobookshelf-2"},
+		{"averyverylongstackname", "averyverylongstackname-2"},
+		{"trailing-separator--xyz", "trailing-separator--abc"},
+	}
+	for _, pair := range pairs {
+		a, b := privateNetworkName(pair[0]), privateNetworkName(pair[1])
+		if a == b {
+			t.Errorf("privateNetworkName(%q) and privateNetworkName(%q) both returned %q", pair[0], pair[1], a)
+		}
+		for _, in := range pair {
+			n := privateNetworkName(in)
+			if len(n) > privateNetNameMax {
+				t.Errorf("privateNetworkName(%q) = %q (%d chars), over the %d limit", in, n, len(n), privateNetNameMax)
+			}
+			if !isPrivateNetworkName(n) {
+				t.Errorf("privateNetworkName(%q) = %q is not recognized by isPrivateNetworkName", in, n)
+			}
 		}
 	}
 	// appjail makes the bridge with this name, and an interface name must fit
 	// IFNAMSIZ. 16 is refused outright: "network name too long".
-	for _, in := range []string{"immich", "immich-2", "a-really-long-stack-name-indeed", "x"} {
+	for _, in := range []string{"immich", "immich-2", "a-really-long-stack-name-indeed", "x", "----------long"} {
 		if n := privateNetworkName(in); len(n) > privateNetNameMax {
 			t.Errorf("privateNetworkName(%q) = %q (%d chars), over the %d limit", in, n, len(n), privateNetNameMax)
 		}
+	}
+}
+
+type stubPrivateNetBackend struct {
+	engine.Backend
+	nets    []engine.Network
+	created []engine.NetworkSpec
+	removed []string
+}
+
+func (b *stubPrivateNetBackend) NetworkKinds() []engine.NetworkKind {
+	return []engine.NetworkKind{{ID: "nat"}}
+}
+
+func (b *stubPrivateNetBackend) Networks(context.Context) ([]engine.Network, error) {
+	return slices.Clone(b.nets), nil
+}
+
+func (b *stubPrivateNetBackend) CreateNetwork(_ context.Context, spec engine.NetworkSpec) (engine.Network, error) {
+	b.created = append(b.created, spec)
+	n := engine.Network{Name: spec.Name, Subnet: spec.Subnet}
+	b.nets = append(b.nets, n)
+	return n, nil
+}
+
+func (b *stubPrivateNetBackend) RemoveNetwork(_ context.Context, name string, _ bool) error {
+	b.removed = append(b.removed, name)
+	b.nets = slices.DeleteFunc(b.nets, func(n engine.Network) bool { return n.Name == name })
+	return nil
+}
+
+func TestLegacyPrivateNetworkUpgradeCompatibility(t *testing.T) {
+	// 1. Standalone upgraded stack with >10 char ID owns its legacy network
+	// (not marked Leftover).
+	nets := []engine.Network{
+		{Name: "audiobooks_priv"},
+	}
+	labelPrivateNetworks(nets, []string{"audiobookshelf"})
+	if !nets[0].Private || nets[0].Leftover || nets[0].OwnedBy != "audiobookshelf" {
+		t.Fatalf("upgraded audiobooks_priv = %+v, want owned by audiobookshelf and not leftover", nets[0])
+	}
+
+	// 2. When both paperless and paperless-2 exist, paperless owns
+	// paperless_priv and paperless-2 owns its hashed private network.
+	p2Net := privateNetworkName("paperless-2")
+	bothNets := []engine.Network{
+		{Name: "paperless_priv"},
+		{Name: p2Net},
+	}
+	labelPrivateNetworks(bothNets, []string{"paperless-2", "paperless"})
+	if bothNets[0].OwnedBy != "paperless" || bothNets[0].Leftover {
+		t.Errorf("paperless_priv = %+v, want owned by paperless", bothNets[0])
+	}
+	if bothNets[1].OwnedBy != "paperless-2" || bothNets[1].Leftover {
+		t.Errorf("%s = %+v, want owned by paperless-2", p2Net, bothNets[1])
+	}
+
+	// 3. stackPrivateNetwork and ensurePrivateNetwork reuse audiobooks_priv
+	// for an existing audiobookshelf stack instead of creating a second network.
+	stacksDir := t.TempDir()
+	writeStack := func(name, compose string) {
+		dir := filepath.Join(stacksDir, name)
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "compose.yaml"), []byte(compose), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeStack("audiobookshelf", "services:\n  app:\n    image: x\n    networks:\n      - audiobooks_priv\nnetworks:\n  audiobooks_priv:\n    external: true\n")
+	be := &stubPrivateNetBackend{
+		Backend: engine.Unavailable("podman"),
+		nets:    []engine.Network{{Name: "audiobooks_priv", Subnet: "10.100.0.0/24"}},
+	}
+	srv := &server{
+		manager:  stack.NewManager(stacksDir),
+		backends: map[string]engine.Backend{"podman": be},
+	}
+	if got := srv.stackPrivateNetwork("audiobookshelf"); got != "audiobooks_priv" {
+		t.Fatalf("stackPrivateNetwork(audiobookshelf) = %q, want audiobooks_priv", got)
+	}
+	gotNet, err := srv.ensurePrivateNetwork(context.Background(), "podman", "audiobookshelf")
+	if err != nil {
+		t.Fatalf("ensurePrivateNetwork: %v", err)
+	}
+	if gotNet != "audiobooks_priv" || len(be.created) != 0 {
+		t.Fatalf("ensurePrivateNetwork = %q (created=%v), want reuse of audiobooks_priv", gotNet, be.created)
+	}
+
+	// 4. dropPrivateNetwork removes audiobooks_priv when audiobookshelf is
+	// deleted, and does NOT remove paperless_priv when paperless-2 is deleted
+	// while paperless still exists.
+	os.RemoveAll(filepath.Join(stacksDir, "audiobookshelf"))
+	srv.dropPrivateNetwork(be, "audiobookshelf")
+	if !slices.Equal(be.removed, []string{"audiobooks_priv"}) {
+		t.Fatalf("dropPrivateNetwork(audiobookshelf) removed %v, want [audiobooks_priv]", be.removed)
+	}
+
+	writeStack("paperless", "services:\n  app:\n    image: x\n    networks:\n      - paperless_priv\n")
+	be.nets = []engine.Network{
+		{Name: "paperless_priv", Subnet: "10.100.0.0/24"},
+		{Name: p2Net, Subnet: "10.101.0.0/24"},
+	}
+	be.removed = nil
+	srv.dropPrivateNetwork(be, "paperless-2")
+	if !slices.Equal(be.removed, []string{p2Net}) {
+		t.Fatalf("dropPrivateNetwork(paperless-2) removed %v, want only [%s] (keeping paperless_priv)", be.removed, p2Net)
 	}
 }
 

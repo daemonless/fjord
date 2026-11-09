@@ -3,9 +3,11 @@ package main
 import (
 	"context"
 	"fmt"
+	"hash/fnv"
 	"maps"
 	"net"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 
@@ -16,7 +18,7 @@ import (
 )
 
 // privateNetName bounds a network name. appjail makes the bridge with this
-// name, and an interface name must fit IFNAMSIZ -- 16 including the NUL, so 15
+// name, and an interface name must fit IFNAMSIZ: 16 including the NUL, so 15
 // characters. Measured, not assumed: 15 is accepted and 16 is refused with
 // "network name too long".
 const privateNetNameMax = 15
@@ -29,8 +31,34 @@ const privateNetSuffix = "_priv"
 // privateNetworkName is what a stack's own private segment is called.
 //
 // Named after the stack so a sorted list keeps a stack's things together, and
-// so the name says whose it is when it turns up attached to something.
+// so the name says whose it is when it turns up attached to something. When the
+// cleaned name overflows the 10-character budget, the tail is a short FNV-1a
+// hash of the full cleaned name so "paperless" and "paperless-2" do not both
+// truncate to "paperless_priv".
 func privateNetworkName(stackID string) string {
+	clean := regexp.MustCompile(`[^a-zA-Z0-9_.-]+`).ReplaceAllString(stackID, "-")
+	clean = strings.Trim(clean, "-._")
+	if max := privateNetNameMax - len(privateNetSuffix); len(clean) > max {
+		h := fnv.New32a()
+		_, _ = h.Write([]byte(clean))
+		tag := fmt.Sprintf("%04x", h.Sum32()&0xffff)
+		head := strings.TrimRight(clean[:max-len(tag)-1], "-._")
+		if head == "" {
+			clean = tag
+		} else {
+			clean = head + "-" + tag
+		}
+	}
+	if clean == "" {
+		clean = "stack"
+	}
+	return clean + privateNetSuffix
+}
+
+// legacyPrivateNetworkName returns the pre-hash 10-character truncated private
+// network name so stacks installed before hashed truncation keep ownership of
+// their existing private network across upgrades.
+func legacyPrivateNetworkName(stackID string) string {
 	clean := regexp.MustCompile(`[^a-zA-Z0-9_.-]+`).ReplaceAllString(stackID, "-")
 	clean = strings.Trim(clean, "-._")
 	if max := privateNetNameMax - len(privateNetSuffix); len(clean) > max {
@@ -40,6 +68,17 @@ func privateNetworkName(stackID string) string {
 		clean = "stack"
 	}
 	return clean + privateNetSuffix
+}
+
+// privateNetworkNames returns the primary private network name for stackID,
+// followed by its legacy truncated name when the two differ.
+func privateNetworkNames(stackID string) []string {
+	primary := privateNetworkName(stackID)
+	legacy := legacyPrivateNetworkName(stackID)
+	if primary == legacy {
+		return []string{primary}
+	}
+	return []string{primary, legacy}
 }
 
 // isPrivateNetworkName says whether a name is one privateNetworkName made.
@@ -52,12 +91,17 @@ func isPrivateNetworkName(name string) bool {
 
 // labelPrivateNetworks says whose each private segment is. Named after its
 // stack, so the stack list is the ownership record; one named for a stack
-// that no longer exists is a leftover -- not the engine's own, which is what
+// that no longer exists is a leftover, not the engine's own, which is what
 // an unowned engine network otherwise reads as.
 func labelPrivateNetworks(nets []engine.Network, stacks []string) {
 	ownerOf := map[string]string{}
 	for _, name := range stacks {
 		ownerOf[privateNetworkName(name)] = name
+	}
+	for _, name := range stacks {
+		if legacy := legacyPrivateNetworkName(name); ownerOf[legacy] == "" {
+			ownerOf[legacy] = name
+		}
 	}
 	for i, n := range nets {
 		nets[i].OwnedBy = ownerOf[n.Name]
@@ -281,16 +325,72 @@ func bridgeMixUnsupported(engineName string, atts []composepkg.Attachment) strin
 	return "on AppJail, " + strings.Join(svcs, ", ") + " can be on the built-in bridge or on networks, not both at once"
 }
 
+// stackPrivateNetwork returns the private network name stackID uses: its
+// legacy truncated name when an existing stack already references it and no
+// other stack claims that name as its primary private network, or the primary
+// name otherwise.
+func (s *server) stackPrivateNetwork(stackID string) string {
+	primary := privateNetworkName(stackID)
+	legacy := legacyPrivateNetworkName(stackID)
+	if primary == legacy || s == nil || s.manager == nil {
+		return primary
+	}
+	if list, err := s.manager.List(); err == nil {
+		for _, other := range list {
+			if other.Name != stackID && privateNetworkName(other.Name) == legacy {
+				return primary
+			}
+		}
+	}
+	if st, err := s.manager.Get(stackID); err == nil && st != nil {
+		if (strings.Contains(st.Compose, legacy) || strings.Contains(st.Director, legacy)) && !strings.Contains(st.Compose, primary) {
+			return legacy
+		}
+	}
+	return primary
+}
+
+// legacyPrivateClaimedByOther reports whether another stack in the manager
+// claims legacy as its primary private network name or references it in its
+// compose or director spec.
+func (s *server) legacyPrivateClaimedByOther(stackID, legacy string) bool {
+	if s == nil || s.manager == nil {
+		return false
+	}
+	list, err := s.manager.List()
+	if err != nil {
+		return false
+	}
+	for _, other := range list {
+		if other.Name == stackID {
+			continue
+		}
+		if privateNetworkName(other.Name) == legacy || strings.Contains(other.Compose, legacy) || strings.Contains(other.Director, legacy) {
+			return true
+		}
+	}
+	return false
+}
+
 // ensurePrivateNetwork returns the name of this stack's private segment,
 // creating it if it is not there yet.
 //
 // "Private" means the ENGINE allocates on it: it makes the bridge, hands out
 // the addresses, and nothing on the LAN can reach what is on it. That is the
 // engine's own network kind, so this asks the engine rather than writing a
-// conflist -- and it is the same property the Networks page folds these away
+// conflist, and it is the same property the Networks page folds these away
 // by, so a stack's private segment never clutters it.
 func (s *server) ensurePrivateNetwork(ctx context.Context, engineName, stackID string) (string, error) {
-	name := privateNetworkName(stackID)
+	name := s.stackPrivateNetwork(stackID)
+	legacy := legacyPrivateNetworkName(stackID)
+	canUseLegacy := legacy != name && !s.legacyPrivateClaimedByOther(stackID, legacy)
+	if canUseLegacy {
+		if _, ok := hostnet.Get(legacy); ok {
+			if _, okPrimary := hostnet.Get(name); !okPrimary {
+				return legacy, nil
+			}
+		}
+	}
 	if _, ok := hostnet.Get(name); ok {
 		return name, nil
 	}
@@ -306,12 +406,18 @@ func (s *server) ensurePrivateNetwork(ctx context.Context, engineName, stackID s
 			continue
 		}
 		// The engine's own networks too: appjail's virtualnets are not
-		// conflists, and their bridge exists only while a jail is up -- so
+		// conflists, and their bridge exists only while a jail is up, so
 		// neither hostnet nor the host's interfaces know about them, and a
 		// second stack was handed a segment the first already owned.
 		var engineNets []engine.Network
 		if ns, err := backend.Networks(ctx); err == nil {
 			engineNets = ns
+		}
+		if slices.ContainsFunc(engineNets, func(en engine.Network) bool { return en.Name == name }) {
+			return name, nil
+		}
+		if canUseLegacy && slices.ContainsFunc(engineNets, func(en engine.Network) bool { return en.Name == legacy }) {
+			return legacy, nil
 		}
 		subnet, err := freePrivateSubnet(engineNets)
 		if err != nil {
