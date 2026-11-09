@@ -108,7 +108,11 @@ func (b *Backend) bringUp(ctx context.Context, pw *io.PipeWriter, s *stack.Stack
 	// image with one WARNING and makes a container that cannot run. On a
 	// recreate the old container would already be gone by then.
 	if err := b.pullMissing(ctx, pw, s, only); err != nil {
-		return // said why: an image that cannot fit
+		// Said why. Nothing was torn down yet, so a recreate keeps what runs.
+		if mode == recreateAll {
+			fmt.Fprintf(pw, "[fjord] nothing was replaced: the stack keeps what it runs\n")
+		}
+		return
 	}
 	if wrong := b.wrongPlatform(ctx, s, only); len(wrong) > 0 {
 		fmt.Fprintf(pw, "\n%s\n[error] not started: pick a version built for %s\n", strings.Join(wrong, "\n"), hostPlatform())
@@ -461,6 +465,12 @@ func (b *Backend) Update(ctx context.Context, s *stack.Stack, services []string)
 		seen := &lastBytes{}
 		if err := b.runNoticed(ctx, io.MultiWriter(pw, seen), s.Dir, "pulling the new images", "podman", append([]string{"compose", "pull"}, services...)...); err != nil {
 			fmt.Fprintf(pw, "\n[error] pull: %s\n", commandError(seen.String(), err))
+			return
+		}
+		// podman-compose exits 0 when a pull fails; the recreate after it then
+		// tears the old container down and fails on the missing image.
+		if why := pullError(seen.String()); why != "" {
+			fmt.Fprintf(pw, "\n[error] not updated: %s. Nothing was replaced: the stack keeps what it runs\n", why)
 			return
 		}
 		// A pull that succeeded may still have fetched an image this host

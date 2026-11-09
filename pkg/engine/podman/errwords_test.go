@@ -37,3 +37,15 @@ func TestPullError(t *testing.T) {
 		t.Errorf("no pull in it: %q", got)
 	}
 }
+
+// A failed pull is said in podman's words when it has them, and still said
+// when it does not: the caller stops before compose tears anything down.
+func TestPullFailure(t *testing.T) {
+	out := "Trying to pull ghcr.io/x/app:nope...\nError: unable to copy from source docker://ghcr.io/x/app:nope: initializing source docker://ghcr.io/x/app:nope: reading manifest nope in ghcr.io/x/app: manifest unknown\n"
+	if got := pullFailure(out, "ghcr.io/x/app:nope", errors.New("exit status 125")); !strings.Contains(got, "no such version") {
+		t.Errorf("manifest unknown: %q", got)
+	}
+	if got := pullFailure("", "ghcr.io/x/app:nope", errors.New("exit status 125")); !strings.Contains(got, "ghcr.io/x/app:nope could not be downloaded") {
+		t.Errorf("no output: %q", got)
+	}
+}
