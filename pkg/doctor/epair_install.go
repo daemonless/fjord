@@ -17,8 +17,8 @@ import (
 // fjordd runs as root, so what it writes must be exactly this file.
 // Bump all three together when a new cni-epair is released.
 var (
-	epairVersion = "v1.1.1"
-	epairSHA256  = "edf36de370a42859eb3d027e0db8f26eb63aef0fffa8331a5f8b6fc4aabe2d3e"
+	epairVersion = "v1.2.1"
+	epairSHA256  = "78fd96fce1f021d8f828cf76715d80bbcf45712657a3218749f63c89bd8ef718"
 	epairURL     = "https://raw.githubusercontent.com/daemonless/cni-epair/" + epairVersion + "/epair"
 	epairDest    = "/usr/local/libexec/cni/epair"
 )

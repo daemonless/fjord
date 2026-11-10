@@ -161,3 +161,34 @@ func TestDefaultDHCPStatus(t *testing.T) {
 		}
 	}
 }
+
+// A plugin from before cni-epair v1.1.3 answers FEATURES exactly like a fixed
+// one, but its dhclient sends the host's hostname for every container lease.
+func TestEpairProbeWarnsOnPluginThatSendsTheHostName(t *testing.T) {
+	dir := t.TempDir()
+	plugin := func(name, body string) string {
+		p := filepath.Join(dir, name)
+		if err := os.WriteFile(p, []byte("#!/bin/sh\n"+body), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	old := plugin("old", "echo dhcp\n# interface \"$iface\" { script \"$dir/script\"; }\n")
+	fixed := plugin("fixed", "echo dhcp\n# interface \"$iface\" { send host-name \"$(dhcp_hostname)\"; }\n")
+	nodhcp := plugin("nodhcp", "true\n")
+	for _, c := range []struct {
+		path string
+		want Status
+		says string
+	}{
+		{old, Warn, "update it to " + epairVersion},
+		{fixed, OK, "with DHCP support"},
+		{nodhcp, OK, "no DHCP support"},
+		{filepath.Join(dir, "missing"), Warn, "not installed"},
+	} {
+		st, msg := epairProbeAt(context.Background(), c.path)
+		if st != c.want || !strings.Contains(msg, c.says) {
+			t.Errorf("%s: (%v, %q), want %v saying %q", filepath.Base(c.path), st, msg, c.want, c.says)
+		}
+	}
+}
