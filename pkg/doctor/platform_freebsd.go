@@ -494,7 +494,10 @@ func appjailProbe(ctx context.Context) (Status, string) {
 // it runs every stack perfectly well on published ports -- it just cannot give
 // one an address of its own.
 func epairProbe(ctx context.Context) (Status, string) {
-	const path = "/usr/local/libexec/cni/epair"
+	return epairProbeAt(ctx, epairDest)
+}
+
+func epairProbeAt(ctx context.Context, path string) (Status, string) {
 	if _, err := os.Stat(path); err != nil {
 		return Warn, "not installed -- containers can only use published ports"
 	}
@@ -504,10 +507,15 @@ func epairProbe(ctx context.Context) (Status, string) {
 	cmd := exec.CommandContext(ctx, path)
 	cmd.Env = append(os.Environ(), "CNI_COMMAND=FEATURES")
 	out, err := cmd.Output()
-	if err == nil && strings.Contains(string(out), "dhcp") {
-		return OK, "installed, with DHCP support"
+	if err != nil || !strings.Contains(string(out), "dhcp") {
+		return OK, "installed; no DHCP support -- networks on it need an address range"
 	}
-	return OK, "installed; no DHCP support -- networks on it need an address range"
+	// FEATURES is the same before and after the fix: only the plugin's own
+	// dhclient config says whether a lease carries the container's name.
+	if b, err := os.ReadFile(path); err == nil && !strings.Contains(string(b), "send host-name") {
+		return Warn, "installed, but an old version: each container's DHCP lease is registered under this host's name, so your router can move the host's own name to a container -- update it to " + epairVersion
+	}
+	return OK, "installed, with DHCP support"
 }
 
 func ocijailProbe(ctx context.Context) (Status, string) {
