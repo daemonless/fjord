@@ -21,6 +21,7 @@ if [ -f "$unit" ]; then
   if grep -q '^ExecStart=/usr/local/sbin/fjordd$' "$unit" && grep -q '^Description=fjord stack manager$' "$unit"; then
     mv "$unit" "$unit.install-linux"
     [ -f /usr/local/sbin/fjordd ] && mv /usr/local/sbin/fjordd /usr/local/sbin/fjordd.install-linux
+    [ "$(readlink /usr/local/sbin/fjord 2>/dev/null)" = fjordd ] && rm /usr/local/sbin/fjord
     echo "fjord: replaced the copy install-linux.sh put in /usr/local (kept as *.install-linux)"
     took=1
   else

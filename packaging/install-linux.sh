@@ -39,6 +39,7 @@ tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 if [ -n "${FJORDD_BINARY:-}" ]; then cp "$FJORDD_BINARY" "$tmp/fjordd"; else get "fjordd-linux-$arch" "$tmp/fjordd"; fi
 install -m 755 "$tmp/fjordd" /usr/local/sbin/fjordd
+ln -sf fjordd /usr/local/sbin/fjord
 command -v restorecon >/dev/null && restorecon /usr/local/sbin/fjordd || true
 /usr/local/sbin/fjordd -version
 

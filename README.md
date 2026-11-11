@@ -40,6 +40,7 @@ V=0.4.2   # or a pre-release: https://github.com/daemonless/fjord/releases
 fetch -o /usr/local/sbin/fjordd https://github.com/daemonless/fjord/releases/download/v$V/fjordd-freebsd-$(uname -m)
 fetch -o /usr/local/etc/rc.d/fjordd https://github.com/daemonless/fjord/releases/download/v$V/fjordd.rc
 chmod 755 /usr/local/sbin/fjordd /usr/local/etc/rc.d/fjordd
+ln -sf fjordd /usr/local/sbin/fjord   # the CLI: fjord ls, fjord update <stack>
 sysrc fjordd_enable=YES podman_service_enable=YES
 service podman_service start
 service fjordd start
@@ -92,6 +93,7 @@ V=0.4.2
 curl -fsSLo /usr/local/sbin/fjordd https://github.com/daemonless/fjord/releases/download/v$V/fjordd-linux-$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
 curl -fsSLo /etc/systemd/system/fjordd.service https://github.com/daemonless/fjord/releases/download/v$V/fjordd.service
 chmod 755 /usr/local/sbin/fjordd
+ln -sf fjordd /usr/local/sbin/fjord
 systemctl daemon-reload
 systemctl enable --now podman.socket fjordd
 ```
@@ -129,6 +131,7 @@ go build -o fjordd ./cmd/fjordd
 
 # install as a service
 cp fjordd /usr/local/sbin/
+ln -sf fjordd /usr/local/sbin/fjord
 cp packaging/fjordd.rc /usr/local/etc/rc.d/fjordd
 chmod 755 /usr/local/etc/rc.d/fjordd
 sysrc fjordd_enable=YES podman_service_enable=YES

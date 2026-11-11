@@ -30,6 +30,10 @@ contents:
     dst: /usr/sbin/fjordd
     file_info:
       mode: 0755
+  # fjordd run as `fjord` is the CLI.
+  - src: fjordd
+    dst: /usr/sbin/fjord
+    type: symlink
   - src: ./fjordd.pkg.service
     dst: /usr/lib/systemd/system/fjordd.service
     file_info:
