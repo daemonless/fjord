@@ -463,14 +463,15 @@ func (b *Backend) Update(ctx context.Context, s *stack.Stack, services []string)
 		}
 		b.checkPullSpace(ctx, pw, servicesImages(s, services), false)
 		seen := &lastBytes{}
-		if err := b.runNoticed(ctx, io.MultiWriter(pw, seen), s.Dir, "pulling the new images", "podman", append([]string{"compose", "pull"}, services...)...); err != nil {
-			fmt.Fprintf(pw, "\n[error] pull: %s\n", commandError(seen.String(), err))
-			return
-		}
-		// podman-compose exits 0 when a pull fails; the recreate after it then
-		// tears the old container down and fails on the missing image.
+		err := b.runNoticed(ctx, io.MultiWriter(pw, seen), s.Dir, "pulling the new images", "podman", append([]string{"compose", "pull"}, services...)...)
+		// Some podman-compose versions exit 0 when a pull fails, others 125;
+		// either way the output says why, and nothing has been replaced yet.
 		if why := pullError(seen.String()); why != "" {
 			fmt.Fprintf(pw, "\n[error] not updated: %s. Nothing was replaced: the stack keeps what it runs\n", why)
+			return
+		}
+		if err != nil {
+			fmt.Fprintf(pw, "\n[error] pull: %s. Nothing was replaced: the stack keeps what it runs\n", commandError(seen.String(), err))
 			return
 		}
 		// A pull that succeeded may still have fetched an image this host

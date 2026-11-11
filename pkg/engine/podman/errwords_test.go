@@ -33,6 +33,13 @@ func TestPullError(t *testing.T) {
 	if got := pullError(forgejo); !strings.Contains(got, "ghcr.io/daemonless/forgejo:latest") || !strings.Contains(got, "no such version") {
 		t.Errorf("manifest unknown: %q", got)
 	}
+	// podman-compose 1.6 on Linux exits 125 and says so after the reason.
+	linux := "Trying to pull docker.io/library/busybox:nope...\n" +
+		"Error: unable to copy from source docker://busybox:nope: initializing source docker://busybox:nope: reading manifest nope in docker.io/library/busybox: manifest unknown\n" +
+		"Error: executing /usr/bin/podman-compose pull: exit status 125\n"
+	if got := pullError(linux); !strings.Contains(got, "busybox:nope") || !strings.Contains(got, "no such version") {
+		t.Errorf("podman-compose 1.6: %q", got)
+	}
 	if got := pullError("Error: no container with name or ID \"x\" found\n"); got != "" {
 		t.Errorf("no pull in it: %q", got)
 	}

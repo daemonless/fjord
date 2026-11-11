@@ -1,21 +1,23 @@
 // An update whose pull fails leaves the stack running what it ran: Update on
 // the Stacks list, with the compose pointing at a tag the registry does not
-// have. podman-compose exits 0 on a failed pull, and the recreate after it
-// used to tear the old container down. The stack is t-badtag.
+// have. podman-compose exits 0 on a failed pull (FreeBSD) or 125 (Linux),
+// and the output must say why either way. The stack is t-badtag.
 const { chromium } = require('playwright-core');
 const { signedIn, openPage } = require('./session');
 const BASE = 'http://127.0.0.1:3567';
 const H = { Origin: BASE, 'Content-Type': 'application/json' };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const note = (id, ok, msg) => console.log(`${ok ? 'PASS' : 'FAIL'} ${id}: ${msg}`);
-const compose = (tag) => `services:\n  web:\n    image: ghcr.io/daemonless/openspeedtest:${tag}\n`;
+const LINUX = process.env.HOST_OS === 'linux';
+const IMAGE = LINUX ? 'docker.io/traefik/whoami' : 'ghcr.io/daemonless/openspeedtest';
+const compose = (tag) => `services:\n  web:\n    image: ${IMAGE}:${tag}\n`;
 (async () => {
   const b = await chromium.launch({ args: ['--no-sandbox'] });
   const page = await (await b.newContext(signedIn({ viewport: { width: 1400, height: 900 } }))).newPage();
   page.setDefaultTimeout(30000);
   try {
     const save = (tag) => page.request.post(BASE + '/api/stacks/t-badtag/save', { headers: H, data: { compose: compose(tag), env: '' } });
-    if (!(await save('latest')).ok()) throw new Error('saving t-badtag');
+    if (!(await save(LINUX ? 'v1.10' : 'latest')).ok()) throw new Error('saving t-badtag');
     await (await page.request.post(BASE + '/api/stacks/t-badtag/up', { headers: H, timeout: 180000 })).text();
     if (!(await save('no-such-tag-fjord-test')).ok()) throw new Error('saving the bad tag');
     await openPage(page, BASE + '/#/stacks');
