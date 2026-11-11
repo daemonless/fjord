@@ -3,6 +3,140 @@
 Releases are tagged on GitHub; each rc is a pre-release with the pull
 requests it carries. This file is the story per release.
 
+## 0.4.3 — 2026-11-13
+
+Update every stack at once, a `fjord` command for the shell, and a fjord
+that watches its stacks while nobody has a page open.
+
+### Updates
+
+- **Update all.** When stacks have image updates, the Stacks page and the
+  sidebar offer Update all. fjord updates each stack that is behind, one
+  at a time. It keeps addresses and records a rollback for each, and each
+  badge clears as its stack finishes. Before it starts, a diff shows what
+  changes per stack and service: the running and the new version, the
+  digest, and the packages from each image's SBOM. Any stack can be left
+  out. (#214, #227)
+- **Change Version is one job of fjord's.** It writes the new tag and runs
+  the update in the daemon. Closing the tab no longer leaves the compose on
+  a version the container is not running. (#210, #213)
+- **Adopt with replace** starts the new stack in the daemon, with its
+  output kept. (#212)
+- An AppJail service built from a Makejail pulls its image before it is
+  recreated. (#222)
+- A rollback runs its checks before it pins the old digest. Unpin works
+  while a stack is still being watched after an update. (#261)
+- **A failed pull changes nothing.** When an update cannot pull its
+  image, the stack keeps running what it ran, and the output says the pull
+  failed. Before, podman-compose went on to remove the old container and
+  left the app stopped. (#267)
+
+### Safe to leave alone
+
+- **Health and recovery.** A background check looks at every stack's
+  restart counts, exit codes, healthchecks, and AppJail jails that came up
+  empty. The dashboard says which stacks are in trouble. Each stack has a
+  recovery policy: do nothing, restart, or stop, with a cap on attempts and
+  a cooldown. An init container that exited cleanly is not counted as a
+  failure. (#239, #257)
+- **Conditions.** A banner on every page shows host and engine problems
+  found by checks that run on a timer and when something changes. A fix is
+  re-checked before the banner says it is fixed. Critical conditions cannot
+  be dismissed. (#237)
+- The update badges refresh on fjord's own schedule, not only when a page
+  asks. A catalog that fails to fetch is retried every 15 minutes, not
+  every minute. (#253)
+- fjordd finishes open requests before it stops. (#253)
+
+### The `fjord` command
+
+- `fjord ls`, `status`, `up`, `down`, `restart`, `update`, `logs -f`,
+  `rollback`, `delete`, `install`, `catalog refresh`, `prune` and `exec`
+  drive the same API the pages use. Actions stream their output, the exit
+  status comes from the checked outcome, and `--json` is there for scripts.
+  It ships inside fjordd (`fjordd <cmd>`, or the `fjord` symlink). It signs
+  in through a root-only local socket or an API token. (#224)
+- `GET /api/apps/<id>/plan` returns the install fjord would do by default:
+  paths, folder sets, network, free ports and choices. The wizard shows it.
+  The CLI sends it with overrides
+  (`--set VAR=x --choice public_proxy=on`). (#221)
+
+### Installing
+
+- **Typed settings.** A setting can be a switch (`bool`), a number with
+  limits (`int`), a pick from a list (`choice`), or a size with a unit
+  (`size`), in the wizard and in stack settings. A default of `true` or
+  `false` is read as a switch without being declared. (#223)
+- **The wizard asks before host capabilities a catalog app requests:**
+  `privileged`, `cap_add`, `devices`, host namespaces, jail annotations,
+  and folders outside App data and the folder sets. A folder the user
+  picks is their own choice and is never asked about. `allow.mlock`, which
+  .NET apps need, is not asked about. (#263)
+- The App Store lists a stack's parts on its card, and searching for a
+  part finds its stack. (#216)
+- The App Store and the Stacks page have a Cards and List view. (#226,
+  #228)
+- The wizard's Data row says when an app keeps nothing on this host.
+  (#211)
+
+### Names
+
+- A name is given to the stack as it runs, not to edits saved during the
+  check. (#262)
+- The names prompt skips stacks with no web port, and a stack can be set
+  to "Never name this". (#225)
+- An app that a hand-made host points at no longer counts as missing a
+  name. fjord reaches the host by its addresses when fjord itself is
+  opened by name. (#235, #236)
+- A names provider set up while no page is open has its certificate pinned
+  by fjord's own status loop. (#219)
+
+### Networks, compose and AppJail
+
+- **Set up installs cni-epair v1.2.1.** Older versions sent the host's name
+  to the DHCP server for every container, so the router gave each container
+  the host's name and the host could lose its own. fjord's host checks warn
+  about an installed plugin that does this. On an existing host, press Set
+  up once to replace it. (#269)
+
+- Stacks with similar names, such as `paperless` and `paperless-2`, no
+  longer share a private network or an epair. Existing networks keep their
+  names. (#264)
+- Compose edits resolve YAML anchors and merge keys. A service that shares
+  an anchor is copied out before an edit writes to it. Moving a service
+  between networks keeps its aliases, the stack's own networks and a
+  custom default network. (#258, #259, #260)
+- Start on boot waits for AppJail's own boot start. A mount edited on an
+  AppJail stack is written to its director file. A deleted jail's logs are
+  removed. A duplicate start address is retried once. (#208, #209, #218)
+- Closing a web shell ends the background processes it left in the jail
+  or container. (#217)
+- Delete checks that a stack is really down before it removes app data.
+  Updates and saves report the engine's real outcome. (#247)
+
+### Security
+
+- The UI is served with a Content-Security-Policy. (#263)
+- Catalog URLs must be https, except on the local network. Redirects to
+  http are refused. Icons come only from the catalog's own host. (#249)
+- Sign-in limits hold against many IPv6 addresses from one network.
+  Settings and linked-provider keys are readable by root only. Passwords,
+  including ones inside URLs, are redacted from API answers. (#249, #252)
+- Host-side hooks in a catalog's `template.conf` are stripped. (#252)
+- Releases publish `SHA256SUMS`. (#246)
+
+### Pages
+
+- A stack with unsaved edits asks before you switch away. Late answers no
+  longer land on another stack. The event stream reconnects with backoff
+  and closes while the tab is hidden. (#248, #229)
+- An install whose output ends in an error says so, and does not say
+  Done. A dismissed failure stays dismissed. (#263)
+- A failed action says so on its Stacks row, such as "Running · Update
+  failed". (#268)
+- Switching to a stack with no output yet no longer freezes the page.
+  (#215)
+
 ## 0.4.2 — 2026-11-02
 
 Fixes for 0.4.1, and Set up does two more things itself.
