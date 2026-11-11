@@ -117,7 +117,7 @@ del_net() { curl -s -o /dev/null --max-time 60 -b "$FJORD_COOKIE" -X DELETE -H "
 run_js() {
   _js=$1; shift
   _tmp="$OUT/.run_js.$$"
-  on "cd $REMOTE && podman run --rm --network host $* $JS_MOUNTS -e FJORD_SESSION=$FJORD_SESSION \
+  on "cd $REMOTE && podman run --rm --network host $* $JS_MOUNTS -e FJORD_SESSION=$FJORD_SESSION -e HOST_OS=$HOST_OS \
     -v \$PWD/$_js.js:/app/t.js:ro$Z -v \$PWD/session.js:/app/session.js:ro$Z -v \$PWD/out:/out${Z:+:z} \
     $IMAGE node /app/t.js" >"$_tmp" 2>&1
   _rc=$?
