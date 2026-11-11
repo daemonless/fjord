@@ -7,6 +7,7 @@ name: Nightly
 # It publishes only a commit whose Test workflow passed -- that run already
 # booted the FreeBSD VM for the Go tests, so this one reads its result instead
 # of repeating it -- and skips a night when main has not moved.
+# Push changes to this file as daemonless-bot: schedule runs are attributed to the last committer.
 on:
   schedule:
     - cron: "0 3 * * *"
