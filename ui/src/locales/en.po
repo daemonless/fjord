@@ -4054,9 +4054,8 @@ msgstr "Could not change the compose"
 msgid "Could not set the options"
 msgstr "Could not set the options"
 
-#: src/App.svelte
-msgid "This stack's files did not load, so there is nothing safe to save. Open it again."
-msgstr "This stack's files did not load, so there is nothing safe to save. Open it again."
+#~ msgid "This stack's files did not load, so there is nothing safe to save. Open it again."
+#~ msgstr "This stack's files did not load, so there is nothing safe to save. Open it again."
 
 #~ msgid "{0} is at {1}.{2}"
 #~ msgstr "{0} is at {1}.{2}"
@@ -5211,3 +5210,15 @@ msgstr "Confirm the host capabilities requested by this app"
 #: src/InstallWizard.svelte
 msgid "Allow host capabilities requested by this app: <0/>"
 msgstr "Allow host capabilities requested by this app: <0/>"
+
+#: src/StackDetail.svelte
+msgid "This stack's files are still loading. Try again in a moment."
+msgstr "This stack's files are still loading. Try again in a moment."
+
+#: src/StackDetail.svelte
+msgid "<0/> Read-only until this stack's own files load. If this stays, open the stack again."
+msgstr "<0/> Read-only until this stack's own files load. If this stays, open the stack again."
+
+#: src/App.svelte
+msgid "This stack's files have not loaded yet, so there is nothing safe to save. If this stays, open it again."
+msgstr "This stack's files have not loaded yet, so there is nothing safe to save. If this stays, open it again."

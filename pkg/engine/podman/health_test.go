@@ -3,6 +3,10 @@ package podman
 import (
 	"context"
 	"encoding/binary"
+	"net/http"
+	"net/http/httptest"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -22,7 +26,7 @@ func stubProbes(t *testing.T, listens bool, log string) {
 	oldJ, oldL, oldT := jailID, listening, logTail
 	jailID = func(context.Context, string) string { return "189" }
 	listening = func(context.Context, string, string, int) bool { return listens }
-	logTail = func(context.Context, string) string { return log }
+	logTail = func(context.Context, string, time.Time) string { return log }
 	t.Cleanup(func() { jailID, listening, logTail = oldJ, oldL, oldT })
 }
 
@@ -147,5 +151,78 @@ func TestUnhealthyStatusAndContainerRestartLoop(t *testing.T) {
 	aggExited := aggregateStatus([]libpodContainer{exited}, nil)
 	if aggExited.Containers[0].ExitCode != 137 || aggExited.Containers[0].Detail == "" {
 		t.Fatalf("exited container: got %+v, want ExitCode=137 and Detail", aggExited.Containers[0])
+	}
+}
+
+type rewriteHost struct {
+	target string
+	rt     http.RoundTripper
+}
+
+func (r rewriteHost) RoundTrip(req *http.Request) (*http.Response, error) {
+	clone := req.Clone(req.Context())
+	clone.URL.Host = r.target
+	return r.rt.RoundTrip(clone)
+}
+
+func TestLogTailBoundsRestartScanAndTimeout(t *testing.T) {
+	var gotSince string
+	var slow bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotSince = r.URL.Query().Get("since")
+		if slow {
+			time.Sleep(200 * time.Millisecond)
+		}
+		w.Write([]byte("error: permission denied\n"))
+	}))
+	defer srv.Close()
+
+	oldJ, oldL, oldC, oldTimeout := jailID, listening, logClient, logTailTimeout
+	jailID = func(context.Context, string) string { return "" }
+	client := &http.Client{Transport: rewriteHost{target: strings.TrimPrefix(srv.URL, "http://"), rt: http.DefaultTransport}}
+	logClient = func() *http.Client { return client }
+	logTailTimeout = 40 * time.Millisecond
+	t.Cleanup(func() {
+		jailID, listening, logClient, logTailTimeout = oldJ, oldL, oldC, oldTimeout
+	})
+
+	started := time.Now().Add(-10 * time.Second).Truncate(time.Second)
+	looping := upContainer("vpn")
+	looping.Ports = nil
+	looping.Restarts = 1400
+	looping.StartedAt = started.Unix()
+
+	st, detail := serviceHealth(context.Background(), looping)
+	wantSince := strconv.FormatInt(started.Add(-logTailWindow).Unix(), 10)
+	if gotSince != wantSince {
+		t.Fatalf("since = %q, want %q", gotSince, wantSince)
+	}
+	if st != "crashed" || !strings.Contains(detail, "permission denied") {
+		t.Fatalf("got %q %q, want crashed with log reason", st, detail)
+	}
+
+	// An s6 check inside a single long-lived container omits since so an older
+	// fatal line in a quiet container is still read.
+	jailID = func(context.Context, string) string { return "42" }
+	listening = func(context.Context, string, string, int) bool { return false }
+	gotSince = "unset"
+	quiet := upContainer("app")
+	quiet.StartedAt = time.Now().Add(-2 * time.Hour).Unix()
+	_, _ = serviceHealth(context.Background(), quiet)
+	if gotSince != "" {
+		t.Fatalf("s6 check sent since=%q, want empty", gotSince)
+	}
+
+	// A stalled log driver yields within logTailTimeout and still reports the
+	// restart loop without its log line.
+	jailID = func(context.Context, string) string { return "" }
+	slow = true
+	t0 := time.Now()
+	st, detail = serviceHealth(context.Background(), looping)
+	if elapsed := time.Since(t0); elapsed > 150*time.Millisecond {
+		t.Fatalf("stalled logTail took %v, want bounded by timeout", elapsed)
+	}
+	if st != "crashed" || !strings.Contains(detail, "restarted 1400 times") {
+		t.Fatalf("after timeout: got %q %q, want crashed fallback", st, detail)
 	}
 }

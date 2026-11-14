@@ -345,6 +345,15 @@ export function computeReorder(
   return { nextStacks, items };
 }
 
+// Snapshot from /api/stacks for immediate page transitions while
+// GET /api/stacks/<name> loads unredacted .env, director/makejail, and
+// composeHash. Marked listOnly so Save cannot overwrite secrets with blanks.
+export function listSnapshot(target: Stack, stacks: Stack[]): Stack | null {
+  const src = stacks.find((s) => s.name === target.name) ?? (target.dir ? target : null);
+  if (!src) return null;
+  return { ...src, compose: src.compose ?? '', env: src.env ?? '', listOnly: true };
+}
+
 // Refresh live status/state only -- never overwrite the editor's
 // compose/env with the list's empty values. services goes with them:
 // it is what each service is running right now, not something the
