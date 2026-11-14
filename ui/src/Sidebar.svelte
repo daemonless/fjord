@@ -388,7 +388,7 @@
             >
               <span class="w-2 h-2 rounded-full shrink-0 {dot(stack.status)}"></span>
               {#if iconFor($appIcons, stack)}
-                <img src={iconFor($appIcons, stack)} alt="" class="w-4 h-4 rounded shrink-0 object-contain" />
+                <img src={iconFor($appIcons, stack)} alt="" draggable="false" class="w-4 h-4 rounded shrink-0 object-contain" />
               {:else}
                 <span class="w-4 h-4 rounded shrink-0 flex items-center justify-center text-[9px] font-bold text-fjord-fg" style="background:{tile(label(stack))}">{initial(label(stack))}</span>
               {/if}
