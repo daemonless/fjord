@@ -431,7 +431,7 @@
               <div class="flex items-start gap-3.5">
                 <div class="relative shrink-0">
                   {#if iconOf(s)}
-                    <img src={iconOf(s)} alt="" class="w-11 h-11 rounded-lg object-contain bg-fjord-bg p-1" />
+                    <img src={iconOf(s)} alt="" draggable="false" class="w-11 h-11 rounded-lg object-contain bg-fjord-bg p-1" />
                   {:else}
                     <div
                       class="w-11 h-11 rounded-lg flex items-center justify-center font-bold text-fjord-fg text-base"
@@ -598,7 +598,7 @@
             <!-- icon, with the engine's mark overlaid -->
             <div class="relative shrink-0">
               {#if iconOf(s)}
-                <img src={iconOf(s)} alt="" class="w-9 h-9 rounded-lg object-contain bg-fjord-bg p-0.5" />
+                <img src={iconOf(s)} alt="" draggable="false" class="w-9 h-9 rounded-lg object-contain bg-fjord-bg p-0.5" />
               {:else}
                 <div class="w-9 h-9 rounded-lg flex items-center justify-center font-bold text-fjord-fg text-sm" style="background:{tile(s.displayName || s.name)}">
                   {(s.displayName || s.name)[0]?.toUpperCase()}

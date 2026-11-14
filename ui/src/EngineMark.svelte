@@ -8,7 +8,7 @@
 </script>
 
 {#if engine === 'podman'}
-  <img src="/engines/podman.svg" alt="" width={size} height={size} class="shrink-0" style="width:{size}px;height:{size}px" />
+  <img src="/engines/podman.svg" alt="" draggable="false" width={size} height={size} class="shrink-0" style="width:{size}px;height:{size}px" />
 {:else if engine === 'appjail'}
   <Icon name="jail" {size} {strokeWidth} />
 {:else}
