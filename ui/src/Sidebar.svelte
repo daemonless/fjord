@@ -162,6 +162,8 @@
     { id: 'flat', label: 'Flat' },
   ];
   $: groupedStacks = groupStacks(ordered, groupMode);
+  // An empty Ungrouped is only a drop zone: shown while a stack is dragged.
+  $: shownGroups = groupedStacks.filter(([g, items]) => items.length || g !== '' || dragName);
   // Headers show for user groups (when present) and always for engine/status
   // buckets; flat has no headers. Drag-to-regroup is groups-only.
   $: hasGroups = groupMode === 'groups' && groupedStacks.some(([g]) => g !== '');
@@ -330,7 +332,7 @@
   </div>
 
   <div class="flex-1 overflow-y-auto py-2">
-    {#each groupedStacks as [group, items] (group)}
+    {#each shownGroups as [group, items] (group)}
       {#if group || hasGroups}
         <!-- svelte-ignore a11y-no-static-element-interactions -->
         <button

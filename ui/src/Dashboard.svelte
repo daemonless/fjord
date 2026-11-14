@@ -10,7 +10,7 @@
   import { names, openBy, deviceTrust, openUrl, opensByName, setupUrl } from './names';
   import TrustMark from './TrustMark.svelte';
   import { serviceLinks } from './serviceLinks';
-  import { restartShort, restartTitle, type StackRestart } from './restartPolicy';
+  import { restartShort, restartTitle, restartWorthShowing, type StackRestart } from './restartPolicy';
   import { changeSentence } from './updateWords';
   import { readStacksView, writeStacksView, type StoreView } from './storeView';
   import {
@@ -502,7 +502,7 @@
                     {/if}
                   {/if}
                 </div>
-                {#if s.restart}
+                {#if restartWorthShowing(s.restart)}
                   <div class="flex items-center gap-1 text-xs text-fjord-fg-dim shrink-0" title={restartTitle(s.restart)}>
                     <Icon name={s.restart.onExit || !s.restart.policies.length ? 'restart' : 'power'} size={11} />
                     <span>{restartShort(s.restart)}</span>
@@ -537,10 +537,6 @@
                   {:else if u?.state === 'pinned'}
                     <span class="inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full text-fjord-accent bg-fjord-accent/10"
                       ><Icon name="pin" size={11} /> Pinned</span
-                    >
-                  {:else if u?.state === 'current'}
-                    <span class="inline-flex items-center gap-1 text-xs font-medium text-fjord-success"
-                      ><Icon name="check" size={11} /> Up to date</span
                     >
                   {:else if u?.state === 'unknown'}
                     <span
@@ -633,9 +629,9 @@
                 <span class="capitalize">{label(s.status)}</span>
               {/if}
             </div>
-            <!-- restart policy, as the stack page's chip says it -->
-            <div class="flex items-center gap-1 text-xs text-fjord-fg-dim w-36 shrink-0 truncate" title={restartTitle(s.restart)}>
-              {#if s.restart}<Icon name={s.restart.onExit || !s.restart.policies.length ? 'restart' : 'power'} size={11} /><span class="truncate"
+            <!-- restart policy, only when it is not the default -->
+            <div class="flex items-center gap-1 text-xs text-fjord-fg-dim w-36 shrink-0 truncate" title={restartWorthShowing(s.restart) ? restartTitle(s.restart) : ''}>
+              {#if restartWorthShowing(s.restart)}<Icon name={s.restart.onExit || !s.restart.policies.length ? 'restart' : 'power'} size={11} /><span class="truncate"
                   >{restartShort(s.restart)}</span
                 >{/if}
             </div>
@@ -666,10 +662,6 @@
                 <span
                   class="inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full text-fjord-accent bg-fjord-accent/10"
                   ><Icon name="pin" size={11} /> Pinned</span
-                >
-              {:else if u?.state === 'current'}
-                <span class="inline-flex items-center gap-1 text-xs font-medium text-fjord-success"
-                  ><Icon name="check" size={11} /> Up to date</span
                 >
               {:else if u?.state === 'unknown'}
                 <span class="inline-flex items-center gap-1 text-xs text-fjord-fg-dim cursor-help" title={u.detail || 'Could not compare the local image with the registry'}

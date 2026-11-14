@@ -879,9 +879,8 @@ msgstr "<0/> Open"
 msgid "Open another of this stack's {0} apps"
 msgstr "Open another of this stack's {0} apps"
 
-#: src/StackDetail.svelte
-msgid "Assign this stack to a sidebar group"
-msgstr "Assign this stack to a sidebar group"
+#~ msgid "Assign this stack to a sidebar group"
+#~ msgstr "Assign this stack to a sidebar group"
 
 #: src/StackDetail.svelte
 msgid "Unsaved"
@@ -1193,8 +1192,6 @@ msgstr "A newer version is published — switch to it via Change Version"
 msgid "Check again"
 msgstr "Check again"
 
-#: src/Dashboard.svelte
-#: src/Dashboard.svelte
 #: src/StackDetail.svelte
 msgid "<0/> Up to date"
 msgstr "<0/> Up to date"
@@ -1344,6 +1341,7 @@ msgstr "{0}/{1} services"
 #: src/BottomDrawer.svelte
 #: src/InstallWizard.svelte
 #: src/NamesPrompt.svelte
+#: src/StackDetail.svelte
 msgid "None"
 msgstr "None"
 
@@ -1521,6 +1519,7 @@ msgstr "Start"
 #: src/Dashboard.svelte
 #: src/Dashboard.svelte
 #: src/InstallWizard.svelte
+#: src/StackDetail.svelte
 msgid "Restart"
 msgstr "Restart"
 
@@ -2689,6 +2688,7 @@ msgstr "Catalog removed"
 
 #: src/Settings.svelte
 #: src/SetupWizard.svelte
+#: src/StackDetail.svelte
 msgid "Settings"
 msgstr "Settings"
 
@@ -5104,23 +5104,17 @@ msgstr "+{0} more"
 msgid "Still not passing: {0}"
 msgstr "Still not passing: {0}"
 
-#. 0: r.attempts; 1: cap
-#: src/RecoveryPolicy.svelte
-msgid "Recover: restart ({0}/{1})"
-msgstr "Recover: restart ({0}/{1})"
+#~ msgid "Recover: restart ({0}/{1})"
+#~ msgstr "Recover: restart ({0}/{1})"
 
-#. 0: cap
-#: src/RecoveryPolicy.svelte
-msgid "Recover: restart ({0}×)"
-msgstr "Recover: restart ({0}×)"
+#~ msgid "Recover: restart ({0}×)"
+#~ msgstr "Recover: restart ({0}×)"
 
-#: src/RecoveryPolicy.svelte
-msgid "Recover: stop"
-msgstr "Recover: stop"
+#~ msgid "Recover: stop"
+#~ msgstr "Recover: stop"
 
-#: src/RecoveryPolicy.svelte
-msgid "Recover: do nothing"
-msgstr "Recover: do nothing"
+#~ msgid "Recover: do nothing"
+#~ msgstr "Recover: do nothing"
 
 #. 0: r?.maxTries || 3; 1: r?.cooldown || 60
 #: src/RecoveryPolicy.svelte
@@ -5135,6 +5129,7 @@ msgstr "On a failed background health check, stop the stack so it does not keep 
 msgid "On a failed background health check, do nothing and report the failure."
 msgstr "On a failed background health check, do nothing and report the failure."
 
+#: src/RecoveryPolicy.svelte
 #: src/RecoveryPolicy.svelte
 msgid "Do nothing"
 msgstr "Do nothing"
@@ -5152,6 +5147,7 @@ msgstr "Restart stack"
 msgid "Restart the stack up to {0} {1}, with {2}s cooldown between attempts."
 msgstr "Restart the stack up to {0} {1}, with {2}s cooldown between attempts."
 
+#: src/RecoveryPolicy.svelte
 #: src/RecoveryPolicy.svelte
 msgid "Stop stack"
 msgstr "Stop stack"
@@ -5222,3 +5218,21 @@ msgstr "<0/> Read-only until this stack's own files load. If this stays, open th
 #: src/App.svelte
 msgid "This stack's files have not loaded yet, so there is nothing safe to save. If this stays, open it again."
 msgstr "This stack's files have not loaded yet, so there is nothing safe to save. If this stays, open it again."
+
+#. 0: r.attempts; 1: cap
+#: src/RecoveryPolicy.svelte
+msgid "Restart stack ({0}/{1})"
+msgstr "Restart stack ({0}/{1})"
+
+#. 0: cap
+#: src/RecoveryPolicy.svelte
+msgid "Restart stack ({0}×)"
+msgstr "Restart stack ({0}×)"
+
+#: src/StackDetail.svelte
+msgid "If unhealthy"
+msgstr "If unhealthy"
+
+#: src/StackDetail.svelte
+msgid "Group"
+msgstr "Group"

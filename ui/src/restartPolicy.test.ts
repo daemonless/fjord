@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { restartMeaning, mixedMeaning, restartShort, restartTitle, composeValue, choicesFor, type StackRestart } from './restartPolicy';
+import { restartMeaning, mixedMeaning, restartShort, restartTitle, restartWorthShowing, composeValue, choicesFor, type StackRestart } from './restartPolicy';
 
 const ALL = ['unless-stopped', 'always', 'on-failure', 'no'];
 const BOOT = ['unless-stopped', 'always', 'no'];
@@ -63,6 +63,24 @@ describe('restartShort', () => {
   it('says when it is mixed or the engine takes none', () => {
     expect(restartShort(r('', { mixed: true }))).toBe('Restart: mixed');
     expect(restartShort(r('unless-stopped', { policies: [] }))).toBe('Restart: not available');
+  });
+});
+
+describe('restartWorthShowing', () => {
+  it('hides the default on a list row', () => {
+    expect(restartWorthShowing(r('unless-stopped'))).toBe(false);
+    expect(restartWorthShowing(boot(''))).toBe(false);
+    expect(restartWorthShowing(boot('unless-stopped'))).toBe(false);
+    expect(restartWorthShowing(undefined)).toBe(false);
+    expect(restartWorthShowing(r('unless-stopped', { policies: [] }))).toBe(false);
+  });
+
+  it('shows anything else', () => {
+    expect(restartWorthShowing(r('no'))).toBe(true);
+    expect(restartWorthShowing(r('on-failure'))).toBe(true);
+    expect(restartWorthShowing(r(''))).toBe(true);
+    expect(restartWorthShowing(boot('no'))).toBe(true);
+    expect(restartWorthShowing(r('', { mixed: true }))).toBe(true);
   });
 });
 

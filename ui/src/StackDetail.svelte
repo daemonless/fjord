@@ -46,7 +46,7 @@
 
   export let stack: Stack;
   export let stacks: Stack[] = [];
-  export let activeTab: 'compose' | 'makejail' | 'env' | 'net' = 'compose';
+  export let activeTab: 'compose' | 'makejail' | 'env' | 'net' | 'settings' = 'compose';
   export let originalCompose = '';
   export let originalEnv = '';
   export let originalDirector = '';
@@ -744,50 +744,6 @@
           </div>
         </details>
       {/if}
-      <!-- The restart policy rewrites the compose on the server: with
-           unsaved edits open it would replace them, so it waits. -->
-      <RestartPolicy
-        name={stack.name}
-        restart={stack.restart}
-        disabled={busyNow || isDirty}
-        reason={busyReason || (isDirty ? 'Save or discard your edits first' : '')}
-        on:changed={async () => {
-          const name = stack.name;
-          applyDismissed[name] = false;
-          await onSelectStack({ name } as Stack);
-          await onLoadStacks();
-        }}
-      />
-      <RecoveryPolicy
-        name={stack.name}
-        recovery={stack.recovery}
-        disabled={busyNow || isDirty}
-        reason={busyReason || (isDirty ? 'Save or discard your edits first' : '')}
-        on:changed={async () => {
-          const name = stack.name;
-          if (!isDirty) {
-            await onSelectStack({ name } as Stack);
-          } else {
-            const r = await fetch(`/api/stacks/${encodeURIComponent(name)}`).catch(() => null);
-            if (r?.ok && stack?.name === name) {
-              const fresh = await r.json();
-              stack = { ...stack, recovery: fresh.recovery, state: fresh.state };
-            }
-          }
-          await onLoadStacks();
-        }}
-      />
-      <input
-        list="fjord-groups"
-        value={stack.state?.group ?? ''}
-        on:change={(e) => onSetStackGroup(stack.name, e.currentTarget.value)}
-        placeholder="+ group"
-        title="Assign this stack to a sidebar group"
-        class="shrink-0 w-28 bg-fjord-card border border-fjord-border rounded-full px-3 py-0.5 text-[11px] text-fjord-fg-muted placeholder:text-fjord-fg-faint focus:outline-none focus:border-fjord-accent"
-      />
-      <datalist id="fjord-groups">
-        {#each existingGroups as g}<option value={g}></option>{/each}
-      </datalist>
       {#if isDirty}
         <span class="shrink-0 text-fjord-warning text-xs bg-fjord-warning/10 border border-fjord-warning/20 px-2 py-0.5 rounded"
           >Unsaved</span
@@ -1307,6 +1263,16 @@
           Makejail{#if (stack.makejail ?? '') !== originalMakejail}<span class="text-fjord-warning font-bold">*</span>{/if}
         </button>
       {/if}
+      <!-- How the stack runs, kept out of the header. A draft has none yet. -->
+      {#if !isDraft}
+        <button
+          on:click={() => (activeTab = 'settings')}
+          data-tab="settings"
+          class="px-4 py-2.5 border-r border-fjord-border {activeTab === 'settings'
+            ? 'bg-fjord-card text-fjord-fg border-b-2 border-b-fjord-accent'
+            : 'text-fjord-fg-muted hover:text-fjord-fg-body'}">Settings</button
+        >
+      {/if}
     </div>
 
     {#if filesLoading && (activeTab === 'compose' || activeTab === 'env' || activeTab === 'makejail')}
@@ -1431,6 +1397,65 @@
               on:change={(e) => (stack.env = e.detail)}
               on:save={onSave}
             />
+          </div>
+        </div>
+      {:else if activeTab === 'settings' && !isDraft}
+        <!-- Each one applies when it changes, as before; no Save. -->
+        <div class="p-6 overflow-y-auto h-full">
+          <div class="grid grid-cols-[8rem_minmax(0,1fr)] gap-x-6 gap-y-4 items-center max-w-xl text-sm">
+            <span class="text-fjord-fg-muted">Restart</span>
+            <div>
+              <!-- The restart policy rewrites the compose on the server: with
+                   unsaved edits open it would replace them, so it waits. -->
+              <RestartPolicy
+                name={stack.name}
+                restart={stack.restart}
+                disabled={busyNow || isDirty}
+                reason={busyReason || (isDirty ? 'Save or discard your edits first' : '')}
+                on:changed={async () => {
+                  const name = stack.name;
+                  applyDismissed[name] = false;
+                  await onSelectStack({ name } as Stack);
+                  await onLoadStacks();
+                }}
+              />
+            </div>
+            <span class="text-fjord-fg-muted">If unhealthy</span>
+            <div>
+              <RecoveryPolicy
+                name={stack.name}
+                recovery={stack.recovery}
+                disabled={busyNow || isDirty}
+                reason={busyReason || (isDirty ? 'Save or discard your edits first' : '')}
+                on:changed={async () => {
+                  const name = stack.name;
+                  if (!isDirty) {
+                    await onSelectStack({ name } as Stack);
+                  } else {
+                    const r = await fetch(`/api/stacks/${encodeURIComponent(name)}`).catch(() => null);
+                    if (r?.ok && stack?.name === name) {
+                      const fresh = await r.json();
+                      stack = { ...stack, recovery: fresh.recovery, state: fresh.state };
+                    }
+                  }
+                  await onLoadStacks();
+                }}
+              />
+            </div>
+            <label for="stack-group" class="text-fjord-fg-muted">Group</label>
+            <div>
+              <input
+                id="stack-group"
+                list="fjord-groups"
+                value={stack.state?.group ?? ''}
+                on:change={(e) => onSetStackGroup(stack.name, e.currentTarget.value)}
+                placeholder="None"
+                class="w-56 bg-fjord-inset border border-fjord-border rounded-lg px-2.5 py-1 text-sm text-fjord-fg-body placeholder:text-fjord-fg-faint focus:outline-none focus:border-fjord-accent"
+              />
+              <datalist id="fjord-groups">
+                {#each existingGroups as g}<option value={g}></option>{/each}
+              </datalist>
+            </div>
           </div>
         </div>
       {:else}
