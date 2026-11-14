@@ -1,6 +1,9 @@
 package registry
 
-import "testing"
+import (
+	"runtime"
+	"testing"
+)
 
 // A rolling "tip" pin carries its channel before the arch suffix; it must land
 // in that channel's train even when only the per-arch tag has been pushed yet
@@ -294,6 +297,25 @@ func TestDiscoverTrainsBabybuddyLatestHasVersions(t *testing.T) {
 	for ch := range tr {
 		if _, _, ok := archOf(ch); ok {
 			t.Fatalf("per-arch tag %q became a channel: %+v", ch, tr)
+		}
+	}
+}
+
+// dbuild pushes each platform of a multi-platform tag as its own tag
+// ("latest-linux-amd64") before merging them: those are not channels.
+func TestFilterArchTagsDropsPlatformTags(t *testing.T) {
+	got := filterArchTags([]string{"latest", "latest-linux-amd64", "latest-linux-arm64", "latest-amd64",
+		"beta", "beta-linux-amd64", "beta-freebsd-amd64", "0.3.0-beta.1-beta", "orphan-" + runtime.GOOS + "-amd64"})
+	want := map[string]bool{"latest": true, "beta": true, "0.3.0-beta.1-beta": true}
+	if runtime.GOARCH == "amd64" {
+		want["orphan-"+runtime.GOOS+"-amd64"] = true // this platform, no plain tag: kept
+	}
+	if len(got) != len(want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	for _, g := range got {
+		if !want[g] {
+			t.Fatalf("kept %q in %v", g, got)
 		}
 	}
 }

@@ -344,6 +344,21 @@ func archOf(t string) (arch, base string, ok bool) {
 	return "", t, false
 }
 
+// platformOf splits "<tag>-<os>-<arch>" ("latest-linux-amd64") into the OS
+// and the plain tag. ok is false for anything else.
+func platformOf(t string) (goos, base string, ok bool) {
+	arch, rest, ok := archOf(t)
+	if !ok || arch == "" || !strings.Contains(t, "-"+arch) {
+		return "", "", false
+	}
+	for _, o := range []string{"linux", "freebsd"} {
+		if strings.HasSuffix(rest, "-"+o) {
+			return o, strings.TrimSuffix(rest, "-"+o), true
+		}
+	}
+	return "", "", false
+}
+
 // filterArchTags strips per-arch noise from a version picker: drop the other
 // arch entirely (e.g. "-aarch64" on amd64, not runnable here), and drop a
 // host-arch tag ("1.3-amd64", "amd64-1.3") when a plain multi-arch equivalent
@@ -361,6 +376,16 @@ func filterArchTags(tags []string) []string {
 	}
 	out := make([]string, 0, len(tags))
 	for _, t := range tags {
+		// dbuild's per-platform pieces of a multi-platform tag
+		// ("latest-linux-amd64", "beta-freebsd-arm64"): another OS is never
+		// runnable here, this OS's is redundant once the plain tag exists.
+		if goos, base, ok := platformOf(t); ok {
+			if goos != runtime.GOOS || plain[base] {
+				continue
+			}
+			out = append(out, t)
+			continue
+		}
 		if arch, base, ok := archOf(t); ok {
 			if !host[arch] || plain[base] {
 				continue // other arch, or redundant with a multi-arch tag
