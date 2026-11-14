@@ -168,7 +168,11 @@
     unknown: { icon: 'alert', cls: 'text-fjord-fg-dim', label: 'Unverified' },
   } as const;
 
-  $: failCount = report?.checks.filter((c) => c.status === 'fail').length ?? 0;
+  // Passing checks fold into one row; only the ones that need the person
+  // are listed in full.
+  $: attention = report?.checks.filter((c) => c.status !== 'ok') ?? [];
+  $: passing = report?.checks.filter((c) => c.status === 'ok') ?? [];
+  let showPassing = false;
 
   function copyFix(fix: string) {
     navigator.clipboard.writeText(fix);
@@ -216,18 +220,11 @@
         {#if engineName}
           <span class="text-[11px] font-semibold uppercase tracking-wide px-2.5 py-1 rounded-full bg-fjord-card border border-fjord-border text-fjord-fg-secondary">default engine: {engineName}</span>
         {/if}
-        {#if failCount > 0}
-          <span class="text-[11px] font-semibold px-2.5 py-1 rounded-full bg-fjord-danger/15 text-fjord-danger border border-fjord-danger/40"
-            >{failCount} check{failCount === 1 ? '' : 's'} failing</span
-          >
-        {:else}
-          <span class="text-[11px] font-semibold px-2.5 py-1 rounded-full bg-fjord-success/10 text-fjord-success border border-fjord-success/30">all checks passing</span>
-        {/if}
       </div>
 
       <div class="border border-fjord-border rounded-xl overflow-hidden divide-y divide-fjord-border">
-        {#each report.checks as c (c.id)}
-          <div class="px-4 py-3">
+        {#each attention as c (c.id)}
+          <div class="px-4 py-3" data-check={c.id}>
             <div class="flex items-center gap-3">
               <div class="shrink-0 {STATUS[c.status].cls}" title={STATUS[c.status].label}>
                 <Icon name={STATUS[c.status].icon} size={18} />
@@ -238,7 +235,7 @@
                   <div class="text-xs text-fjord-fg-dim font-mono truncate" title={c.detail}>{c.detail}</div>
                 {/if}
                 {#if c.why}
-                  <div class="text-xs text-fjord-fg-dim mt-0.5">{c.why}</div>
+                  <div class="text-xs text-fjord-fg-dim mt-0.5 max-w-prose">{c.why}</div>
                 {/if}
               </div>
               {#if c.installable}<InstallCheckButton id={c.id} name={c.name} label={c.action && !c.action.startsWith('Install') ? c.action : 'Install'} busyLabel={c.action && !c.action.startsWith('Install') ? 'Working…' : 'Installing…'} on:installed={load} />{/if}
@@ -249,6 +246,31 @@
             {/if}
           </div>
         {/each}
+        {#if passing.length}
+          <button
+            type="button"
+            data-checks-passing
+            aria-expanded={showPassing}
+            on:click={() => (showPassing = !showPassing)}
+            class="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-fjord-card"
+          >
+            <span class="shrink-0 text-fjord-success"><Icon name="check" size={18} /></span>
+            <span class="flex-1 text-sm font-medium text-fjord-fg"
+              >{#if attention.length}{passing.length} other check{passing.length === 1 ? '' : 's'} passing{:else}All {passing.length} checks passing{/if}</span
+            >
+            <span class="shrink-0 text-fjord-fg-dim"><Icon name={showPassing ? 'chevron-up' : 'chevron-down'} size={16} /></span>
+          </button>
+          {#if showPassing}
+            {#each passing as c (c.id)}
+              <div class="flex flex-col sm:flex-row sm:items-baseline gap-x-3 px-4 py-2 pl-[46px]" data-check={c.id} title={c.why}>
+                <span class="sm:shrink-0 text-sm text-fjord-fg-secondary">{c.name}</span>
+                {#if c.detail}
+                  <span class="min-w-0 sm:flex-1 sm:text-right text-xs text-fjord-fg-dim font-mono truncate">{c.detail}</span>
+                {/if}
+              </div>
+            {/each}
+          {/if}
+        {/if}
       </div>
 
       <!-- Storage cleanup (prune) -->

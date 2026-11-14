@@ -30,6 +30,9 @@ async function setupAndSystem(page) {
   note('Setup: podman only, no AppJail', /Apps run in containers, with podman/.test(setup) && !/AppJail/.test(setup), (setup.split('\n').find((l) => l.startsWith('Apps run')) || '(no heading)'));
   await page.goto(BASE + '/?t=' + Date.now() + '#/system', { waitUntil: 'load' });
   await sleep(2500);
+  // Passing checks are folded into one row.
+  const fold = page.locator('[data-checks-passing]');
+  if (await fold.count()) await fold.click();
   const sys = await page.locator('body').innerText();
   note('System: the host firewall is checked', /host firewall/i.test(sys), /host firewall/i.test(sys) ? 'shown' : 'missing');
 }
