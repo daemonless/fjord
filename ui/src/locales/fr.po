@@ -4080,10 +4080,8 @@ msgstr "Une pile sur sa propre IP ne publie rien sur l'hôte, il n'y a donc pas 
 msgid "<0/> Open <1/>"
 msgstr "<0/> Ouvrir <1/>"
 
-#: src/StackDetail.svelte
-#: src/StackDetail.svelte
-msgid "Save or discard your edits first"
-msgstr "Enregistrez ou abandonnez d'abord vos modifications"
+#~ msgid "Save or discard your edits first"
+#~ msgstr "Enregistrez ou abandonnez d'abord vos modifications"
 
 #: src/StackDetail.svelte
 msgid "Couldn't apply:"
@@ -5231,4 +5229,8 @@ msgstr ""
 #. 0: passing.length
 #: src/System.svelte
 msgid "All {0} checks passing"
+msgstr ""
+
+#: src/StackDetail.svelte
+msgid "Save or revert your edits first"
 msgstr ""

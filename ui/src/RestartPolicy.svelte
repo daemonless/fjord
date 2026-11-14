@@ -22,7 +22,8 @@
   export let restart: StackRestart | undefined;
   export let disabled = false;
   /** Why it is disabled, when it is. */
-  export let reason = '';
+  /** Id of the visible line that says why the control is locked. */
+  export let describedBy = '';
 
   const dispatch = createEventDispatcher<{ changed: void }>();
   let open = false;
@@ -71,7 +72,8 @@
       aria-haspopup="menu"
       aria-expanded={open}
       data-policy={current}
-      title={reason || restartTitle(restart)}
+      title={restartTitle(restart)}
+      aria-describedby={describedBy || undefined}
       class="flex items-center justify-between gap-3 min-w-56 bg-fjord-inset border border-fjord-border rounded-lg px-2.5 py-1 text-sm text-fjord-fg-body hover:border-fjord-fg-faint focus:outline-none focus:border-fjord-accent disabled:opacity-50 disabled:hover:border-fjord-border"
       ><span>{restartShort(restart)}</span><span aria-hidden="true" class="text-fjord-fg-dim">▾</span></button
     >

@@ -62,6 +62,20 @@ async function install(page, name, engine, port) {
       await group.fill('');
       await group.press('Enter');
       await sleep(1000);
+      // Unsaved edits lock Restart and If unhealthy, and the tab says why.
+      await page.getByRole('button', { name: 'compose.yaml', exact: true }).click();
+      await page.locator('.cm-content').click();
+      await page.keyboard.press('Control+End');
+      await page.keyboard.type('\n# edit');
+      await page.locator('[data-tab="settings"]').click();
+      const why = page.locator('[data-settings-locked]');
+      const locked = (await why.count()) ? await why.innerText() : '';
+      const offNow = (await chip(page).isDisabled()) && (await page.locator('[data-recovery-policy] > button').isDisabled());
+      await page.screenshot({ path: '/out/restart-settings-locked.png', fullPage: true });
+      note('Settings: unsaved edits lock the controls and the tab says why', /Save or revert your edits first/.test(locked) && offNow, `line "${locked.trim()}", disabled ${offNow}`);
+      await page.getByRole('button', { name: 'Revert', exact: true }).click();
+      await sleep(500);
+      note('Settings: reverting unlocks them', (await why.count()) === 0 && !(await chip(page).isDisabled()), `line shown ${await why.count()}, disabled ${await chip(page).isDisabled()}`);
       // Services, the stack's landing tab, no longer carries these controls.
       await openPage(page, BASE + '/?t=' + Date.now() + '#/stacks/t-restart');
       await sleep(1500);
