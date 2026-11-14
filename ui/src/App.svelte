@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, onDestroy } from 'svelte';
+  import { onMount, onDestroy, tick } from 'svelte';
   import StackDetail from './StackDetail.svelte';
   import Sidebar from './Sidebar.svelte';
   import AppStore from './AppStore.svelte';
@@ -27,6 +27,7 @@
   import { currentTheme, setTheme, watchSystem, type Theme } from './theme';
   import {
     BUSY_LABEL,
+    listSnapshot,
     mergeStackList,
     newStackDraft as makeStackDraft,
     reduceStackEvent,
@@ -382,7 +383,7 @@
       : window.confirm(`Discard unsaved changes to ${selectedStack.name}?`);
   }
 
-  async function selectStack(stack: Stack | null) {
+  async function selectStack(stack: Stack | null, initialTab?: string) {
     // Only when moving to a DIFFERENT stack. Re-selecting the one already open
     // is a refresh, not navigation -- and the install flow does exactly that
     // when the deploy finishes, which yanked the user off whichever tab they
@@ -392,7 +393,6 @@
     // has no services yet -- it is a compose being written.
     const isLatest = nextStackLoad();
     const switching = stack?.name !== selectedStack?.name;
-    if (switching) activeTab = stack?.dir ? 'net' : 'compose';
     updateInfo = null;
     stackDetail?.resetLogs();
     if (!stack) {
@@ -408,9 +408,48 @@
     // list's copy is shown but never saved -- it would blank the passwords.
     // A draft from "+" is not on the server yet: it is all here already.
     let full = !stack.dir && !stacks.some((s) => s.name === stack!.name);
+    // Open the page immediately from the list snapshot so a slow detail read
+    // never leaves the click with no feedback; the full read upgrades it.
+    const snap = switching && !full ? listSnapshot(stack, stacks) : null;
+    if (switching) {
+      // The list's copy carries the director file, so a makejail link opens
+      // on that tab at once instead of flashing Services first.
+      const shown = snap ?? stack;
+      activeTab =
+        initialTab === 'compose' || initialTab === 'env' || (initialTab === 'makejail' && shown.director)
+          ? initialTab
+          : shown.dir
+            ? 'net'
+            : 'compose';
+    } else if (initialTab !== undefined) {
+      activeTab =
+        initialTab === 'compose' || initialTab === 'env' || (initialTab === 'makejail' && selectedStack?.director)
+          ? initialTab
+          : 'net';
+    }
+    if (snap) {
+      selectedStack = snap;
+      currentView = 'stacks';
+      if (execStatus[snap.name] === 'error') {
+        execStatus[snap.name] = 'idle';
+        execMessage[snap.name] = '';
+      }
+      showActionOutput(snap.name);
+      originalCompose = snap.compose;
+      originalEnv = snap.env;
+      originalDirector = snap.director ?? '';
+      originalMakejail = snap.makejail ?? '';
+      seedSvcNets(snap);
+      loadNetworks(snap.name);
+      loadVolumes(snap.name);
+      checkForUpdate(snap.name);
+      tick().then(() => {
+        if (selectedStack?.name === snap.name) stackDetail?.followLogsIfActive(snap.name);
+      });
+    }
     if (!full) {
       try {
-        const res = await fetch(`/api/stacks/${stack.name}`);
+        const res = await fetch(`/api/stacks/${encodeURIComponent(stack.name)}`);
         if (!isLatest()) return;
         if (res.ok) {
           stack = await res.json();
@@ -421,7 +460,19 @@
       }
     }
     if (!isLatest()) return;
-    if (!full) stack = { ...stack!, listOnly: true };
+    if (!full) stack = snap ?? { ...stack!, listOnly: true };
+    if (snap) {
+      // The snapshot's editors were read-only, so there is no file edit to
+      // keep; only a network picked on Services while loading is kept.
+      const netsDirty = svcNetsDirty;
+      originalCompose = stack!.compose;
+      originalEnv = stack!.env;
+      originalDirector = stack!.director ?? '';
+      originalMakejail = stack!.makejail ?? '';
+      selectedStack = stack!;
+      if (!netsDirty) seedSvcNets(stack);
+      return;
+    }
     selectedStack = stack;
     if (switching) {
       currentView = 'stacks'; // selecting a stack always means the Stacks section
@@ -430,6 +481,7 @@
         execMessage[stack!.name] = '';
       }
     }
+    if (initialTab === 'makejail' && stack!.director && activeTab === 'net') activeTab = 'makejail';
     if (switching || stack!.busy || !logs[stack!.name]) {
       showActionOutput(stack!.name);
     }
@@ -450,7 +502,9 @@
     checkForUpdate(stack!.name); // fire-and-forget; badge fills in when it returns
     // The Logs tab persists across refreshes -- if it's the active view, start
     // streaming now instead of waiting for a tab click.
-    stackDetail?.followLogsIfActive(stack!.name);
+    tick().then(() => {
+      if (selectedStack?.name === stack!.name) stackDetail?.followLogsIfActive(stack!.name);
+    });
   }
 
   async function loadStacks() {
@@ -608,11 +662,10 @@
         await selectStack(null);
         return;
       }
-      await selectStack(found);
       // Only a tab this stack has: makejail exists on a director stack alone.
-      // The list carries no director file; the loaded stack does.
-      if (tab === 'compose' || tab === 'env' || (tab === 'makejail' && selectedStack?.director)) activeTab = tab;
-      else activeTab = 'net';
+      // Pass it up front so a slow detail read neither flashes Services first
+      // nor overwrites a tab clicked while loading.
+      await selectStack(found, tab || 'net');
     } else {
       currentView = 'stacks';
       await selectStack(null);
@@ -747,7 +800,7 @@
   async function save() {
     if (!selectedStack) return;
     if (selectedStack.listOnly) {
-      toast("This stack's files did not load, so there is nothing safe to save. Open it again.", { kind: 'error' });
+      toast("This stack's files have not loaded yet, so there is nothing safe to save. If this stays, open it again.", { kind: 'error' });
       return;
     }
     const savedName = selectedStack.name;

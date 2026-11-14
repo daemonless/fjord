@@ -31,6 +31,10 @@
       ? EditorView.theme({ '.cm-scroller': { background: 'var(--color-fjord-card)' } })
       : [oneDark, EditorView.theme({ '.cm-scroller': { background: '#161619' } }, { dark: true })];
   let unwatchTheme: () => void;
+  // Read-only is swapped in place too: a stack page opens on the list's copy
+  // and becomes editable when the stack's own files arrive.
+  const readonlySlot = new Compartment();
+  const readonlyExt = (on: boolean) => (on ? [EditorState.readOnly.of(true), EditorView.editable.of(false)] : []);
 
   function initEditor() {
     if (view) view.destroy();
@@ -49,6 +53,7 @@
     const extensions = [
       basicSetup,
       themeSlot.of(editorTheme()),
+      readonlySlot.of(readonlyExt(readonly)),
       saveKeymap,
       EditorView.updateListener.of((update) => {
         if (update.docChanged) {
@@ -65,12 +70,6 @@
       extensions.push(
         varHints(vars, varsClickable ? (name, el) => dispatch('varclick', { name, rect: el.getBoundingClientRect() }) : undefined),
       );
-
-    if (readonly) {
-      // A generated spec (e.g. appjail-director.yml) is shown for reference,
-      // not edited: fjord regenerates it, so hand-edits would be lost.
-      extensions.push(EditorState.readOnly.of(true), EditorView.editable.of(false));
-    }
 
     const state = EditorState.create({
       doc: content,
@@ -92,6 +91,8 @@
       });
     }
   }
+
+  $: if (view) view.dispatch({ effects: readonlySlot.reconfigure(readonlyExt(readonly)) });
 
   // A new .env relabels in place; rebuilding the editor would lose the
   // cursor and the undo history.

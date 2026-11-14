@@ -10,6 +10,7 @@ import {
   groupStacks,
   isDraftEdited,
   isMultiImage,
+  listSnapshot,
   mergeStackList,
   newStackDraft,
   orderStacks,
@@ -128,6 +129,24 @@ describe('stacks helpers', () => {
       { name: 'b', group: 'G1' },
     ]);
     expect(moved?.nextStacks.find((s) => s.name === 'c')?.state).toEqual({ group: 'G1', order: 1 });
+  });
+
+  it('builds a provisional listOnly snapshot for known stacks and skips unsaved drafts', () => {
+    const listed = makeStack('tailscale', {
+      env: 'TS_AUTHKEY=\nTZ=UTC\n',
+      status: { state: 'partial', containers: [{ name: 'tailscale', state: 'restarting', detail: 'restarted 4x' }] },
+    });
+    const snap = listSnapshot({ name: 'tailscale', dir: '', compose: '', env: '' }, [listed]);
+    expect(snap?.listOnly).toBe(true);
+    expect(snap?.dir).toBe('/var/db/fjord/stacks/tailscale');
+    expect(snap?.status?.state).toBe('partial');
+
+    const direct = listSnapshot(listed, []);
+    expect(direct?.listOnly).toBe(true);
+    expect(direct?.name).toBe('tailscale');
+
+    const draft = newStackDraft('podman', 'freebsd', 'draft-1');
+    expect(listSnapshot(draft, [listed])).toBeNull();
   });
 
   it('merges stack list updates without overwriting open editor text', () => {

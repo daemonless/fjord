@@ -164,6 +164,15 @@
   // not compose.yaml (kept only for status/log service discovery). The primary
   // tab edits the director spec; director reconciles changes on the next up.
   $: isDirector = !!stack?.director;
+  // The page opens on the list's copy of the stack, whose .env has its
+  // secrets blanked. Nothing is editable until the stack's own files arrive:
+  // an edit made on the copy would be lost when they do, or save the blanks.
+  $: filesLoading = !!stack?.listOnly;
+  const LOADING_MSG = "This stack's files are still loading. Try again in a moment.";
+  function refuseWhileLoading(): boolean {
+    if (filesLoading) toast(LOADING_MSG, { kind: 'error' });
+    return filesLoading;
+  }
   $: existingGroups = existingGroupsOf(stacks);
 
   // Derive a clickable URL for a webapp stack: its own IP when it has one,
@@ -225,6 +234,7 @@
   $: fileVars = usedVars(varsFile, stackVars);
   $: fileMissing = fileVars.filter((v) => v.state === 'unset').length;
   function setStackVar(name: string, value: string) {
+    if (refuseWhileLoading()) return;
     if (stack) stack.env = setEnvVar(stack.env ?? '', name, value);
   }
   function varClicked(name: string, rect: DOMRect) {
@@ -234,7 +244,7 @@
   // .env values the compose never names reach no container: hand them to
   // the app's (first) service, an edit held until Save.
   async function passUnusedEnv() {
-    if (!stack) return;
+    if (!stack || refuseWhileLoading()) return;
     try {
       const res = await fetch('/api/compose/pass-env', {
         method: 'POST',
@@ -248,7 +258,7 @@
     }
   }
   function addUnsetVars() {
-    if (!stack) return;
+    if (!stack || refuseWhileLoading()) return;
     const env = (stack.env ?? '').replace(/\s*$/, '');
     stack.env = (env ? env + '\n' : '') + unsetVars.map((n) => `${n}=`).join('\n') + '\n';
   }
@@ -477,6 +487,7 @@
   $: canUseVolumes = !stack?.state?.engine || stack.state.engine === 'podman';
 
   async function mountsAPI(body: Record<string, unknown>) {
+    if (filesLoading) throw new Error(LOADING_MSG);
     const res = await fetch('/api/compose/mounts', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -1298,6 +1309,12 @@
       {/if}
     </div>
 
+    {#if filesLoading && (activeTab === 'compose' || activeTab === 'env' || activeTab === 'makejail')}
+      <div class="shrink-0 flex items-center gap-2 px-4 py-2 text-xs bg-fjord-card border-b border-fjord-border text-fjord-fg-secondary">
+        <span class="w-3 h-3 rounded-full border-2 border-fjord-fg-muted border-t-transparent animate-spin shrink-0"></span>
+        Read-only until this stack's own files load. If this stays, open the stack again.
+      </div>
+    {/if}
     <div class="flex-1 relative min-h-0">
       {#if activeTab === 'compose'}
         <div class="h-full flex flex-col">
@@ -1330,6 +1347,7 @@
                   <Editor
                     bind:content={stack.director}
                     language="yaml"
+                    readonly={filesLoading}
                     vars={varLabels ? stackVars : null}
                     varsClickable
                     on:varclick={(e) => varClicked(e.detail.name, e.detail.rect)}
@@ -1340,6 +1358,7 @@
                   <Editor
                     bind:content={stack.compose}
                     language="yaml"
+                    readonly={filesLoading}
                     vars={varLabels ? stackVars : null}
                     varsClickable
                     on:varclick={(e) => varClicked(e.detail.name, e.detail.rect)}
@@ -1365,6 +1384,7 @@
         <Editor
           bind:content={stack.makejail}
           language="env"
+          readonly={filesLoading}
           on:change={(e) => (stack.makejail = e.detail)}
           on:save={onSave}
         />
@@ -1407,6 +1427,7 @@
             <Editor
               bind:content={stack.env}
               language="env"
+              readonly={filesLoading}
               on:change={(e) => (stack.env = e.detail)}
               on:save={onSave}
             />
@@ -1414,7 +1435,7 @@
         </div>
       {:else}
         <div class="p-6 overflow-y-auto h-full">
-          {#if !stack.compose && !stack.director}
+          {#if !stack.compose && !stack.director && !stack.dir}
             <!-- The optimistic placeholder the install flow puts up: no
                  compose yet, so every answer here would be a guess. -->
             <div class="flex items-center gap-2 text-sm text-fjord-fg-muted">
