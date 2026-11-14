@@ -173,6 +173,8 @@
   $: attention = report?.checks.filter((c) => c.status !== 'ok') ?? [];
   $: passing = report?.checks.filter((c) => c.status === 'ok') ?? [];
   let showPassing = false;
+  // The passing check whose explanation is open; one at a time.
+  let openWhy = '';
 
   function copyFix(fix: string) {
     navigator.clipboard.writeText(fix);
@@ -262,10 +264,21 @@
           </button>
           {#if showPassing}
             {#each passing as c (c.id)}
-              <div class="flex flex-col sm:flex-row sm:items-baseline gap-x-3 px-4 py-2 pl-[46px]" data-check={c.id} title={c.why}>
-                <span class="sm:shrink-0 text-sm text-fjord-fg-secondary">{c.name}</span>
-                {#if c.detail}
-                  <span class="min-w-0 sm:flex-1 sm:text-right text-xs text-fjord-fg-dim font-mono truncate">{c.detail}</span>
+              <div data-check={c.id}>
+                <button
+                  type="button"
+                  disabled={!c.why}
+                  aria-expanded={c.why ? openWhy === c.id : undefined}
+                  on:click={() => (openWhy = openWhy === c.id ? '' : c.id)}
+                  class="w-full flex flex-col sm:flex-row sm:items-baseline gap-x-3 px-4 py-2 pl-[46px] text-left enabled:hover:bg-fjord-card"
+                >
+                  <span class="sm:shrink-0 text-sm text-fjord-fg-secondary">{c.name}</span>
+                  {#if c.detail}
+                    <span class="min-w-0 sm:flex-1 sm:text-right text-xs text-fjord-fg-dim font-mono truncate">{c.detail}</span>
+                  {/if}
+                </button>
+                {#if c.why && openWhy === c.id}
+                  <p class="px-4 pb-3 pl-[46px] text-xs text-fjord-fg-dim max-w-prose" data-check-why>{c.why}</p>
                 {/if}
               </div>
             {/each}
