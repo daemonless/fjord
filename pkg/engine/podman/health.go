@@ -27,7 +27,7 @@ import (
 // On FreeBSD every podman container is a jail named by its full id, so the
 // listener probe is sockstat -j without entering the container. Where that
 // is not so (no jail by that name), nothing is probed and the container's
-// own state stands. The three hooks are variables so tests can stand in.
+// own state stands. The hooks are variables so tests can stand in.
 var (
 	// jailID returns the jail id a container runs in, or "" when it is not a jail.
 	jailID = func(ctx context.Context, containerID string) string {
@@ -46,10 +46,15 @@ var (
 	// logTail is the last few lines of the container's log, from the API: the
 	// podman CLI it used to start took 0.3 s a container, and every status poll
 	// of a stack whose app publishes no host port read it -- 14 at once took
-	// 2.6 s on jupiter, past the page's wait, so every stack read "busy".
-	logTail = func(ctx context.Context, containerID string) string {
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet,
-			"http://d/v4.0.0/libpod/containers/"+url.PathEscape(containerID)+"/logs?stdout=true&stderr=true&tail=12", nil)
+	// 2.6 s on a busy host, past the page's wait, so every stack read "busy".
+	logTail = func(ctx context.Context, containerID string, since time.Time) string {
+		ctx, cancel := context.WithTimeout(ctx, logTailTimeout)
+		defer cancel()
+		u := "http://d/v4.0.0/libpod/containers/" + url.PathEscape(containerID) + "/logs?stdout=true&stderr=true&tail=12"
+		if !since.IsZero() {
+			u += "&since=" + strconv.FormatInt(since.Unix(), 10)
+		}
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 		if err != nil {
 			return ""
 		}
@@ -66,6 +71,15 @@ var (
 	}
 	logClient = sync.OnceValue(newSocketClient)
 )
+
+// logTailWindow is how far before a crash-looping container's last start its
+// log is read: enough for the previous crash's last words, without asking
+// podman for the whole log of a container restarted a thousand times.
+const logTailWindow = 5 * time.Minute
+
+// logTailTimeout bounds one log read, so a slow log driver cannot hold up a
+// status poll. A variable so tests can shorten it.
+var logTailTimeout = time.Second
 
 // serviceHealth judges a RUNNING container: "running" when a published port
 // is listening (or the container publishes none and its log shows no fault),
@@ -88,7 +102,7 @@ var startGrace = 60 * time.Second
 // after an update or install judge with none, at the end of their window.
 func serviceHealthWithin(ctx context.Context, c libpodContainer, grace time.Duration) (state, detail string) {
 	if strings.EqualFold(c.Status, "unhealthy") {
-		if why := engine.CrashReason(logTail(ctx, c.ID)); why != "" {
+		if why := engine.CrashReason(logTail(ctx, c.ID, time.Time{})); why != "" {
 			return "crashed", "container healthcheck reports unhealthy: " + why
 		}
 		return "crashed", "container healthcheck reports unhealthy -- see Logs"
@@ -115,7 +129,11 @@ func serviceHealthWithin(ctx context.Context, c libpodContainer, grace time.Dura
 	// container level (restart: always / unless-stopped), even on Linux where
 	// jid is empty or when the app inside does not run under s6.
 	if c.Restarts >= 2 && (grace == 0 || (c.StartedAt > 0 && time.Since(time.Unix(c.StartedAt, 0)) < grace)) {
-		if why := engine.CrashReason(logTail(ctx, c.ID)); why != "" {
+		since := time.Now().Add(-logTailWindow)
+		if c.StartedAt > 0 {
+			since = time.Unix(c.StartedAt, 0).Add(-logTailWindow)
+		}
+		if why := engine.CrashReason(logTail(ctx, c.ID, since)); why != "" {
 			return "crashed", fmt.Sprintf("crash-looping (restarted %d times): %s", c.Restarts, why)
 		}
 		return "crashed", fmt.Sprintf("crash-looping: restarted %d times -- see Logs", c.Restarts)
@@ -123,7 +141,9 @@ func serviceHealthWithin(ctx context.Context, c libpodContainer, grace time.Dura
 	if jid == "" {
 		return "running", ""
 	}
-	if tail := logTail(ctx, c.ID); engine.CrashedInLog(tail) {
+	// A log read that timed out is empty and reads as no crash: a slow log
+	// costs the crash verdict, never the page's wait.
+	if tail := logTail(ctx, c.ID, time.Time{}); engine.CrashedInLog(tail) {
 		if c.StartedAt > 0 && time.Since(time.Unix(c.StartedAt, 0)) < grace {
 			return "starting", "starting up -- the app restarted while it waits (for its database, say)"
 		}
