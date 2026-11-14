@@ -3358,14 +3358,11 @@ msgstr "Rapport système indisponible"
 msgid "default engine: {0}"
 msgstr "moteur par défaut : {0}"
 
-#. 0: failCount; 1: failCount === 1 ? '' \\: 's'
-#: src/System.svelte
-msgid "{0} check{1} failing"
-msgstr "{0} vérification{1} en échec"
+#~ msgid "{0} check{1} failing"
+#~ msgstr "{0} vérification{1} en échec"
 
-#: src/System.svelte
-msgid "all checks passing"
-msgstr "toutes les vérifications passent"
+#~ msgid "all checks passing"
+#~ msgstr "toutes les vérifications passent"
 
 #: src/System.svelte
 msgid "Engine: <0/>"
@@ -5224,4 +5221,14 @@ msgstr ""
 
 #: src/StackDetail.svelte
 msgid "Group"
+msgstr ""
+
+#. 0: passing.length; 1: passing.length === 1 ? '' \\: 's'
+#: src/System.svelte
+msgid "{0} other check{1} passing"
+msgstr ""
+
+#. 0: passing.length
+#: src/System.svelte
+msgid "All {0} checks passing"
 msgstr ""

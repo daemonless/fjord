@@ -3367,14 +3367,11 @@ msgstr "System Report Unavailable"
 msgid "default engine: {0}"
 msgstr "default engine: {0}"
 
-#. 0: failCount; 1: failCount === 1 ? '' \\: 's'
-#: src/System.svelte
-msgid "{0} check{1} failing"
-msgstr "{0} check{1} failing"
+#~ msgid "{0} check{1} failing"
+#~ msgstr "{0} check{1} failing"
 
-#: src/System.svelte
-msgid "all checks passing"
-msgstr "all checks passing"
+#~ msgid "all checks passing"
+#~ msgstr "all checks passing"
 
 #: src/System.svelte
 msgid "Engine: <0/>"
@@ -5236,3 +5233,13 @@ msgstr "If unhealthy"
 #: src/StackDetail.svelte
 msgid "Group"
 msgstr "Group"
+
+#. 0: passing.length; 1: passing.length === 1 ? '' \\: 's'
+#: src/System.svelte
+msgid "{0} other check{1} passing"
+msgstr "{0} other check{1} passing"
+
+#. 0: passing.length
+#: src/System.svelte
+msgid "All {0} checks passing"
+msgstr "All {0} checks passing"
