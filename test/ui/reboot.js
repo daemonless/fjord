@@ -37,7 +37,7 @@ async function install(page, name, engine, port) {
   await install.click();
   const d = await settle(page, name);
   note(`${engine}: ${name} installed`, d?.status?.state === 'running', `state ${d?.status?.state}`);
-  await openPage(page, BASE + '/?t=' + Date.now() + '#/stacks/' + name);
+  await openPage(page, BASE + '/?t=' + Date.now() + '#/stacks/' + name + '/settings');
   await sleep(1500);
 }
 // [name, engine, port, chip choice (its words), stopped by the user, up after the reboot]

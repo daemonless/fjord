@@ -1,12 +1,11 @@
 <script lang="ts">
   import { fitMenu } from './fitMenu';
-  // The stack's restart policy, a chip among the header chips: what happens
+  // The stack's restart policy, on its Settings tab: what happens
   // when it exits, and at boot -- or, on an engine that does not restart what
   // exits, only what starts at boot. fjordd keeps it (the compose's
   // `restart:`, or the stack's state); running containers take a compose
   // change at the next Apply, like any saved change.
   import { createEventDispatcher } from 'svelte';
-  import Icon from './Icon.svelte';
   import { toast } from './toast';
   import {
     DEFAULT_RETRIES,
@@ -73,8 +72,8 @@
       aria-expanded={open}
       data-policy={current}
       title={reason || restartTitle(restart)}
-      class="flex items-center gap-1 bg-fjord-card border border-fjord-border rounded-full px-2.5 py-0.5 text-[11px] text-fjord-fg-muted hover:text-fjord-fg-body hover:border-fjord-fg-faint focus:outline-none focus:border-fjord-accent disabled:opacity-50 disabled:hover:text-fjord-fg-muted disabled:hover:border-fjord-border"
-      ><Icon name={onExit || !choices.length ? 'restart' : 'power'} size={11} /><span>{restartShort(restart)}</span><span aria-hidden="true">▾</span></button
+      class="flex items-center justify-between gap-3 min-w-56 bg-fjord-inset border border-fjord-border rounded-lg px-2.5 py-1 text-sm text-fjord-fg-body hover:border-fjord-fg-faint focus:outline-none focus:border-fjord-accent disabled:opacity-50 disabled:hover:border-fjord-border"
+      ><span>{restartShort(restart)}</span><span aria-hidden="true" class="text-fjord-fg-dim">▾</span></button
     >
     {#if open}
       <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->

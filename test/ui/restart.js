@@ -1,5 +1,5 @@
-// A stack's restart policy, set through the restart chip in its page's
-// header. STEP=install: install t-restart on podman and t-restart-aj on
+// A stack's restart policy, set on its page's Settings tab.
+// STEP=install: install t-restart on podman and t-restart-aj on
 // AppJail; a new podman install restarts unless stopped, an AppJail one
 // starts at boot and offers only the boot choices. STEP=set POLICY=<value>:
 // pick it, Apply Changes, check the page and the compose agree.
@@ -38,7 +38,7 @@ async function install(page, name, engine, port) {
   await install.click();
   const d = await settle(page, name);
   note(`${engine}: ${name} installed`, d?.status?.state === 'running', `state ${d?.status?.state}`);
-  await openPage(page, BASE + '/?t=' + Date.now() + '#/stacks/' + name);
+  await openPage(page, BASE + '/?t=' + Date.now() + '#/stacks/' + name + '/settings');
   await sleep(1500);
 }
 (async () => {
@@ -51,6 +51,22 @@ async function install(page, name, engine, port) {
       const v = await policy(page);
       await page.screenshot({ path: '/out/restart-podman-new.png', fullPage: true });
       note('a new podman install restarts unless stopped', v === 'unless-stopped', `the chip shows "${v}" (${await chip(page).innerText()})`);
+      // The group is set on the same tab and shows in the sidebar.
+      const group = page.locator('#stack-group');
+      await group.fill('ui-settings');
+      await group.press('Enter');
+      await sleep(1500);
+      const g = (await detail(page, 't-restart')).state?.group;
+      const side = await page.getByText('ui-settings', { exact: true }).count();
+      note('Settings: the group is saved and the sidebar shows it', g === 'ui-settings' && side > 0, `group "${g}", sidebar ${side}`);
+      await group.fill('');
+      await group.press('Enter');
+      await sleep(1000);
+      // Services, the stack's landing tab, no longer carries these controls.
+      await openPage(page, BASE + '/?t=' + Date.now() + '#/stacks/t-restart');
+      await sleep(1500);
+      const inHeader = await page.locator('[data-restart-policy], [data-recovery-policy], #stack-group').count();
+      note('Settings: restart, recovery and group are not on the Services view', inHeader === 0, `${inHeader} found`);
       await install(page, 't-restart-aj', 'appjail', '3126');
       // AppJail offers the boot half only: worded as that, with no restart
       // promised and no on-failure.
@@ -66,12 +82,12 @@ async function install(page, name, engine, port) {
       await sleep(1500);
       const aj = (await detail(page, 't-restart-aj')).restart || {};
       note("AppJail: Don't start at boot is saved, nothing to apply", aj.policy === 'no' && !aj.onExit && !(await page.getByRole('button', { name: 'Apply Changes', exact: true }).isVisible()), JSON.stringify(aj));
-      await openPage(page, BASE + '/?t=' + Date.now() + '#/stacks/t-restart-aj');
+      await openPage(page, BASE + '/?t=' + Date.now() + '#/stacks/t-restart-aj/settings');
       await sleep(1500);
       note('AppJail: the chip shows it after a reload', (await policy(page)) === 'no', await chip(page).innerText());
     } else {
       const want = process.env.POLICY;
-      await openPage(page, BASE + '/?t=' + Date.now() + '#/stacks/t-restart');
+      await openPage(page, BASE + '/?t=' + Date.now() + '#/stacks/t-restart/settings');
       await sleep(1500);
       // A running stack takes the change through Apply Changes; one left down
       // (after "Don't restart" and a crash) takes it at the next Start.
@@ -96,7 +112,7 @@ async function install(page, name, engine, port) {
       note(`${want}: saved and applied`, r.policy === want && !r.mixed && d.status?.state === 'running' && !(d.state?.pending_services || []).length,
         `policy ${r.policy}, compose ${JSON.stringify(r.services)}, state ${d.status?.state}, pending ${(d.state?.pending_services || []).join(',') || 'none'}`);
       note(`${want}: the compose says ${expect}`, Object.values(r.services || {}).every((s) => s === expect), JSON.stringify(r.services));
-      await openPage(page, BASE + '/?t=' + Date.now() + '#/stacks/t-restart');
+      await openPage(page, BASE + '/?t=' + Date.now() + '#/stacks/t-restart/settings');
       await sleep(1500);
       const shown = await policy(page);
       note(`${want}: the chip shows it after a reload`, shown === want, `${shown} (${await chip(page).innerText()})`);

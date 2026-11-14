@@ -1,7 +1,6 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
   import { fitMenu } from './fitMenu';
-  import Icon from './Icon.svelte';
   import { toast } from './toast';
   import type { StackRecovery } from './stacks';
 
@@ -26,11 +25,11 @@
     const a = r?.action || 'none';
     if (a === 'restart') {
       const cap = r?.maxTries || 3;
-      if (r?.attempts) return `Recover: restart (${r.attempts}/${cap})`;
-      return `Recover: restart (${cap}×)`;
+      if (r?.attempts) return `Restart stack (${r.attempts}/${cap})`;
+      return `Restart stack (${cap}×)`;
     }
-    if (a === 'stop') return 'Recover: stop';
-    return 'Recover: do nothing';
+    if (a === 'stop') return 'Stop stack';
+    return 'Do nothing';
   }
 
   function chipTitle(r: StackRecovery | undefined): string {
@@ -110,8 +109,8 @@
       aria-expanded={open}
       data-recovery={action}
       title={reason || chipTitle(recovery)}
-      class="flex items-center gap-1 bg-fjord-card border border-fjord-border rounded-full px-2.5 py-0.5 text-[11px] text-fjord-fg-muted hover:text-fjord-fg-body hover:border-fjord-fg-faint focus:outline-none focus:border-fjord-accent disabled:opacity-50 disabled:hover:text-fjord-fg-muted disabled:hover:border-fjord-border"
-      ><Icon name="activity" size={11} /><span>{chipLabel(recovery)}</span><span aria-hidden="true">▾</span></button
+      class="flex items-center justify-between gap-3 min-w-56 bg-fjord-inset border border-fjord-border rounded-lg px-2.5 py-1 text-sm text-fjord-fg-body hover:border-fjord-fg-faint focus:outline-none focus:border-fjord-accent disabled:opacity-50 disabled:hover:border-fjord-border"
+      ><span>{chipLabel(recovery)}</span><span aria-hidden="true" class="text-fjord-fg-dim">▾</span></button
     >
     {#if open}
       <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
