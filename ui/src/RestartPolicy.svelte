@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { fitMenu } from './fitMenu';
+  import MenuField from './MenuField.svelte';
   // The stack's restart policy, on its Settings tab: what happens
   // when it exits, and at boot -- or, on an engine that does not restart what
   // exits, only what starts at boot. fjordd keeps it (the compose's
@@ -21,7 +21,6 @@
   export let name: string;
   export let restart: StackRestart | undefined;
   export let disabled = false;
-  /** Why it is disabled, when it is. */
   /** Id of the visible line that says why the control is locked. */
   export let describedBy = '';
 
@@ -61,71 +60,59 @@
   }
 </script>
 
-<svelte:window on:keydown={(e) => open && e.key === 'Escape' && (open = false)} />
-
 {#if restart}
-  <div class="relative shrink-0" data-restart-policy>
-    <button
-      type="button"
-      on:click={() => (open = !open)}
-      disabled={off}
-      aria-haspopup="menu"
-      aria-expanded={open}
-      data-policy={current}
-      title={restartTitle(restart)}
-      aria-describedby={describedBy || undefined}
-      class="flex items-center justify-between gap-3 min-w-56 bg-fjord-inset border border-fjord-border rounded-lg px-2.5 py-1 text-sm text-fjord-fg-body hover:border-fjord-fg-faint focus:outline-none focus:border-fjord-accent disabled:opacity-50 disabled:hover:border-fjord-border"
-      ><span>{restartShort(restart)}</span><span aria-hidden="true" class="text-fjord-fg-dim">▾</span></button
-    >
-    {#if open}
-      <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
-      <div class="fixed inset-0 z-20" on:click={() => (open = false)}></div>
-      <div role="menu" use:fitMenu class="absolute z-30 left-0 mt-1 w-96 bg-fjord-card border border-fjord-border rounded-lg shadow-xl py-1">
-        {#if restart.mixed}
-          <p class="px-3 py-1.5 text-xs text-fjord-fg-dim">{restartTitle(restart)}</p>
-        {/if}
-        {#each choices as c}
-          <div class="flex items-start gap-2 px-3 py-2 hover:bg-fjord-border/50 {current === c.value ? 'bg-fjord-border/30' : ''}">
-            <button
-              type="button"
-              role="menuitemradio"
-              aria-checked={current === c.value}
-              disabled={saving}
-              on:click={() => current !== c.value && save(c.value)}
-              class="flex-1 flex items-start gap-2 text-left"
-            >
-              <span
-                class="mt-1 w-3 h-3 shrink-0 rounded-full border {current === c.value
-                  ? 'border-fjord-accent bg-fjord-accent shadow-[inset_0_0_0_2px_var(--color-fjord-card)]'
-                  : 'border-fjord-fg-faint'}"
-              ></span>
-              <span class="flex flex-col flex-1">
-                <span class="flex items-baseline justify-between gap-3">
-                  <span class="text-sm font-medium text-fjord-fg-body">{c.label}</span>
-                  {#if onExit}<code class="text-[11px] text-fjord-fg-muted">{composeValue(c.value, c.value === 'on-failure' ? retries : 0)}</code>{/if}
-                </span>
-                <span class="text-xs text-fjord-fg-dim">{restartMeaning(c.value, c.value === 'on-failure' ? retries : 0, onExit)}</span>
-              </span>
-            </button>
-            {#if c.value === 'on-failure' && current === 'on-failure'}
-              <input
-                type="number"
-                aria-label="Restarts after a crash"
-                min="1"
-                max="100"
-                bind:value={retries}
-                disabled={saving}
-                on:change={() => save('on-failure', Math.max(1, Math.min(100, Math.round(retries) || DEFAULT_RETRIES)))}
-                title="How many times it is restarted after a crash before it is left down"
-                class="w-14 shrink-0 bg-fjord-bg border border-fjord-border rounded-lg px-2 py-1 text-xs text-fjord-fg-secondary focus:outline-none focus:border-fjord-accent"
-              />
-            {/if}
-          </div>
-        {/each}
-        {#if !onExit}
-          <p class="mx-3 mt-1 pt-2 pb-1 border-t border-fjord-border text-xs text-fjord-fg-dim">{bootOnlyNote()}</p>
+  <MenuField
+    data-restart-policy
+    bind:open
+    label={restartShort(restart)}
+    title={restartTitle(restart)}
+    disabled={off}
+    {describedBy}
+    buttonAttrs={{ 'data-policy': current }}
+  >
+    {#if restart.mixed}
+      <p class="px-3 py-1.5 text-xs text-fjord-fg-dim">{restartTitle(restart)}</p>
+    {/if}
+    {#each choices as c}
+      <div class="flex items-start gap-2 px-3 py-2 hover:bg-fjord-border/50 {current === c.value ? 'bg-fjord-border/30' : ''}">
+        <button
+          type="button"
+          role="menuitemradio"
+          aria-checked={current === c.value}
+          disabled={saving}
+          on:click={() => current !== c.value && save(c.value)}
+          class="flex-1 flex items-start gap-2 text-left"
+        >
+          <span
+            class="mt-1 w-3 h-3 shrink-0 rounded-full border {current === c.value
+              ? 'border-fjord-accent bg-fjord-accent shadow-[inset_0_0_0_2px_var(--color-fjord-card)]'
+              : 'border-fjord-fg-faint'}"
+          ></span>
+          <span class="flex flex-col flex-1">
+            <span class="flex items-baseline justify-between gap-3">
+              <span class="text-sm font-medium text-fjord-fg-body">{c.label}</span>
+              {#if onExit}<code class="text-[11px] text-fjord-fg-muted">{composeValue(c.value, c.value === 'on-failure' ? retries : 0)}</code>{/if}
+            </span>
+            <span class="text-xs text-fjord-fg-dim">{restartMeaning(c.value, c.value === 'on-failure' ? retries : 0, onExit)}</span>
+          </span>
+        </button>
+        {#if c.value === 'on-failure' && current === 'on-failure'}
+          <input
+            type="number"
+            aria-label="Restarts after a crash"
+            min="1"
+            max="100"
+            bind:value={retries}
+            disabled={saving}
+            on:change={() => save('on-failure', Math.max(1, Math.min(100, Math.round(retries) || DEFAULT_RETRIES)))}
+            title="How many times it is restarted after a crash before it is left down"
+            class="w-14 shrink-0 bg-fjord-bg border border-fjord-border rounded-lg px-2 py-1 text-xs text-fjord-fg-secondary focus:outline-none focus:border-fjord-accent"
+          />
         {/if}
       </div>
+    {/each}
+    {#if !onExit}
+      <p class="mx-3 mt-1 pt-2 pb-1 border-t border-fjord-border text-xs text-fjord-fg-dim">{bootOnlyNote()}</p>
     {/if}
-  </div>
+  </MenuField>
 {/if}

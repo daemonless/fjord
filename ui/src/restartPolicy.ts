@@ -1,4 +1,4 @@
-// A stack's restart policy in words, for the chip in the stack header, the
+// A stack's restart policy in words, for the field on the stack's Settings tab, the
 // stacks list, the install wizard and Settings. fjordd sends it as the stack
 // detail's `restart`, with what the stack's engine offers: an engine that
 // restarts on exit takes the four compose policies; one that does not only
@@ -49,7 +49,7 @@ export function composeValue(policy: string, retries = 0): string {
   return policy === 'on-failure' && retries > 0 ? `${policy}:${retries}` : policy;
 }
 
-/** The chip's words for the current setting. */
+/** The field's words for the current setting. */
 export function restartShort(r: StackRestart | undefined): string {
   if (!r) return '';
   if (!r.policies.length) return 'Restart: not available';
