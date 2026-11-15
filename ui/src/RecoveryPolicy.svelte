@@ -7,7 +7,8 @@
   export let name: string;
   export let recovery: StackRecovery | undefined;
   export let disabled = false;
-  export let reason = '';
+  /** Id of the visible line that says why the control is locked. */
+  export let describedBy = '';
 
   const dispatch = createEventDispatcher<{ changed: void }>();
   let open = false;
@@ -108,7 +109,8 @@
       aria-haspopup="menu"
       aria-expanded={open}
       data-recovery={action}
-      title={reason || chipTitle(recovery)}
+      title={chipTitle(recovery)}
+      aria-describedby={describedBy || undefined}
       class="flex items-center justify-between gap-3 min-w-56 bg-fjord-inset border border-fjord-border rounded-lg px-2.5 py-1 text-sm text-fjord-fg-body hover:border-fjord-fg-faint focus:outline-none focus:border-fjord-accent disabled:opacity-50 disabled:hover:border-fjord-border"
       ><span>{chipLabel(recovery)}</span><span aria-hidden="true" class="text-fjord-fg-dim">▾</span></button
     >

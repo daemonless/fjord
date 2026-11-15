@@ -4089,10 +4089,8 @@ msgstr "A stack on its own IP publishes nothing on the host, so there is no link
 msgid "<0/> Open <1/>"
 msgstr "<0/> Open <1/>"
 
-#: src/StackDetail.svelte
-#: src/StackDetail.svelte
-msgid "Save or discard your edits first"
-msgstr "Save or discard your edits first"
+#~ msgid "Save or discard your edits first"
+#~ msgstr "Save or discard your edits first"
 
 #: src/StackDetail.svelte
 msgid "Couldn't apply:"
@@ -5243,3 +5241,7 @@ msgstr "{0} other check{1} passing"
 #: src/System.svelte
 msgid "All {0} checks passing"
 msgstr "All {0} checks passing"
+
+#: src/StackDetail.svelte
+msgid "Save or revert your edits first"
+msgstr "Save or revert your edits first"

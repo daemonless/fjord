@@ -617,6 +617,10 @@
           ? `${execMessage[stack.name] || 'Working…'} — actions come back when it finishes`
           : '';
 
+  // Why Restart and If unhealthy are disabled on the Settings tab: both
+  // rewrite the compose on the server, so they wait for edits and for work.
+  $: settingsLocked = busyReason || (isDirty ? 'Save or revert your edits first' : '');
+
   function failedLabel(action: string): string {
     switch (action) {
       case 'install': return 'Install failed';
@@ -1402,6 +1406,11 @@
       {:else if activeTab === 'settings' && !isDraft}
         <!-- Each one applies when it changes, as before; no Save. -->
         <div class="p-6 overflow-y-auto h-full">
+          {#if settingsLocked}
+            <p id="settings-locked" data-settings-locked class="flex items-center gap-2 mb-4 max-w-prose text-sm text-fjord-fg-muted">
+              <Icon name="alert" size={14} />{settingsLocked}
+            </p>
+          {/if}
           <div class="grid grid-cols-[8rem_minmax(0,1fr)] gap-x-6 gap-y-4 items-center max-w-xl text-sm">
             <span class="text-fjord-fg-muted">Restart</span>
             <div>
@@ -1411,7 +1420,7 @@
                 name={stack.name}
                 restart={stack.restart}
                 disabled={busyNow || isDirty}
-                reason={busyReason || (isDirty ? 'Save or discard your edits first' : '')}
+                describedBy={settingsLocked ? 'settings-locked' : ''}
                 on:changed={async () => {
                   const name = stack.name;
                   applyDismissed[name] = false;
@@ -1426,7 +1435,7 @@
                 name={stack.name}
                 recovery={stack.recovery}
                 disabled={busyNow || isDirty}
-                reason={busyReason || (isDirty ? 'Save or discard your edits first' : '')}
+                describedBy={settingsLocked ? 'settings-locked' : ''}
                 on:changed={async () => {
                   const name = stack.name;
                   if (!isDirty) {
