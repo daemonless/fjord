@@ -172,7 +172,7 @@ func TestStackRestartBootOnly(t *testing.T) {
 	if !composepkg.RestartOf(st.Compose).Mixed {
 		t.Fatal("the compose was changed")
 	}
-	if v := s.restartViewOf(st); v.Policy != "no" || v.OnExit || len(v.Policies) != 3 {
+	if v := s.restartViewOf(st, savedSettings{}); v.Policy != "no" || v.OnExit || v.Default || len(v.Policies) != 3 {
 		t.Fatalf("view = %+v", v)
 	}
 	if got := s.bootRestarts(st); got[""] != "no" || len(got) != 1 {
@@ -263,5 +263,36 @@ func TestStartOnBootRunningClearsBootFailure(t *testing.T) {
 	startOnBoot(s)
 	if st, _ := s.manager.LoadState("gitea"); st == nil || st.LastFailure != nil {
 		t.Fatalf("LastFailure = %+v, want nil once stack is running at boot", st)
+	}
+}
+
+// A list row says the policy only when it is not what a new install takes,
+// and that default is the saved one for the engine, not always unless-stopped.
+func TestIsDefaultRestart(t *testing.T) {
+	view := func(policy string, retries int, onExit, mixed bool) restartView {
+		return restartView{OnExit: onExit, StackRestart: composepkg.StackRestart{
+			Restart: composepkg.Restart{Policy: policy, Retries: retries}, Mixed: mixed}}
+	}
+	unless := composepkg.Restart{Policy: composepkg.RestartUnlessStopped}
+	crash5 := composepkg.Restart{Policy: composepkg.RestartOnFailure, Retries: 5}
+	for _, c := range []struct {
+		name string
+		v    restartView
+		def  composepkg.Restart
+		want bool
+	}{
+		{"the built-in default", view("unless-stopped", 0, true, false), unless, true},
+		{"another policy", view("always", 0, true, false), unless, false},
+		{"mixed services", view("unless-stopped", 0, true, true), unless, false},
+		{"not set, engine restarts on exit", view("", 0, true, false), unless, false},
+		{"not set, boot only", view("", 0, false, false), unless, true},
+		{"boot only, never", view("no", 0, false, false), unless, false},
+		{"a saved default, matched", view("on-failure", 5, true, false), crash5, true},
+		{"a saved default, other count", view("on-failure", 3, true, false), crash5, false},
+		{"a saved default, stack on the old one", view("unless-stopped", 0, true, false), crash5, false},
+	} {
+		if got := isDefaultRestart(c.v, c.def); got != c.want {
+			t.Errorf("%s: default = %v, want %v", c.name, got, c.want)
+		}
 	}
 }

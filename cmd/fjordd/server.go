@@ -344,6 +344,8 @@ type restartView struct {
 	compose.StackRestart
 	Policies []string `json:"policies"`
 	OnExit   bool     `json:"onExit"`
+	// Default: the stack has what a new install on its engine gets.
+	Default bool `json:"default"`
 }
 
 // buildEnv renders resolved variables into .env lines, sorted for determinism.
