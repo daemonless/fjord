@@ -104,6 +104,7 @@ func (s *server) handleStacksList(w http.ResponseWriter, r *http.Request) {
 	}
 	wg.Wait()
 	now := time.Now()
+	saved := loadSettings(s.fjordRoot)
 	for i, st := range stacks {
 		status := statuses[i]
 		s.health.observeContainers(st.Name, &status, now)
@@ -126,7 +127,7 @@ func (s *server) handleStacksList(w http.ResponseWriter, r *http.Request) {
 			NetworkMode: composepkg.NetworkMode(st.Compose),
 			Services:    svcs,
 			LinkHost:    linkHost(svcs, ownAddress),
-			Restart:     s.restartViewOf(st),
+			Restart:     s.restartViewOf(st, saved),
 			Recovery:    s.recoveryViewOf(st)}
 		// The legacy single-network fields. With per-service networking they
 		// are an arbitrary pick among several, so nothing new should read them
@@ -283,7 +284,7 @@ func (s *server) stackDetail(w http.ResponseWriter, r *http.Request, name string
 		// What it was on before the mode, so the picker can offer it back
 		// rather than making the user retype addresses that are still here.
 		StashedNetworks: composepkg.StashedNetworks(st.Compose),
-		Restart:         s.restartViewOf(st),
+		Restart:         s.restartViewOf(st, loadSettings(s.fjordRoot)),
 		Recovery:        s.recoveryViewOf(st),
 	})
 }

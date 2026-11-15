@@ -73,7 +73,7 @@ func checkRestart(r composepkg.Restart, caps engine.Capabilities) (composepkg.Re
 
 // restartViewOf is a stack's policy for the page: from the compose where the
 // engine restarts on exit, from the state where only boot follows it.
-func (s *server) restartViewOf(st *stack.Stack) restartView {
+func (s *server) restartViewOf(st *stack.Stack, saved savedSettings) restartView {
 	caps := s.backendFor(st).Capabilities()
 	v := restartView{Policies: caps.RestartPolicies, OnExit: caps.RestartOnExit}
 	if v.Policies == nil {
@@ -88,7 +88,22 @@ func (s *server) restartViewOf(st *stack.Stack) restartView {
 	default:
 		v.StackRestart.Services = map[string]string{}
 	}
+	v.Default = isDefaultRestart(v, defaultRestartFor(saved, st.EngineName(), caps))
 	return v
+}
+
+// isDefaultRestart reports whether a stack's policy is the one a new install
+// takes. A boot-only stack from before fjord set one starts at boot when it
+// was running, which is unless-stopped.
+func isDefaultRestart(v restartView, def composepkg.Restart) bool {
+	if v.Mixed {
+		return false
+	}
+	r := v.Restart
+	if r.Policy == "" && !v.OnExit {
+		r.Policy = composepkg.RestartUnlessStopped
+	}
+	return r.String() == def.String()
 }
 
 // bootRestarts is what start on boot weighs for a stack: each service's

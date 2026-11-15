@@ -11,6 +11,7 @@ export type StackRestart = {
   services: Record<string, string>;
   policies: string[]; // what the engine offers; none = not available
   onExit: boolean; // the engine restarts what exits
+  default: boolean; // what a new install on this engine gets
 };
 
 export type RestartChoice = { value: string; label: string };
@@ -61,9 +62,7 @@ export function restartShort(r: StackRestart | undefined): string {
 
 /** Whether a list row should say the policy: only when it is not the default. */
 export function restartWorthShowing(r: StackRestart | undefined): r is StackRestart {
-  if (!r || !r.policies.length) return false;
-  if (r.mixed) return true;
-  return (r.policy || (r.onExit ? '' : 'unless-stopped')) !== 'unless-stopped';
+  return !!r && r.policies.length > 0 && !r.default;
 }
 
 /** What the policy does, in one sentence: when it exits, and at boot. */

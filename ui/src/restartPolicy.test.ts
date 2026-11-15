@@ -3,7 +3,7 @@ import { restartMeaning, mixedMeaning, restartShort, restartTitle, restartWorthS
 
 const ALL = ['unless-stopped', 'always', 'on-failure', 'no'];
 const BOOT = ['unless-stopped', 'always', 'no'];
-const r = (policy: string, extra: Partial<StackRestart> = {}): StackRestart => ({ policy, services: {}, policies: ALL, onExit: true, ...extra });
+const r = (policy: string, extra: Partial<StackRestart> = {}): StackRestart => ({ policy, services: {}, policies: ALL, onExit: true, default: false, ...extra });
 const boot = (policy: string): StackRestart => r(policy, { policies: BOOT, onExit: false });
 
 describe('restartMeaning', () => {
@@ -67,18 +67,19 @@ describe('restartShort', () => {
 });
 
 describe('restartWorthShowing', () => {
-  it('hides the default on a list row', () => {
-    expect(restartWorthShowing(r('unless-stopped'))).toBe(false);
-    expect(restartWorthShowing(boot(''))).toBe(false);
-    expect(restartWorthShowing(boot('unless-stopped'))).toBe(false);
+  it('hides what the server calls the default', () => {
+    expect(restartWorthShowing(r('unless-stopped', { default: true }))).toBe(false);
+    expect(restartWorthShowing(r('on-failure', { default: true }))).toBe(false);
     expect(restartWorthShowing(undefined)).toBe(false);
-    expect(restartWorthShowing(r('unless-stopped', { policies: [] }))).toBe(false);
+  });
+
+  it('hides it where the engine takes no policy', () => {
+    expect(restartWorthShowing(r('no', { policies: [] }))).toBe(false);
   });
 
   it('shows anything else', () => {
     expect(restartWorthShowing(r('no'))).toBe(true);
-    expect(restartWorthShowing(r('on-failure'))).toBe(true);
-    expect(restartWorthShowing(r(''))).toBe(true);
+    expect(restartWorthShowing(r('unless-stopped'))).toBe(true);
     expect(restartWorthShowing(boot('no'))).toBe(true);
     expect(restartWorthShowing(r('', { mixed: true }))).toBe(true);
   });
