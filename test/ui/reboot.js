@@ -1,7 +1,7 @@
 // Start on boot follows each stack's restart policy, on both engines, across
 // a real host reboot. Not in the suite: the host reboots between its two
 // steps (see README). STEP=setup: one stack per rule, set through the page's
-// chip and Stop. STEP=check: which came back. Delete the t-rb-* stacks by
+// field and Stop. STEP=check: which came back. Delete the t-rb-* stacks by
 // hand after.
 // needs: freebsd appjail
 const { chromium } = require('playwright-core');
@@ -10,8 +10,8 @@ const BASE = 'http://127.0.0.1:3567';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const note = (id, ok, msg) => console.log(`${ok ? 'PASS' : 'FAIL'} ${id}: ${msg}`);
 const detail = async (page, name) => (await page.request.get(BASE + '/api/stacks/' + name)).json();
-const chip = (page) => page.locator('[data-restart-policy] > button');
-const policy = (page) => chip(page).getAttribute('data-policy');
+const field = (page) => page.locator('[data-restart-policy] > button');
+const policy = (page) => field(page).getAttribute('data-policy');
 const LABEL = { 'unless-stopped': 'Restart unless stopped', 'on-failure': 'Restart after a crash', no: "Don't restart" };
 async function settle(page, name) {
   let d;
@@ -40,7 +40,7 @@ async function install(page, name, engine, port) {
   await openPage(page, BASE + '/?t=' + Date.now() + '#/stacks/' + name + '/settings');
   await sleep(1500);
 }
-// [name, engine, port, chip choice (its words), stopped by the user, up after the reboot]
+// [name, engine, port, restart choice (its words), stopped by the user, up after the reboot]
 const CASES = [
   ['t-rb-keep', 'podman', '3131', '', false, true],
   ['t-rb-stopped', 'podman', '3132', '', true, false],
@@ -66,10 +66,10 @@ async function stopped(page, name) {
       for (const [name, engine, port, choice, stop] of CASES) {
         await install(page, name, engine, port);
         // A podman install watches that it stays up for a minute; the page
-        // re-renders the whole time, so wait for it before using the chip.
+        // re-renders the whole time, so wait for it before using the field.
         if (engine === 'podman') await page.getByText(/has stayed up/).waitFor({ timeout: 150000 }).catch(() => {});
         if (choice) {
-          await chip(page).click();
+          await field(page).click();
           await page.getByRole('menuitemradio', { name: choice }).click();
           await sleep(1500);
           // A compose change is taken at Apply; a boot-only one needs none.

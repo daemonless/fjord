@@ -1,6 +1,6 @@
 <script lang="ts">
   // A restart policy picked in a form: the install wizard's Options, and the
-  // defaults in Settings. The stack page has its own chip (RestartPolicy).
+  // defaults in Settings. The stack page has its own field (RestartPolicy).
   // The choices are the engine's (see restartPolicy.ts).
   import { DEFAULT_RETRIES, bootOnlyNote, choicesFor, restartMeaning } from './restartPolicy';
 

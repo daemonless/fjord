@@ -1,6 +1,6 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
-  import { fitMenu } from './fitMenu';
+  import MenuField from './MenuField.svelte';
   import { toast } from './toast';
   import type { StackRecovery } from './stacks';
 
@@ -22,7 +22,7 @@
   $: off = disabled || saving;
   $: if (off && !saving) open = false;
 
-  function chipLabel(r: StackRecovery | undefined): string {
+  function shownLabel(r: StackRecovery | undefined): string {
     const a = r?.action || 'none';
     if (a === 'restart') {
       const cap = r?.maxTries || 3;
@@ -33,7 +33,7 @@
     return 'Do nothing';
   }
 
-  function chipTitle(r: StackRecovery | undefined): string {
+  function shownTitle(r: StackRecovery | undefined): string {
     const a = r?.action || 'none';
     if (a === 'restart') {
       return `On a failed background health check, restart up to ${r?.maxTries || 3} times (${r?.cooldown || 60}s cooldown).`;
@@ -98,93 +98,81 @@
   }
 </script>
 
-<svelte:window on:keydown={(e) => open && e.key === 'Escape' && (open = false)} />
-
 {#if recovery}
-  <div class="relative shrink-0" data-recovery-policy>
-    <button
-      type="button"
-      on:click={() => (open = !open)}
-      disabled={off}
-      aria-haspopup="menu"
-      aria-expanded={open}
-      data-recovery={action}
-      title={chipTitle(recovery)}
-      aria-describedby={describedBy || undefined}
-      class="flex items-center justify-between gap-3 min-w-56 bg-fjord-inset border border-fjord-border rounded-lg px-2.5 py-1 text-sm text-fjord-fg-body hover:border-fjord-fg-faint focus:outline-none focus:border-fjord-accent disabled:opacity-50 disabled:hover:border-fjord-border"
-      ><span>{chipLabel(recovery)}</span><span aria-hidden="true" class="text-fjord-fg-dim">▾</span></button
-    >
-    {#if open}
-      <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
-      <div class="fixed inset-0 z-20" on:click={() => (open = false)}></div>
-      <div role="menu" use:fitMenu class="absolute z-30 left-0 mt-1 w-96 bg-fjord-card border border-fjord-border rounded-lg shadow-xl py-1">
-        {#each choices() as c}
-          <div class="flex flex-col gap-1.5 px-3 py-2 hover:bg-fjord-border/50 {action === c.value ? 'bg-fjord-border/30' : ''}">
-            <button
-              type="button"
-              role="menuitemradio"
-              aria-checked={action === c.value}
-              disabled={saving}
-              on:click={() => action !== c.value && save(c.value)}
-              class="flex items-start gap-2 text-left"
-            >
-              <span
-                class="mt-1 w-3 h-3 shrink-0 rounded-full border {action === c.value
-                  ? 'border-fjord-accent bg-fjord-accent shadow-[inset_0_0_0_2px_var(--color-fjord-card)]'
-                  : 'border-fjord-fg-faint'}"
-              ></span>
-              <span class="flex flex-col flex-1">
-                <span class="text-sm font-medium text-fjord-fg-body">{c.label}</span>
-                <span class="text-xs text-fjord-fg-dim">{c.meaning}</span>
-              </span>
-            </button>
-            {#if c.value === 'restart' && action === 'restart'}
-              <div class="flex items-center gap-3 pl-5 pt-1 text-xs text-fjord-fg-dim">
-                <label class="flex items-center gap-1.5">
-                  <span>Max attempts</span>
-                  <input
-                    type="number"
-                    aria-label="Maximum recovery attempts"
-                    min="1"
-                    max="20"
-                    bind:value={maxTries}
-                    disabled={saving}
-                    on:change={() => save('restart', maxTries, cooldown)}
-                    class="w-14 bg-fjord-bg border border-fjord-border rounded-lg px-2 py-1 text-xs text-fjord-fg-secondary focus:outline-none focus:border-fjord-accent"
-                  />
-                </label>
-                <label class="flex items-center gap-1.5">
-                  <span>Cooldown (s)</span>
-                  <input
-                    type="number"
-                    aria-label="Cooldown seconds between attempts"
-                    min="10"
-                    max="3600"
-                    step="10"
-                    bind:value={cooldown}
-                    disabled={saving}
-                    on:change={() => save('restart', maxTries, cooldown)}
-                    class="w-16 bg-fjord-bg border border-fjord-border rounded-lg px-2 py-1 text-xs text-fjord-fg-secondary focus:outline-none focus:border-fjord-accent"
-                  />
-                </label>
-              </div>
-            {/if}
-          </div>
-        {/each}
-        {#if recovery.events?.length}
-          <div class="mx-3 mt-1 pt-2 pb-1 border-t border-fjord-border text-xs text-fjord-fg-dim">
-            <div class="font-medium text-fjord-fg-secondary mb-1">Recent health events</div>
-            <div class="max-h-32 overflow-y-auto space-y-1">
-              {#each [...recovery.events].reverse().slice(0, 5) as ev}
-                <div class="flex items-baseline justify-between gap-2">
-                  <span class="truncate text-fjord-fg-body" title={ev.message || ev.check}>{ev.message || ev.check}</span>
-                  <span class="shrink-0 text-[11px] text-fjord-fg-muted">{fmtEventTime(ev.at)}</span>
-                </div>
-              {/each}
-            </div>
+  <MenuField
+    data-recovery-policy
+    bind:open
+    label={shownLabel(recovery)}
+    title={shownTitle(recovery)}
+    disabled={off}
+    {describedBy}
+    buttonAttrs={{ 'data-recovery': action }}
+  >
+    {#each choices() as c}
+      <div class="flex flex-col gap-1.5 px-3 py-2 hover:bg-fjord-border/50 {action === c.value ? 'bg-fjord-border/30' : ''}">
+        <button
+          type="button"
+          role="menuitemradio"
+          aria-checked={action === c.value}
+          disabled={saving}
+          on:click={() => action !== c.value && save(c.value)}
+          class="flex items-start gap-2 text-left"
+        >
+          <span
+            class="mt-1 w-3 h-3 shrink-0 rounded-full border {action === c.value
+              ? 'border-fjord-accent bg-fjord-accent shadow-[inset_0_0_0_2px_var(--color-fjord-card)]'
+              : 'border-fjord-fg-faint'}"
+          ></span>
+          <span class="flex flex-col flex-1">
+            <span class="text-sm font-medium text-fjord-fg-body">{c.label}</span>
+            <span class="text-xs text-fjord-fg-dim">{c.meaning}</span>
+          </span>
+        </button>
+        {#if c.value === 'restart' && action === 'restart'}
+          <div class="flex items-center gap-3 pl-5 pt-1 text-xs text-fjord-fg-dim">
+            <label class="flex items-center gap-1.5">
+              <span>Max attempts</span>
+              <input
+                type="number"
+                aria-label="Maximum recovery attempts"
+                min="1"
+                max="20"
+                bind:value={maxTries}
+                disabled={saving}
+                on:change={() => save('restart', maxTries, cooldown)}
+                class="w-14 bg-fjord-bg border border-fjord-border rounded-lg px-2 py-1 text-xs text-fjord-fg-secondary focus:outline-none focus:border-fjord-accent"
+              />
+            </label>
+            <label class="flex items-center gap-1.5">
+              <span>Cooldown (s)</span>
+              <input
+                type="number"
+                aria-label="Cooldown seconds between attempts"
+                min="10"
+                max="3600"
+                step="10"
+                bind:value={cooldown}
+                disabled={saving}
+                on:change={() => save('restart', maxTries, cooldown)}
+                class="w-16 bg-fjord-bg border border-fjord-border rounded-lg px-2 py-1 text-xs text-fjord-fg-secondary focus:outline-none focus:border-fjord-accent"
+              />
+            </label>
           </div>
         {/if}
       </div>
+    {/each}
+    {#if recovery.events?.length}
+      <div class="mx-3 mt-1 pt-2 pb-1 border-t border-fjord-border text-xs text-fjord-fg-dim">
+        <div class="font-medium text-fjord-fg-secondary mb-1">Recent health events</div>
+        <div class="max-h-32 overflow-y-auto space-y-1">
+          {#each [...recovery.events].reverse().slice(0, 5) as ev}
+            <div class="flex items-baseline justify-between gap-2">
+              <span class="truncate text-fjord-fg-body" title={ev.message || ev.check}>{ev.message || ev.check}</span>
+              <span class="shrink-0 text-[11px] text-fjord-fg-muted">{fmtEventTime(ev.at)}</span>
+            </div>
+          {/each}
+        </div>
+      </div>
     {/if}
-  </div>
+  </MenuField>
 {/if}

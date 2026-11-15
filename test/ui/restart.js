@@ -10,8 +10,8 @@ const BASE = 'http://127.0.0.1:3567';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const note = (id, ok, msg) => console.log(`${ok ? 'PASS' : 'FAIL'} ${id}: ${msg}`);
 const detail = async (page, name) => (await page.request.get(BASE + '/api/stacks/' + name)).json();
-const chip = (page) => page.locator('[data-restart-policy] > button');
-const policy = (page) => chip(page).getAttribute('data-policy');
+const field = (page) => page.locator('[data-restart-policy] > button');
+const policy = (page) => field(page).getAttribute('data-policy');
 const LABEL = { 'unless-stopped': 'Restart unless stopped', 'on-failure': 'Restart after a crash', no: "Don't restart" };
 async function settle(page, name) {
   let d;
@@ -50,7 +50,7 @@ async function install(page, name, engine, port) {
       await install(page, 't-restart', 'podman', '3125');
       const v = await policy(page);
       await page.screenshot({ path: '/out/restart-podman-new.png', fullPage: true });
-      note('a new podman install restarts unless stopped', v === 'unless-stopped', `the chip shows "${v}" (${await chip(page).innerText()})`);
+      note('a new podman install restarts unless stopped', v === 'unless-stopped', `the field shows "${v}" (${await field(page).innerText()})`);
       // The group is set on the same tab and shows in the sidebar.
       const group = page.locator('#stack-group');
       await group.fill('ui-settings');
@@ -70,12 +70,12 @@ async function install(page, name, engine, port) {
       await page.locator('[data-tab="settings"]').click();
       const why = page.locator('[data-settings-locked]');
       const locked = (await why.count()) ? await why.innerText() : '';
-      const offNow = (await chip(page).isDisabled()) && (await page.locator('[data-recovery-policy] > button').isDisabled());
+      const offNow = (await field(page).isDisabled()) && (await page.locator('[data-recovery-policy] > button').isDisabled());
       await page.screenshot({ path: '/out/restart-settings-locked.png', fullPage: true });
       note('Settings: unsaved edits lock the controls and the tab says why', /Save or revert your edits first/.test(locked) && offNow, `line "${locked.trim()}", disabled ${offNow}`);
       await page.getByRole('button', { name: 'Revert', exact: true }).click();
       await sleep(500);
-      note('Settings: reverting unlocks them', (await why.count()) === 0 && !(await chip(page).isDisabled()), `line shown ${await why.count()}, disabled ${await chip(page).isDisabled()}`);
+      note('Settings: reverting unlocks them', (await why.count()) === 0 && !(await field(page).isDisabled()), `line shown ${await why.count()}, disabled ${await field(page).isDisabled()}`);
       // Services, the stack's landing tab, no longer carries these controls.
       await openPage(page, BASE + '/?t=' + Date.now() + '#/stacks/t-restart');
       await sleep(1500);
@@ -84,9 +84,9 @@ async function install(page, name, engine, port) {
       await install(page, 't-restart-aj', 'appjail', '3126');
       // AppJail offers the boot half only: worded as that, with no restart
       // promised and no on-failure.
-      const shown = await chip(page).innerText();
-      note('AppJail: a new install starts at boot', /Start at boot/.test(shown) && (await policy(page)) === 'unless-stopped', `chip "${shown}"`);
-      await chip(page).click();
+      const shown = await field(page).innerText();
+      note('AppJail: a new install starts at boot', /Start at boot/.test(shown) && (await policy(page)) === 'unless-stopped', `field "${shown}"`);
+      await field(page).click();
       const items = await page.getByRole('menuitemradio').allInnerTexts();
       await page.screenshot({ path: '/out/restart-appjail-menu.png', fullPage: true });
       const words = items.map((t) => t.split('\n')[0]);
@@ -98,7 +98,7 @@ async function install(page, name, engine, port) {
       note("AppJail: Don't start at boot is saved, nothing to apply", aj.policy === 'no' && !aj.onExit && !(await page.getByRole('button', { name: 'Apply Changes', exact: true }).isVisible()), JSON.stringify(aj));
       await openPage(page, BASE + '/?t=' + Date.now() + '#/stacks/t-restart-aj/settings');
       await sleep(1500);
-      note('AppJail: the chip shows it after a reload', (await policy(page)) === 'no', await chip(page).innerText());
+      note('AppJail: the field shows it after a reload', (await policy(page)) === 'no', await field(page).innerText());
     } else {
       const want = process.env.POLICY;
       await openPage(page, BASE + '/?t=' + Date.now() + '#/stacks/t-restart/settings');
@@ -106,7 +106,7 @@ async function install(page, name, engine, port) {
       // A running stack takes the change through Apply Changes; one left down
       // (after "Don't restart" and a crash) takes it at the next Start.
       const down = (await detail(page, 't-restart')).status?.state !== 'running';
-      await chip(page).click();
+      await field(page).click();
       await page.getByRole('menuitemradio', { name: LABEL[want] }).click();
       const apply = page.getByRole('button', { name: 'Apply Changes', exact: true });
       if (!down) await apply.waitFor();
@@ -129,7 +129,7 @@ async function install(page, name, engine, port) {
       await openPage(page, BASE + '/?t=' + Date.now() + '#/stacks/t-restart/settings');
       await sleep(1500);
       const shown = await policy(page);
-      note(`${want}: the chip shows it after a reload`, shown === want, `${shown} (${await chip(page).innerText()})`);
+      note(`${want}: the field shows it after a reload`, shown === want, `${shown} (${await field(page).innerText()})`);
     }
   } catch (e) {
     note('run', false, e.message.split('\n')[0]);
