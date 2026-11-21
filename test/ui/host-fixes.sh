@@ -9,26 +9,49 @@ before() {
     sysrc ifconfig_DEFAULT=DHCP >/dev/null; sysrc -x ifconfig_$NIC >/dev/null 2>&1; true"
 }
 
+# podman's network backend decides which lines those are: CNI's rdr anchors
+# and a NAT line per NIC, or netavark's tables and anchors.
+BACKEND=$(on "podman info --format '{{.Host.NetworkBackend}}'")
+
 main() {
   run_js host-fixes -e STEP=broken
   run_js host-fixes -e STEP=fixed
-  # pf up, a NAT line gone: a reload, not a restart (a restart flushes every
+  # pf up, one line gone: a reload, not a restart (a restart flushes every
   # connection's state, this ssh session's too)
-  on "sed -i '' '/^nat on $NIC inet from <cni-nat>/d' /etc/pf.conf; pfctl -f /etc/pf.conf"
+  if [ "$BACKEND" = netavark ]; then
+    on "sed -i '' '/^anchor \"netavark\/\*\"/d' /etc/pf.conf; pfctl -f /etc/pf.conf"
+  else
+    on "sed -i '' '/^nat on $NIC inet from <cni-nat>/d' /etc/pf.conf; pfctl -f /etc/pf.conf"
+  fi
   run_js host-fixes -e STEP=partial
   run_js host-fixes -e STEP=fixed
 }
 
 after() {
-  if on "grep -q '^rdr-anchor \"cni-rdr/\*\"' /etc/pf.conf && grep -q '^nat on $NIC inet from <cni-nat>' /etc/pf.conf"; then
-    echo "PASS /etc/pf.conf has the anchors and NAT on $NIC"
-  else echo "FAIL /etc/pf.conf lacks the anchors or NAT on $NIC"; fi
-  if on "grep -c '^rdr-anchor \"cni-rdr/\*\"' /etc/pf.conf | grep -qx 1"; then
-    echo "PASS the anchor line is in /etc/pf.conf once"
-  else echo "FAIL the anchor line is in /etc/pf.conf more than once"; fi
-  if on "pfctl -s nat | grep -q cni-rdr && pfctl -s nat | grep -q 'nat on $NIC' && [ \"\$(sysrc -n pf_enable)\" = YES ]"; then
-    echo "PASS pf runs the rules and is enabled at boot"
-  else echo "FAIL pf is not running the rules, or not enabled at boot"; fi
+  if [ "$BACKEND" = netavark ]; then
+    if on "grep -q '^table <netavark-subnets> persist' /etc/pf.conf && grep -q '^table <netavark-isolated> persist' /etc/pf.conf && grep -q '^nat-anchor \"netavark/\*\"' /etc/pf.conf && grep -q '^rdr-anchor \"netavark/\*\"' /etc/pf.conf && grep -q '^anchor \"netavark/\*\"' /etc/pf.conf"; then
+      echo "PASS /etc/pf.conf has netavark's tables and anchors"
+    else echo "FAIL /etc/pf.conf lacks netavark's tables or anchors"; fi
+    if on "grep -c '^rdr-anchor \"netavark/\*\"' /etc/pf.conf | grep -qx 1 && grep -c '^anchor \"netavark/\*\"' /etc/pf.conf | grep -qx 1"; then
+      echo "PASS each anchor line is in /etc/pf.conf once"
+    else echo "FAIL an anchor line is in /etc/pf.conf more than once"; fi
+    if on "pfctl -s nat | grep -q 'rdr-anchor \"netavark' && pfctl -s rules | grep -q '^anchor \"netavark' && pfctl -s Tables | grep -qx netavark-subnets && [ \"\$(sysrc -n pf_enable)\" = YES ]"; then
+      echo "PASS pf runs the rules and is enabled at boot"
+    else echo "FAIL pf is not running the rules, or not enabled at boot"; fi
+    if on "! grep -q cni /etc/pf.conf"; then
+      echo "PASS no CNI lines were written on a netavark host"
+    else echo "FAIL CNI lines in /etc/pf.conf on a netavark host"; fi
+  else
+    if on "grep -q '^rdr-anchor \"cni-rdr/\*\"' /etc/pf.conf && grep -q '^nat on $NIC inet from <cni-nat>' /etc/pf.conf"; then
+      echo "PASS /etc/pf.conf has the anchors and NAT on $NIC"
+    else echo "FAIL /etc/pf.conf lacks the anchors or NAT on $NIC"; fi
+    if on "grep -c '^rdr-anchor \"cni-rdr/\*\"' /etc/pf.conf | grep -qx 1"; then
+      echo "PASS the anchor line is in /etc/pf.conf once"
+    else echo "FAIL the anchor line is in /etc/pf.conf more than once"; fi
+    if on "pfctl -s nat | grep -q cni-rdr && pfctl -s nat | grep -q 'nat on $NIC' && [ \"\$(sysrc -n pf_enable)\" = YES ]"; then
+      echo "PASS pf runs the rules and is enabled at boot"
+    else echo "FAIL pf is not running the rules, or not enabled at boot"; fi
+  fi
   if on "[ \"\$(sysrc -n ifconfig_$NIC)\" = DHCP ] && ! sysrc -n ifconfig_DEFAULT >/dev/null 2>&1"; then
     echo "PASS rc.conf names $NIC and ifconfig_DEFAULT is gone"
   else echo "FAIL rc.conf: $(on "sysrc ifconfig_$NIC ifconfig_DEFAULT 2>&1 | tr '\n' ' '")"; fi
