@@ -1639,6 +1639,11 @@ func pinOnNetwork(composeYAML, service, network, key, value string) (string, err
 	if svc == nil {
 		return "", fmt.Errorf("no service %q", service)
 	}
+	// A MAC set on the service itself is already the operator's pin, and
+	// compose refuses one on both levels.
+	if key == "mac_address" && mapGet(svc, "mac_address") != nil {
+		return composeYAML, nil
+	}
 	svc = prepareServiceForWrite(root, services, svcIdx)
 	nets := mapGet(svc, "networks")
 	if nets == nil {

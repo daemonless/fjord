@@ -59,4 +59,10 @@ func TestPinMAC(t *testing.T) {
 	if again != out {
 		t.Errorf("an existing MAC was replaced:\n%s", again)
 	}
+	// A MAC on the service itself is the pin already: compose refuses one on
+	// both levels.
+	own := "services:\n  app:\n    image: x\n    mac_address: 02:00:00:00:00:07\n    networks:\n      - lan-dhcp\n"
+	if kept, err := PinMAC(own, "app", "lan-dhcp", "58:9c:fc:10:cd:c0"); err != nil || kept != own {
+		t.Errorf("a service with its own MAC was pinned again (%v):\n%s", err, kept)
+	}
 }
