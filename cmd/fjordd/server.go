@@ -266,6 +266,8 @@ func (s *server) routes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/engine/install", s.handleEngineInstall)
 	mux.HandleFunc("/api/engine/toggle", s.handleEngineToggle)
 	mux.HandleFunc("/api/setup", s.handleSetup)
+	mux.HandleFunc("/api/host-notices", s.handleHostNotices)
+	mux.HandleFunc("/api/host-notices/", s.handleHostNotices)
 	mux.HandleFunc("/api/conditions", s.handleConditions)
 	mux.HandleFunc("/api/conditions/fix", s.handleConditionsFix)
 	mux.HandleFunc("/api/about", s.handleAbout)

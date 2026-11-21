@@ -2,9 +2,14 @@ package hostnet
 
 import (
 	"encoding/json"
+	"runtime"
 	"strconv"
 	"strings"
 )
+
+// LANType is the Type of a FreeBSD network that puts containers on a host
+// bridge with their own address, whichever backend made it.
+const LANType = "epair"
 
 // parseNetavark reads a network definition in netavark's format, the JSON
 // podman keeps one file per network. fjord's own facts ride
@@ -36,8 +41,19 @@ func parseNetavark(name string, data []byte) (Network, bool) {
 		Type:   doc.Driver,
 		Bridge: doc.Interface,
 		DHCP:   doc.IPAM.Driver == "dhcp",
-		Static: doc.IPAM.Driver == "none",
+		Static: doc.IPAM.Driver == "none" || doc.Labels["fjord.static"] == "true",
 		For:    doc.Labels["fjord.for"],
+	}
+	// A bridge network on a bridge podman does not manage is FreeBSD's LAN
+	// network under netavark: an epair per container on the operator's
+	// bridge, which is what the epair plugin made under CNI.
+	if runtime.GOOS == "freebsd" && doc.Driver == "bridge" && doc.Options["mode"] == "unmanaged" {
+		n.Type = LANType
+	}
+	// The epair plugin as netavark's driver, with no IPAM of podman's: the
+	// plugin asks the segment's DHCP server.
+	if doc.Driver == LANType && doc.IPAM.Driver == "none" {
+		n.DHCP, n.Static = true, false
 	}
 	n.Compose = composeLabels(doc.Labels)
 	n.MTU, _ = strconv.Atoi(doc.Options["mtu"])

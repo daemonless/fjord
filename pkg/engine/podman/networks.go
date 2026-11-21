@@ -81,6 +81,11 @@ func (b *Backend) Networks(ctx context.Context) ([]engine.Network, error) {
 		if n.Subnet == "" {
 			nets[i].Subnet, nets[i].Gateway = d.Subnet, d.Gateway
 		}
+		// Under netavark podman calls a LAN network a bridge network; it is
+		// the same kind of network the epair plugin made, so it reads the same.
+		if d.Type == epairPlugin {
+			nets[i].Driver = epairPlugin
+		}
 	}
 	// A network whose plugin is gone still lists: the runtime reads the
 	// conflist and does not check that the binary behind "type" exists. It
@@ -113,17 +118,31 @@ func (b *Backend) Networks(ctx context.Context) ([]engine.Network, error) {
 		if seen[d.Name] || (d.For != "" && d.For != "podman") {
 			continue
 		}
+		// A network made under the CNI backend that podman, now on netavark,
+		// no longer has: a stack still names it and cannot start. Not the
+		// ones compose made per project; compose makes those again.
+		if d.Legacy && d.Type != epairPlugin {
+			if !d.Compose && d.Name != defaultBridge {
+				nets = append(nets, engine.Network{
+					Name: d.Name, Driver: d.Type, Subnet: d.Subnet, Gateway: d.Gateway,
+					Problem: legacyProblem + b.remakeHint(d.Name),
+					Remake:  true,
+				})
+			}
+			continue
+		}
 		if d.Type != epairPlugin {
 			continue
 		}
-		problem := networkProblem()
-		if d.Legacy {
-			problem = legacyProblem
+		row := engine.Network{Name: d.Name, Driver: epairPlugin, Subnet: d.Subnet, Gateway: d.Gateway, Problem: networkProblem()}
+		switch {
+		case d.Legacy && d.DHCP && !netavarkPlugin():
+			row.Problem = legacyProblem + ". " + netavarkDHCPNote
+		case d.Legacy:
+			row.Problem = legacyProblem + b.remakeHint(d.Name)
+			row.Remake = true
 		}
-		nets = append(nets, engine.Network{
-			Name: d.Name, Driver: epairPlugin, Subnet: d.Subnet, Gateway: d.Gateway,
-			Problem: problem,
-		})
+		nets = append(nets, row)
 	}
 	// Attachments, so the UI can refuse to delete a network in use.
 	if users, err := b.networkUsersAll(ctx); err == nil {
@@ -186,4 +205,13 @@ func networkProblem() string {
 		return "podman cannot load this network: the " + epairPlugin + " plugin is not installed at /usr/local/libexec/cni/" + epairPlugin
 	}
 	return "podman did not load this network; check its config"
+}
+
+// remakeHint ends a legacy network's problem line: why fjord could not make
+// it again by itself, when it tried, and what to do.
+func (b *Backend) remakeHint(name string) string {
+	if why := b.carryNote(name); why != "" {
+		return ". fjord could not make it again by itself: " + why + ". Fix that, then Make it again"
+	}
+	return ". Make it again so its stacks can start"
 }

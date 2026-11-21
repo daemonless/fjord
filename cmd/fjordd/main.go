@@ -391,6 +391,7 @@ func main() {
 	// Restore stacks the operator left running before this restart. Runs in
 	// the background so the UI comes up immediately; each stack is brought up
 	// serially to avoid hammering the runtime.
+	useNetavarkSettle(srv)
 	go startOnBoot(srv)
 
 	// Keep the app store's versions current (interval in Settings → Catalogs).

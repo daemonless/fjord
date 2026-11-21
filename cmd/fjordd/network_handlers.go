@@ -468,6 +468,10 @@ func (s *server) handleNetworkDelete(w http.ResponseWriter, r *http.Request) {
 		s.editNetwork(w, r, name)
 		return
 	}
+	if base, ok := strings.CutSuffix(name, "/remake"); ok && r.Method == http.MethodPost {
+		s.remakeNetwork(w, r, base)
+		return
+	}
 	if r.Method != http.MethodDelete {
 		http.Error(w, "method not allowed", 405)
 		return
@@ -923,4 +927,26 @@ func notADefault(n engine.Network) string {
 		owner = n.OwnedBy
 	}
 	return n.Name + " is " + owner + "'s private network: it holds that stack's own parts and is not somewhere to put an app"
+}
+
+// remakeNetwork makes a network an earlier network backend left behind again
+// in the form the runtime loads now, under the same name.
+func (s *server) remakeNetwork(w http.ResponseWriter, r *http.Request, name string) {
+	be, ok := s.backendForRequest(r).(engine.NetworkRemaker)
+	if !ok {
+		http.Error(w, "this engine has no network to make again", http.StatusBadRequest)
+		return
+	}
+	n, err := be.RemakeNetwork(r.Context(), name)
+	if err != nil {
+		code := http.StatusBadGateway
+		if errors.Is(err, engine.ErrInUse) {
+			code = http.StatusConflict
+		}
+		http.Error(w, err.Error(), code)
+		return
+	}
+	log.Printf("network %s: made again for the runtime's current network backend", name)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(n)
 }

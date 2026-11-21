@@ -7,7 +7,7 @@
   import { toast } from './toast';
   import FixSnippet from './FixSnippet.svelte';
 
-  type Network = { name: string; driver: string; subnet?: string; gateway?: string; subnet6?: string; gateway6?: string; usedBy?: string[]; problem?: string; engines?: string[]; addressSource?: string; bridge?: string; private?: boolean; ownedBy?: string; leftover?: boolean; wireWarning?: string };
+  type Network = { name: string; driver: string; subnet?: string; gateway?: string; subnet6?: string; gateway6?: string; usedBy?: string[]; problem?: string; remake?: boolean; engines?: string[]; addressSource?: string; bridge?: string; private?: boolean; ownedBy?: string; leftover?: boolean; wireWarning?: string };
   // A kind is the engine's own declaration of what it can create and which
   // fields that shape uses -- the form is built from this rather than from
   // anything the UI knows about a specific runtime.
@@ -648,6 +648,22 @@
       toast(e.message || 'Could not change the IPv6 segment', { kind: 'error' });
     }
   }
+  // A network podman no longer loads after its network backend changed:
+  // the daemon makes it again under the same name.
+  let remaking = '';
+  async function remake(name: string) {
+    remaking = name;
+    try {
+      const res = await fetch(`/api/networks/${encodeURIComponent(name)}/remake?engine=${encodeURIComponent(engineOf(name))}`, { method: 'POST' });
+      if (!res.ok) throw new Error(await res.text());
+      toast(`${name} is made again — start its stacks`, { kind: 'success' });
+      await load();
+    } catch (e: any) {
+      toast(e.message || 'Could not make the network again', { kind: 'error' });
+    } finally {
+      remaking = '';
+    }
+  }
   async function del(name: string) {
     try {
       const res = await fetch(`/api/networks/${encodeURIComponent(name)}?engine=${encodeURIComponent(engineOf(name))}`, { method: 'DELETE' });
@@ -854,6 +870,14 @@
                   <span class="text-[10px] text-fjord-fg-dim">+{n.usedBy.length - 3}</span>
                 {/if}
               </div>
+            {/if}
+            {#if n.remake}
+              <button
+                on:click={() => remake(n.name)}
+                disabled={remaking === n.name}
+                class="text-xs px-2 py-1 rounded bg-fjord-accent hover:bg-fjord-accent-hover text-white disabled:opacity-60 shrink-0"
+                >{remaking === n.name ? 'Making…' : 'Make it again'}</button
+              >
             {/if}
             {#if !canRemove}
               <!-- nothing: this engine does not own these networks -->

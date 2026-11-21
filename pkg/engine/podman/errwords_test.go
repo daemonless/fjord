@@ -61,3 +61,17 @@ func TestPullFailure(t *testing.T) {
 		t.Errorf("no output: %q", got)
 	}
 }
+
+// netlab-style output when a stack names a network the host no longer has.
+func TestMissingNetwork(t *testing.T) {
+	// The traceback quotes podman-compose's source line before the error.
+	out := "$ podman-compose --in-pod=false up -d --remove-orphans\nTraceback (most recent call last):\n" +
+		"    raise RuntimeError(f\"External network [{net_name}] does not exists\")\nRuntimeError: External network [t-mpriv] does not exists\n"
+	got := missingNetwork(out)
+	if !strings.Contains(got, "the network t-mpriv ") || strings.Contains(got, "net_name") || !strings.Contains(got, "Networks page") {
+		t.Errorf("got %q", got)
+	}
+	if got := missingNetwork("$ podman-compose up -d\nall fine\n"); got != "" {
+		t.Errorf("no missing network: %q", got)
+	}
+}

@@ -3,14 +3,20 @@ package podman
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"io"
+	"log"
 	"net/http"
+	"os"
 	"os/exec"
 	"runtime"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/daemonless/fjord/pkg/hostnet"
+	"github.com/daemonless/fjord/pkg/stack"
 )
 
 // Podman's network backends. They keep networks in different formats and
@@ -30,6 +36,13 @@ type netBackend struct {
 	mu    sync.Mutex
 	name  string
 	asked time.Time
+	// carry serializes carryOver; said (under mu) keeps what it last logged
+	// per network, so one it cannot make again is not logged every pass and
+	// its row can say why.
+	carry sync.Mutex
+	said  map[string]string
+	// settled (under carry): SettleHost has reported the host ready.
+	settled bool
 }
 
 // defaultBackend is what podman uses where it has not said: netavark on
@@ -52,6 +65,9 @@ func (b *Backend) networkBackend(ctx context.Context) string {
 	if name := b.askNetworkBackend(ctx); name != "" {
 		b.net.name, b.net.asked = name, time.Now()
 		hostnet.SetBackend(name)
+		if name == backendNetavark && runtime.GOOS == "freebsd" {
+			go b.carryOver()
+		}
 	}
 	if b.net.name == "" {
 		return defaultBackend()
@@ -215,4 +231,137 @@ func (b *Backend) reportsAddresses(ctx context.Context) bool {
 // podman on FreeBSD with the CNI backend.
 func (b *Backend) lanByPlugin() bool {
 	return runtime.GOOS == "freebsd" && b.knownBackend() == backendCNI
+}
+
+// SettleHost, when set, puts in place what a FreeBSD host needs for podman's
+// netavark backend (its pf rules, a free port for its DNS server) and reports
+// whether the host is ready. It is called before networks are carried over
+// and before any stack starts, again on the next pass while it reports false.
+// Set by the daemon: the checks and their fixes live in the doctor package,
+// which this package cannot import.
+var SettleHost func(ctx context.Context) bool
+
+// CarriedOver, when set, is told each network carryOver made again.
+var CarriedOver func(name string)
+
+// carryOver makes the networks podman's CNI backend left behind again under
+// netavark, so a host that switched backends has nothing to redo by hand:
+// same names, bridges, subnets and ranges, and the stacks on them start as
+// they are. Not the ones compose makes per project (compose makes those
+// again) and not ones made for another engine. A network whose containers
+// still run on the old definition is left for the next pass.
+func (b *Backend) carryOver() {
+	// One pass at a time; a start that arrives during one waits for it, so
+	// a stack is not started against a network about to be made again.
+	b.net.carry.Lock()
+	defer b.net.carry.Unlock()
+	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
+	defer cancel()
+	// What the host itself needs for netavark comes first: a stack started
+	// before it would come up with no way out and no names.
+	if SettleHost != nil && !b.net.settled {
+		b.net.settled = SettleHost(ctx)
+	}
+	seen := map[string]bool{}
+	defer func() {
+		// What was said about a network that is gone is no longer true.
+		b.net.mu.Lock()
+		for name := range b.net.said {
+			if !seen[name] {
+				delete(b.net.said, name)
+			}
+		}
+		b.net.mu.Unlock()
+	}()
+	for _, d := range hostnet.List() {
+		if !d.Legacy || d.Compose || d.Name == defaultBridge || (d.For != "" && d.For != "podman") {
+			continue
+		}
+		if d.Type != "bridge" && d.Type != epairPlugin {
+			continue
+		}
+		seen[d.Name] = true
+		said := "made again under netavark"
+		if _, err := b.RemakeNetwork(ctx, d.Name); err != nil {
+			said = "not carried over to netavark: " + err.Error()
+		}
+		b.net.mu.Lock()
+		if b.net.said == nil {
+			b.net.said = map[string]string{}
+		}
+		changed := b.net.said[d.Name] != said
+		b.net.said[d.Name] = said
+		b.net.mu.Unlock()
+		if changed {
+			log.Printf("network %s: %s", d.Name, said)
+			if CarriedOver != nil && said == "made again under netavark" {
+				CarriedOver(d.Name)
+			}
+		}
+	}
+}
+
+// carryNote is why the last pass could not make a network again, or "".
+func (b *Backend) carryNote(name string) string {
+	b.net.mu.Lock()
+	defer b.net.mu.Unlock()
+	if why, ok := strings.CutPrefix(b.net.said[name], "not carried over to netavark: "); ok {
+		return why
+	}
+	return ""
+}
+
+// dropOtherBackendContainers removes a stack's stopped containers that name
+// a network podman does not have, and the definition the CNI backend left
+// for the stack's own network. After podman moves to netavark such a
+// container can never start ("unable to find network"), and compose keeps
+// it instead of making a new one; with it gone, compose up makes the network
+// and the container again. Data lives in volumes and is not touched.
+func (b *Backend) dropOtherBackendContainers(ctx context.Context, pw io.Writer, s *stack.Stack) {
+	if runtime.GOOS != "freebsd" || b.networkBackend(ctx) != backendNetavark {
+		return
+	}
+	b.carryOver()
+	cs, err := b.listStackContainers(ctx, s.Name)
+	if err != nil || len(cs) == 0 {
+		return
+	}
+	out, err := exec.CommandContext(ctx, "podman", "network", "ls", "--format", "{{.Name}}").Output()
+	if err != nil {
+		return
+	}
+	known := map[string]bool{}
+	for _, n := range strings.Fields(string(out)) {
+		known[n] = true
+	}
+	var stale []string
+	for _, c := range cs {
+		if c.State == "running" || len(c.Names) == 0 {
+			continue
+		}
+		for _, n := range c.Networks {
+			if !known[n] {
+				stale = append(stale, c.Names[0])
+				break
+			}
+		}
+	}
+	if len(stale) == 0 {
+		return
+	}
+	fmt.Fprintf(pw, "[fjord] %s was made before podman moved to the netavark network backend and cannot start as it is; making it again (its data is kept)\n", strings.Join(stale, ", "))
+	// podman reports the missing network as an error and removes the
+	// container all the same.
+	_ = exec.CommandContext(ctx, "podman", append([]string{"rm", "-f"}, stale...)...).Run()
+	prefix := strings.ToLower(s.Name) + "_"
+	for _, d := range hostnet.List() {
+		if d.Legacy && d.Compose && strings.HasPrefix(d.Name, prefix) {
+			path := hostnet.ConflistPath(d.Name)
+			if old, err := os.ReadFile(path); err == nil {
+				keepConflist(d.Name, old)
+			}
+			_ = os.Remove(path)
+			destroyIdleCNIBridge(ctx, d.Bridge)
+		}
+	}
 }

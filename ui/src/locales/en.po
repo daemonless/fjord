@@ -1134,6 +1134,7 @@ msgstr "<0>Not saved.</0> The compose changed on the server after you opened it 
 
 #: src/StackDetail.svelte
 #: src/StackDetail.svelte
+#: src/System.svelte
 #: src/Toasts.svelte
 msgid "Dismiss"
 msgstr "Dismiss"
@@ -5245,3 +5246,20 @@ msgstr "All {0} checks passing"
 #: src/StackDetail.svelte
 msgid "Save or revert your edits first"
 msgstr "Save or revert your edits first"
+
+#. 0: name
+#: src/Networks.svelte
+msgid "{0} is made again — start its stacks"
+msgstr "{0} is made again — start its stacks"
+
+#: src/Networks.svelte
+msgid "Could not make the network again"
+msgstr "Could not make the network again"
+
+#: src/Networks.svelte
+msgid "Making…"
+msgstr "Making…"
+
+#: src/Networks.svelte
+msgid "Make it again"
+msgstr "Make it again"

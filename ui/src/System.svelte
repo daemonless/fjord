@@ -154,8 +154,26 @@
     n < 1024 ? `${n} B` : n < 1024 ** 2 ? `${(n / 1024).toFixed(0)} KB` : n < 1024 ** 3 ? `${(n / 1024 ** 2).toFixed(1)} MB` : `${(n / 1024 ** 3).toFixed(1)} GB`;
   $: leftoverTotal = (leftovers?.folders ?? []).reduce((a, f) => a + f.bytes, 0);
 
+  // What fjord changed on the host with nobody asking (for example when
+  // podman moved to another network backend), shown until dismissed.
+  type HostNotice = { id: string; at: string; title: string; lines: string[] };
+  let notices: HostNotice[] = [];
+  async function loadNotices() {
+    try {
+      const r = await fetch('/api/host-notices');
+      notices = r.ok ? ((await r.json()) ?? []) : [];
+    } catch {
+      notices = [];
+    }
+  }
+  async function dismissNotice(id: string) {
+    await fetch(`/api/host-notices/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    notices = notices.filter((n) => n.id !== id);
+  }
+
   onMount(() => {
     load();
+    loadNotices();
     loadDf();
     loadPruneEngines();
     loadLeftovers();
@@ -196,6 +214,26 @@
   </div>
 
   <div class="flex-1 overflow-y-auto">
+    {#each notices as n (n.id)}
+      <div class="mb-4 rounded-lg border border-fjord-accent/40 bg-fjord-accent/10 p-4" data-testid="host-notice">
+        <div class="flex items-start justify-between gap-4">
+          <div>
+            <p class="text-sm font-semibold text-fjord-fg">{n.title}</p>
+            <p class="text-xs text-fjord-fg-dim">{new Date(n.at).toLocaleString()}</p>
+          </div>
+          <button
+            on:click={() => dismissNotice(n.id)}
+            class="shrink-0 text-xs font-medium text-fjord-fg-secondary border border-fjord-border rounded-md px-2 py-1 hover:bg-fjord-border"
+            >Dismiss</button
+          >
+        </div>
+        <ul class="mt-2 list-disc pl-5 text-sm text-fjord-fg-secondary space-y-1">
+          {#each n.lines as line}
+            <li>{line}</li>
+          {/each}
+        </ul>
+      </div>
+    {/each}
     {#if loading}
       <div class="flex items-center gap-3 text-fjord-fg-dim text-sm"><Spinner size={18} /> Running checks…</div>
     {:else if error}
