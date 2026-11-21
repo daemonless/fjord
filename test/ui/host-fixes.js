@@ -34,7 +34,7 @@ const note = (id, ok, msg) => console.log(`${ok ? 'PASS' : 'FAIL'} ${id}: ${msg}
       note('neither is left to a terminal', !yourTurn.includes('pf firewall') && !yourTurn.includes('DHCP'), yourTurn ? `"Your turn" says: ${yourTurn.trim().split('\n')[0]}` : 'no "Your turn"');
       await page.getByRole('button', { name: 'Show commands' }).click();
       const shown = await page.locator('body').innerText();
-      note('the pf commands are shown', /rdr-anchor "cni-rdr\/\*"/.test(shown) && /pfctl -nf \/etc\/pf\.conf/.test(shown), 'the anchor line and the validation');
+      note('the pf commands are shown', /rdr-anchor "(cni-rdr|netavark)\/\*"/.test(shown) && /pfctl -nf \/etc\/pf\.conf/.test(shown), 'the anchor line and the validation');
       if (STEP === 'broken') note('the rc.conf commands name the NIC', /sysrc ifconfig_[a-z]+[0-9]+="DHCP"/.test(shown) && /sysrc -x ifconfig_DEFAULT/.test(shown), (shown.match(/sysrc ifconfig_[a-z]+[0-9]+="DHCP"/) || ['no sysrc line'])[0]);
       await page.getByRole('button', { name: 'Set up', exact: true }).click();
       for (let i = 0; i < 120 && /Setting up/.test(await page.locator('body').innerText()); i++) await sleep(1000);

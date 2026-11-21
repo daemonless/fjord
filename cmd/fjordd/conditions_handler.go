@@ -80,7 +80,7 @@ func conditionTitle(r doctor.Result) string {
 	case "appjail-dns":
 		return "AppJail jail name resolution is not answering"
 	case "dnsname":
-		return "Container name resolution (dnsname) is not installed"
+		return "Container name resolution is not installed"
 	case "fdescfs":
 		return "fdescfs is not mounted on /dev/fd"
 	case "pf":

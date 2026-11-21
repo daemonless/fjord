@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"os/exec"
 	"runtime"
 	"sync"
 	"time"
@@ -90,6 +91,41 @@ func (b *Backend) askNetworkBackend(ctx context.Context) string {
 		return ""
 	}
 	return info.Host.NetworkBackend
+}
+
+// hostInfo is the part of podman's info that says how it does networking.
+type hostInfo struct {
+	Host struct {
+		NetworkBackend     string `json:"networkBackend"`
+		NetworkBackendInfo struct {
+			DNS struct {
+				Path string `json:"path"`
+			} `json:"dns"`
+		} `json:"networkBackendInfo"`
+	} `json:"host"`
+}
+
+// NetworkBackendInfo is podman's network backend and the path of the DNS
+// server it starts for a network ("" when it has none), for diagnostics
+// (pkg/doctor). Asked of the API, and of the CLI when the service is down:
+// which backend it is decides what a host check should look for. Both are ""
+// when podman cannot say.
+func NetworkBackendInfo(ctx context.Context) (backend, dnsPath string) {
+	var info hostInfo
+	if req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://d/v4.0.0/libpod/info", nil); err == nil {
+		if resp, err := newSocketClient().Do(req); err == nil {
+			ok := resp.StatusCode == http.StatusOK && json.NewDecoder(resp.Body).Decode(&info) == nil
+			resp.Body.Close()
+			if ok && info.Host.NetworkBackend != "" {
+				return info.Host.NetworkBackend, info.Host.NetworkBackendInfo.DNS.Path
+			}
+		}
+	}
+	out, err := exec.CommandContext(ctx, "podman", "info", "--format", "json").Output()
+	if err != nil || json.Unmarshal(out, &info) != nil {
+		return "", ""
+	}
+	return info.Host.NetworkBackend, info.Host.NetworkBackendInfo.DNS.Path
 }
 
 // reportsAddresses says podman itself knows each container's address and

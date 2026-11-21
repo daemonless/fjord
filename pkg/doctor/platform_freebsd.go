@@ -18,6 +18,7 @@ import (
 
 	"github.com/daemonless/fjord/pkg/engine"
 	"github.com/daemonless/fjord/pkg/engine/appjail"
+	"github.com/daemonless/fjord/pkg/engine/podman"
 )
 
 // hostMode is "container" when fjordd runs in a jail (an OCI-deployed
@@ -38,6 +39,7 @@ func platform(cfg Config) platformInfo {
 	mode := hostMode()
 	_, pkgErr := exec.LookPath("pkg")
 	zone := hostZone("/usr/share/zoneinfo", cfg.TimeZone)
+	backend, dnsPath := podmanNetBackend()
 	checks := []Check{
 		{
 			ID: "podman", Name: "podman CLI", Engine: "podman",
@@ -185,7 +187,141 @@ func platform(cfg Config) platformInfo {
 	if _, err := exec.LookPath("appjail"); err == nil {
 		checks = append(checks, appjailPfCheck())
 	}
+	if backend == "netavark" {
+		checks = forNetavark(checks, dnsPath)
+	}
 	return platformInfo{os: "freebsd", mode: mode, canInstall: pkgErr == nil, checks: checks}
+}
+
+// podmanNetBackend is podman's network backend and its DNS server's path;
+// tests replace it.
+var podmanNetBackend = func() (backend, dnsPath string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	return podman.NetworkBackendInfo(ctx)
+}
+
+// forNetavark turns the podman network checks into what the netavark backend
+// needs: its own pf anchors, aardvark-dns for names, and no epair plugin (a
+// CNI plugin netavark never loads).
+func forNetavark(checks []Check, dnsPath string) []Check {
+	out := checks[:0:0]
+	for _, c := range checks {
+		switch c.ID {
+		case "epair":
+			continue
+		case "dnsname":
+			c.Name = "container name resolution (aardvark-dns)"
+			c.Probe = aardvarkProbe(dnsPath)
+			c.Fix = "pkg install -y aardvark-dns"
+			c.Pkg = map[string]string{"freebsd": "aardvark-dns"}
+		case "pf":
+			rules := netavarkPfRules()
+			c.Probe = netavarkPfProbe
+			c.Install = installPfRules(rules)
+			c.Commands = pfCommandsFor(rules)
+			c.Why = "podman's bridge networking gives containers outbound NAT and publishes their ports through pf anchors that netavark fills. If the anchors are not in the loaded ruleset, containers start fine but reach nothing and their published ports hang. Host-network stacks don't need this."
+			c.Fix = netavarkPfFix()
+		}
+		out = append(out, c)
+	}
+	return out
+}
+
+// aardvarkProbe reports whether podman can resolve container names under
+// netavark: it starts aardvark-dns for every network that has DNS on.
+func aardvarkProbe(dnsPath string) func(context.Context) (Status, string) {
+	return func(context.Context) (Status, string) {
+		paths := []string{"/usr/local/libexec/podman/aardvark-dns", "/usr/local/bin/aardvark-dns"}
+		if dnsPath != "" {
+			paths = append([]string{dnsPath}, paths...)
+		}
+		for _, p := range paths {
+			if _, err := os.Stat(p); err == nil {
+				return OK, "installed"
+			}
+		}
+		return Warn, "not installed -- services in a stack cannot find each other by name"
+	}
+}
+
+// netavarkPfRules are the pf.conf lines netavark's pf driver needs: the two
+// tables its anchors name and the anchors themselves. It does its own NAT
+// inside them, so there is no line per host interface.
+func netavarkPfRules() []string {
+	return []string{
+		`table <netavark-subnets> persist`,
+		`table <netavark-isolated> persist`,
+		`nat-anchor "netavark/*"`,
+		`rdr-anchor "netavark/*"`,
+		`anchor "netavark/*"`,
+	}
+}
+
+// netavarkPfMissing names what netavark needs that the loaded ruleset lacks,
+// given `pfctl -s nat`, `-s rules` and `-s Tables`.
+func netavarkPfMissing(nat, rules, tables string) []string {
+	var miss []string
+	for _, t := range []string{"netavark-subnets", "netavark-isolated"} {
+		if !slices.Contains(strings.Fields(tables), t) {
+			miss = append(miss, "table <"+t+">")
+		}
+	}
+	for _, a := range []string{`nat-anchor "netavark/*"`, `rdr-anchor "netavark/*"`} {
+		if !strings.Contains(nat, a) {
+			miss = append(miss, a)
+		}
+	}
+	hasAnchor := false
+	for _, l := range strings.Split(rules, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(l), `anchor "netavark/*"`) {
+			hasAnchor = true
+		}
+	}
+	if !hasAnchor {
+		miss = append(miss, `anchor "netavark/*"`)
+	}
+	return miss
+}
+
+// netavarkPfProbe is pfProbe for the netavark backend.
+func netavarkPfProbe(ctx context.Context) (Status, string) {
+	if st, msg, up := pfUp(ctx); !up {
+		return st, msg
+	}
+	nat, err := exec.CommandContext(ctx, "pfctl", "-s", "nat").Output()
+	if err != nil {
+		return Unknown, "pf loaded; cannot read the ruleset to verify container anchors (pfctl needs root)"
+	}
+	rules, _ := exec.CommandContext(ctx, "pfctl", "-s", "rules").Output()
+	tables, _ := exec.CommandContext(ctx, "pfctl", "-s", "Tables").Output()
+	if miss := netavarkPfMissing(string(nat), string(rules), string(tables)); len(miss) > 0 {
+		return Warn, "pf is loaded but the active ruleset lacks " + strings.Join(miss, ", ") +
+			" -- containers reach nothing outside or their published ports hang; reload pf.conf"
+	}
+	return OK, "pf loaded, netavark anchors active"
+}
+
+// netavarkPfFix is pfFix for the netavark backend.
+func netavarkPfFix() string {
+	rules := netavarkPfRules()
+	conf, _ := os.ReadFile("/etc/pf.conf")
+	if _, added := pfInsert(string(conf), rules); len(added) == 0 {
+		return "# /etc/pf.conf already has netavark's tables and anchors; they are just not loaded\n" +
+			pfValidate +
+			"pfctl -f /etc/pf.conf\n" +
+			"# pf not enabled at all?\n" +
+			"sysrc pf_enable=YES\n" +
+			"service pf start\n" +
+			"# after a `service pf restart` or `pfctl -F all`, running containers get their rules back with:\n" +
+			"/usr/local/libexec/podman/netavark --config /var/run/containers/networks firewall-reload"
+	}
+	return "# /etc/pf.conf is missing netavark's tables or anchors -- add them once\n" +
+		pfInsertSnippet(rules, "/etc/pf.conf") + pfValidate +
+		"sysrc pf_enable=YES\n" +
+		"service pf start\n" +
+		"# and load them now: `service pf start` does nothing if pf was already up\n" +
+		"pfctl -f /etc/pf.conf"
 }
 
 // appjailPfCheck is the pf-anchors check for AppJail's virtual networks.
@@ -258,9 +394,11 @@ func podmanPfRules(ifaces []string) []string {
 }
 
 // pfCommands are what installPf runs, for the setup page.
-func pfCommands() []string {
+func pfCommands() []string { return pfCommandsFor(podmanPfRules(natIfaces())) }
+
+func pfCommandsFor(rules []string) []string {
 	cmds := []string{"# add to /etc/pf.conf, before its filter rules, whichever of these it lacks:"}
-	for _, r := range podmanPfRules(natIfaces()) {
+	for _, r := range rules {
 		cmds = append(cmds, "#   "+r)
 	}
 	return append(cmds, pfValidate[:len(pfValidate)-1], "sysrc pf_enable=YES", "service pf start   # or, with pf already up: pfctl -f /etc/pf.conf")
@@ -272,12 +410,21 @@ func pfCommands() []string {
 // host that never ran pf, by a reload where pf is up, since starting pf
 // again flushes its state table and every connection through it with it.
 func installPf(ctx context.Context, w io.Writer) error {
+	return installPfRules(podmanPfRules(natIfaces()))(ctx, w)
+}
+
+// installPfRules is installPf for one backend's rules.
+func installPfRules(rules []string) func(context.Context, io.Writer) error {
+	return func(ctx context.Context, w io.Writer) error { return installPfLines(ctx, w, rules) }
+}
+
+func installPfLines(ctx context.Context, w io.Writer, rules []string) error {
 	const path = "/etc/pf.conf"
 	b, err := os.ReadFile(path)
 	if err != nil && !os.IsNotExist(err) {
 		return err
 	}
-	conf, added := pfInsert(string(b), podmanPfRules(natIfaces()))
+	conf, added := pfInsert(string(b), rules)
 	candidate := path
 	if len(added) > 0 {
 		candidate = path + ".new"
@@ -298,6 +445,14 @@ func installPf(ctx context.Context, w io.Writer) error {
 		return fmt.Errorf("%s would not load, so it was left as it is: %v", path, err)
 	}
 	if candidate != path {
+		// What was there, kept beside it: the file is the operator's.
+		if len(b) > 0 {
+			fmt.Fprintf(w, "$ cp %s %s.before-fjord\n", path, path)
+			if err := os.WriteFile(path+".before-fjord", b, 0o644); err != nil {
+				os.Remove(candidate)
+				return err
+			}
+		}
 		fmt.Fprintf(w, "$ mv %s %s\n", candidate, path)
 		if err := os.Rename(candidate, path); err != nil {
 			return err
@@ -592,18 +747,8 @@ func versionBelow(v string, want ...int) bool {
 // and every published bridge port silently blackholes while "pf loaded" still
 // reads true. Warn, not fail: host-network stacks run fine without pf.
 func pfProbe(ctx context.Context) (Status, string) {
-	if _, err := exec.LookPath("kldstat"); err != nil {
-		return Unknown, "kldstat not available here to check pf"
-	}
-	if pfLoaded, err := kldLoaded(ctx, "pf"); err != nil {
-		return Unknown, err.Error()
-	} else if !pfLoaded {
-		return Warn, "pf is not loaded -- bridge-network stacks will fail; host-network stacks are unaffected"
-	}
-	// `service pf stop` disables pf and leaves the ruleset in place: loaded
-	// rules with pf off publish nothing.
-	if !pfEnabled(ctx) {
-		return Warn, "pf is loaded but disabled -- published bridge ports will hang; enable pf (service pf start)"
+	if st, msg, up := pfUp(ctx); !up {
+		return st, msg
 	}
 	out, err := exec.CommandContext(ctx, "pfctl", "-s", "nat").Output()
 	if err != nil {
@@ -617,6 +762,25 @@ func pfProbe(ctx context.Context) (Status, string) {
 			" -- anything they reach that way (the LAN, its DNS server) never answers"
 	}
 	return OK, "pf loaded, container rdr anchors active"
+}
+
+// pfUp says pf is loaded and enabled; when it is not, the status and message
+// to report.
+func pfUp(ctx context.Context) (Status, string, bool) {
+	if _, err := exec.LookPath("kldstat"); err != nil {
+		return Unknown, "kldstat not available here to check pf", false
+	}
+	if pfLoaded, err := kldLoaded(ctx, "pf"); err != nil {
+		return Unknown, err.Error(), false
+	} else if !pfLoaded {
+		return Warn, "pf is not loaded -- bridge-network stacks will fail; host-network stacks are unaffected", false
+	}
+	// `service pf stop` disables pf and leaves the ruleset in place: loaded
+	// rules with pf off publish nothing.
+	if !pfEnabled(ctx) {
+		return Warn, "pf is loaded but disabled -- published bridge ports will hang; enable pf (service pf start)", false
+	}
+	return OK, "", true
 }
 
 // natIfaces are the interfaces bridge-network containers can leave by: every
@@ -650,7 +814,7 @@ func natCandidates(ifaces []string, def string, skip []string) []string {
 			continue
 		}
 		own := true
-		for _, p := range []string{"lo", "cni-", "epair", "vnet", "pflog", "pfsync"} {
+		for _, p := range []string{"lo", "cni-", "podman", "epair", "vnet", "pflog", "pfsync"} {
 			if strings.HasPrefix(ifc, p) {
 				own = false
 			}
