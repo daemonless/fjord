@@ -185,7 +185,7 @@ func (b *Backend) RemoveNetwork(ctx context.Context, name string, force bool) er
 		}
 		return nil
 	}
-	if defined && (def.Type != lannet.Plugin || !b.lanByPlugin()) {
+	if defined && (def.Type != lannet.Plugin || b.knownBackend() != backendCNI) {
 		if out, err := exec.CommandContext(ctx, "podman", "network", "rm", "-f", name).CombinedOutput(); err != nil {
 			return fmt.Errorf("podman network rm: %s", strings.TrimSpace(string(out)))
 		}

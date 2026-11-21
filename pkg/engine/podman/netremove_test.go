@@ -15,8 +15,10 @@ import (
 func TestRemoveNetworkConflist(t *testing.T) {
 	dir := t.TempDir()
 	t.Cleanup(hostnet.UseConflists(dir))
-	name := ""
+	// On the CNI backend, whatever the OS the test runs on.
+	name := backendCNI
 	b := backendServer(t, &name)
+	b.networkBackend(context.Background())
 	t.Cleanup(hostnet.UseConflists(dir)) // backendServer pinned its own dir
 
 	lan := filepath.Join(dir, "lan.conflist")
