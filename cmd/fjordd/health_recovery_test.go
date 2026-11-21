@@ -608,3 +608,47 @@ func TestHealthRecoveryMarksBusyAndBoundsStatusUnderLock(t *testing.T) {
 		t.Fatal("expected busy cleared after recoverRestart")
 	}
 }
+
+// An install or start that failed leaves no container and its reason in
+// LastFailure. The health watcher saw "desired running, nothing there" and
+// replaced the reason with "stopped unexpectedly" a minute later.
+func TestHealthRecoveryKeepsAFailedStartsReason(t *testing.T) {
+	srv, _ := newRecoveryTestServer(t)
+	now := time.Now()
+	why := "the image example/radarr:nope could not be downloaded: the registry has no such version"
+	if err := srv.manager.UpdateState("radarr", func(s *stack.State) *stack.State {
+		s.LastFailure = &stack.Failure{Action: "up", At: now, Message: why}
+		return s
+	}); err != nil {
+		t.Fatal(err)
+	}
+	nothing := engine.StackStatus{State: "stopped"}
+	for i := 0; i < 4; i++ {
+		full, _ := srv.manager.Get("radarr")
+		srv.observeStackHealth(full, nothing, now.Add(time.Duration(i)*30*time.Second))
+	}
+	state, _ := srv.manager.LoadState("radarr")
+	if state.LastFailure == nil || state.LastFailure.Action != "up" || state.LastFailure.Message != why {
+		t.Fatalf("the start's reason was replaced: %+v", state.LastFailure)
+	}
+	if len(state.RecoveryEvents) != 0 {
+		t.Fatalf("a failed start is not a health event: %+v", state.RecoveryEvents)
+	}
+
+	// With no failure on record, a stack that should run and has nothing is
+	// still reported, on the second look.
+	if err := srv.manager.UpdateState("radarr", func(s *stack.State) *stack.State {
+		s.LastFailure = nil
+		return s
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 2; i++ {
+		full, _ := srv.manager.Get("radarr")
+		srv.observeStackHealth(full, nothing, now.Add(time.Duration(10+i)*30*time.Second))
+	}
+	state, _ = srv.manager.LoadState("radarr")
+	if state.LastFailure == nil || state.LastFailure.Action != "health" || state.LastFailure.Message != "stopped unexpectedly" {
+		t.Fatalf("a vanished stack is no longer reported: %+v", state.LastFailure)
+	}
+}
