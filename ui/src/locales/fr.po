@@ -1132,6 +1132,7 @@ msgstr "<0>Non enregistré.</0> Le compose a changé sur le serveur depuis son o
 
 #: src/StackDetail.svelte
 #: src/StackDetail.svelte
+#: src/System.svelte
 #: src/Toasts.svelte
 msgid "Dismiss"
 msgstr "Ignorer"
@@ -5233,4 +5234,21 @@ msgstr ""
 
 #: src/StackDetail.svelte
 msgid "Save or revert your edits first"
+msgstr ""
+
+#. 0: name
+#: src/Networks.svelte
+msgid "{0} is made again — start its stacks"
+msgstr ""
+
+#: src/Networks.svelte
+msgid "Could not make the network again"
+msgstr ""
+
+#: src/Networks.svelte
+msgid "Making…"
+msgstr ""
+
+#: src/Networks.svelte
+msgid "Make it again"
 msgstr ""

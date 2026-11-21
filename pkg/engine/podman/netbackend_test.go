@@ -53,8 +53,9 @@ func TestNetworkBackend(t *testing.T) {
 		t.Errorf("kinds: %+v", got)
 	}
 	if runtime.GOOS == "freebsd" {
-		if len(b.NetworkKinds()) != 1 || b.networkNote() != netavarkLANNote {
-			t.Errorf("FreeBSD netavark offers %+v, note %q", b.NetworkKinds(), b.networkNote())
+		k := b.NetworkKinds()
+		if len(k) != 2 || k[0].ID != "lan" || k[0].SupportsDHCP != netavarkPlugin() || b.networkNote() != "" {
+			t.Errorf("FreeBSD netavark offers %+v, note %q", k, b.networkNote())
 		}
 	}
 
@@ -76,9 +77,6 @@ func TestNetworkBackend(t *testing.T) {
 		t.Error("CNI off Linux does not report addresses")
 	}
 }
-
-// Only containers on a network podman answers names on are restarted when
-// its DNS server moves: not the default network's, not a --disable-dns one's.
 
 // Only containers on a network podman answers names on are restarted when
 // its DNS server moves: not the default network's, not a --disable-dns one's.

@@ -74,3 +74,22 @@ func pullError(out string) string {
 	}
 	return "the image " + image + " could not be downloaded: " + why
 }
+
+var noSuchNetwork = regexp.MustCompile(`External network \[([^\]]+)\] does not exists?`)
+
+// missingNetwork says, for a stack compose made nothing of, that a network
+// it names is not on this host; "" when the output shows no such thing.
+// podman-compose's "RuntimeError: External network [x] does not exists"
+// scrolled past and the stack was left with "compose created no containers
+// to start".
+func missingNetwork(out string) string {
+	// The last one: the traceback above it quotes podman-compose's own source
+	// line, "External network [{net_name}] does not exists".
+	all := noSuchNetwork.FindAllStringSubmatch(out, -1)
+	if len(all) == 0 {
+		return ""
+	}
+	m := all[len(all)-1]
+	return "the network " + m[1] + " that this stack uses does not exist on this host. Make it again on the Networks page, then Start " +
+		"(a network made before podman moved to another network backend has to be made again)"
+}

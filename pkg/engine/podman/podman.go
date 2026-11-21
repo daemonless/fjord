@@ -110,6 +110,7 @@ func (b *Backend) UpWatched(ctx context.Context, s *stack.Stack) (io.ReadCloser,
 // recreated, force-removed on a refused recreate, and started.
 func (b *Backend) bringUp(ctx context.Context, pw *io.PipeWriter, s *stack.Stack, mode recreate, only []string) {
 	b.removeOrphanStorage(ctx, pw, s.Name)
+	b.dropOtherBackendContainers(ctx, pw, s)
 	b.releaseOrphanAddresses(ctx, pw, s)
 	// What compose up would pull, pulled first, so the images can be checked
 	// before anything is torn down or created: podman pulls a wrong-arch
@@ -185,6 +186,8 @@ func (b *Backend) bringUp(ctx context.Context, pw *io.PipeWriter, s *stack.Stack
 	names := containerNames(targets)
 	if len(names) == 0 {
 		if why := pullError(seen.String()); why != "" {
+			fmt.Fprintf(pw, "\n[error] %s\n", why)
+		} else if why := missingNetwork(seen.String()); why != "" {
 			fmt.Fprintf(pw, "\n[error] %s\n", why)
 		} else {
 			fmt.Fprintf(pw, "\n[error] compose created no containers to start\n")

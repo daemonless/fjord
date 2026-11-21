@@ -105,6 +105,10 @@ type Network struct {
 	// The second half is the daemon's to fill in: an engine can only answer
 	// for what is running, and a stopped stack is attached to nothing.
 	UsedBy []string `json:"usedBy,omitempty"`
+	// Remake: the runtime no longer loads this network (Problem says why)
+	// and its engine can make it again under the same name, so the stacks
+	// that name it start again (NetworkRemaker).
+	Remake bool `json:"remake,omitempty"`
 	// Private marks a segment fjord made FOR one stack: nothing outside this
 	// host reaches it, and it exists only because that stack needed somewhere
 	// to put its database. Not a thing anyone chose from a list, so pickers
@@ -339,6 +343,14 @@ type BootSettler interface {
 	// BootSettle returns once the engine's own boot start has finished, or
 	// with ctx's error if it has not by then.
 	BootSettle(ctx context.Context) error
+}
+
+// NetworkRemaker is a backend that can make again, in the form its runtime
+// loads today, a network an earlier network backend of that runtime left
+// behind: same name, same subnet, so the stacks on it need no change.
+// Optional.
+type NetworkRemaker interface {
+	RemakeNetwork(ctx context.Context, name string) (Network, error)
 }
 
 // SegmentProber is a backend that can ask a parent's wire which segment it is
