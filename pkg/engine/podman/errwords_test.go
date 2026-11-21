@@ -16,6 +16,11 @@ func TestCommandError(t *testing.T) {
 	if got := commandError(out, exit); got != want {
 		t.Errorf("got  %q\nwant %q", got, want)
 	}
+	// netavark with port 53 held by another DNS server: say where the fix is.
+	dns := "$ podman start t-dp1_web_1\nError: unable to start container \"0123456789abcdef\": netavark: error while applying dns entries: aardvark-dns failed to start: Error from child process\n"
+	if got := commandError(dns, exit); !strings.Contains(got, "port 53") || !strings.Contains(got, "System") || strings.Contains(got, "child process") {
+		t.Errorf("aardvark failure: %q", got)
+	}
 	// The last Error line is the one that stopped it.
 	if got := commandError("Error: first\nsome output\nError: second\n", exit); got != "second" {
 		t.Errorf("got %q, want the last Error line", got)

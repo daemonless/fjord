@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os/exec"
 	"runtime"
+	"sort"
 	"sync"
 	"time"
 
@@ -126,6 +127,81 @@ func NetworkBackendInfo(ctx context.Context) (backend, dnsPath string) {
 		return "", ""
 	}
 	return info.Host.NetworkBackend, info.Host.NetworkBackendInfo.DNS.Path
+}
+
+// DNSContainers names the running containers attached to a network podman
+// answers names on, for diagnostics (pkg/doctor): the ones a change of its
+// DNS server's port has to restart. nil when podman cannot say.
+func DNSContainers(ctx context.Context) []string {
+	client := newSocketClient()
+	get := func(path string, v any) bool {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://d/v4.0.0/libpod/"+path, nil)
+		if err != nil {
+			return false
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			return false
+		}
+		defer resp.Body.Close()
+		return resp.StatusCode == http.StatusOK && json.NewDecoder(resp.Body).Decode(v) == nil
+	}
+	var nets []struct {
+		Name string `json:"name"`
+		DNS  bool   `json:"dns_enabled"`
+	}
+	var cts []struct {
+		Names    []string `json:"Names"`
+		Networks []string `json:"Networks"`
+	}
+	if !get("networks/json", &nets) || !get("containers/json", &cts) {
+		return nil
+	}
+	return dnsContainers(nets2map(nets), cts2list(cts))
+}
+
+type ctNets struct {
+	name string
+	nets []string
+}
+
+func nets2map(nets []struct {
+	Name string `json:"name"`
+	DNS  bool   `json:"dns_enabled"`
+}) map[string]bool {
+	m := map[string]bool{}
+	for _, n := range nets {
+		m[n.Name] = n.DNS
+	}
+	return m
+}
+
+func cts2list(cts []struct {
+	Names    []string `json:"Names"`
+	Networks []string `json:"Networks"`
+}) []ctNets {
+	var out []ctNets
+	for _, c := range cts {
+		if len(c.Names) > 0 {
+			out = append(out, ctNets{c.Names[0], c.Networks})
+		}
+	}
+	return out
+}
+
+// dnsContainers picks the containers on at least one network with DNS on.
+func dnsContainers(dns map[string]bool, cts []ctNets) []string {
+	var out []string
+	for _, c := range cts {
+		for _, n := range c.nets {
+			if dns[n] {
+				out = append(out, c.name)
+				break
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 // reportsAddresses says podman itself knows each container's address and

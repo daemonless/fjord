@@ -79,6 +79,8 @@ func conditionTitle(r doctor.Result) string {
 		return "Free disk space on the storage root is low"
 	case "appjail-dns":
 		return "AppJail jail name resolution is not answering"
+	case "dns-port":
+		return "Podman's DNS server is blocked from port 53"
 	case "dnsname":
 		return "Container name resolution is not installed"
 	case "fdescfs":

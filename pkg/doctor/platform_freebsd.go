@@ -224,6 +224,9 @@ func forNetavark(checks []Check, dnsPath string) []Check {
 			c.Fix = netavarkPfFix()
 		}
 		out = append(out, c)
+		if c.ID == "dnsname" {
+			out = append(out, dnsPortCheck())
+		}
 	}
 	return out
 }

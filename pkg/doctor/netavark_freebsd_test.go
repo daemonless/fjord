@@ -63,13 +63,13 @@ func TestForNetavark(t *testing.T) {
 	for _, c := range out {
 		ids = append(ids, c.ID)
 	}
-	if !slices.Equal(ids, []string{"podman", "dnsname", "pf", "appjail-pf"}) {
+	if !slices.Equal(ids, []string{"podman", "dnsname", "dns-port", "pf", "appjail-pf"}) {
 		t.Fatalf("ids: %v", ids)
 	}
 	if in[2].Name != "container name resolution (dnsname plugin)" {
 		t.Error("the caller's list was changed")
 	}
-	dns, pf := out[1], out[2]
+	dns, pf := out[1], out[3]
 	if !strings.Contains(dns.Name, "aardvark-dns") || dns.Pkg["freebsd"] != "aardvark-dns" || strings.Contains(dns.Fix, "cni") {
 		t.Errorf("dns check: %+v", dns)
 	}

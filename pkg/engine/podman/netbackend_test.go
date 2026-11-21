@@ -79,3 +79,19 @@ func TestNetworkBackend(t *testing.T) {
 
 // Only containers on a network podman answers names on are restarted when
 // its DNS server moves: not the default network's, not a --disable-dns one's.
+
+// Only containers on a network podman answers names on are restarted when
+// its DNS server moves: not the default network's, not a --disable-dns one's.
+func TestDNSContainers(t *testing.T) {
+	dns := map[string]bool{"app_default": true, "priv": true, "podman": false, "quiet": false}
+	got := dnsContainers(dns, []ctNets{
+		{"web", []string{"app_default"}},
+		{"db", []string{"quiet", "priv"}},
+		{"lone", []string{"podman"}},
+		{"mute", []string{"quiet"}},
+		{"host", nil},
+	})
+	if len(got) != 2 || got[0] != "db" || got[1] != "web" {
+		t.Errorf("got %v, want [db web]", got)
+	}
+}

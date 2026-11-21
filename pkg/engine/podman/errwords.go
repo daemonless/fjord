@@ -34,8 +34,18 @@ func commandError(out string, err error) string {
 	last = strings.TrimPrefix(last, "Error: ")
 	last = containerID.ReplaceAllString(last, "")
 	last = strings.TrimPrefix(last, "OCI runtime error: ")
+	if strings.Contains(last, "aardvark-dns failed to start") {
+		return aardvarkFailed
+	}
 	return last
 }
+
+// aardvarkFailed is netavark's "error while applying dns entries:
+// aardvark-dns failed to start: Error from child process" in words that say
+// where to look: the commonest cause is a DNS server on port 53 of every
+// address, which the System page checks for.
+const aardvarkFailed = "podman's DNS server (aardvark-dns) could not start, so containers on a network with name resolution cannot either. " +
+	"When another DNS server holds port 53 on this host, the System page's check \"container name resolution can start (port 53)\" moves podman's off it"
 
 var pullFailed = regexp.MustCompile(`unable to copy from source docker://(\S+?): (.+)$`)
 
