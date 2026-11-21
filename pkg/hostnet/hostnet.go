@@ -2,7 +2,8 @@
 // subnet and gateway that make up a network a container or jail can be given
 // an address on.
 //
-// On FreeBSD these live in CNI conflists, because that is what podman reads.
+// They live where podman's network backend reads them: CNI conflists or
+// netavark JSON.
 // AppJail has no equivalent registry: a jail is attached to a bridge by name
 // and told its address directly. Keeping the definitions in one place is what
 // lets "vlan5" mean the same network to both engines instead of one meaning a
@@ -19,19 +20,86 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 )
 
-// ConfDir is where podman reads network definitions from. Every file here is
-// a live network. On Linux it is netavark's (hostnet_linux.go).
-var ConfDir = "/usr/local/etc/cni/net.d"
-
-// confExt and parseDef are the file name suffix and format of a definition in
-// ConfDir: CNI conflists here, netavark JSON on Linux.
+// cniDir is where podman's CNI backend reads conflists, netavarkDir where its
+// netavark backend keeps a network's JSON. An empty one is a format this
+// host's podman never uses.
 var (
-	confExt  = ".conflist"
-	parseDef = parse
+	cniDir      = "/usr/local/etc/cni/net.d"
+	netavarkDir = "/usr/local/etc/containers/networks"
 )
+
+// source is one directory of network definitions and how to read them.
+type source struct {
+	dir, ext string
+	parse    func(name string, data []byte) (Network, bool)
+}
+
+// layout is where definitions are read from: primary is the format podman's
+// backend loads and writes, legacy what an earlier backend left behind.
+// Legacy definitions still name a real bridge, so they are listed, not lost.
+type layout struct {
+	primary source
+	legacy  []source
+}
+
+var (
+	mu  sync.RWMutex
+	cur = layout{primary: source{cniDir, ".conflist", parse}}
+	// pinned: a test chose the layout, and podman's answer must not move it.
+	pinned bool
+)
+
+func current() layout {
+	mu.RLock()
+	defer mu.RUnlock()
+	return cur
+}
+
+// SetBackend follows podman's network backend ("cni" or "netavark"): the
+// engine calls it with what podman reports. A host that moved to netavark
+// keeps its conflists readable.
+func SetBackend(backend string) {
+	if cniDir == "" || netavarkDir == "" {
+		return
+	}
+	cni := source{cniDir, ".conflist", parse}
+	next := layout{primary: cni}
+	if backend == "netavark" {
+		next = layout{primary: source{netavarkDir, ".json", parseNetavark}, legacy: []source{cni}}
+	}
+	mu.Lock()
+	if !pinned {
+		cur = next
+	}
+	mu.Unlock()
+}
+
+// Dir is where podman reads network definitions from. Every file here is a
+// live network.
+func Dir() string { return current().primary.dir }
+
+// ConflistDir is where a CNI conflist goes, whatever podman's backend: the
+// place AppJail's LAN networks are kept too.
+func ConflistDir() string {
+	l := current()
+	if l.primary.ext == ".conflist" || cniDir == "" {
+		return l.primary.dir
+	}
+	return cniDir
+}
+
+// ConflistPath is the conflist path for a network name.
+func ConflistPath(name string) string {
+	l := current()
+	if l.primary.ext == ".conflist" || cniDir == "" {
+		return filepath.Join(l.primary.dir, name+l.primary.ext)
+	}
+	return filepath.Join(cniDir, name+".conflist")
+}
 
 // NameRe bounds a network name: it becomes a filename and an interface name
 // component, so neither path separators nor exotic characters are allowed.
@@ -71,10 +139,20 @@ type Network struct {
 	// the form offer only what that engine can honour, without splitting one
 	// segment into two networks.
 	For string
+	// Legacy: defined in a format podman's current backend does not load (a
+	// conflist on a netavark host). The bridge is real; podman cannot use it.
+	Legacy bool
+	// Compose: the network compose makes for one project and removes with
+	// it, not one somebody made to attach stacks to.
+	Compose bool
 }
 
-// Path returns the conflist path for a network name.
-func Path(name string) string { return filepath.Join(ConfDir, name+confExt) }
+// Path returns the definition path for a network name in the format podman's
+// backend loads.
+func Path(name string) string {
+	p := current().primary
+	return filepath.Join(p.dir, name+p.ext)
+}
 
 // Get reads one network's definition. ok is false when the name is invalid or
 // no such network is defined.
@@ -82,27 +160,63 @@ func Get(name string) (Network, bool) {
 	if !NameRe.MatchString(name) {
 		return Network{}, false
 	}
-	data, err := os.ReadFile(Path(name))
+	l := current()
+	if n, ok := l.primary.get(name); ok {
+		return n, true
+	}
+	for _, src := range l.legacy {
+		if n, ok := src.get(name); ok {
+			n.Legacy = true
+			return n, true
+		}
+	}
+	return Network{}, false
+}
+
+func (s source) get(name string) (Network, bool) {
+	data, err := os.ReadFile(filepath.Join(s.dir, name+s.ext))
 	if err != nil {
 		return Network{}, false
 	}
-	return parseDef(name, data)
+	return s.parse(name, data)
 }
 
-// List returns every defined network, ordered by name.
-func List() []Network {
-	entries, err := os.ReadDir(ConfDir)
+func (s source) names() []string {
+	entries, err := os.ReadDir(s.dir)
 	if err != nil {
 		return nil
 	}
-	var out []Network
+	var out []string
 	for _, e := range entries {
-		name, ok := strings.CutSuffix(e.Name(), confExt)
-		if !ok || !NameRe.MatchString(name) {
-			continue
+		if name, ok := strings.CutSuffix(e.Name(), s.ext); ok && NameRe.MatchString(name) {
+			out = append(out, name)
 		}
-		if n, ok := Get(name); ok {
+	}
+	return out
+}
+
+// List returns every defined network, ordered by name. A name defined in both
+// formats is the current backend's.
+func List() []Network {
+	l := current()
+	var out []Network
+	seen := map[string]bool{}
+	for _, name := range l.primary.names() {
+		if n, ok := l.primary.get(name); ok {
 			out = append(out, n)
+			seen[name] = true
+		}
+	}
+	for _, src := range l.legacy {
+		for _, name := range src.names() {
+			if seen[name] {
+				continue
+			}
+			if n, ok := src.get(name); ok {
+				n.Legacy = true
+				out = append(out, n)
+				seen[name] = true
+			}
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
@@ -116,6 +230,9 @@ func Parse(name string, data []byte) (Network, bool) { return parse(name, data) 
 
 func parse(name string, data []byte) (Network, bool) {
 	var doc struct {
+		Args struct {
+			Labels map[string]string `json:"podman_labels"`
+		} `json:"args"`
 		Fjord struct {
 			For      string `json:"for"`
 			Subnet   string `json:"subnet"`
@@ -147,6 +264,7 @@ func parse(name string, data []byte) (Network, bool) {
 	if n.Bridge == "" {
 		n.Bridge = p.Bridge
 	}
+	n.Compose = composeLabels(doc.Args.Labels)
 	// host-local takes one range list per family, in the order fjord wrote
 	// them. Classify by what the address looks like rather than by position,
 	// so a conflist written by hand with only a v6 range still reads right.
@@ -174,6 +292,11 @@ func parse(name string, data []byte) (Network, bool) {
 		n.Subnet6, n.Gateway6 = doc.Fjord.Subnet6, doc.Fjord.Gateway6
 	}
 	return n, true
+}
+
+// composeLabels says a network's labels are a compose project's.
+func composeLabels(labels map[string]string) bool {
+	return labels["com.docker.compose.project"] != "" || labels["io.podman.compose.project"] != ""
 }
 
 // AddressOf returns the address CNI's IPAM assigned a container on a network,

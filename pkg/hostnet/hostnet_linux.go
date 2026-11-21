@@ -5,7 +5,6 @@ package hostnet
 // "attached but not defined on this host" and a service's interface rows
 // came up empty -- saving them wrote network_mode: none.
 func init() {
-	ConfDir = "/etc/containers/networks"
-	confExt = ".json"
-	parseDef = parseNetavark
+	cniDir, netavarkDir = "", "/etc/containers/networks"
+	cur = layout{primary: source{netavarkDir, ".json", parseNetavark}}
 }

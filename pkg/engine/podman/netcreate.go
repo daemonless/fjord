@@ -48,7 +48,9 @@ func (b *Backend) NetworkKinds() []engine.NetworkKind {
 	if k, ok := lanKind(); ok { // Linux: kernel macvlan
 		return append([]engine.NetworkKind{k}, kinds...)
 	}
-	if runtime.GOOS != "freebsd" || !pluginInstalled() {
+	// Under netavark the epair plugin is not loaded, so a LAN network made
+	// with it would accept containers and fail every one.
+	if !b.lanByPlugin() || !pluginInstalled() {
 		return kinds
 	}
 	// The LAN kind is the host's, not podman's -- podman only knows whether
@@ -72,6 +74,9 @@ func (b *Backend) CreateNetwork(ctx context.Context, spec engine.NetworkSpec) (e
 	}
 	if runtime.GOOS == "linux" {
 		return b.createMacvlan(ctx, spec)
+	}
+	if b.networkBackend(ctx) != backendCNI {
+		return engine.Network{}, errors.New(netavarkLANNote)
 	}
 	if spec.AddressSource == "static" && !cniPlugin("static") {
 		return engine.Network{}, errors.New("the CNI static IPAM plugin is not installed at /usr/local/libexec/cni/static, so a network that assigns no addresses cannot be created here")
@@ -100,6 +105,7 @@ func (b *Backend) CreateNetwork(ctx context.Context, spec engine.NetworkSpec) (e
 // offers, so the choice on the form is what kind of network it is rather than
 // which engine is making it.
 func (b *Backend) createNAT(ctx context.Context, spec engine.NetworkSpec) (engine.Network, error) {
+	b.networkBackend(ctx) // so the definition is read back from where podman writes it
 	if !hostnet.NameRe.MatchString(spec.Name) {
 		return engine.Network{}, fmt.Errorf("invalid network name %q: letters, digits, dot, dash and underscore only", spec.Name)
 	}
@@ -138,7 +144,7 @@ func (b *Backend) createNAT(ctx context.Context, spec engine.NetworkSpec) (engin
 			n.Subnet, n.Gateway = def.Subnet, def.Gateway
 		}
 	} else if runtime.GOOS == "freebsd" {
-		return engine.Network{}, fmt.Errorf("podman network create %s: conflist was not written at %s", spec.Name, hostnet.Path(spec.Name))
+		return engine.Network{}, fmt.Errorf("podman network create %s: no definition was written at %s", spec.Name, hostnet.Path(spec.Name))
 	}
 	return n, nil
 }
@@ -147,9 +153,13 @@ func (b *Backend) RemoveNetwork(ctx context.Context, name string, force bool) er
 	if !hostnet.NameRe.MatchString(name) {
 		return fmt.Errorf("invalid network name %q", name)
 	}
-	path := hostnet.Path(name)
-	if _, err := os.Stat(path); err != nil {
-		return fmt.Errorf("no network %q at %s", name, path)
+	b.networkBackend(ctx)
+	def, defined := hostnet.Get(name)
+	if !defined {
+		// A conflist that does not parse is still a file to remove.
+		if _, err := os.Stat(hostnet.ConflistPath(name)); err != nil {
+			return fmt.Errorf("no network %q at %s", name, hostnet.Path(name))
+		}
 	}
 	if !force {
 		users, err := b.networkUsers(ctx, name)
@@ -163,13 +173,38 @@ func (b *Backend) RemoveNetwork(ctx context.Context, name string, force bool) er
 	// A network the runtime made is the runtime's to remove: it holds state
 	// beyond the conflist (the bridge, the IPAM directory). One it never
 	// parsed -- a third-party plugin's -- is only the file.
-	if def, ok := hostnet.Get(name); ok && def.Type != lannet.Plugin {
+	// One the CNI backend left behind is a file podman no longer knows, and
+	// for a bridge network the bridge CNI made for it. That bridge keeps
+	// the subnet taken, so the same network could not be made again.
+	if defined && def.Legacy {
+		if err := lannet.Remove(name); err != nil {
+			return err
+		}
+		if def.Type == "bridge" {
+			destroyIdleCNIBridge(ctx, def.Bridge)
+		}
+		return nil
+	}
+	if defined && (def.Type != lannet.Plugin || !b.lanByPlugin()) {
 		if out, err := exec.CommandContext(ctx, "podman", "network", "rm", "-f", name).CombinedOutput(); err != nil {
 			return fmt.Errorf("podman network rm: %s", strings.TrimSpace(string(out)))
 		}
 		return nil
 	}
 	return lannet.Remove(name)
+}
+
+// destroyIdleCNIBridge removes a bridge the CNI backend made (cni-podmanN)
+// once nothing is on it. Any other bridge is the operator's.
+func destroyIdleCNIBridge(ctx context.Context, bridge string) {
+	if !strings.HasPrefix(bridge, "cni-podman") {
+		return
+	}
+	out, err := exec.CommandContext(ctx, "ifconfig", bridge).Output()
+	if err != nil || strings.Contains(string(out), "member:") {
+		return
+	}
+	_ = exec.CommandContext(ctx, "ifconfig", bridge, "destroy").Run()
 }
 
 // networkUsers names the containers attached to one network.
@@ -289,6 +324,9 @@ func (b *Backend) networkNote() string {
 	if runtime.GOOS != "freebsd" {
 		return "Creating LAN networks is supported on FreeBSD and Linux hosts."
 	}
+	if b.knownBackend() != backendCNI {
+		return netavarkLANNote
+	}
 	if !pluginInstalled() {
 		// Deliberately not just "pkg install cni-epair": the port is not in
 		// the tree yet, so that command fails and the reader concludes fjord
@@ -297,6 +335,9 @@ func (b *Backend) networkNote() string {
 	}
 	return ""
 }
+
+// netavarkLANNote is why podman offers no LAN kind on a FreeBSD netavark host.
+const netavarkLANNote = "podman on this host uses the netavark network backend, which cannot give a container its own LAN address on FreeBSD yet. Bridge networks and published ports work."
 
 func pluginInstalled() bool { return cniPlugin(epairPlugin) }
 
