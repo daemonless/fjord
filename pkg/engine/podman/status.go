@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -35,7 +34,7 @@ type libpodContainer struct {
 	// ExposedPorts is "80": ["tcp"], the image's EXPOSE minus what is published.
 	ExposedPorts map[string][]string `json:"ExposedPorts"`
 	// reported is podman's own address per network, where podman knows it
-	// (podmanReportsAddresses), and reportedMAC the MAC on each.
+	// (reportsAddresses), and reportedMAC the MAC on each.
 	reported    map[string]string
 	reportedMAC map[string]string
 }
@@ -87,12 +86,6 @@ func exposedTCP(c libpodContainer) []int {
 	return out
 }
 
-// podmanReportsAddresses: on Linux netavark knows every container's address
-// and podman reports it. On FreeBSD podman cannot parse a third-party CNI
-// plugin's conflist and reports none for an epair network, so the address is
-// read from CNI's own state instead (hostnet).
-var podmanReportsAddresses = runtime.GOOS == "linux"
-
 // Status queries the libpod REST API over the podman unix socket for
 // containers labeled with this stack's podman-compose project. The project
 // name matches podman-compose's own default derivation -- dir_basename
@@ -139,7 +132,7 @@ func (b *Backend) listStackContainers(ctx context.Context, name string) ([]libpo
 	if err := json.NewDecoder(resp.Body).Decode(&containers); err != nil {
 		return nil, fmt.Errorf("decode libpod response: %w", err)
 	}
-	if podmanReportsAddresses && len(containers) > 0 {
+	if len(containers) > 0 && b.reportsAddresses(ctx) {
 		// The libpod list names a container's networks but not its addresses;
 		// the compat list carries both.
 		if addrs, macs, err := b.reportedAddresses(ctx, q); err == nil {

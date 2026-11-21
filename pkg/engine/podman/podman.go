@@ -27,11 +27,19 @@ import (
 type Backend struct {
 	http *http.Client // libpod REST API over the podman unix socket, see socket.go
 	sock string       // socket path, for raw-dialing the exec hijack
+	net  netBackend   // podman's network backend, see netbackend.go
 }
 
 // NewBackend initializes the Podman execution engine.
 func NewBackend() engine.Backend {
-	return &Backend{http: newSocketClient(), sock: socketPath()}
+	b := &Backend{http: newSocketClient(), sock: socketPath()}
+	// Asked now so the first page already reads networks the right way.
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		b.networkBackend(ctx)
+	}()
+	return b
 }
 
 // Descriptor registers podman as an engine. It's the default runtime and is

@@ -6,8 +6,8 @@ import (
 	"strings"
 )
 
-// parseNetavark reads a network definition in netavark's format -- what
-// podman keeps in /etc/containers/networks on Linux. fjord's own facts ride
+// parseNetavark reads a network definition in netavark's format, the JSON
+// podman keeps one file per network. fjord's own facts ride
 // in its labels, as they ride in a conflist's x-fjord key.
 func parseNetavark(name string, data []byte) (Network, bool) {
 	var doc struct {
@@ -39,6 +39,7 @@ func parseNetavark(name string, data []byte) (Network, bool) {
 		Static: doc.IPAM.Driver == "none",
 		For:    doc.Labels["fjord.for"],
 	}
+	n.Compose = composeLabels(doc.Labels)
 	n.MTU, _ = strconv.Atoi(doc.Options["mtu"])
 	for _, s := range doc.Subnets {
 		if strings.Contains(s.Subnet, ":") {
@@ -58,10 +59,16 @@ func parseNetavark(name string, data []byte) (Network, bool) {
 }
 
 // UseConflists points hostnet at dir, read as CNI conflists whatever the OS,
-// and returns what puts it back: for tests that write FreeBSD's format, which
-// on Linux hostnet would otherwise look for as netavark JSON.
+// and returns what puts it back: for tests that write the conflist format,
+// which hostnet would otherwise look for as netavark JSON on Linux.
 func UseConflists(dir string) (restore func()) {
-	oldDir, oldExt, oldParse := ConfDir, confExt, parseDef
-	ConfDir, confExt, parseDef = dir, ".conflist", parse
-	return func() { ConfDir, confExt, parseDef = oldDir, oldExt, oldParse }
+	mu.Lock()
+	old, was := cur, pinned
+	cur, pinned = layout{primary: source{dir, ".conflist", parse}}, true
+	mu.Unlock()
+	return func() {
+		mu.Lock()
+		cur, pinned = old, was
+		mu.Unlock()
+	}
 }

@@ -40,6 +40,7 @@ func (n libpodNetwork) composeProject() bool {
 // bind :80/:443 without colliding on the host's ports. Bridge/default networks
 // don't solve that, so they're omitted.
 func (b *Backend) Networks(ctx context.Context) ([]engine.Network, error) {
+	backend := b.networkBackend(ctx)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://d/v4.0.0/libpod/networks/json", nil)
 	if err != nil {
 		return nil, err
@@ -73,17 +74,19 @@ func (b *Backend) Networks(ctx context.Context) ([]engine.Network, error) {
 	nets = kept
 	// Backfill what libpod could not tell us from the network's own config.
 	for i, n := range nets {
+		d, ok := hostnet.Get(n.Name)
+		if !ok {
+			continue
+		}
 		if n.Subnet == "" {
-			if d, ok := hostnet.Get(n.Name); ok {
-				nets[i].Subnet, nets[i].Gateway = d.Subnet, d.Gateway
-			}
+			nets[i].Subnet, nets[i].Gateway = d.Subnet, d.Gateway
 		}
 	}
 	// A network whose plugin is gone still lists: the runtime reads the
 	// conflist and does not check that the binary behind "type" exists. It
 	// looks healthy right up to the moment a container fails to start on it,
 	// so say it here instead.
-	if !pluginInstalled() {
+	if backend == backendCNI && !pluginInstalled() {
 		for i, n := range nets {
 			if n.Driver == epairPlugin && n.Problem == "" {
 				nets[i].Problem = networkProblem()
@@ -107,12 +110,19 @@ func (b *Backend) Networks(ctx context.Context) ([]engine.Network, error) {
 	for _, d := range hostnet.List() {
 		// Only this plugin's networks: a conflist for something else is not
 		// fjord's to explain.
-		if seen[d.Name] || d.Type != epairPlugin || (d.For != "" && d.For != "podman") {
+		if seen[d.Name] || (d.For != "" && d.For != "podman") {
 			continue
+		}
+		if d.Type != epairPlugin {
+			continue
+		}
+		problem := networkProblem()
+		if d.Legacy {
+			problem = legacyProblem
 		}
 		nets = append(nets, engine.Network{
 			Name: d.Name, Driver: epairPlugin, Subnet: d.Subnet, Gateway: d.Gateway,
-			Problem: networkProblem(),
+			Problem: problem,
 		})
 	}
 	// Attachments, so the UI can refuse to delete a network in use.
@@ -165,6 +175,10 @@ func parseNetworks(data []byte) ([]engine.Network, error) {
 	}
 	return out, nil
 }
+
+// legacyProblem is a LAN network made for podman's CNI backend on a host that
+// has since moved to netavark.
+const legacyProblem = "podman no longer loads this network: it was made for the CNI network backend and podman here now uses netavark"
 
 // networkProblem explains why the runtime ignored a network fjord can see.
 func networkProblem() string {

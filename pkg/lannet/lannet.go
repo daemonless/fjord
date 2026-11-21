@@ -721,16 +721,16 @@ func Create(ctx context.Context, spec engine.NetworkSpec) (engine.Network, error
 	if err != nil {
 		return engine.Network{}, err
 	}
-	path := hostnet.Path(spec.Name)
+	path := hostnet.ConflistPath(spec.Name)
 	if _, err := os.Stat(path); err == nil {
 		return engine.Network{}, fmt.Errorf("a network named %q is already defined on this host", spec.Name)
 	}
-	if err := os.MkdirAll(hostnet.ConfDir, 0o755); err != nil {
+	if err := os.MkdirAll(hostnet.ConflistDir(), 0o755); err != nil {
 		return engine.Network{}, err
 	}
 	// Write-then-rename: podman reads this directory continuously, and a
 	// half-written conflist is a broken network rather than an absent one.
-	tmp, err := os.CreateTemp(hostnet.ConfDir, "."+spec.Name+".*.tmp")
+	tmp, err := os.CreateTemp(hostnet.ConflistDir(), "."+spec.Name+".*.tmp")
 	if err != nil {
 		return engine.Network{}, err
 	}
@@ -757,7 +757,7 @@ func Remove(name string) error {
 	if !hostnet.NameRe.MatchString(name) {
 		return fmt.Errorf("invalid network name %q", name)
 	}
-	path := hostnet.Path(name)
+	path := hostnet.ConflistPath(name)
 	if _, err := os.Stat(path); err != nil {
 		return fmt.Errorf("no network %q at %s", name, path)
 	}
@@ -830,7 +830,7 @@ func SetSegment6(name, subnet6, gateway6 string) error {
 			}
 		}
 	}
-	path := hostnet.Path(name)
+	path := hostnet.ConflistPath(name)
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		return fmt.Errorf("no network %q at %s", name, path)

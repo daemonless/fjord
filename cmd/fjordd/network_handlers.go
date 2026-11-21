@@ -506,7 +506,7 @@ func (s *server) handleNetworkDelete(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, fmt.Sprintf("%s is attached to %s", name, strings.Join(users, ", ")), http.StatusConflict)
 				return
 			}
-			if rmErr := os.Remove(hostnet.Path(name)); rmErr == nil {
+			if rmErr := os.Remove(hostnet.ConflistPath(name)); rmErr == nil {
 				w.Header().Set("Content-Type", "application/json")
 				w.Write([]byte(`{"status":"deleted"}`))
 				return
