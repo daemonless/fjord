@@ -350,6 +350,11 @@ func (s *server) observeStackHealth(st *stack.Stack, status engine.StackStatus, 
 	if status.State == "unknown" || !status.StaleSince.IsZero() {
 		return
 	}
+	// A start that failed and left no container already says why. "Stopped
+	// unexpectedly" on top of it replaced the reason with a guess.
+	if f := st.State.LastFailure; f != nil && f.Action != "health" && len(status.Containers) == 0 {
+		return
+	}
 
 	why, confirmed := unhealthyReason(st, status)
 
