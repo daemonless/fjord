@@ -161,6 +161,7 @@ func platform(cfg Config) platformInfo {
 			Why:      "podman's bridge networking publishes ports through pf's rdr/nat anchors. If they aren't loaded, containers start fine but their published ports hang. Host-network stacks don't need this.",
 			Fix:      pfFix(),
 		},
+		pfLocalCheck(),
 		{
 			// Engine "" so it always shows -- the appjail engine is optional
 			// but its version affects which apps run there.
@@ -263,7 +264,9 @@ func pfCommands() []string {
 	for _, r := range podmanPfRules(natIfaces()) {
 		cmds = append(cmds, "#   "+r)
 	}
-	return append(cmds, pfValidate[:len(pfValidate)-1], "sysrc pf_enable=YES", "service pf start   # or, with pf already up: pfctl -f /etc/pf.conf")
+	cmds = append(cmds, pfValidate[:len(pfValidate)-1], "sysrc pf_enable=YES", "service pf start   # or, with pf already up: pfctl -f /etc/pf.conf",
+		"# so a published port also answers from this host itself:")
+	return append(cmds, pfLocalCommands...)
 }
 
 // installPf is the pf check's Fix run for the operator: the lines /etc/pf.conf
@@ -307,9 +310,14 @@ func installPf(ctx context.Context, w io.Writer) error {
 		return err
 	}
 	if pfEnabled(ctx) {
-		return runShown(ctx, w, nil, "pfctl", "-f", path)
+		err = runShown(ctx, w, nil, "pfctl", "-f", path)
+	} else {
+		err = runShown(ctx, w, nil, "service", "pf", "start")
 	}
-	return runShown(ctx, w, nil, "service", "pf", "start")
+	if err != nil {
+		return err
+	}
+	return pfLocalOn(ctx, w)
 }
 
 // pfEnabled: pf is loaded and switched on (pfctl -e), not just present.
