@@ -230,15 +230,70 @@ func (s *server) refreshConditions(ctx context.Context) []Condition {
 	changed := conditionsChanged(prev, active)
 	s.conds.mu.Unlock()
 
-	if changed && s.events != nil {
-		if b, err := json.Marshal(map[string]any{
-			"type":       "conditions",
-			"conditions": active,
-		}); err == nil {
-			s.events.publish(b)
-		}
+	if changed {
+		s.publishConditions(active)
 	}
 	return active
+}
+
+// publishConditions sends the banners every open page should now show.
+func (s *server) publishConditions(active []Condition) {
+	if s.events == nil {
+		return
+	}
+	if b, err := json.Marshal(map[string]any{
+		"type":       "conditions",
+		"conditions": s.unmuted(active),
+	}); err == nil {
+		s.events.publish(b)
+	}
+}
+
+// unmuted drops the conditions whose banner the operator turned off. The
+// check itself stays on the System page with its real status.
+func (s *server) unmuted(list []Condition) []Condition {
+	muted := loadSettings(s.fjordRoot).MutedChecks
+	out := make([]Condition, 0, len(list))
+	for _, c := range list {
+		if !slices.Contains(muted, c.ID) {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+// handleConditionsMute turns one check's banner off or back on, for every
+// browser: POST {"id": "pf-local", "muted": true}.
+func (s *server) handleConditionsMute(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		ID    string `json:"id"`
+		Muted bool   `json:"muted"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.ID == "" {
+		http.Error(w, "id required", http.StatusBadRequest)
+		return
+	}
+	err := updateSettings(s.fjordRoot, func(st *savedSettings) {
+		st.MutedChecks = slices.DeleteFunc(st.MutedChecks, func(id string) bool { return id == req.ID })
+		if req.Muted {
+			st.MutedChecks = append(st.MutedChecks, req.ID)
+		}
+	})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if s.conds != nil {
+		s.conds.mu.Lock()
+		active := slices.Clone(s.conds.active)
+		s.conds.mu.Unlock()
+		s.publishConditions(active)
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // runConditionsLoop periodically evaluates doctor checks and watches
@@ -282,9 +337,7 @@ func (s *server) handleConditions(w http.ResponseWriter, r *http.Request) {
 		checkedAt = s.conds.checkedAt
 		s.conds.mu.Unlock()
 	}
-	if list == nil {
-		list = []Condition{}
-	}
+	list = s.unmuted(list)
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{
 		"conditions": list,

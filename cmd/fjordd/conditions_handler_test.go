@@ -1,6 +1,10 @@
 package main
 
 import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -69,5 +73,43 @@ func TestOnHostCheckBecomesACondition(t *testing.T) {
 	}, nil, now)
 	if len(conds) != 1 || conds[0].ID != "pf-local" || !conds[0].OnHost {
 		t.Fatalf("got %+v, want only pf-local, marked on-host", conds)
+	}
+}
+
+func TestMutedConditionIsNotShown(t *testing.T) {
+	s := &server{fjordRoot: t.TempDir(), conds: newConditionsState()}
+	s.conds.active = []Condition{{ID: "pf"}, {ID: "pf-local"}}
+	post := func(body string) int {
+		w := httptest.NewRecorder()
+		s.handleConditionsMute(w, httptest.NewRequest(http.MethodPost, "/api/conditions/mute", strings.NewReader(body)))
+		return w.Code
+	}
+	shown := func() string {
+		w := httptest.NewRecorder()
+		s.handleConditions(w, httptest.NewRequest(http.MethodGet, "/api/conditions", nil))
+		var got struct{ Conditions []Condition }
+		json.Unmarshal(w.Body.Bytes(), &got)
+		ids := []string{}
+		for _, c := range got.Conditions {
+			ids = append(ids, c.ID)
+		}
+		return strings.Join(ids, ",")
+	}
+	if code := post(`{"id":"pf-local","muted":true}`); code != http.StatusNoContent {
+		t.Fatalf("mute: HTTP %d", code)
+	}
+	post(`{"id":"pf-local","muted":true}`)
+	if got := shown(); got != "pf" {
+		t.Errorf("after mute: %q, want pf", got)
+	}
+	if m := loadSettings(s.fjordRoot).MutedChecks; len(m) != 1 {
+		t.Errorf("muted twice is kept once: %v", m)
+	}
+	post(`{"id":"pf-local","muted":false}`)
+	if got := shown(); got != "pf,pf-local" {
+		t.Errorf("after unmute: %q", got)
+	}
+	if code := post(`{}`); code != http.StatusBadRequest {
+		t.Errorf("no id: HTTP %d", code)
 	}
 }
