@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { loadSnoozed, SNOOZE_MS, visibleConditions, type Condition } from './conditions';
+import { browserOnHost, loadSnoozed, SNOOZE_MS, visibleConditions, type Condition } from './conditions';
 
 const cond = (id: string, severity: Condition['severity'] = 'warning'): Condition => ({
   id,
@@ -22,6 +22,23 @@ describe('visibleConditions', () => {
       cond('socket', 'critical'),
     ];
     expect(visibleConditions(list, snoozed, now).map((c) => c.id)).toEqual(['socket', 'podman-stale']);
+  });
+});
+
+describe('on-host conditions', () => {
+  it('shows an on-host condition only to a browser on the host', () => {
+    const list = [{ ...cond('pf-local'), onHost: true }, cond('pf')];
+    expect(visibleConditions(list, {}, 0).map((c) => c.id)).toEqual(['pf']);
+    expect(visibleConditions(list, {}, 0, true).map((c) => c.id)).toEqual(['pf', 'pf-local']);
+  });
+
+  it('takes a loopback name as the host itself', () => {
+    for (const h of ['localhost', 'LOCALHOST', 'fjord.localhost', '127.0.0.1', '127.1.2.3', '[::1]', '::1']) {
+      expect(browserOnHost(h), h).toBe(true);
+    }
+    for (const h of ['192.168.86.212', 'host.lan', 'notlocalhost', '1127.0.0.1']) {
+      expect(browserOnHost(h), h).toBe(false);
+    }
   });
 });
 

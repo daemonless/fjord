@@ -45,6 +45,9 @@ type Check struct {
 	// Optional checks never count as a problem: fjord works without them,
 	// minus one feature (LAN addresses, makejails from GitHub).
 	Optional bool
+	// OnHost marks a check that only matters to someone using this host
+	// itself, such as a browser running on it.
+	OnHost bool
 	// Action is what the Install button does, in plain words ("Start
 	// podman's API service"); a package check defaults to "Install <pkg>".
 	Action string
@@ -80,6 +83,7 @@ type Result struct {
 	Engine   string `json:"engine,omitempty"`
 	Group    string `json:"group,omitempty"`
 	Optional bool   `json:"optional,omitempty"`
+	OnHost   bool   `json:"onHost,omitempty"`
 	Action   string `json:"action,omitempty"`
 	// Commands fjord runs for the Install button, one per line; Action and
 	// Commands are there whenever the check has an installer, ok or not.
@@ -187,7 +191,7 @@ func (p platformInfo) run(ctx context.Context, c Check) Result {
 	} else {
 		st, detail = c.Probe(ctx)
 	}
-	r := Result{ID: c.ID, Name: c.Name, Engine: c.Engine, Group: c.Group, Optional: c.Optional, Status: st, Detail: detail, Why: c.Why}
+	r := Result{ID: c.ID, Name: c.Name, Engine: c.Engine, Group: c.Group, Optional: c.Optional, OnHost: c.OnHost, Status: st, Detail: detail, Why: c.Why}
 	// What fjord would run, reported even when there is nothing to do:
 	// the setup page lists every check in the order it sets things up.
 	r.Action, r.Commands = c.Action, c.Commands
@@ -281,3 +285,16 @@ func runShown(ctx context.Context, w io.Writer, env []string, name string, args 
 
 // outputDrain is how long runShown keeps reading after the command exits.
 var outputDrain = 3 * time.Second
+
+type unattendedKey struct{}
+
+// Unattended marks an Install nobody asked for: fjord setting the host up by
+// itself. An installer then leaves alone what is the operator's to decide.
+func Unattended(ctx context.Context) context.Context {
+	return context.WithValue(ctx, unattendedKey{}, true)
+}
+
+func unattended(ctx context.Context) bool {
+	v, _ := ctx.Value(unattendedKey{}).(bool)
+	return v
+}

@@ -43,7 +43,7 @@ func (s *server) settleNetavark(ctx context.Context) bool {
 			continue
 		}
 		var out bytes.Buffer
-		if err := doctor.Install(ctx, cfg, id, &out); err != nil {
+		if err := doctor.Install(doctor.Unattended(ctx), cfg, id, &out); err != nil {
 			ready = false
 			log.Printf("netavark: could not set up %q by itself (%s): %v", id, r.Detail, err)
 			continue

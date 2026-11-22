@@ -31,7 +31,9 @@ type Condition struct {
 	Commands    []string `json:"commands,omitempty"`
 	Fix         string   `json:"fix,omitempty"`
 	Installable bool     `json:"installable,omitempty"`
-	Since       string   `json:"since"`
+	// OnHost: only a browser running on this host is shown it.
+	OnHost bool   `json:"onHost,omitempty"`
+	Since  string `json:"since"`
 }
 
 // conditionsState caches the active conditions from the background doctor loop
@@ -91,6 +93,8 @@ func conditionTitle(r doctor.Result) string {
 		return "AppJail's pf firewall anchors are not active"
 	case "dhcp-default":
 		return "Host DHCP is running on every container interface"
+	case "pf-local":
+		return "Apps do not open at localhost on this host"
 	}
 	return r.Name
 }
@@ -102,7 +106,7 @@ func conditionsFromChecks(checks []doctor.Result, since map[string]time.Time, no
 	nextSince := make(map[string]time.Time, len(checks))
 	out := make([]Condition, 0)
 	for _, c := range checks {
-		if c.Optional {
+		if c.Optional && !c.OnHost {
 			continue
 		}
 		if c.Status != doctor.Fail && c.Status != doctor.Warn {
@@ -132,6 +136,7 @@ func conditionsFromChecks(checks []doctor.Result, since map[string]time.Time, no
 			Commands:    c.Commands,
 			Fix:         c.Fix,
 			Installable: c.Installable,
+			OnHost:      c.OnHost,
 			Since:       t.UTC().Format(time.RFC3339),
 		})
 	}

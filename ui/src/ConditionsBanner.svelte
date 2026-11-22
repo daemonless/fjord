@@ -5,7 +5,7 @@
   import FixSnippet from './FixSnippet.svelte';
   import { toast } from './toast';
   import { browserZone } from './setupPlan';
-  import { loadSnoozed, SNOOZE_KEY, SNOOZE_MS, visibleConditions, type Condition } from './conditions';
+  import { browserOnHost, loadSnoozed, SNOOZE_KEY, SNOOZE_MS, visibleConditions, type Condition } from './conditions';
 
   export let conditions: Condition[] = [];
 
@@ -19,7 +19,7 @@
   let fixOutput: Record<string, string> = {};
   let fixError: Record<string, string> = {};
 
-  $: active = visibleConditions(conditions, snoozed, Date.now());
+  $: active = visibleConditions(conditions, snoozed, Date.now(), browserOnHost(location.hostname));
   $: shown = expanded ? active : active.slice(0, 1);
   $: extraCount = active.length > 1 ? active.length - 1 : 0;
   $: if (active.length <= 1) expanded = false;

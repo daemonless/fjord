@@ -60,3 +60,14 @@ func TestConditionsChanged(t *testing.T) {
 		t.Error("clearing conditions not reported")
 	}
 }
+
+func TestOnHostCheckBecomesACondition(t *testing.T) {
+	now := time.Now()
+	conds, _ := conditionsFromChecks([]doctor.Result{
+		{ID: "pf-local", Optional: true, OnHost: true, Status: doctor.Warn},
+		{ID: "extra", Optional: true, Status: doctor.Warn},
+	}, nil, now)
+	if len(conds) != 1 || conds[0].ID != "pf-local" || !conds[0].OnHost {
+		t.Fatalf("got %+v, want only pf-local, marked on-host", conds)
+	}
+}
