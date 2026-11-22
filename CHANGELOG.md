@@ -3,6 +3,13 @@
 Releases are tagged on GitHub; each rc is a pre-release with the pull
 requests it carries. This file is the story per release.
 
+## 0.4.5 — 2026-11-22
+
+- **Turn a banner off for good.** Each banner about the host has "Don't
+  show again" beside "Remind me tomorrow". The choice is kept on the host,
+  so it holds in every browser. The check stays on the System page with
+  its real status and a button that brings its banner back. (#300)
+
 ## 0.4.4 — 2026-11-22
 
 Apps open from a browser on the host itself, a Settings tab on every
