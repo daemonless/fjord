@@ -9,13 +9,32 @@ import (
 
 func TestPfLocalStatus(t *testing.T) {
 	for _, c := range []struct {
-		v      string
-		hooked bool
-		want   Status
-	}{{"1", true, OK}, {"1", false, Warn}, {"0", false, Warn}, {"", false, Unknown}} {
-		if st, _ := pfLocalStatus(c.v, c.hooked); st != c.want {
-			t.Errorf("%q hooked=%v: got %v, want %v", c.v, c.hooked, st, c.want)
+		v             string
+		hooked, skips bool
+		want          Status
+	}{
+		{"1", true, false, OK},
+		{"1", false, false, Warn},
+		{"0", false, false, Warn},
+		{"1", true, true, Warn},
+		{"", false, false, Unknown},
+		{"", false, true, Unknown},
+	} {
+		if st, _ := pfLocalStatus(c.v, c.hooked, c.skips); st != c.want {
+			t.Errorf("%q hooked=%v skips=%v: got %v, want %v", c.v, c.hooked, c.skips, st, c.want)
 		}
+	}
+}
+
+func TestPfSkips(t *testing.T) {
+	if !pfSkips("No ALTQ support in kernel\nlo0 (skip)\n\tCleared:     Sun Nov 22\n", "lo0") {
+		t.Error("a skipped lo0 was not seen")
+	}
+	if pfSkips("lo0\n\tCleared:     Sun Nov 22\n", "lo0") {
+		t.Error("lo0 read as skipped")
+	}
+	if pfSkips("lo1 (skip)\n", "lo0") {
+		t.Error("another interface's skip taken for lo0's")
 	}
 }
 
