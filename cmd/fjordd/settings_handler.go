@@ -28,6 +28,7 @@ type savedSettings struct {
 	FolderSets      []FolderSet      `json:"folderSets,omitempty"`      // named host-folder sets offered at install
 	Libraries       []FolderSet      `json:"libraries,omitempty"`       // legacy name for FolderSets, migrated on load
 	WizardDetail    int              `json:"wizardDetail,omitempty"`    // install wizard disclosure: 1 essentials (default), 2 +Options, 3 +Advanced
+	MutedChecks     []string         `json:"mutedChecks,omitempty"`     // System checks whose banner the operator turned off
 	// DefaultNetwork is the old single default, read only to migrate it into
 	// DefaultNetworkFor and then cleared. Nothing writes it any more.
 	DefaultNetwork string `json:"defaultNetwork,omitempty"`

@@ -41,7 +41,12 @@ func (s *server) handleSetup(w http.ResponseWriter, r *http.Request) {
 	// ?tz= is the browser's zone, for the timezone check to offer.
 	report := doctor.Run(ctx, doctor.Config{Engines: engines, FjordRoot: s.fjordRoot, TimeZone: r.URL.Query().Get("tz")})
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(report)
+	// muted: the checks whose banner the operator turned off, so the System
+	// page can offer it back.
+	json.NewEncoder(w).Encode(struct {
+		doctor.Report
+		Muted []string `json:"muted"`
+	}{report, append([]string{}, loadSettings(s.fjordRoot).MutedChecks...)})
 }
 
 // handleSetupInstall fixes one doctor check itself: POST {"id": "epair"}

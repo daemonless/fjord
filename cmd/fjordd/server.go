@@ -268,6 +268,7 @@ func (s *server) routes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/setup", s.handleSetup)
 	mux.HandleFunc("/api/conditions", s.handleConditions)
 	mux.HandleFunc("/api/conditions/fix", s.handleConditionsFix)
+	mux.HandleFunc("/api/conditions/mute", s.handleConditionsMute)
 	mux.HandleFunc("/api/about", s.handleAbout)
 	mux.HandleFunc("/api/names", s.handleNames)
 	mux.HandleFunc("/api/names/link", s.handleNamesLink)
