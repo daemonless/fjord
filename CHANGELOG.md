@@ -3,6 +3,38 @@
 Releases are tagged on GitHub; each rc is a pre-release with the pull
 requests it carries. This file is the story per release.
 
+## 0.4.4 — 2026-11-22
+
+Apps open from a browser on the host itself, a Settings tab on every
+stack, and a shorter System page.
+
+- **Open works at localhost.** On FreeBSD a published port answered from
+  every other machine and hung from the host itself, so fjord opened at
+  `localhost` gave Open links that timed out. The step that sets pf up
+  for podman now also lets pf redirect the host's own connections, and
+  keeps it that way across a reboot. A host that was already set up gets
+  a System check for it, and a browser on the host gets a banner with a
+  one-click fix. (#296)
+- **A Settings tab on each stack** holds Restart, If unhealthy and Group,
+  which used to crowd the header. Each still applies the moment it
+  changes. A control that is locked says why. (#277, #281, #282)
+- **System folds its passing checks into one row,** so what needs you is
+  what you see. Click a passing check to read what it is for. (#278, #280)
+- The version picker no longer lists per-platform tags such as
+  `latest-linux-amd64`. (#279)
+- A failed pull says why when podman-compose exits non-zero. (#274)
+- A failed install or start keeps its reason. The health check used to
+  replace it with "stopped unexpectedly" within a minute. (#287)
+- A stack whose compose sets `mac_address` on a service starts again
+  after its first start. fjord added a second MAC on the network entry,
+  and podman-compose refuses both. (#288)
+- A stack that matches a default restart policy changed in Settings no
+  longer shows a restart badge on its row. (#283)
+- A stack opens at once from the list, and a crash-looping container
+  with a long log no longer makes its page hang. (#275)
+- Dragging an app icon no longer picks up the image. (#276)
+- The packages install the `fjord` command next to `fjordd`. (#272)
+
 ## 0.4.3 — 2026-11-13
 
 Update every stack at once, a `fjord` command for the shell, and a fjord
