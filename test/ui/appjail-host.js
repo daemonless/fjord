@@ -70,6 +70,10 @@ async function setType(page, type) {
     await eng.selectOption('appjail');
     await sleep(1500);
     await page.screenshot({ path: '/out/appjail-host-wizard.png', fullPage: true });
+    // On host nothing is published: no port to choose, and the wizard says
+    // which port the app binds instead.
+    const said = await page.locator('[data-host-ports]').first().innerText().catch(() => '');
+    note('wizard: no WEB_PORT on host, says the app answers on :3000', !(await page.locator('#WEB_PORT').isVisible().catch(() => false)) && /\b3000\b/.test(said), `"${said}"`);
     if (await install.isDisabled()) {
       const why = (await page.locator('.text-fjord-warning, .text-fjord-danger').allInnerTexts()).join(' | ');
       note('wizard: Install offered on host', false, `Install disabled: "${why.trim()}"`);
