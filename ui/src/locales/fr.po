@@ -5252,3 +5252,28 @@ msgstr ""
 #: src/Networks.svelte
 msgid "Make it again"
 msgstr ""
+
+#: src/ConditionsBanner.svelte
+msgid "Turned off. System can turn it back on."
+msgstr ""
+
+#. 0: e?.message || 'fjordd did not answer'
+#: src/ConditionsBanner.svelte
+msgid "Could not turn it off: {0}"
+msgstr ""
+
+#: src/ConditionsBanner.svelte
+msgid "Don't show again"
+msgstr ""
+
+#: src/System.svelte
+msgid "Could not turn the banner back on"
+msgstr ""
+
+#: src/System.svelte
+msgid "Its banner is turned off"
+msgstr ""
+
+#: src/System.svelte
+msgid "Show its banner again"
+msgstr ""
