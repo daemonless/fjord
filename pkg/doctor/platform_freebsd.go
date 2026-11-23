@@ -332,9 +332,12 @@ func netavarkPfFix() string {
 func appjailPfCheck() Check {
 	return Check{
 		ID: "appjail-pf", Name: "pf anchors for AppJail", Engine: "appjail", Group: "firewall",
-		Probe: appjailPfProbe,
-		Why:   "AppJail gives each jail a virtual-network address and NATs it through pf's appjail-nat/appjail-rdr anchors. Without them every jail on a virtual network fails to create (\"The nat command requires appjail-nat/jail/* ...\"). Host-network jails don't need this.",
-		Fix:   appjailPfFix(),
+		Probe:    appjailPfProbe,
+		Install:  installPfRules(appjailPfRules()),
+		Commands: appjailPfCommands(),
+		Action:   "Add AppJail's anchors to /etc/pf.conf and load them",
+		Why:      "AppJail gives each jail a virtual-network address and NATs it through pf's appjail-nat/appjail-rdr anchors. Without them every jail on a virtual network fails to create (\"The nat command requires appjail-nat/jail/* ...\"). Host-network jails don't need this.",
+		Fix:      appjailPfFix(),
 	}
 }
 
@@ -598,15 +601,30 @@ func appjailPfProbe(ctx context.Context) (Status, string) {
 	return OK, "pf loaded, appjail-nat anchors active"
 }
 
-// appjailPfFix is the remediation for appjailPfProbe, built from what
-// /etc/pf.conf contains: reload when the anchors are there, else the exact
-// lines to add (the daemonless.io quick-start ones).
-func appjailPfFix() string {
-	rules := []string{
+// appjailPfRules are the pf.conf lines AppJail's virtual networks need (the
+// daemonless.io quick-start ones). AppJail fills the anchors itself.
+func appjailPfRules() []string {
+	return []string{
 		`nat-anchor "appjail-nat/jail/*"`,
 		`nat-anchor "appjail-nat/network/*"`,
 		`rdr-anchor "appjail-rdr/*"`,
 	}
+}
+
+// appjailPfCommands is what the Fix runs, shown before it does.
+func appjailPfCommands() []string {
+	cmds := []string{"# add to /etc/pf.conf, before its filter rules, whichever of these it lacks:"}
+	for _, r := range appjailPfRules() {
+		cmds = append(cmds, "#   "+r)
+	}
+	return append(cmds, pfValidate[:len(pfValidate)-1], "sysrc pf_enable=YES", "service pf start   # or, with pf already up: pfctl -f /etc/pf.conf")
+}
+
+// appjailPfFix is the remediation for appjailPfProbe, built from what
+// /etc/pf.conf contains: reload when the anchors are there, else the exact
+// lines to add.
+func appjailPfFix() string {
+	rules := appjailPfRules()
 	conf, _ := os.ReadFile("/etc/pf.conf")
 	if strings.Contains(string(conf), "appjail-nat") {
 		s := "# /etc/pf.conf already has AppJail's anchors; it must contain these:\n"
