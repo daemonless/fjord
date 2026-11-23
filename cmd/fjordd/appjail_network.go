@@ -572,6 +572,90 @@ func dropExposeOffVirtualnet(directorYML string) (string, error) {
 	return sb.String(), nil
 }
 
+// restoreExpose gives a service on appjail's NAT network its published ports
+// back, from the compose's `ports:`. The expose lines come with the bundle
+// and are dropped when a service goes to the host's stack, to no network or
+// onto a LAN bridge; nothing wrote them again on the way back, so the port
+// was in the compose and published nowhere.
+func restoreExpose(directorYML, composeYAML string) (string, error) {
+	if strings.TrimSpace(directorYML) == "" {
+		return directorYML, nil
+	}
+	var doc yaml.Node
+	if err := yaml.Unmarshal([]byte(directorYML), &doc); err != nil {
+		return "", fmt.Errorf("parse director: %w", err)
+	}
+	if len(doc.Content) == 0 || doc.Content[0].Kind != yaml.MappingNode {
+		return directorYML, nil
+	}
+	root := doc.Content[0]
+	var compose struct {
+		Services map[string]struct {
+			Ports []yaml.Node `yaml:"ports"`
+		} `yaml:"services"`
+	}
+	if yaml.Unmarshal([]byte(composeYAML), &compose) != nil {
+		return directorYML, nil
+	}
+	projectNAT := hasOption(mapKey(root, "options"), "virtualnet")
+	changed := false
+	for _, name := range directorServiceNames(root) {
+		svc := directorService(root, name)
+		opts := mapKey(svc, "options")
+		onNAT := hasOption(opts, "virtualnet") || (projectNAT && !hasNetOptions(svc))
+		if !onNAT || hasOption(opts, "expose") {
+			continue
+		}
+		var lines []*yaml.Node
+		for _, p := range compose.Services[name].Ports {
+			spec, ok := exposeSpec(p.Value)
+			if p.Kind != yaml.ScalarNode || !ok {
+				continue
+			}
+			v := &yaml.Node{Kind: yaml.ScalarNode, Value: spec, Style: yaml.SingleQuotedStyle}
+			if strings.Contains(spec, "${") {
+				v.Tag = "!ENV"
+			}
+			lines = append(lines, &yaml.Node{Kind: yaml.MappingNode, Content: []*yaml.Node{{Kind: yaml.ScalarNode, Value: "expose"}, v}})
+		}
+		if len(lines) == 0 {
+			continue
+		}
+		if opts == nil || opts.Kind != yaml.SequenceNode {
+			opts = &yaml.Node{Kind: yaml.SequenceNode}
+			setServiceOptions(svc, opts)
+		}
+		opts.Content = append(opts.Content, lines...)
+		changed = true
+	}
+	if !changed {
+		return directorYML, nil
+	}
+	var sb strings.Builder
+	enc := yaml.NewEncoder(&sb)
+	enc.SetIndent(2)
+	if err := enc.Encode(root); err != nil {
+		return "", err
+	}
+	enc.Close()
+	return sb.String(), nil
+}
+
+// exposeSpec turns a compose "HOST:CONTAINER[/proto]" port into appjail's
+// "HOST:CONTAINER proto:tcp". A port bound to one address, or with no host
+// side, has no expose line.
+func exposeSpec(port string) (string, bool) {
+	proto := "tcp"
+	if i := strings.LastIndex(port, "/"); i >= 0 {
+		port, proto = port[:i], port[i+1:]
+	}
+	host, container, ok := strings.Cut(port, ":")
+	if !ok || host == "" || container == "" || strings.Contains(container, ":") {
+		return "", false
+	}
+	return host + ":" + container + " proto:" + proto, true
+}
+
 // dropExpose removes one service's `expose:` options.
 func dropExpose(svc *yaml.Node) {
 	opts := mapKey(svc, "options")

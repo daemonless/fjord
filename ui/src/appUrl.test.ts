@@ -74,6 +74,12 @@ describe('appUrl web_port hint', () => {
     expect(appUrl({ compose: onHost, env: 'WEB_PORT=9000\n', state: { origin: { type: 'catalog' } } })).toBe('http://netlab:9000');
     vi.unstubAllGlobals();
   });
+  it('uses the container port on host networking, where the mapping is parked', () => {
+    vi.stubGlobal('location', { hostname: 'netlab' });
+    const parked = 'services:\n  app:\n    x-fjord-published:\n      - "${WEB_PORT}:3000"\n    network_mode: host\n\nx-fjord:\n  web_port: "${WEB_PORT}"\n';
+    expect(appUrl({ compose: parked, env: 'WEB_PORT=3131\n', state: { origin: { type: 'catalog' } } })).toBe('http://netlab:3000');
+    vi.unstubAllGlobals();
+  });
   it('keeps a host-network hint that maps nothing', () => {
     const hostNet = 'services:\n  app:\n    network_mode: host\n\nx-fjord:\n  web_port: "8123"\n';
     expect(appUrl({ compose: hostNet, ownAddress: true, linkHost: '192.168.4.10' })).toBe('http://192.168.4.10:8123');

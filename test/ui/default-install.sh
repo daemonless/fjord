@@ -5,12 +5,17 @@
 after() {
   for s in t-def-podman t-def-appjail; do
     url=$(curl -s --max-time 20 -b "$FJORD_COOKIE" "$FJORD/api/stacks/$s" | python3 -c '
-import json,sys
+import json,re,sys
 d=json.load(sys.stdin)
 env=dict(l.split("=",1) for l in d.get("env","").splitlines() if "=" in l)
 # No linkHost = published on this host, which the page reaches by its own address.
 host=d.get("linkHost") or sys.argv[1]
-print("http://%s:%s/" % (host, env.get("WEB_PORT", "")))' "$IP" 2>/dev/null)
+port=env.get("WEB_PORT", "")
+# With host networking nothing is published: the app answers on its own port.
+c=d.get("compose","")
+m=re.search(r"x-fjord-published:\s*\n\s*-\s*.?\$\{WEB_PORT\}:(\d+)", c)
+if m and re.search(r"network_mode:\s*host", c): port=m.group(1)
+print("http://%s:%s/" % (host, port))' "$IP" 2>/dev/null)
     if [ -z "$url" ]; then echo "FAIL $s: fjordd names no address to open"; continue; fi
     if answers "$url" 12; then echo "PASS $s: answers at $url from off-host"
     else echo "FAIL $s: $url does not answer from off-host"; fi

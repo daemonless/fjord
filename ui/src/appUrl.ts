@@ -90,7 +90,10 @@ export function appUrl(stack: AppUrlStack | null): string {
     // The hint is the HOST side ("${WEB_PORT}"). At the service's own address
     // only the container side listens: WEB_PORT=9000 with "9000:8181" linked
     // to :9000 while the app answered on 8181.
-    return `${scheme}://${host}:${ip ? containerSide(c, hinted, resolve) : hinted}`;
+    // Host networking publishes nothing either: the mapping is parked, and
+    // the app answers at this host on its own port.
+    const own = ip ? containerSide(c, hinted, resolve) : parkedSide(c, hinted, resolve);
+    return `${scheme}://${host}:${own}`;
   }
 
   // No hint: prefer the RUNNING container's actual published ports (from the
@@ -154,6 +157,16 @@ export function openHow(stack: AppUrlStack | null): string {
 // forwards to, from the compose's "HOST:CONTAINER" lines (ports: or the
 // x-fjord-published ones parked there on a LAN address). Unmapped, the port
 // is taken to be the app's own -- a host-network stack's hint.
+// parkedSide is containerSide for the mappings set aside under
+// x-fjord-published only: a port still under ports: is really published.
+function parkedSide(compose: string, host: string, resolve: (v: string) => string): string {
+  for (const block of compose.matchAll(/^\s*x-fjord-published:\s*\n((?:\s*-\s.*(?:\n|$))+)/gm)) {
+    const side = containerSide(block[1], host, resolve);
+    if (side !== host) return side;
+  }
+  return host;
+}
+
 function containerSide(compose: string, host: string, resolve: (v: string) => string): string {
   for (const m of compose.matchAll(/^\s*-\s*["']?([\w${}.]+):(\d{2,5})(?:\/tcp)?["']?\s*$/gm)) {
     if (resolve(m[1]) === host) return m[2];

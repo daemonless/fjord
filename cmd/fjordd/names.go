@@ -1226,7 +1226,7 @@ func currentTarget(st *stack.Stack, views []serviceView, svc string, port int, r
 	if addr := linkHost(views, reachable); addr != "" {
 		return addr, port
 	}
-	return "", webPortHint(st)
+	return "", hostWebPort(st)
 }
 
 // wantsOwnOrigin is the stack's x-fjord own_origin: its app checks Origin

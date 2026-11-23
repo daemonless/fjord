@@ -193,7 +193,7 @@ type hostPort struct {
 func (s *server) hostNetworkPorts(ctx context.Context, st *stack.Stack, env map[string]string) []hostPort {
 	be, exposes := s.backendFor(st).(engine.ImageExposer)
 	var out []hostPort
-	hint := webPortHint(st)
+	hint := hostWebPort(st)
 	for _, svc := range composepkg.ParseServices(st.Compose, env) {
 		if !svc.NetworkHost || svc.Image == "" {
 			continue
