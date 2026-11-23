@@ -15,11 +15,11 @@ print(" ".join(c["name"] for c in d.get("status",{}).get("containers",[])))' 2>/
     on "
       ips=''
       for c in $names; do
-        if [ '$engine' = appjail ]; then ips=\"\$ips \$(jexec \$c ifconfig 2>/dev/null | awk '/inet 192.168.4/{print \$2}')\";
-        else ips=\"\$ips \$(podman exec \$c ifconfig 2>/dev/null | awk '/inet 192.168.4/{print \$2}')\"; fi
+        if [ '$engine' = appjail ]; then ips=\"\$ips \$(jexec \$c ifconfig 2>/dev/null | awk '/inet 192\\.168\\./{print \$2}')\";
+        else ips=\"\$ips \$(podman exec \$c ifconfig 2>/dev/null | awk '/inet 192\\.168\\./{print \$2}')\"; fi
       done
       n=\$(echo \$ips | wc -w | tr -d ' ')
-      [ \"\$n\" -eq 0 ] && { echo \"FAIL $s: no 192.168.4.x address on any interface ($engine: $names)\"; exit 0; }
+      [ \"\$n\" -eq 0 ] && { echo \"FAIL $s: no 192.168.x.x address on any interface ($engine: $names)\"; exit 0; }
       for ip in \$ips; do
         code=000; for _ in 1 2 3 4 5 6; do code=\$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 http://\$ip:3000/); [ \"\$code\" = 200 ] && break; sleep 5; done
         echo \"\$( [ \"\$code\" = 200 ] && echo PASS || echo FAIL) $s: \$ip:3000 -> \$code\"

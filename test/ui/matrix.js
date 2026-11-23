@@ -6,9 +6,14 @@ const { signedIn, openPage } = require('./session');
 const BASE = process.env.FJORD || 'http://127.0.0.1:3567';
 const BRIDGE = 'lanbridge2'; // has a host address: the subnet fills in
 const BARE = 'lanbridge'; // no host address
-const POOL = { start: '192.168.4.220', end: '192.168.4.225' };
-const STATIC_PODMAN = '192.168.4.228';
-const POOL_APPJAIL = '192.168.4.226';
+// The host's own address is on BRIDGE, so its /24 is where the pool, the
+// pinned addresses and the DHCP leases are. .220 to .228 are kept free for
+// this test on the lab hosts.
+const HOST_ADDR = process.env.HOST_ADDR || '192.168.4.103';
+const NET = HOST_ADDR.split('.').slice(0, 3).join('.') + '.';
+const POOL = { start: NET + '220', end: NET + '225' };
+const STATIC_PODMAN = NET + '228';
+const POOL_APPJAIL = NET + '226';
 
 const results = [];
 const note = (id, ok, msg) => { results.push({ id, ok, msg }); console.log(`${ok ? 'PASS' : 'FAIL'} ${id}: ${msg}`); };
@@ -96,6 +101,9 @@ async function wizardEngine(page, engine) {
     await page.locator('select').filter({ hasText: 'appjail' }).selectOption(engine);
   });
   await sleep(1500);
+  // A host whose AppJail default is host mode shows no network rows.
+  for (const t of await page.locator('select[id^="type-"]').all()) if ((await t.inputValue()) !== 'networks') await t.selectOption('networks');
+  await sleep(500);
 }
 async function wizardNetwork(page, network) {
   const sel = page.locator('table select');
@@ -136,7 +144,7 @@ async function install(page, c) {
   let ok = true; const bits = [];
   if (c.network) { const on = compose.includes(c.network); ok &&= on; bits.push(on ? `on ${c.network}` : `NOT on ${c.network} (compose)`); }
   if (c.expectAddr) { const good = c.expectAddr(addr); ok &&= good; bits.push(`address ${addr || 'none'}${good ? '' : ' (unexpected)'}`); }
-  const url = c.network ? (addr ? `http://${addr}:3000/` : '') : `http://192.168.4.103:${c.port}/`;
+  const url = c.network ? (addr ? `http://${addr}:3000/` : '') : `http://${HOST_ADDR}:${c.port}/`;
   if (!c.network) {
     // Published ports can't be reached from this host (pf skips its own
     // traffic); run.sh curls them from another one.
@@ -188,13 +196,13 @@ async function install(page, c) {
       await page.getByRole('button', { name: 'Cancel' }).click().catch(() => {});
     }
     // --- installs
-    const inPool = (a) => { const n = +a.split('.').pop(); return a.startsWith('192.168.4.') && n >= 220 && n <= 225; };
+    const inPool = (a) => { const n = +a.split('.').pop(); return a.startsWith(NET) && n >= 220 && n <= 225; };
     const cases = [
       { name: 't-br', engine: 'podman', port: '3101' },
-      { name: 't-dh', engine: 'podman', network: 't-dhcp', expectAddr: (a) => a.startsWith('192.168.4.') },
+      { name: 't-dh', engine: 'podman', network: 't-dhcp', expectAddr: (a) => a.startsWith(NET) },
       { name: 't-po', engine: 'podman', network: 't-pool', expectAddr: inPool },
       { name: 't-st', engine: 'podman', network: 't-static', needsAddress: STATIC_PODMAN, expectAddr: (a) => a === STATIC_PODMAN },
-      { name: 't-jd', engine: 'appjail', network: 't-dhcp', expectAddr: (a) => a.startsWith('192.168.4.') },
+      { name: 't-jd', engine: 'appjail', network: 't-dhcp', expectAddr: (a) => a.startsWith(NET) },
       { name: 't-jp', engine: 'appjail', network: 't-pool', needsAddress: POOL_APPJAIL, expectAddr: (a) => a === POOL_APPJAIL },
     ];
     for (const c of cases) {

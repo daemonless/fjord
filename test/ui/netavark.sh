@@ -13,7 +13,7 @@ before() {
   "cniVersion": "0.4.0",
   "name": "t-legacy",
   "x-fjord": { "for": "podman", "subnet": "192.168.4.0/24", "gateway": "192.168.4.1" },
-  "plugins": [ { "type": "epair", "master": "lanbridge", "ipam": { "type": "dhcp" } } ]
+  "plugins": [ { "type": "epair", "master": "tnobridge", "ipam": { "type": "dhcp" } } ]
 }
 EOF
   # A LAN network with a pool, on a bridge of the host's with nothing on it.

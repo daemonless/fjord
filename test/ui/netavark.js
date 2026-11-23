@@ -61,7 +61,7 @@ const networks = async (page) => (await (await page.request.get(BASE + '/api/net
     await page.reload(); // the same address again does not load the list again
     await legacy.waitFor();
     const why = await legacy.innerText();
-    note('it says why fjord could not bring it back', /could not make it again by itself/.test(why) && /lanbridge/.test(why), `"${why.replace(/\s+/g, ' ').trim().slice(-200)}"`);
+    note('it says why fjord could not bring it back', /could not make it again by itself/.test(why) && /tnobridge/.test(why), `"${why.replace(/\s+/g, ' ').trim().slice(-200)}"`);
     note('it says why podman no longer loads it', /podman no longer loads this network/.test(why) && /netavark/.test(why), `"${why.replace(/\s+/g, ' ').trim().slice(0, 160)}"`);
     await legacy.getByRole('button', { name: 'Delete', exact: true }).click();
     await legacy.getByRole('button', { name: 'Delete', exact: true }).click(); // confirm
