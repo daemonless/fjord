@@ -23,6 +23,7 @@
     mode: string;
     canInstall: boolean;
     checks: CheckResult[];
+    muted?: string[];
   };
 
   let report: Report | null = null;
@@ -30,6 +31,19 @@
   let daemonVersion = '';
   let loading = true;
   let error = '';
+
+  async function unmute(id: string) {
+    const res = await fetch('/api/conditions/mute', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, muted: false }),
+    }).catch(() => null);
+    if (!res?.ok) {
+      toast('Could not turn the banner back on', { kind: 'error' });
+      return;
+    }
+    if (report) report = { ...report, muted: (report.muted ?? []).filter((m) => m !== id) };
+  }
 
   async function load() {
     loading = true;
@@ -278,6 +292,15 @@
                   <div class="text-xs text-fjord-fg-dim mt-0.5 max-w-prose">{c.why}</div>
                 {/if}
               </div>
+              {#if report?.muted?.includes(c.id)}
+                <button
+                  type="button"
+                  data-unmute={c.id}
+                  on:click={() => unmute(c.id)}
+                  class="shrink-0 px-2 py-1 rounded-md text-xs text-fjord-fg-secondary hover:text-fjord-fg border border-fjord-border hover:border-fjord-neutral"
+                  title="Its banner is turned off">Show its banner again</button
+                >
+              {/if}
               {#if c.installable}<InstallCheckButton id={c.id} name={c.name} label={c.action && !c.action.startsWith('Install') ? c.action : 'Install'} busyLabel={c.action && !c.action.startsWith('Install') ? 'Working…' : 'Installing…'} on:installed={load} />{/if}
               <span class="shrink-0 text-[11px] font-semibold uppercase tracking-wide {STATUS[c.status].cls}">{STATUS[c.status].label}</span>
             </div>

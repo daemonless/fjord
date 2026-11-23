@@ -31,6 +31,22 @@
     } catch {}
   }
 
+  // Off for good, on this host and in every browser; System turns it back on.
+  async function mute(c: Condition) {
+    try {
+      const res = await fetch('/api/conditions/mute', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: c.id, muted: true }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      toast('Turned off. System can turn it back on.', { kind: 'success' });
+      dispatch('changed');
+    } catch (e: any) {
+      toast(`Could not turn it off: ${e?.message || 'fjordd did not answer'}`, { kind: 'error' });
+    }
+  }
+
   function toggleSteps(id: string) {
     openSteps = { ...openSteps, [id]: !openSteps[id] };
   }
@@ -111,6 +127,13 @@
                 Remind me tomorrow
               </button>
             {/if}
+            <button
+              on:click={() => mute(c)}
+              data-mute={c.id}
+              class="px-2 py-1 rounded-md text-xs text-fjord-fg-muted hover:text-fjord-fg"
+            >
+              Don't show again
+            </button>
             {#if extraCount > 0 && c.id === shown[0].id}
               <button
                 on:click={() => (expanded = !expanded)}
