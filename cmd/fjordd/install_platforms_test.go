@@ -64,3 +64,9 @@ func TestInstallTag(t *testing.T) {
 		}
 	}
 }
+
+// builtHere answers that every tag has a build for this host, so a test
+// that installs never asks a real registry.
+func builtHere(context.Context, string, string) ([]string, error) {
+	return []string{registry.HostPlatform()}, nil
+}

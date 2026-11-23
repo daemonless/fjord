@@ -140,6 +140,7 @@ func TestHandleAppPlanDefaultsAndFolderSets(t *testing.T) {
 		cat:       cat,
 		fjordRoot: root,
 	}
+	srv.platformsFn = builtHere
 	mux := http.NewServeMux()
 	srv.routes(mux)
 
@@ -272,6 +273,7 @@ func TestHandleAppPlanMultiServiceNetworking(t *testing.T) {
 		cat:       cat,
 		fjordRoot: root,
 	}
+	srv.platformsFn = builtHere
 	mux := http.NewServeMux()
 	srv.routes(mux)
 
@@ -391,6 +393,7 @@ x-fjord:
 		cat:       cat,
 		fjordRoot: root,
 	}
+	srv.platformsFn = builtHere
 	mux := http.NewServeMux()
 	srv.routes(mux)
 
@@ -451,6 +454,7 @@ func TestHandleAppPlanInstallsDirectly(t *testing.T) {
 		cat:       cat,
 		fjordRoot: root,
 	}
+	srv.platformsFn = builtHere
 	mux := http.NewServeMux()
 	srv.routes(mux)
 
