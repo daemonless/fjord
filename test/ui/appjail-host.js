@@ -97,6 +97,8 @@ async function setType(page, type) {
     // Ends on bridge: appjail-host.sh checks the jail left the host's stack
     // and the published port answers from off-host.
     await setType(page, 'networks');
+    // Wait for the recreate: the checks that follow run as soon as this ends.
+    await director(page);
   } catch (e) {
     note('run', false, e.message.split('\n')[0]);
     await page.screenshot({ path: '/out/appjail-host-error.png', fullPage: true }).catch(() => {});

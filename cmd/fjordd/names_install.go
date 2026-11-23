@@ -122,7 +122,7 @@ func installNameRequest(st *stack.Stack, status engine.StackStatus, label, origi
 		n.Address, n.Port = addr, port
 		return n, true
 	}
-	port := webPortHint(st)
+	port := hostWebPort(st)
 	if port == 0 {
 		return n, false
 	}
@@ -146,6 +146,27 @@ func containerWebPort(st *stack.Stack) int {
 		}
 	}
 	return 0
+}
+
+// hostWebPort is the port the stack's page answers on at this host's
+// address: where it is published (x-fjord.web_port), or, for a service on
+// the host's own network, which publishes nothing, the app's own port.
+func hostWebPort(st *stack.Stack) int {
+	web := webPortHint(st)
+	if web == 0 {
+		return 0
+	}
+	for _, svc := range composepkg.ParseServices(st.Compose, st.EnvMap()) {
+		if !svc.NetworkHost {
+			continue
+		}
+		for _, m := range svc.Stashed {
+			if m.Host == web && m.Container > 0 {
+				return m.Container
+			}
+		}
+	}
+	return web
 }
 
 // webHTTPS is the stack's x-fjord web_https: its page speaks HTTPS itself.

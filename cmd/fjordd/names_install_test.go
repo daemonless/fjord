@@ -114,3 +114,24 @@ func TestNoNameLine(t *testing.T) {
 		t.Fatalf("no display name: %q", got)
 	}
 }
+
+// A service on the host's network publishes nothing: its page answers on the
+// app's own port, not on the port it would have been published on.
+func TestHostWebPort(t *testing.T) {
+	published := "services:\n  app:\n    ports:\n      - \"${WEB_PORT}:3000\"\nx-fjord:\n  web_port: \"${WEB_PORT}\"\n"
+	onHost := "services:\n  app:\n    network_mode: host\n    x-fjord-published:\n      - \"${WEB_PORT}:3000\"\nx-fjord:\n  web_port: \"${WEB_PORT}\"\n"
+	literal := "services:\n  app:\n    network_mode: host\nx-fjord:\n  web_port: \"8123\"\n"
+	for _, c := range []struct {
+		name, compose string
+		want          int
+	}{
+		{"published", published, 3131},
+		{"host network", onHost, 3000},
+		{"host network, a port of its own", literal, 8123},
+	} {
+		st := &stack.Stack{Name: "t", Compose: c.compose, Env: "WEB_PORT=3131\n"}
+		if got := hostWebPort(st); got != c.want {
+			t.Errorf("%s: hostWebPort = %d, want %d", c.name, got, c.want)
+		}
+	}
+}

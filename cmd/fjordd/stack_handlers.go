@@ -737,6 +737,10 @@ func (s *server) stackSave(w http.ResponseWriter, r *http.Request, name string) 
 		if err == nil && len(payload.NetworkModes) > 0 {
 			directorYML, err = setDirectorModes(directorYML, payload.NetworkModes)
 		}
+		// Back on appjail's own network, a service publishes its ports again.
+		if err == nil {
+			directorYML, err = restoreExpose(directorYML, composeYAML)
+		}
 		if err == nil {
 			directorYML, err = setDirectorResolv(r.Context(), directorYML, existing.Dir)
 		}
