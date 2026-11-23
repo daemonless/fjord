@@ -1,5 +1,6 @@
 // A version with no build for this host: the wizard and Change Version say so
-// and hold the button; the API refuses the retag; and a compose edited to such
+// and hold the button; when the page could not ask, fjordd refuses the
+// install itself; the API refuses the retag; and a compose edited to such
 // a tag is pulled, judged and not applied -- the running container stays.
 // needs: freebsd
 const { chromium } = require('playwright-core');
@@ -41,6 +42,23 @@ const detail = async (page) => (await page.request.get(BASE + '/api/stacks/' + N
     await custom.fill('');
     await page.getByText(/has no build for this host/).first().waitFor({ state: 'hidden', timeout: 10000 }).catch(() => {});
     note('wizard: clearing the tag frees Install', !(await install.isDisabled()), `disabled ${await install.isDisabled()}`);
+    // The page could not ask the registry (its lookup blocked here, as a slow
+    // or failed one would be): Install stays free with the arm64-only tag,
+    // and fjordd refuses it before anything is written.
+    await page.route('**/api/registry/platforms**', (r) => r.abort());
+    await custom.fill(BAD);
+    await sleep(2000);
+    const free = !(await install.isDisabled());
+    if (free) await install.click();
+    const refusal = page.getByText(/not installed: openspeedtest: .*has no build for this host/).first();
+    await refusal.waitFor({ timeout: 30000 }).catch(() => {});
+    await page.screenshot({ path: '/out/arch-refused.png', fullPage: true });
+    note('install: fjordd refuses a tag the page could not check', free && (await refusal.isVisible().catch(() => false)), `Install free ${free}, "${await refusal.innerText().catch(() => '')}"`);
+    const saved = await page.request.get(BASE + '/api/stacks/' + NAME);
+    note('install: nothing was saved', saved.status() === 404, `GET ${NAME}: ${saved.status()}`);
+    await page.unroute('**/api/registry/platforms**');
+    await custom.fill('');
+    await page.getByText(/has no build for this host/).first().waitFor({ state: 'hidden', timeout: 10000 }).catch(() => {});
     await install.click();
     let d;
     for (let i = 0; i < 60; i++) { d = await detail(page).catch(() => ({})); if (d?.status?.state === 'running' && !d.busy) break; await sleep(3000); }
