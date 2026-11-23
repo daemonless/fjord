@@ -71,6 +71,9 @@ async function openWizard(page, name, engine) {
     if (!(await det.evaluate((d) => d.open))) await det.locator('summary').click();
     await page.locator('select').filter({ hasText: 'appjail' }).first().selectOption('appjail');
     await sleep(1500);
+    // A host whose AppJail default is host mode shows no network rows.
+    for (const t of await page.locator('select[id^="type-"]').all()) if ((await t.inputValue()) !== 'networks') await t.selectOption('networks');
+    await sleep(500);
   }
 }
 

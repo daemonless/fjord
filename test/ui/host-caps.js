@@ -29,6 +29,15 @@ const note = (id, ok, msg) => console.log(`${ok ? 'PASS' : 'FAIL'} ${id}: ${msg}
     await page.getByRole('button', { name: 'Cancel', exact: true }).click();
     await sleep(500);
 
+    // A catalog without the app (the Linux one) has nothing to ask about.
+    await openPage(page, BASE + '/#/store');
+    await page.getByPlaceholder(/Search apps/).fill('audiobookshelf');
+    await sleep(1000);
+    if (await page.getByText('No Results Found').isVisible().catch(() => false)) {
+      console.log('SKIP a library folder outside every folder set: this catalog has no audiobookshelf');
+      await b.close();
+      return;
+    }
     await wizard('audiobookshelf');
     const lib = page.locator('input[id*="AUDIOBOOKS"]').first();
     await lib.fill('/mnt/host-caps-test/audiobooks');

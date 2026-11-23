@@ -67,6 +67,9 @@ async function install(page, name, engine, nets) {
     if (!(await engineSel.first().isVisible().catch(() => false))) await page.getByText('Advanced', { exact: true }).click();
     await engineSel.first().selectOption('appjail');
     await sleep(1500);
+    // A host whose AppJail default is host mode shows no network rows.
+    for (const t of await page.locator('select[id^="type-"]').all()) if ((await t.inputValue()) !== 'networks') await t.selectOption('networks');
+    await sleep(500);
   }
   for (let i = 0; i < nets.length; i++) {
     if (i > 0) { await page.getByRole('button', { name: '+ interface' }).first().click(); await sleep(500); }
