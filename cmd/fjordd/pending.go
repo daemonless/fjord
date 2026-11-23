@@ -211,7 +211,9 @@ func (e *errorWatch) Message() string {
 // on the stack: an [error] becomes LastFailure (and a log line), a clean end
 // clears one. The stream is what the page shows; this is what stays once
 // the page is gone.
-func (s *server) recordOutcome(name, action string, stream io.ReadCloser) io.ReadCloser {
+//
+// note, when not nil, also becomes the action's History entry.
+func (s *server) recordOutcome(name, action string, note *histNote, stream io.ReadCloser) io.ReadCloser {
 	watch := &errorWatch{}
 	kept := outputs.current(name, action)
 	return &thenReader{r: io.TeeReader(io.TeeReader(stream, watch), kept), c: stream, after: func() string {
@@ -233,6 +235,7 @@ func (s *server) recordOutcome(name, action string, stream io.ReadCloser) io.Rea
 		if err != nil {
 			log.Printf("%s %s: record outcome: %v", action, name, err)
 		}
+		s.writeHistory(name, note, watch.seen, watch.Message())
 		return ""
 	}}
 }

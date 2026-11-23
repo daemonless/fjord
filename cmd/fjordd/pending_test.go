@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/daemonless/fjord/pkg/engine"
+	"github.com/daemonless/fjord/pkg/history"
 	"github.com/daemonless/fjord/pkg/stack"
 )
 
@@ -118,7 +119,7 @@ func TestErrorWatchKeepsTheFirstLine(t *testing.T) {
 // An action that ends in an [error] is remembered on the stack, with the
 // reason; the next clean one forgets it.
 func TestRecordOutcome(t *testing.T) {
-	s := &server{manager: stack.NewManager(t.TempDir())}
+	s := &server{manager: stack.NewManager(t.TempDir()), hist: history.New(t.TempDir())}
 	if err := s.manager.Save(&stack.Stack{Name: "app", Compose: "services:\n  web:\n    image: x\n"}); err != nil {
 		t.Fatal(err)
 	}
@@ -126,7 +127,7 @@ func TestRecordOutcome(t *testing.T) {
 		t.Fatal(err)
 	}
 	failure := func() *stack.Failure { st, _ := s.manager.LoadState("app"); return st.LastFailure }
-	out, _ := io.ReadAll(s.recordOutcome("app", "install", io.NopCloser(strings.NewReader("$ podman pull x\n[error] pull: no space left on device\n"))))
+	out, _ := io.ReadAll(s.recordOutcome("app", "install", newNote(history.Install, history.ByYou), io.NopCloser(strings.NewReader("$ podman pull x\n[error] pull: no space left on device\n"))))
 	if !strings.Contains(string(out), "[error] pull") {
 		t.Errorf("the stream must pass through unchanged, got %q", out)
 	}
@@ -134,9 +135,20 @@ func TestRecordOutcome(t *testing.T) {
 	if f == nil || f.Action != "install" || f.Message != "pull: no space left on device" || f.At.IsZero() {
 		t.Fatalf("after a failed install: %+v", f)
 	}
-	io.ReadAll(s.recordOutcome("app", "up", io.NopCloser(strings.NewReader("$ podman start web\n"))))
+	io.ReadAll(s.recordOutcome("app", "up", newNote(history.Start, history.ByCLI), io.NopCloser(strings.NewReader("$ podman start web\n"))))
 	if failure() != nil {
 		t.Errorf("a clean start must clear the failure, got %+v", failure())
+	}
+	// Both are in the stack's History, newest first.
+	h := s.hist.Stack("app", 0)
+	if len(h) != 2 || h[0].Action != history.Start || h[0].Trigger != history.ByCLI || h[0].Result != history.OK ||
+		h[1].Action != history.Install || h[1].Result != history.Failed || h[1].Message != "pull: no space left on device" {
+		t.Fatalf("history: %+v", h)
+	}
+	// No note, no entry.
+	io.ReadAll(s.recordOutcome("app", "down", nil, io.NopCloser(strings.NewReader(""))))
+	if len(s.hist.Stack("app", 0)) != 2 {
+		t.Error("an action without a note was written")
 	}
 }
 

@@ -15,6 +15,7 @@ import (
 
 	composepkg "github.com/daemonless/fjord/pkg/compose"
 	"github.com/daemonless/fjord/pkg/engine"
+	"github.com/daemonless/fjord/pkg/history"
 	"github.com/daemonless/fjord/pkg/hostnet"
 	"github.com/daemonless/fjord/pkg/manifest"
 	"github.com/daemonless/fjord/pkg/stack"
@@ -339,13 +340,18 @@ func (s *server) applyNameEnv(ctx context.Context, stackName string) error {
 	if !can {
 		return nil
 	}
+	note := newNote(history.Apply, history.ByAutomatic, pending...)
+	note.detail = "its names changed"
 	stream, err := rec.Recreate(watchable(ctx, stackName), st, pending)
 	if err != nil {
+		s.writeHistory(stackName, note, true, err.Error())
 		return err
 	}
 	stream = s.clearPendingAfter(stackName, pending, read, stream)
-	io.Copy(io.Discard, stream)
+	watch := &errorWatch{}
+	io.Copy(watch, stream)
 	stream.Close()
+	s.writeHistory(stackName, note, watch.seen, watch.Message())
 	log.Printf("[names] %s: recreated with its names", stackName)
 	return nil
 }

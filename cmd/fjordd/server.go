@@ -15,6 +15,7 @@ import (
 	"github.com/daemonless/fjord/pkg/catalog"
 	"github.com/daemonless/fjord/pkg/compose"
 	"github.com/daemonless/fjord/pkg/engine"
+	"github.com/daemonless/fjord/pkg/history"
 	"github.com/daemonless/fjord/pkg/stack"
 )
 
@@ -41,6 +42,7 @@ type server struct {
 	defEngine  string // default engine for new installs
 	cat        *catalog.Cache
 	fjordRoot  string       // parent of the stacks dir; provisioned volumes live here
+	hist       *history.Log // what happened to each stack; nil in tests that don't need it
 	stacksDir  string       // reported by /api/about
 	listenAddr string       // reported by /api/about
 	fleet      fleetUpdates // cached fleet-wide update state
@@ -262,6 +264,7 @@ func (s *server) routes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/stacks/reorder", s.handleReorder) // exact match beats the subtree below
 	mux.HandleFunc("/api/stacks/", s.handleStackRoutes)
 	mux.HandleFunc("/api/updates", s.handleUpdates)
+	mux.HandleFunc("/api/history", s.handleHistory)
 	mux.HandleFunc("/api/engine", s.handleEngine)
 	mux.HandleFunc("/api/engine/install", s.handleEngineInstall)
 	mux.HandleFunc("/api/engine/toggle", s.handleEngineToggle)

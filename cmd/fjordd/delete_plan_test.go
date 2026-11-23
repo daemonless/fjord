@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/daemonless/fjord/pkg/engine"
+	"github.com/daemonless/fjord/pkg/history"
 	"github.com/daemonless/fjord/pkg/stack"
 )
 
@@ -114,7 +115,7 @@ func TestDeleteWithData(t *testing.T) {
 	}
 	kept := keep()
 	rec := httptest.NewRecorder()
-	s.stackDelete(rec, "notes", false)
+	s.stackDelete(rec, "notes", false, history.ByYou)
 	if rec.Code != 200 {
 		t.Fatalf("delete: %d %s", rec.Code, rec.Body)
 	}
@@ -128,7 +129,7 @@ func TestDeleteWithData(t *testing.T) {
 	s, root = deleteFixture(t)
 	kept = keep()
 	rec = httptest.NewRecorder()
-	s.stackDelete(rec, "notes", true)
+	s.stackDelete(rec, "notes", true, history.ByYou)
 	if _, err := os.Stat(kept); err == nil {
 		t.Errorf("delete with data left its secrets")
 	}
@@ -195,7 +196,7 @@ func TestDeleteRefusesWhenStatusUnknown(t *testing.T) {
 	s, root := deleteFixture(t)
 	s.backends = nil // unavailable engine -> Status returns ErrUnavailable
 	rec := httptest.NewRecorder()
-	s.stackDelete(rec, "notes", true)
+	s.stackDelete(rec, "notes", true, history.ByYou)
 	if rec.Code != 409 || !strings.Contains(rec.Body.String(), "could not verify that containers are stopped") {
 		t.Fatalf("expected 409 refusal, got %d: %s", rec.Code, rec.Body)
 	}

@@ -22,6 +22,7 @@ import (
 
 	composepkg "github.com/daemonless/fjord/pkg/compose"
 	"github.com/daemonless/fjord/pkg/engine"
+	"github.com/daemonless/fjord/pkg/history"
 	"github.com/daemonless/fjord/pkg/hostnet"
 	"github.com/daemonless/fjord/pkg/registry"
 	"github.com/daemonless/fjord/pkg/sbom"
@@ -182,7 +183,7 @@ func (s *server) handleStackRoutes(w http.ResponseWriter, r *http.Request) {
 			s.stackDetail(w, r, parts[0])
 			return
 		case http.MethodDelete:
-			s.stackDelete(w, parts[0], r.URL.Query().Get("data") == "1")
+			s.stackDelete(w, parts[0], r.URL.Query().Get("data") == "1", triggerOf(r))
 			return
 		}
 	}
@@ -205,6 +206,9 @@ func (s *server) handleStackRoutes(w http.ResponseWriter, r *http.Request) {
 			return
 		case "output":
 			s.stackOutput(w, parts[0])
+			return
+		case "history":
+			s.stackHistory(w, r, parts[0])
 			return
 		case "delete-preview":
 			s.stackDeletePreview(w, parts[0])
@@ -298,14 +302,14 @@ func (s *server) stackDetail(w http.ResponseWriter, r *http.Request, name string
 // again from the stack (planDelete), never taken from the request, so no
 // client can name a path to remove. They go before the stack itself: if one
 // cannot be removed, the stack is still there to retry from.
-func (s *server) stackDelete(w http.ResponseWriter, name string, data bool) {
+func (s *server) stackDelete(w http.ResponseWriter, name string, data bool, trigger string) {
 	unlock, ok := lockStackAs(name, "deleting")
 	if !ok {
 		http.Error(w, anotherOperation(name), http.StatusConflict)
 		return
 	}
 	defer unlock()
-	if code, msg := s.removeStack(name, data); code != 0 {
+	if code, msg := s.removeStack(name, data, trigger); code != 0 {
 		http.Error(w, msg, code)
 		return
 	}
@@ -322,7 +326,15 @@ const desiredDeleting = "deleting"
 // removeStack tears a stack down and removes it, with its app data when data
 // is set. The caller holds the stack's lock. Returns an HTTP status and
 // message on failure, 0 when it is gone.
-func (s *server) removeStack(name string, data bool) (int, string) {
+func (s *server) removeStack(name string, data bool, trigger string) (int, string) {
+	code, msg := s.removeStackNow(name, data)
+	if code != http.StatusNotFound {
+		s.writeHistory(name, newNote(history.Delete, trigger), code != 0, msg)
+	}
+	return code, msg
+}
+
+func (s *server) removeStackNow(name string, data bool) (int, string) {
 	var be engine.Backend
 	if st, err := s.manager.Get(name); err == nil {
 		if err := s.manager.SetDesiredState(name, desiredDeleting); err != nil {
@@ -969,7 +981,7 @@ func (s *server) stackSetTag(w http.ResponseWriter, r *http.Request, name string
 		}()
 		done = func() {
 			started = true
-			s.updateDetached(name, unlock, body.UpdateServices)
+			s.updateDetached(name, unlock, body.UpdateServices, triggerOf(r))
 			w.Header().Set("Content-Type", "application/json")
 			w.Write([]byte(`{"status":"ok","updating":true}`))
 		}
@@ -1433,6 +1445,7 @@ func (s *server) lifecycle(w http.ResponseWriter, r *http.Request, name, action 
 
 	var stream io.ReadCloser
 	var chose string // what chooseAddresses did, said first
+	note := noteForAction(r, action)
 	switch action {
 	case "up":
 		chose = s.chooseAddresses(ctx, st)
@@ -1442,6 +1455,7 @@ func (s *server) lifecycle(w http.ResponseWriter, r *http.Request, name, action 
 		be := s.backendFor(st)
 		pending := s.pendingFor(st)
 		if rec, ok := be.(engine.Recreator); ok && len(pending) > 0 {
+			note.action, note.services = history.Apply, pending
 			// Its stay-up check is its last step, so it can be taken over.
 			var first io.ReadCloser
 			if first, err = rec.Recreate(watchable(ctx, name), st, pending); err == nil {
@@ -1458,6 +1472,7 @@ func (s *server) lifecycle(w http.ResponseWriter, r *http.Request, name, action 
 			http.Error(w, err.Error(), 400)
 			return
 		}
+		note.services = services
 		stream, err = s.updateStream(ctx, st, read, services, r.Context().Value(isRollbackKey{}) == nil)
 	case "restart":
 		stream, err = s.backendFor(st).Restart(ctx, st)
@@ -1466,6 +1481,7 @@ func (s *server) lifecycle(w http.ResponseWriter, r *http.Request, name, action 
 		return
 	}
 	if err != nil {
+		s.writeHistory(name, note, true, err.Error())
 		http.Error(w, err.Error(), 500)
 		return
 	}
@@ -1478,7 +1494,7 @@ func (s *server) lifecycle(w http.ResponseWriter, r *http.Request, name, action 
 	if action != "down" {
 		stream = s.keepAfter(ctx, st, stream)
 	}
-	stream = s.recordOutcome(name, action, stream)
+	stream = s.recordOutcome(name, action, note, stream)
 
 	// Record operator intent so start-on-boot can restore it after a
 	// fjordd/host restart. Best-effort: a state write failure must not abort
