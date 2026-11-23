@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/daemonless/fjord/pkg/doctor"
+	"github.com/daemonless/fjord/pkg/engine/podman"
 )
 
 // handleSetup reports host readiness: platform, deployment mode, and every
@@ -81,6 +82,7 @@ func (s *server) handleSetupInstall(w http.ResponseWriter, r *http.Request) {
 			fmt.Fprintf(out, "[error] %v\n", err)
 			return
 		}
+		podman.ForgetNetworkBackend()
 		log.Printf("setup: installed what the %q check needs", req.ID)
 		s.registerNewEngines()
 		s.triggerConditions()
@@ -92,6 +94,7 @@ func (s *server) handleSetupInstall(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error()+"\n"+out.String(), 500)
 		return
 	}
+	podman.ForgetNetworkBackend()
 	log.Printf("setup: installed what the %q check needs", req.ID)
 	s.registerNewEngines()
 	s.triggerConditions()

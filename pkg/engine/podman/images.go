@@ -243,5 +243,7 @@ func pullFailure(out, img string, err error) string {
 	if why := pullError(out); why != "" {
 		return why
 	}
-	return "the image " + img + " could not be downloaded: " + commandError(out, err)
+	// Older podman words the failure another way ("initializing source
+	// docker://...: reading manifest ...: manifest unknown").
+	return pullWhy(img, commandError(out, err))
 }

@@ -76,6 +76,14 @@ func TestNetworkBackend(t *testing.T) {
 	if runtime.GOOS != "linux" && b.reportsAddresses(ctx) {
 		t.Error("CNI off Linux does not report addresses")
 	}
+
+	// A restart of podman's service is when the answer changes: asked again
+	// at once, not when the last answer has aged out.
+	name = backendNetavark
+	ForgetNetworkBackend()
+	if got := b.networkBackend(ctx); got != backendNetavark {
+		t.Errorf("after ForgetNetworkBackend: %q", got)
+	}
 }
 
 // Only containers on a network podman answers names on are restarted when
@@ -91,5 +99,15 @@ func TestDNSContainers(t *testing.T) {
 	})
 	if len(got) != 2 || got[0] != "db" || got[1] != "web" {
 		t.Errorf("got %v, want [db web]", got)
+	}
+}
+
+func TestNotIn(t *testing.T) {
+	got := notIn([]string{"a_web_1", "b_other_1", "a_probe_1"}, map[string]bool{"a_web_1": true, "a_probe_1": true})
+	if len(got) != 1 || got[0] != "b_other_1" {
+		t.Errorf("got %v", got)
+	}
+	if got := notIn([]string{"a_web_1"}, map[string]bool{"a_web_1": true}); len(got) != 0 {
+		t.Errorf("got %v", got)
 	}
 }

@@ -63,7 +63,7 @@ func platform(cfg Config) platformInfo {
 			Action:   "Restart podman's API service",
 			Install:  restartService("podman_service"),
 			Commands: []string{"service podman_service restart"},
-			Why:      "`pkg upgrade` replaces podman and its runtime under a service that keeps running, and the old process cannot spawn an exec with binaries that moved. Everything keeps working except the shell, which fails with \"no such file or directory\" -- on a host where the CLI works perfectly, so it reads as a fjord bug. Nothing else notices, because starting and stopping stacks is unaffected.",
+			Why:      "`pkg upgrade` replaces podman and its runtime under a service that keeps running, and the old process cannot spawn an exec with binaries that moved. Everything keeps working except the shell, which fails with \"no such file or directory\" -- on a host where the CLI works perfectly, so it reads as a fjord bug. Nothing else notices, because starting and stopping stacks is unaffected. The service also reads podman's configuration only when it starts, so after a change of network backend it keeps showing the old one's networks while stacks start on the new one's.",
 			Fix:      "service podman_service restart",
 		},
 		{
@@ -1072,7 +1072,28 @@ func podmanServiceStaleProbe(ctx context.Context) (Status, string) {
 			newest, newestPkg = t, name
 		}
 	}
-	return serviceStale(started, newest, newestPkg)
+	if st, detail := serviceStale(started, newest, newestPkg); st != OK {
+		return st, detail
+	}
+	if detail := backendsDiffer(podmanNetBackends(ctx)); detail != "" {
+		return Warn, detail
+	}
+	return OK, "running on the installed version"
+}
+
+// podmanNetBackends is the network backend of podman's service and of its
+// CLI; tests replace it.
+var podmanNetBackends = podman.NetworkBackends
+
+// backendsDiffer says, when podman's service runs with another network
+// backend than podman is set to now, what that breaks; "" when they agree or
+// one cannot be asked. fjord reads networks from the service and starts
+// stacks with the CLI, so the two then work on different sets of networks.
+func backendsDiffer(service, cli string) string {
+	if service == "" || cli == "" || service == cli {
+		return ""
+	}
+	return fmt.Sprintf("it runs with the %s network backend but podman is now set to %s -- networks and stacks will not match until it is restarted", service, cli)
 }
 
 // serviceStale is the comparison on its own, so the rule can be tested without

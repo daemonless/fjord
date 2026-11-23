@@ -16,6 +16,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/daemonless/fjord/pkg/engine"
 	"github.com/daemonless/fjord/pkg/hostnet"
@@ -369,7 +370,8 @@ func (b *Backend) RemakeNetwork(ctx context.Context, name string) (engine.Networ
 	if lan {
 		n, err = b.createLANNetavark(ctx, spec, vlan, tagged)
 	} else {
-		destroyIdleCNIBridge(ctx, def.Bridge)
+		retireCNIBridge(ctx, def.Bridge)
+		retireCNIDNS(ctx, name)
 		n, err = b.createNAT(ctx, spec)
 	}
 	if err != nil {
@@ -435,6 +437,73 @@ func destroyIdleCNIBridge(ctx context.Context, bridge string) {
 		return
 	}
 	_ = exec.CommandContext(ctx, "ifconfig", bridge, "destroy").Run()
+}
+
+// retireCNIBridge removes a bridge the CNI backend made (cni-podmanN) with
+// what is left on it, for a network no container runs on any more. podman
+// under netavark removes a container CNI plumbed without CNI's teardown, so
+// the host half of its epair stays a member, the bridge keeps the subnet,
+// and netavark refuses to make the network again. Any other bridge is the
+// operator's.
+func retireCNIBridge(ctx context.Context, bridge string) {
+	if !strings.HasPrefix(bridge, "cni-podman") {
+		return
+	}
+	out, err := exec.CommandContext(ctx, "ifconfig", bridge).Output()
+	if err != nil {
+		return
+	}
+	for _, m := range bridgeMembers(string(out)) {
+		// CNI's bridge plugin names the host half vnet<hash>; destroying it
+		// takes the half the container had with it.
+		if strings.HasPrefix(m, "vnet") {
+			_ = exec.CommandContext(ctx, "ifconfig", m, "destroy").Run()
+		}
+	}
+	destroyIdleCNIBridge(ctx, bridge)
+}
+
+// cniDNSDir is where CNI's dnsname plugin keeps, per network, the dnsmasq it
+// runs on the network's gateway address.
+var cniDNSDir = "/run/containers/cni/dnsname"
+
+// retireCNIDNS stops the dnsmasq CNI's dnsname plugin left running for a
+// network and removes its files. It holds port 53 on the gateway address,
+// the address podman's own DNS server needs once the network is made again
+// under netavark, and nothing else stops it short of a reboot.
+func retireCNIDNS(ctx context.Context, name string) {
+	dir := filepath.Join(cniDNSDir, name)
+	b, err := os.ReadFile(filepath.Join(dir, "pidfile"))
+	if err != nil {
+		return
+	}
+	if pid := strings.TrimSpace(string(b)); pid != "" {
+		// Only the process that was started with this network's own config.
+		cmd, _ := exec.CommandContext(ctx, "ps", "-o", "command=", "-p", pid).Output()
+		if strings.Contains(string(cmd), "dnsmasq") && strings.Contains(string(cmd), dir+"/") {
+			_ = exec.CommandContext(ctx, "kill", pid).Run()
+			// The port is free once it has gone.
+			for i := 0; i < 20; i++ {
+				if exec.CommandContext(ctx, "kill", "-0", pid).Run() != nil {
+					break
+				}
+				time.Sleep(100 * time.Millisecond)
+			}
+		}
+	}
+	_ = os.RemoveAll(dir)
+}
+
+// bridgeMembers names the members in ifconfig's output for a bridge.
+func bridgeMembers(ifconfig string) []string {
+	var out []string
+	for _, l := range strings.Split(ifconfig, "\n") {
+		f := strings.Fields(l)
+		if len(f) >= 2 && f[0] == "member:" {
+			out = append(out, f[1])
+		}
+	}
+	return out
 }
 
 // networkUsers names the containers attached to one network.
