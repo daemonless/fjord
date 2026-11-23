@@ -249,13 +249,11 @@ func aardvarkProbe(dnsPath string) func(context.Context) (Status, string) {
 	}
 }
 
-// netavarkPfRules are the pf.conf lines netavark's pf driver needs: the two
-// tables its anchors name and the anchors themselves. It does its own NAT
-// inside them, so there is no line per host interface.
+// netavarkPfRules are the pf.conf lines netavark's pf driver needs: its
+// three anchors. It does its own NAT inside them and keeps its tables there
+// too, so there is no line per host interface and no table line.
 func netavarkPfRules() []string {
 	return []string{
-		`table <netavark-subnets> persist`,
-		`table <netavark-isolated> persist`,
 		`nat-anchor "netavark/*"`,
 		`rdr-anchor "netavark/*"`,
 		`anchor "netavark/*"`,
@@ -263,14 +261,9 @@ func netavarkPfRules() []string {
 }
 
 // netavarkPfMissing names what netavark needs that the loaded ruleset lacks,
-// given `pfctl -s nat`, `-s rules` and `-s Tables`.
-func netavarkPfMissing(nat, rules, tables string) []string {
+// given `pfctl -s nat` and `-s rules`.
+func netavarkPfMissing(nat, rules string) []string {
 	var miss []string
-	for _, t := range []string{"netavark-subnets", "netavark-isolated"} {
-		if !slices.Contains(strings.Fields(tables), t) {
-			miss = append(miss, "table <"+t+">")
-		}
-	}
 	for _, a := range []string{`nat-anchor "netavark/*"`, `rdr-anchor "netavark/*"`} {
 		if !strings.Contains(nat, a) {
 			miss = append(miss, a)
@@ -298,8 +291,7 @@ func netavarkPfProbe(ctx context.Context) (Status, string) {
 		return Unknown, "pf loaded; cannot read the ruleset to verify container anchors (pfctl needs root)"
 	}
 	rules, _ := exec.CommandContext(ctx, "pfctl", "-s", "rules").Output()
-	tables, _ := exec.CommandContext(ctx, "pfctl", "-s", "Tables").Output()
-	if miss := netavarkPfMissing(string(nat), string(rules), string(tables)); len(miss) > 0 {
+	if miss := netavarkPfMissing(string(nat), string(rules)); len(miss) > 0 {
 		return Warn, "pf is loaded but the active ruleset lacks " + strings.Join(miss, ", ") +
 			" -- containers reach nothing outside or their published ports hang; reload pf.conf"
 	}
@@ -311,7 +303,7 @@ func netavarkPfFix() string {
 	rules := netavarkPfRules()
 	conf, _ := os.ReadFile("/etc/pf.conf")
 	if _, added := pfInsert(string(conf), rules); len(added) == 0 {
-		return "# /etc/pf.conf already has netavark's tables and anchors; they are just not loaded\n" +
+		return "# /etc/pf.conf already has netavark's anchors; they are just not loaded\n" +
 			pfValidate +
 			"pfctl -f /etc/pf.conf\n" +
 			"# pf not enabled at all?\n" +
@@ -320,7 +312,7 @@ func netavarkPfFix() string {
 			"# after a `service pf restart` or `pfctl -F all`, running containers get their rules back with:\n" +
 			"/usr/local/libexec/podman/netavark --config /var/run/containers/networks firewall-reload"
 	}
-	return "# /etc/pf.conf is missing netavark's tables or anchors -- add them once\n" +
+	return "# /etc/pf.conf is missing netavark's anchors -- add them once\n" +
 		pfInsertSnippet(rules, "/etc/pf.conf") + pfValidate +
 		"sysrc pf_enable=YES\n" +
 		"service pf start\n" +

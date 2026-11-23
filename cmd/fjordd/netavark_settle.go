@@ -62,7 +62,7 @@ func (s *server) settleNetavark(ctx context.Context) bool {
 		log.Printf("netavark: set up %q by itself (it reported: %s)\n%s", id, r.Detail, strings.TrimRight(out.String(), "\n"))
 		did := netavarkDid[id]
 		if hadPf {
-			did = "Loaded netavark's tables and anchors into pf; /etc/pf.conf already had them."
+			did = "Loaded netavark's anchors into pf; /etc/pf.conf already had them."
 		}
 		s.noteHost(netavarkNotice, netavarkNoticeTitle, did)
 	}
@@ -77,7 +77,7 @@ const (
 
 // netavarkDid says, per fix, what was changed and how to see or undo it.
 var netavarkDid = map[string]string{
-	"pf":       "Added netavark's tables and anchors to /etc/pf.conf and loaded them. The file as it was is kept as /etc/pf.conf.before-fjord.",
+	"pf":       "Added netavark's anchors to /etc/pf.conf and loaded them. The file as it was is kept as /etc/pf.conf.before-fjord.",
 	"dns-port": "Port 53 is taken on this host, so podman's DNS server now listens on another port (set in /usr/local/etc/containers/containers.conf.d/50-fjord-dns-port.conf).",
 }
 

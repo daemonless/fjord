@@ -11,48 +11,53 @@ import (
 
 // The loaded ruleset of a FreeBSD host on netavark, as pfctl prints it.
 const (
-	netavarkNat    = "nat-anchor \"netavark/*\" all\nrdr-anchor \"netavark/*\" all\n"
-	netavarkRules  = "anchor \"netavark/*\" all\npass all flags S/SA keep state\n"
-	netavarkTables = "netavark-isolated\nnetavark-subnets\n"
+	netavarkNat   = "nat-anchor \"netavark/*\" all\nrdr-anchor \"netavark/*\" all\n"
+	netavarkRules = "anchor \"netavark/*\" all\npass all flags S/SA keep state\n"
 )
 
 func TestNetavarkPfMissing(t *testing.T) {
-	if miss := netavarkPfMissing(netavarkNat, netavarkRules, netavarkTables); len(miss) != 0 {
+	if miss := netavarkPfMissing(netavarkNat, netavarkRules); len(miss) != 0 {
 		t.Errorf("a complete ruleset reported missing %v", miss)
 	}
 	// CNI's lines are not netavark's.
 	cniNat := "nat on vtnet0 inet from <cni-nat> to any -> (vtnet0)\nrdr-anchor \"cni-rdr/*\" all\nnat-anchor \"cni-rdr/*\" all\n"
-	miss := netavarkPfMissing(cniNat, "pass all\n", "cni-nat\n")
-	for _, want := range []string{"table <netavark-subnets>", "table <netavark-isolated>", `nat-anchor "netavark/*"`, `rdr-anchor "netavark/*"`, `anchor "netavark/*"`} {
+	miss := netavarkPfMissing(cniNat, "pass all\n")
+	for _, want := range []string{`nat-anchor "netavark/*"`, `rdr-anchor "netavark/*"`, `anchor "netavark/*"`} {
 		if !slices.Contains(miss, want) {
 			t.Errorf("a CNI ruleset: %q not reported, got %v", want, miss)
 		}
 	}
 	// The translation anchors alone do not filter: nat-anchor is not anchor.
-	if miss := netavarkPfMissing(netavarkNat, "pass all\n", netavarkTables); !slices.Equal(miss, []string{`anchor "netavark/*"`}) {
+	if miss := netavarkPfMissing(netavarkNat, "pass all\n"); !slices.Equal(miss, []string{`anchor "netavark/*"`}) {
 		t.Errorf("filter anchor missing: got %v", miss)
 	}
 }
 
 // The lines go in as one block before the first filter rule, which keeps
-// pf's order (tables, translation, filter) and puts netavark's filter anchor
-// ahead of the host's own rules. A second run adds nothing.
+// pf's order (translation, filter) and puts netavark's filter anchor ahead
+// of the host's own rules. A second run adds nothing.
 func TestNetavarkPfInsert(t *testing.T) {
 	conf := "ext_if = \"vtnet0\"\nnat on $ext_if from 10.0.0.0/8 to any -> ($ext_if)\npass all\n"
 	got, added := pfInsert(conf, netavarkPfRules())
-	if len(added) != 5 {
+	if len(added) != 3 {
 		t.Fatalf("added %v", added)
 	}
 	lines := strings.Split(strings.TrimSpace(got), "\n")
 	idx := func(l string) int { return slices.Index(lines, l) }
 	if !(idx(`nat on $ext_if from 10.0.0.0/8 to any -> ($ext_if)`) < idx(`nat-anchor "netavark/*"`) &&
-		idx(`table <netavark-subnets> persist`) < idx(`nat-anchor "netavark/*"`) &&
 		idx(`rdr-anchor "netavark/*"`) < idx(`anchor "netavark/*"`) &&
 		idx(`anchor "netavark/*"`) < idx(`pass all`)) {
 		t.Errorf("order:\n%s", got)
 	}
 	if _, again := pfInsert(got, netavarkPfRules()); len(again) != 0 {
 		t.Errorf("second run added %v", again)
+	}
+	// A pf.conf from an earlier netavark keeps its two table lines: they are
+	// unused now, and nothing is added or taken away.
+	old := "table <netavark-subnets> persist\ntable <netavark-isolated> persist\n" +
+		"nat-anchor \"netavark/*\"\nrdr-anchor \"netavark/*\"\nanchor \"netavark/*\"\npass all\n"
+	if kept, added := pfInsert(old, netavarkPfRules()); len(added) != 0 || kept != old {
+		t.Errorf("earlier pf.conf changed: added %v\n%s", added, kept)
 	}
 }
 
