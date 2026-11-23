@@ -109,6 +109,10 @@ func (b *Backend) UpWatched(ctx context.Context, s *stack.Stack) (io.ReadCloser,
 // only limits it to those services (empty = the whole stack): only they are
 // recreated, force-removed on a refused recreate, and started.
 func (b *Backend) bringUp(ctx context.Context, pw *io.PipeWriter, s *stack.Stack, mode recreate, only []string) {
+	if why := b.heldOnOldNetwork(ctx, s); why != "" {
+		fmt.Fprintf(pw, "\n[error] %s\n", why)
+		return
+	}
 	b.removeOrphanStorage(ctx, pw, s.Name)
 	b.dropOtherBackendContainers(ctx, pw, s)
 	b.releaseOrphanAddresses(ctx, pw, s)
@@ -188,6 +192,8 @@ func (b *Backend) bringUp(ctx context.Context, pw *io.PipeWriter, s *stack.Stack
 		if why := pullError(seen.String()); why != "" {
 			fmt.Fprintf(pw, "\n[error] %s\n", why)
 		} else if why := missingNetwork(seen.String()); why != "" {
+			fmt.Fprintf(pw, "\n[error] %s\n", why)
+		} else if why := composeRefusal(seen.String()); why != "" {
 			fmt.Fprintf(pw, "\n[error] %s\n", why)
 		} else {
 			fmt.Fprintf(pw, "\n[error] compose created no containers to start\n")
@@ -432,6 +438,10 @@ func (b *Backend) Restart(ctx context.Context, s *stack.Stack) (io.ReadCloser, e
 		// stop, then the same create-then-start as Up: `podman compose start`
 		// alone can leave a container in "created" on FreeBSD (seen with
 		// sonarr), and bringUp's explicit `podman start` catches that.
+		if why := b.heldOnOldNetwork(ctx, s); why != "" {
+			fmt.Fprintf(pw, "\n[error] %s\n", why)
+			return
+		}
 		seen := &lastBytes{}
 		if err := b.runStreaming(ctx, io.MultiWriter(pw, seen), s.Dir, "podman", "compose", "stop"); err != nil {
 			fmt.Fprintf(pw, "\n[error] stop: %s\n", commandError(seen.String(), err))

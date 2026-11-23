@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 
 	"github.com/daemonless/fjord/pkg/engine"
 	"github.com/daemonless/fjord/pkg/hostnet"
@@ -211,6 +212,14 @@ func networkProblem() string {
 // it again by itself, when it tried, and what to do.
 func (b *Backend) remakeHint(name string) string {
 	if why := b.carryNote(name); why != "" {
+		if rest, ok := strings.CutPrefix(why, engine.ErrInUse.Error()+": "); ok {
+			users, _, _ := strings.Cut(rest, " still runs")
+			verb := " still runs"
+			if strings.Contains(users, ", ") {
+				verb = " still run"
+			}
+			return ". " + users + verb + " on it as it was and keeps working. fjord makes the network again once nothing runs on it: restart the stacks that use it, or reboot"
+		}
 		return ". fjord could not make it again by itself: " + why + ". Fix that, then Make it again"
 	}
 	return ". Make it again so its stacks can start"

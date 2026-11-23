@@ -57,6 +57,11 @@ func TestPullFailure(t *testing.T) {
 	if got := pullFailure(out, "ghcr.io/x/app:nope", errors.New("exit status 125")); !strings.Contains(got, "no such version") {
 		t.Errorf("manifest unknown: %q", got)
 	}
+	// podman 5.4 leaves out "unable to copy from source".
+	old := "Trying to pull ghcr.io/x/app:nope...\nError: initializing source docker://ghcr.io/x/app:nope: reading manifest nope in ghcr.io/x/app: manifest unknown\n"
+	if got := pullFailure(old, "ghcr.io/x/app:nope", errors.New("exit status 125")); !strings.Contains(got, "no such version") {
+		t.Errorf("manifest unknown, older podman: %q", got)
+	}
 	if got := pullFailure("", "ghcr.io/x/app:nope", errors.New("exit status 125")); !strings.Contains(got, "ghcr.io/x/app:nope could not be downloaded") {
 		t.Errorf("no output: %q", got)
 	}
@@ -73,5 +78,15 @@ func TestMissingNetwork(t *testing.T) {
 	}
 	if got := missingNetwork("$ podman-compose up -d\nall fine\n"); got != "" {
 		t.Errorf("no missing network: %q", got)
+	}
+}
+
+func TestComposeRefusal(t *testing.T) {
+	out := "$ podman-compose up -d\nTraceback (most recent call last):\n  File \"x.py\", line 1\nRuntimeError: missing networks: default\n"
+	if got := composeRefusal(out); !strings.Contains(got, "missing networks: default") || !strings.Contains(got, "compose file") {
+		t.Errorf("got %q", got)
+	}
+	if got := composeRefusal("$ podman-compose up -d\nall fine\n"); got != "" {
+		t.Errorf("nothing raised: %q", got)
 	}
 }

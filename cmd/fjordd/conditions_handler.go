@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/daemonless/fjord/pkg/doctor"
+	"github.com/daemonless/fjord/pkg/engine/podman"
 )
 
 // Condition is something wrong right now on the host, engine, or network,
@@ -70,6 +71,9 @@ func conditionScope(r doctor.Result) string {
 func conditionTitle(r doctor.Result) string {
 	switch r.ID {
 	case "podman-stale":
+		if strings.Contains(r.Detail, "network backend") {
+			return "Podman's API service is running with an old network backend"
+		}
 		return "Podman's API service is running an old version"
 	case "socket":
 		return "Podman's API socket is not answering"
@@ -314,6 +318,7 @@ func (s *server) handleConditionsFix(w http.ResponseWriter, r *http.Request) {
 	cfg := doctor.Config{Engines: s.doctorEngines(), FjordRoot: s.fjordRoot, TimeZone: req.TimeZone}
 	var out bytes.Buffer
 	installErr := doctor.Install(ctx, cfg, req.ID, &out)
+	podman.ForgetNetworkBackend()
 	s.registerNewEngines()
 
 	// Always re-run the check to verify the outcome before claiming it is fixed.

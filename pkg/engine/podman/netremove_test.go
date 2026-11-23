@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -43,4 +44,37 @@ func TestRemoveNetworkConflist(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "no network") {
 		t.Errorf("a network that is not defined: %v", err)
 	}
+}
+
+func TestBridgeMembers(t *testing.T) {
+	out := "cni-podman1: flags=8843<UP,BROADCAST,RUNNING,SIMPLEX,MULTICAST> metric 0 mtu 1500\n" +
+		"\tinet 10.134.0.1 netmask 0xffffff00 broadcast 10.134.0.255\n" +
+		"\tmember: vnet41e6e6bb flags=143<LEARNING,DISCOVER,AUTOEDGE,AUTOPTP>\n" +
+		"\t        ifmaxaddr 0 port 7 priority 128 path cost 2000\n" +
+		"\tmember: vnet710ab722 flags=143<LEARNING,DISCOVER,AUTOEDGE,AUTOPTP>\n"
+	got := bridgeMembers(out)
+	if len(got) != 2 || got[0] != "vnet41e6e6bb" || got[1] != "vnet710ab722" {
+		t.Errorf("got %v", got)
+	}
+}
+
+// The files CNI's DNS helper left for a network go with it; a pid that is
+// not that helper is left alone.
+func TestRetireCNIDNS(t *testing.T) {
+	old := cniDNSDir
+	cniDNSDir = t.TempDir()
+	t.Cleanup(func() { cniDNSDir = old })
+	dir := filepath.Join(cniDNSDir, "t-net")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// This test's own pid: running, and not a dnsmasq for this network.
+	if err := os.WriteFile(filepath.Join(dir, "pidfile"), []byte(strconv.Itoa(os.Getpid())+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	retireCNIDNS(context.Background(), "t-net")
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Errorf("the network's DNS files are still there: %v", err)
+	}
+	retireCNIDNS(context.Background(), "t-none") // nothing to do, no panic
 }

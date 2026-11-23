@@ -10,9 +10,11 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/daemonless/fjord/pkg/hostnet"
@@ -32,10 +34,19 @@ const (
 // service.
 const backendMaxAge = 30 * time.Second
 
+// backendEpoch moves on when something that can change the backend has just
+// happened; an answer from an earlier epoch is asked for again.
+var backendEpoch atomic.Int64
+
+// ForgetNetworkBackend makes the next caller ask podman for its backend
+// again: its service was just restarted, which is when the answer changes.
+func ForgetNetworkBackend() { backendEpoch.Add(1) }
+
 type netBackend struct {
 	mu    sync.Mutex
 	name  string
 	asked time.Time
+	epoch int64
 	// carry serializes carryOver; said (under mu) keeps what it last logged
 	// per network, so one it cannot make again is not logged every pass and
 	// its row can say why.
@@ -59,11 +70,12 @@ func defaultBackend() string {
 func (b *Backend) networkBackend(ctx context.Context) string {
 	b.net.mu.Lock()
 	defer b.net.mu.Unlock()
-	if b.net.name != "" && time.Since(b.net.asked) < backendMaxAge {
+	epoch := backendEpoch.Load()
+	if b.net.name != "" && b.net.epoch == epoch && time.Since(b.net.asked) < backendMaxAge {
 		return b.net.name
 	}
 	if name := b.askNetworkBackend(ctx); name != "" {
-		b.net.name, b.net.asked = name, time.Now()
+		b.net.name, b.net.asked, b.net.epoch = name, time.Now(), epoch
 		hostnet.SetBackend(name)
 		if name == backendNetavark && runtime.GOOS == "freebsd" {
 			go b.carryOver()
@@ -143,6 +155,28 @@ func NetworkBackendInfo(ctx context.Context) (backend, dnsPath string) {
 		return "", ""
 	}
 	return info.Host.NetworkBackend, info.Host.NetworkBackendInfo.DNS.Path
+}
+
+// NetworkBackends is podman's network backend as its API service runs with
+// and as the CLI would start with now, for diagnostics (pkg/doctor). The
+// service reads its configuration once at start, so the two part ways when
+// podman or its configuration changes under a running service. Either is ""
+// when it cannot be asked.
+func NetworkBackends(ctx context.Context) (service, cli string) {
+	var info hostInfo
+	if req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://d/v4.0.0/libpod/info", nil); err == nil {
+		if resp, err := newSocketClient().Do(req); err == nil {
+			if resp.StatusCode == http.StatusOK && json.NewDecoder(resp.Body).Decode(&info) == nil {
+				service = info.Host.NetworkBackend
+			}
+			resp.Body.Close()
+		}
+	}
+	out, err := exec.CommandContext(ctx, "podman", "info", "--format", "{{.Host.NetworkBackend}}").Output()
+	if err == nil {
+		cli = strings.TrimSpace(string(out))
+	}
+	return service, cli
 }
 
 // DNSContainers names the running containers attached to a network podman
@@ -311,6 +345,62 @@ func (b *Backend) carryNote(name string) string {
 	return ""
 }
 
+// heldOnOldNetwork says why a stack cannot be stopped and started now, ""
+// when it can: a network it uses is still the CNI one and containers of
+// other stacks run on it. podman under netavark starts nothing on that
+// network until it is made again, and it cannot be made again while anything
+// runs on the old one, so this stack would stop and not come back. That is
+// the state after podman moves to netavark without a reboot.
+func (b *Backend) heldOnOldNetwork(ctx context.Context, s *stack.Stack) string {
+	if runtime.GOOS != "freebsd" || b.networkBackend(ctx) != backendNetavark {
+		return ""
+	}
+	cs, err := b.listStackContainers(ctx, s.Name)
+	if err != nil || len(cs) == 0 {
+		return ""
+	}
+	mine := map[string]bool{}
+	var nets []string
+	for _, c := range cs {
+		for _, n := range c.Names {
+			mine[n] = true
+		}
+		for _, n := range c.Networks {
+			if !slices.Contains(nets, n) {
+				nets = append(nets, n)
+			}
+		}
+	}
+	sort.Strings(nets)
+	for _, n := range nets {
+		if def, ok := hostnet.Get(n); !ok || !def.Legacy {
+			continue
+		}
+		users, err := b.networkUsersRunning(ctx, n)
+		if err != nil {
+			continue
+		}
+		if others := notIn(users, mine); len(others) > 0 {
+			return fmt.Sprintf("%s is left as it is: its network %s was made for podman's CNI network backend, and podman here now uses netavark. "+
+				"fjord makes the network again once nothing runs on the old one, but %s is still on it, so %s would stop and not start again. "+
+				"Stop the stacks that share %s, then start them; or reboot this host, which moves everything at once",
+				s.Name, n, strings.Join(others, ", "), s.Name, n)
+		}
+	}
+	return ""
+}
+
+// notIn is names without the ones in the set.
+func notIn(names []string, set map[string]bool) []string {
+	var out []string
+	for _, n := range names {
+		if !set[n] {
+			out = append(out, n)
+		}
+	}
+	return out
+}
+
 // dropOtherBackendContainers removes a stack's stopped containers that name
 // a network podman does not have, and the definition the CNI backend left
 // for the stack's own network. After podman moves to netavark such a
@@ -321,6 +411,11 @@ func (b *Backend) dropOtherBackendContainers(ctx context.Context, pw io.Writer, 
 	if runtime.GOOS != "freebsd" || b.networkBackend(ctx) != backendNetavark {
 		return
 	}
+	// Asked again before every start: what holds port 53 may have arrived
+	// since the host was first set up.
+	b.net.carry.Lock()
+	b.net.settled = false
+	b.net.carry.Unlock()
 	b.carryOver()
 	cs, err := b.listStackContainers(ctx, s.Name)
 	if err != nil || len(cs) == 0 {
@@ -361,7 +456,8 @@ func (b *Backend) dropOtherBackendContainers(ctx context.Context, pw io.Writer, 
 				keepConflist(d.Name, old)
 			}
 			_ = os.Remove(path)
-			destroyIdleCNIBridge(ctx, d.Bridge)
+			retireCNIBridge(ctx, d.Bridge)
+			retireCNIDNS(ctx, d.Name)
 		}
 	}
 }

@@ -192,3 +192,16 @@ func TestEpairProbeWarnsOnPluginThatSendsTheHostName(t *testing.T) {
 		}
 	}
 }
+
+// A service that kept the backend it started with is reported; one that
+// cannot be asked is not.
+func TestBackendsDiffer(t *testing.T) {
+	if got := backendsDiffer("cni", "netavark"); !strings.Contains(got, "cni network backend") || !strings.Contains(got, "set to netavark") {
+		t.Errorf("got %q", got)
+	}
+	for _, c := range [][2]string{{"netavark", "netavark"}, {"", "netavark"}, {"cni", ""}} {
+		if got := backendsDiffer(c[0], c[1]); got != "" {
+			t.Errorf("%v: got %q", c, got)
+		}
+	}
+}

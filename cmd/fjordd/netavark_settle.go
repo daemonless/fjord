@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"log"
+	"os"
 	"runtime"
 	"strings"
 
@@ -42,6 +43,9 @@ func (s *server) settleNetavark(ctx context.Context) bool {
 			// Cannot be read from here, so it cannot be judged or fixed.
 			continue
 		}
+		// Whether the file already had the lines decides what the note may
+		// claim: the fix then only loads them and keeps no copy.
+		hadPf := id == "pf" && pfConfHasNetavark()
 		var out bytes.Buffer
 		if err := doctor.Install(doctor.Unattended(ctx), cfg, id, &out); err != nil {
 			ready = false
@@ -56,7 +60,11 @@ func (s *server) settleNetavark(ctx context.Context) bool {
 			continue
 		}
 		log.Printf("netavark: set up %q by itself (it reported: %s)\n%s", id, r.Detail, strings.TrimRight(out.String(), "\n"))
-		s.noteHost(netavarkNotice, netavarkNoticeTitle, netavarkDid[id])
+		did := netavarkDid[id]
+		if hadPf {
+			did = "Loaded netavark's tables and anchors into pf; /etc/pf.conf already had them."
+		}
+		s.noteHost(netavarkNotice, netavarkNoticeTitle, did)
 	}
 	return ready
 }
@@ -82,4 +90,11 @@ func (s *server) noteCarriedOver(name string) {
 func useNetavarkSettle(s *server) {
 	podman.SettleHost = s.settleNetavark
 	podman.CarriedOver = s.noteCarriedOver
+}
+
+// pfConfHasNetavark reports whether /etc/pf.conf already names netavark's
+// anchor.
+func pfConfHasNetavark() bool {
+	b, err := os.ReadFile("/etc/pf.conf")
+	return err == nil && strings.Contains(string(b), `anchor "netavark/*"`)
 }

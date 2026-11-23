@@ -64,6 +64,11 @@ func pullError(out string) string {
 	if image == "" {
 		return ""
 	}
+	return pullWhy(image, why)
+}
+
+// pullWhy words podman's reason for a failed pull of image.
+func pullWhy(image, why string) string {
 	switch {
 	case strings.Contains(why, "manifest unknown"):
 		return "the image " + image + " could not be downloaded: the registry has no such version. Pick another version for it"
@@ -92,4 +97,18 @@ func missingNetwork(out string) string {
 	m := all[len(all)-1]
 	return "the network " + m[1] + " that this stack uses does not exist on this host. Make it again on the Networks page, then Start " +
 		"(a network made before podman moved to another network backend has to be made again)"
+}
+
+var composeRaised = regexp.MustCompile(`(?m)^(?:RuntimeError|ValueError|KeyError): (.+)$`)
+
+// composeRefusal says, for a stack compose made nothing of, what
+// podman-compose itself objected to in the compose file; "" when it raised
+// nothing. Its reason ("missing networks: default") scrolled past in a
+// traceback and the stack was left with "compose created no containers".
+func composeRefusal(out string) string {
+	all := composeRaised.FindAllStringSubmatch(out, -1)
+	if len(all) == 0 {
+		return ""
+	}
+	return "podman-compose does not accept this stack's compose file: " + strings.TrimSpace(all[len(all)-1][1])
 }

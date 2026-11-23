@@ -443,6 +443,14 @@ func (s *server) editNetwork(w http.ResponseWriter, r *http.Request, name string
 	if req.Gateway6 != nil {
 		gw = strings.TrimSpace(*req.Gateway6)
 	}
+	// A network podman's netavark backend made has no definition fjord can
+	// rewrite: podman fixes its ranges when it is made.
+	if _, err := os.Stat(hostnet.ConflistPath(name)); err != nil {
+		if _, ok := hostnet.Get(name); ok {
+			http.Error(w, name+" cannot be given another IPv6 range in place: podman's netavark network backend fixes a network's ranges when the network is made. Stop the stacks on it, delete it and make it again with the range you want", http.StatusConflict)
+			return
+		}
+	}
 	if err := lannet.SetSegment6(name, strings.TrimSpace(*req.Subnet6), gw); err != nil {
 		http.Error(w, err.Error(), 400)
 		return
