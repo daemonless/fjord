@@ -17,12 +17,12 @@
     "@types/js-yaml": "^4.0.9",
     "@types/node": "^24.19.2",
     "@wuchale/svelte": "^0.21.4",
-    "svelte": "^5.57.3",
+    "svelte": "^5.58.0",
     "svelte-check": "^4.7.8",
     "tailwindcss": "^4.3.3",
     "typescript": "~6.0.2",
     "vite": "^8.3.8",
-    "vitest": "^5.0.1",
+    "vitest": "^5.1.1",
     "wuchale": "^0.26.7"
   },
   "dependencies": {
