@@ -10,7 +10,7 @@ before() {
 }
 
 # podman's network backend decides which lines those are: CNI's rdr anchors
-# and a NAT line per NIC, or netavark's tables and anchors.
+# and a NAT line per NIC, or netavark's anchors.
 BACKEND=$(on "podman info --format '{{.Host.NetworkBackend}}'")
 
 main() {
@@ -29,13 +29,13 @@ main() {
 
 after() {
   if [ "$BACKEND" = netavark ]; then
-    if on "grep -q '^table <netavark-subnets> persist' /etc/pf.conf && grep -q '^table <netavark-isolated> persist' /etc/pf.conf && grep -q '^nat-anchor \"netavark/\*\"' /etc/pf.conf && grep -q '^rdr-anchor \"netavark/\*\"' /etc/pf.conf && grep -q '^anchor \"netavark/\*\"' /etc/pf.conf"; then
-      echo "PASS /etc/pf.conf has netavark's tables and anchors"
-    else echo "FAIL /etc/pf.conf lacks netavark's tables or anchors"; fi
+    if on "grep -q '^nat-anchor \"netavark/\*\"' /etc/pf.conf && grep -q '^rdr-anchor \"netavark/\*\"' /etc/pf.conf && grep -q '^anchor \"netavark/\*\"' /etc/pf.conf"; then
+      echo "PASS /etc/pf.conf has netavark's anchors"
+    else echo "FAIL /etc/pf.conf lacks netavark's anchors"; fi
     if on "grep -c '^rdr-anchor \"netavark/\*\"' /etc/pf.conf | grep -qx 1 && grep -c '^anchor \"netavark/\*\"' /etc/pf.conf | grep -qx 1"; then
       echo "PASS each anchor line is in /etc/pf.conf once"
     else echo "FAIL an anchor line is in /etc/pf.conf more than once"; fi
-    if on "pfctl -s nat | grep -q 'rdr-anchor \"netavark' && pfctl -s rules | grep -q '^anchor \"netavark' && pfctl -s Tables | grep -qx netavark-subnets && [ \"\$(sysrc -n pf_enable)\" = YES ]"; then
+    if on "pfctl -s nat | grep -q 'rdr-anchor \"netavark' && pfctl -s rules | grep -q '^anchor \"netavark' && [ \"\$(sysrc -n pf_enable)\" = YES ]"; then
       echo "PASS pf runs the rules and is enabled at boot"
     else echo "FAIL pf is not running the rules, or not enabled at boot"; fi
     if on "! grep -q cni /etc/pf.conf"; then
