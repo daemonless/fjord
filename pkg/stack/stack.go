@@ -44,6 +44,9 @@ type OriginInfo struct {
 	Variant        string `json:"variant,omitempty"`
 	ManifestSHA256 string `json:"manifest_sha256,omitempty"`
 	CatalogURL     string `json:"catalog_url,omitempty"`
+	// Catalog is the id of the catalog source the app came from: two
+	// catalogs can carry the same app id.
+	Catalog string `json:"catalog,omitempty"`
 }
 
 // State represents state.json (schema_version 1) inside a stack directory.

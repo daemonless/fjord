@@ -558,7 +558,7 @@ func (s *server) appHostnames(ctx context.Context, stackName string) map[string]
 	if err != nil || st.State == nil || st.State.Origin.AppID == "" {
 		return nil
 	}
-	b, err := s.cat.ManifestAny(ctx, st.State.Origin.AppID)
+	b, err := s.originManifest(ctx, st)
 	if err != nil {
 		return nil
 	}

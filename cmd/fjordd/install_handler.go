@@ -170,8 +170,9 @@ func installNetworkPlan(req installRequest, declared map[string]string) map[stri
 
 type installRequest struct {
 	Name     string            `json:"name"`
-	AppID    string            `json:"app_id,omitempty"` // catalog app id, for icon/link resolution
-	Manifest string            `json:"manifest"`         // full x-fjord manifest YAML
+	AppID    string            `json:"app_id,omitempty"`  // catalog app id, for icon/link resolution
+	Catalog  string            `json:"catalog,omitempty"` // the catalog source it came from
+	Manifest string            `json:"manifest"`          // full x-fjord manifest YAML
 	Values   map[string]string `json:"values"`
 	// Paths carries the wizard's folder list per host-path variable. One entry
 	// is the plain value; several become extra binds under the app's own mount
@@ -720,7 +721,7 @@ func (s *server) handleInstall(w http.ResponseWriter, r *http.Request) {
 	// load-modify-save round-trips leaving intermediate files behind.
 	now := time.Now().UTC().Format(time.RFC3339)
 	st.State = &stack.State{
-		Origin:       stack.OriginInfo{Type: "catalog", AppID: req.AppID},
+		Origin:       stack.OriginInfo{Type: "catalog", AppID: req.AppID, Catalog: strings.TrimSpace(req.Catalog)},
 		DesiredState: "running",
 		Engine:       eng,
 		Restart:      restartState,
