@@ -653,6 +653,7 @@ func (s *server) handleInstall(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Made only now, so a refusal above leaves no empty folders behind.
+	ownDataset := s.appDataset(r.Context(), base, slug, res.Dirs)
 	if err := manifest.Provision(res.Dirs); err != nil {
 		http.Error(w, "provision: "+err.Error(), 500)
 		return
@@ -727,6 +728,7 @@ func (s *server) handleInstall(w http.ResponseWriter, r *http.Request) {
 		DisplayName:  strings.TrimSpace(req.Name),
 		Choices:      answers,
 		SecretSums:   installSecretSums(m, res.Env),
+		Dataset:      ownDataset,
 		InstalledAt:  now,
 		UpdatedAt:    now,
 	}

@@ -5296,3 +5296,15 @@ msgstr "Show its banner again"
 #: src/InstallWizard.svelte
 msgid "It answers on this host's own {0} <0/>. Nothing is published: the app listens there itself."
 msgstr "It answers on this host's own {0} <0/>. Nothing is published: the app listens there itself."
+
+#~ msgid ", the ZFS dataset <0/>"
+#~ msgstr ", the ZFS dataset <0/>"
+
+#. 0: d.dataset
+#: src/StackDetail.svelte
+msgid "The ZFS dataset {0}: deleting it removes its snapshots too"
+msgstr "The ZFS dataset {0}: deleting it removes its snapshots too"
+
+#: src/StackDetail.svelte
+msgid "with its snapshots"
+msgstr "with its snapshots"

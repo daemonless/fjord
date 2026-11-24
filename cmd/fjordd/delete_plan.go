@@ -12,6 +12,7 @@ import (
 	"time"
 
 	composepkg "github.com/daemonless/fjord/pkg/compose"
+	"github.com/daemonless/fjord/pkg/dataset"
 	"github.com/daemonless/fjord/pkg/stack"
 )
 
@@ -29,8 +30,11 @@ type deletePlan struct {
 }
 
 type dataDir struct {
-	Path  string `json:"path"`
-	Bytes int64  `json:"bytes"`
+	Path string `json:"path"`
+	// Dataset is the ZFS dataset fjord made for it at install, destroyed
+	// with it instead of emptied folder by folder.
+	Dataset string `json:"dataset,omitempty"`
+	Bytes   int64  `json:"bytes"`
 	// More: the count stopped before the end (a huge folder); Bytes is a floor.
 	More bool `json:"more,omitempty"`
 }
@@ -65,7 +69,7 @@ func (s *server) planDelete(ctx context.Context, st *stack.Stack) deletePlan {
 		}
 		own[dir] = true
 		n, more := dirSize(dir, sizeBudget)
-		plan.AppData = append(plan.AppData, dataDir{Path: dir, Bytes: n, More: more})
+		plan.AppData = append(plan.AppData, dataDir{Path: dir, Dataset: stackDatasetAt(ctx, st, dir), Bytes: n, More: more})
 	}
 	seen := map[string]bool{}
 	for _, m := range mounts {
@@ -231,4 +235,16 @@ func (s *server) stackDeletePreview(w http.ResponseWriter, name string) {
 	defer cancel()
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(s.planDelete(ctx, st))
+}
+
+// stackDatasetAt is the dataset fjord made for st, when it is the one
+// mounted at dir.
+func stackDatasetAt(ctx context.Context, st *stack.Stack, dir string) string {
+	if st.State == nil || st.State.Dataset == "" {
+		return ""
+	}
+	if name, ok := dataset.At(ctx, dir); ok && name == st.State.Dataset {
+		return name
+	}
+	return ""
 }
