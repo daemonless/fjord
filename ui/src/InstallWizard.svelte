@@ -757,7 +757,10 @@
   $: webOwnAddress = ownAddress(webNet, networks);
   // The app's own ports, where it answers at that address: said once under
   // Networking, in place of port fields that would publish nothing.
-  $: ownPorts = webOwnAddress
+  // On the host's own network nothing is published either: the app binds
+  // its own ports on this host.
+  $: hostNet = (perService ? webNet : shownChoice) === 'host';
+  $: ownPorts = webOwnAddress || hostNet
     ? [...new Set(variables.filter((v: any) => v.type === 'port').map((v: any) => insidePort(manifestText, v.name)).filter(Boolean))]
     : [];
   // public_url fields follow where the app lands until someone types in one.
@@ -1148,7 +1151,11 @@
           {/if}
 
           {#snippet reachedAt()}
-            {#if ownPorts.length}
+            {#if ownPorts.length && hostNet}
+              <p class="text-sm text-fjord-fg-body mt-1 mb-2" data-host-ports>
+                It answers on this host's own {ownPorts.length > 1 ? 'ports' : 'port'} <span class="font-mono">{ownPorts.join(', ')}</span>. Nothing is published: the app listens there itself.
+              </p>
+            {:else if ownPorts.length}
               <p class="text-sm text-fjord-fg-body mt-1 mb-2">
                 It answers at its own address on <span class="font-mono">{webNet}</span>{#if webIP} (<span class="font-mono">{webIP}</span>){/if},
                 on {ownPorts.length > 1 ? 'ports' : 'port'} <span class="font-mono">{ownPorts.join(', ')}</span>. Nothing is published on this host.
@@ -1157,9 +1164,10 @@
           {/snippet}
 
           {#snippet varField(v: any)}
-            {#if v.type === 'port' && webOwnAddress && insidePort(manifestText, v.name)}
-              <!-- Nothing to choose: with its own address nothing is published
-                   on this host. Networking says where it answers instead. -->
+            {#if v.type === 'port' && (webOwnAddress || hostNet) && insidePort(manifestText, v.name)}
+              <!-- Nothing to choose: with its own address, or on the host's
+                   own network, nothing is published on this host. Networking
+                   says where it answers instead. -->
             {:else if effectiveType(v) === 'bool'}
               <div class="flex items-center justify-between gap-3 py-0.5">
                 <div class="flex flex-col gap-0.5">

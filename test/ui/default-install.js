@@ -18,8 +18,9 @@ async function install(page, name, engine, port) {
   await page.getByLabel('Name', { exact: true }).fill(name);
   // Only what two copies on one host need: a free port. Everything else stays
   // as the wizard offers it.
+  // On host networking there is no port to choose: nothing is published.
   if (!(await page.locator('#WEB_PORT').isVisible().catch(() => false))) await page.getByRole('button', { name: /^Options/ }).first().click();
-  await page.locator('#WEB_PORT').fill(port);
+  if (await page.locator('#WEB_PORT').isVisible().catch(() => false)) await page.locator('#WEB_PORT').fill(port);
   if (engine === 'appjail') {
     const sel = page.locator('select').filter({ hasText: 'appjail' }).first();
     if (!(await sel.isVisible().catch(() => false))) await page.getByText('Advanced', { exact: true }).click();

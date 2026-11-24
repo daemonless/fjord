@@ -5288,3 +5288,11 @@ msgstr "Its banner is turned off"
 #: src/System.svelte
 msgid "Show its banner again"
 msgstr "Show its banner again"
+
+#~ msgid "It answers on this host's own {0} <0/>. Nothing is published: the app binds {1} itself."
+#~ msgstr "It answers on this host's own {0} <0/>. Nothing is published: the app binds {1} itself."
+
+#. 0: ownPorts.length > 1 ? 'ports' \\: 'port'
+#: src/InstallWizard.svelte
+msgid "It answers on this host's own {0} <0/>. Nothing is published: the app listens there itself."
+msgstr "It answers on this host's own {0} <0/>. Nothing is published: the app listens there itself."
