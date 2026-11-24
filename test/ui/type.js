@@ -1,7 +1,7 @@
 // Type (networks / host / none) in the Services editor, through fjord's pages:
 // bridge next to a LAN network, host and back without losing rows, Save both
 // ways, and AppJail's limits. run-typec.sh checks the published port off-host.
-// needs: freebsd appjail
+// needs: freebsd appjail lanlab
 const { chromium } = require('playwright-core');
 const { signedIn, openPage, settled } = require('./session');
 const BASE = process.env.FJORD || 'http://127.0.0.1:3567';

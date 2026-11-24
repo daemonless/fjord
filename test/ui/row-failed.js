@@ -2,6 +2,7 @@
 // stack whose image tag does not exist ends in a red "Start failed" pill with
 // fjord's reason as its tooltip, and it is gone once the next Start is clean.
 // The stack is t-rowfail.
+// needs: freebsd
 const { chromium } = require('playwright-core');
 const { signedIn, openPage } = require('./session');
 const BASE = 'http://127.0.0.1:3567';
