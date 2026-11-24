@@ -189,6 +189,7 @@ func setupCLITestServer(t *testing.T) (string, *server, *cliMockBackend) {
 		seen:      newFirstSeen(root),
 		live:      newLiveStatus(),
 	}
+	srv.platformsFn = builtHere
 	gate, err := newAuthGate(root, ":3567", "password", "")
 	if err != nil {
 		t.Fatal(err)

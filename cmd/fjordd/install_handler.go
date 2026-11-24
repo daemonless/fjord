@@ -647,6 +647,10 @@ func (s *server) handleInstall(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "not installed: "+strings.Join(c, "; "), http.StatusConflict)
 		return
 	}
+	if why := s.noBuildForInstall(r.Context(), st); why != "" {
+		http.Error(w, "not installed: "+why, http.StatusConflict)
+		return
+	}
 	// Made only now, so a refusal above leaves no empty folders behind.
 	if err := manifest.Provision(res.Dirs); err != nil {
 		http.Error(w, "provision: "+err.Error(), 500)
