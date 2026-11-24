@@ -465,15 +465,11 @@ msgstr "Chargement des versions publiées…"
 msgid "No published tags found for this image."
 msgstr "Aucun tag publié trouvé pour cette image."
 
-#: src/ChangeVersionModal.svelte
-#: src/InstallWizard.svelte
-msgid "Build / channel"
-msgstr "Build / canal"
+#~ msgid "Build / channel"
+#~ msgstr "Build / canal"
 
-#: src/ChangeVersionModal.svelte
-#: src/InstallWizard.svelte
-msgid "Latest (rolling)"
-msgstr "Dernière (continue)"
+#~ msgid "Latest (rolling)"
+#~ msgstr "Dernière (continue)"
 
 #: src/ChangeVersionModal.svelte
 #: src/InstallWizard.svelte
@@ -481,9 +477,8 @@ msgstr "Dernière (continue)"
 msgid "Version"
 msgstr "Version"
 
-#: src/ChangeVersionModal.svelte
-msgid "Custom tag (optional)"
-msgstr "Tag personnalisé (facultatif)"
+#~ msgid "Custom tag (optional)"
+#~ msgstr "Tag personnalisé (facultatif)"
 
 #: src/ChangeVersionModal.svelte
 msgid "Pin to exact image <0>(sha256 digest)</0> <1>Locks to the exact <0>sha256:…</0> that <1/> points to right now, so if that tag is later re-published to a different image, this stack stays on the bytes you pinned. Update won't move it until you unpin.</1>"
@@ -750,6 +745,8 @@ msgstr "Arrêtée"
 msgid "Problems"
 msgstr "Problèmes"
 
+#: src/ChangeVersionModal.svelte
+#: src/InstallWizard.svelte
 #: src/Sidebar.svelte
 msgid "Updates"
 msgstr "Mises à jour"
@@ -5285,3 +5282,45 @@ msgstr ""
 #: src/InstallWizard.svelte
 msgid "It answers on this host's own {0} <0/>. Nothing is published: the app listens there itself."
 msgstr "Elle répond sur ce même hôte, {0} <0/>. Rien n'est publié : l'application y écoute elle-même."
+
+#. 0: g.line
+#. 0: g.line
+#: src/ChangeVersionModal.svelte
+#: src/InstallWizard.svelte
+msgid "Release {0}"
+msgstr "Branche {0}"
+
+#: src/ChangeVersionModal.svelte
+#: src/InstallWizard.svelte
+msgid "Other"
+msgstr "Autres"
+
+#. 0: newest
+#. 0: newestOf(train)
+#: src/ChangeVersionModal.svelte
+#: src/InstallWizard.svelte
+msgid " (now {0})"
+msgstr " (actuellement {0})"
+
+#. 0: v.version
+#. 0: v.version
+#: src/ChangeVersionModal.svelte
+#: src/InstallWizard.svelte
+msgid "Stay on {0}"
+msgstr "Rester sur {0}"
+
+#. 0: newest ? ` (now ${newest})` \\: ''
+#. 0: newestOf(train) ? ` (now ${newestOf(train)})` \\: ''
+#: src/ChangeVersionModal.svelte
+#: src/InstallWizard.svelte
+msgid "Keep up to date{0}"
+msgstr "Tenir à jour{0}"
+
+#: src/ChangeVersionModal.svelte
+msgid "Any published tag"
+msgstr "N'importe quel tag publié"
+
+#: src/ChangeVersionModal.svelte
+#: src/ChangeVersionModal.svelte
+msgid "Custom tag"
+msgstr "Tag personnalisé"
