@@ -52,6 +52,33 @@ async function install(page, name, engine, port) {
       await page.screenshot({ path: '/out/restart-podman-new.png', fullPage: true });
       note('a new podman install restarts unless stopped', v === 'unless-stopped', `the field shows "${v}" (${await field(page).innerText()})`);
       // The group is set on the same tab and shows in the sidebar.
+      // If unhealthy: the sentence follows the numbers, and a count over the
+      // limit shows as the limit everywhere.
+      const was = (await detail(page, 't-restart')).recovery?.action || 'none';
+      const menu = page.locator('[data-recovery-policy] > button');
+      await menu.click();
+      const restartItem = page.getByRole('menuitemradio').filter({ hasText: 'Restart stack' });
+      if ((await restartItem.getAttribute('aria-checked')) !== 'true') { await restartItem.click(); await sleep(1500); }
+      const tries = page.getByLabel('Maximum recovery attempts');
+      await tries.fill('24');
+      await tries.press('Tab');
+      await sleep(1500);
+      const said = await restartItem.innerText();
+      const shownTries = await tries.inputValue();
+      const saved = (await detail(page, 't-restart')).recovery?.maxTries;
+      await page.screenshot({ path: '/out/restart-recovery.png', fullPage: true });
+      note('If unhealthy: a count over the limit reads as the limit in the field, the sentence and the save', shownTries === '20' && /up to 20 times/.test(said) && saved === 20 && /20×/.test(await menu.innerText()),
+        `field ${shownTries}, saved ${saved}, sentence "${said.split('\n').pop()}", button "${await menu.innerText()}"`);
+      await tries.fill('5');
+      await tries.press('Tab');
+      await sleep(1500);
+      note('If unhealthy: the sentence follows a new count', /up to 5 times/.test(await restartItem.innerText()), (await restartItem.innerText()).split('\n').pop());
+      if (was !== 'restart') {
+        const label = was === 'stop' ? 'Stop stack' : 'Do nothing';
+        await page.getByRole('menuitemradio').filter({ hasText: label }).click();
+        await sleep(1500);
+      }
+      await page.keyboard.press('Escape');
       const group = page.locator('#stack-group');
       await group.fill('ui-settings');
       await group.press('Enter');
