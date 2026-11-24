@@ -1063,6 +1063,12 @@
       conditions = ev.conditions || [];
       return;
     }
+    // A network made, changed or removed, here or in another tab: the
+    // open stack's choices change with it.
+    if (ev?.type === 'networks') {
+      loadNetworks(selectedStack?.name);
+      return;
+    }
     const res = reduceStackEvent(stacks, selectedStack, ev);
     if (res.stacks !== stacks) stacks = res.stacks;
     if (res.clearSelection) {
