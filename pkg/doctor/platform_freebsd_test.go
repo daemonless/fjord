@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -203,5 +204,34 @@ func TestBackendsDiffer(t *testing.T) {
 		if got := backendsDiffer(c[0], c[1]); got != "" {
 			t.Errorf("%v: got %q", c, got)
 		}
+	}
+}
+
+// AppJail's pf check can be fixed with a click, like podman's: its lines go
+// in with the translation rules, ahead of the host's own filter rules, next
+// to netavark's, and a second run adds nothing.
+func TestAppjailPfFixable(t *testing.T) {
+	c := appjailPfCheck()
+	if c.Install == nil || c.Action == "" {
+		t.Fatal("no one-click fix")
+	}
+	cmds := strings.Join(c.Commands, "\n")
+	if !strings.Contains(cmds, `nat-anchor "appjail-nat/jail/*"`) || !strings.Contains(cmds, "pfctl -nf") {
+		t.Errorf("commands:\n%s", cmds)
+	}
+	conf := "nat-anchor \"netavark/*\"\nrdr-anchor \"netavark/*\"\nanchor \"netavark/*\"\npass all\n"
+	got, added := pfInsert(conf, appjailPfRules())
+	if len(added) != 3 {
+		t.Fatalf("added %v", added)
+	}
+	lines := strings.Split(strings.TrimSpace(got), "\n")
+	idx := func(l string) int { return slices.Index(lines, l) }
+	for _, r := range appjailPfRules() {
+		if i := idx(r); i < 0 || i > idx(`anchor "netavark/*"`) || i > idx("pass all") {
+			t.Errorf("%s at %d:\n%s", r, i, got)
+		}
+	}
+	if _, again := pfInsert(got, appjailPfRules()); len(again) != 0 {
+		t.Errorf("second run added %v", again)
 	}
 }
