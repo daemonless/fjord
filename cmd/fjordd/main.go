@@ -22,6 +22,7 @@ import (
 	"github.com/daemonless/fjord/pkg/engine"
 	"github.com/daemonless/fjord/pkg/engine/appjail"
 	"github.com/daemonless/fjord/pkg/engine/podman"
+	"github.com/daemonless/fjord/pkg/history"
 	"github.com/daemonless/fjord/pkg/stack"
 	"github.com/daemonless/fjord/ui"
 )
@@ -354,6 +355,7 @@ func main() {
 		defEngine:  defEngine,
 		cat:        cat,
 		fjordRoot:  fjordRoot,
+		hist:       history.New(fjordRoot),
 		stacksDir:  stacksDir,
 		listenAddr: addr,
 		events:     newEventHub(),
@@ -517,7 +519,7 @@ func finishDelete(srv *server, name string) {
 		return
 	}
 	defer unlock()
-	if code, msg := srv.removeStack(name, false); code != 0 {
+	if code, msg := srv.removeStack(name, false, history.ByBoot); code != 0 {
 		log.Printf("start-on-boot: %s: finishing its delete: %s", name, msg)
 		return
 	}
@@ -614,6 +616,7 @@ func startOnBoot(srv *server) {
 		stream, err := srv.backendFor(full).Up(ctx, full)
 		if err != nil {
 			log.Printf("start-on-boot: up %s: %v", s.Name, err)
+			srv.writeHistory(s.Name, newNote(history.Start, history.ByBoot), true, err.Error())
 			unlock()
 			cancel()
 			continue
@@ -622,7 +625,7 @@ func startOnBoot(srv *server) {
 		// banner. It used to be thrown away and "brought up" logged anyway --
 		// for a stack with nothing running (immich, 2026-10-05).
 		watch := &errorWatch{}
-		io.Copy(watch, srv.recordOutcome(s.Name, "start on boot", stream)) // wait before the next
+		io.Copy(watch, srv.recordOutcome(s.Name, "start on boot", newNote(history.Start, history.ByBoot), stream)) // wait before the next
 		stream.Close()
 		unlock()
 		kept, skipped := srv.keepAddresses(ctx, full)

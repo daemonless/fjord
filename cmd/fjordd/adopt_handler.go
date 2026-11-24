@@ -17,6 +17,7 @@ import (
 
 	composepkg "github.com/daemonless/fjord/pkg/compose"
 	"github.com/daemonless/fjord/pkg/engine"
+	"github.com/daemonless/fjord/pkg/history"
 	"github.com/daemonless/fjord/pkg/manifest"
 	"github.com/daemonless/fjord/pkg/registry"
 	"github.com/daemonless/fjord/pkg/stack"
@@ -335,6 +336,9 @@ func (s *server) handleAdopt(w http.ResponseWriter, r *http.Request) {
 		}
 		copyStackIcon(st.Dir, s.cat.AppIconPath(a.Service))
 		log.Printf("adopt %s <- container %s (%s)", id, found.Name, req.Engine)
+		adopted := newNote(history.Adopt, triggerOf(r))
+		adopted.detail = "from the container " + found.Name
+		s.writeHistory(id, adopted, false, "")
 		if req.Replace {
 			rmCtx, rmCancel := context.WithTimeout(context.Background(), 2*time.Minute)
 			err := ad.RemoveContainer(rmCtx, found.ID)
@@ -356,7 +360,7 @@ func (s *server) handleAdopt(w http.ResponseWriter, r *http.Request) {
 			if err := s.manager.SaveState(id, st.State); err != nil {
 				log.Printf("adopt %s: persist state: %v", id, err)
 			}
-			s.upDetached(id, "start")
+			s.upDetached(id, "start", triggerOf(r))
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{"id": id, "service": a.Service, "notes": a.Notes, "replaced": req.Replace, "started": started})

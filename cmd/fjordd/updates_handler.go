@@ -12,6 +12,7 @@ import (
 
 	composepkg "github.com/daemonless/fjord/pkg/compose"
 	"github.com/daemonless/fjord/pkg/engine"
+	"github.com/daemonless/fjord/pkg/history"
 	"github.com/daemonless/fjord/pkg/stack"
 	"github.com/daemonless/fjord/pkg/updates"
 )
@@ -141,6 +142,7 @@ func (s *server) handleUpdates(w http.ResponseWriter, r *http.Request) {
 // what runs. Version upgrades ("upgrade") are left to their own stack page,
 // as they rewrite the tag in the compose.
 func (s *server) handleUpdateAll(w http.ResponseWriter, r *http.Request) {
+	trigger := triggerOf(r)
 	var req struct {
 		Stacks []string `json:"stacks"`
 	}
@@ -243,12 +245,12 @@ func (s *server) handleUpdateAll(w http.ResponseWriter, r *http.Request) {
 				}
 				if retagErr != nil {
 					stream := errorStream("retag for update failed: " + retagErr.Error())
-					io.Copy(io.Discard, s.recordOutcome(q.name, "update", stream))
+					io.Copy(io.Discard, s.recordOutcome(q.name, "update", newNote(history.Update, trigger, q.services...), stream))
 					stream.Close()
 					q.unlock()
 					continue
 				}
-				s.runDetachedUpdate(q.name, q.services)
+				s.runDetachedUpdate(q.name, q.services, trigger)
 				q.unlock()
 			}
 		}()

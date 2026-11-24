@@ -10,6 +10,7 @@ import (
 	"time"
 
 	composepkg "github.com/daemonless/fjord/pkg/compose"
+	"github.com/daemonless/fjord/pkg/history"
 	"github.com/daemonless/fjord/pkg/stack"
 )
 
@@ -47,16 +48,17 @@ func (s *server) updateStream(ctx context.Context, st *stack.Stack, read uint64,
 // that made it: a version change used to be set-tag from the page and then
 // the update as a second call, and a page gone between the two left the
 // compose naming a version the stack did not run.
-func (s *server) updateDetached(name string, unlock func(), services []string) {
+func (s *server) updateDetached(name string, unlock func(), services []string, trigger string) {
 	go func() {
 		defer unlock()
-		s.runDetachedUpdate(name, services)
+		s.runDetachedUpdate(name, services, trigger)
 	}()
 }
 
 // runDetachedUpdate runs one stack's update under the caller's lock, keeps
 // its output, records its outcome, and forgets the fleet's verdict on it.
-func (s *server) runDetachedUpdate(name string, services []string) {
+func (s *server) runDetachedUpdate(name string, services []string, trigger string) {
+	note := newNote(history.Update, trigger, services...)
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Minute)
 	defer cancel()
 	read := s.pending.now()
@@ -74,7 +76,7 @@ func (s *server) runDetachedUpdate(name string, services []string) {
 	} else {
 		stream = s.keepAfter(ctx, st, stream)
 	}
-	io.Copy(io.Discard, s.recordOutcome(name, "update", stream))
+	io.Copy(io.Discard, s.recordOutcome(name, "update", note, stream))
 	stream.Close()
 	s.fleet.forget(name)
 }

@@ -19,6 +19,7 @@ import (
 
 	composepkg "github.com/daemonless/fjord/pkg/compose"
 	"github.com/daemonless/fjord/pkg/engine"
+	"github.com/daemonless/fjord/pkg/history"
 	"github.com/daemonless/fjord/pkg/manifest"
 	"github.com/daemonless/fjord/pkg/stack"
 )
@@ -785,7 +786,7 @@ func (s *server) handleInstall(w http.ResponseWriter, r *http.Request) {
 			io.Closer
 		}{io.MultiReader(strings.NewReader(note), stream), stream}
 	}
-	streamOutput(w, s.recordOutcome(id, "install", s.nameAfter(ctx, st, req.GivenName, requestOrigin(r), s.keepAfter(ctx, st, stream))))
+	streamOutput(w, s.recordOutcome(id, "install", newNote(history.Install, triggerOf(r)), s.nameAfter(ctx, st, req.GivenName, requestOrigin(r), s.keepAfter(ctx, st, stream))))
 }
 
 // xFjordNote sits above the x-fjord block in a saved compose. web_port is

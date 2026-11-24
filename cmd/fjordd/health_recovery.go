@@ -14,6 +14,7 @@ import (
 
 	composepkg "github.com/daemonless/fjord/pkg/compose"
 	"github.com/daemonless/fjord/pkg/engine"
+	"github.com/daemonless/fjord/pkg/history"
 	"github.com/daemonless/fjord/pkg/stack"
 )
 
@@ -508,6 +509,13 @@ func (s *server) recordRecoveryState(name string, failure *stack.Failure, ev sta
 	})
 	if err != nil {
 		log.Printf("health %s: persist recovery state: %v", name, err)
+	}
+	// A restart or stop recovery did is an action like any other.
+	// "detected" and "exhausted" are recovery deciding, not acting.
+	if a := map[string]string{"restart": history.Restart, "stop": history.Stop}[ev.Action]; a != "" && ev.Outcome != "detected" && ev.Outcome != "exhausted" {
+		n := newNote(a, history.ByRecovery)
+		n.detail = ev.Message
+		s.writeHistory(name, n, ev.Outcome == "failed", ev.Message)
 	}
 }
 

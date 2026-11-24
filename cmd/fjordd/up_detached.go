@@ -6,6 +6,8 @@ import (
 	"log"
 	"strings"
 	"time"
+
+	"github.com/daemonless/fjord/pkg/history"
 )
 
 // upDetached brings a stack up with nobody waiting on the stream: locked
@@ -15,7 +17,7 @@ import (
 // start that a request set in motion and that must not depend on the page
 // that made it: Adopt with replace removed the running container in that
 // request, and the start used to be a second call from the page.
-func (s *server) upDetached(name, action string) {
+func (s *server) upDetached(name, action, trigger string) {
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Minute)
 		defer cancel()
@@ -39,7 +41,7 @@ func (s *server) upDetached(name, action string) {
 				io.Closer
 			}{io.MultiReader(strings.NewReader(chose), stream), stream}
 		}
-		io.Copy(io.Discard, s.recordOutcome(name, action, s.keepAfter(ctx, st, stream)))
+		io.Copy(io.Discard, s.recordOutcome(name, action, newNote(history.Start, trigger), s.keepAfter(ctx, st, stream)))
 		stream.Close()
 	}()
 }
