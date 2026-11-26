@@ -22,13 +22,23 @@ import (
 // migrateTool is where the port installs it; tests point it elsewhere.
 var migrateTool = "/usr/local/sbin/netavark-migrate"
 
+// migrateWaitDelay bounds the wait for the tool's output after it exits:
+// podman_service, restarted by it, inherits the pipe and never closes it.
+var migrateWaitDelay = 10 * time.Second
+
 // runMigrate runs the tool and returns its stdout and exit code; err only
 // when it could not run at all.
 var runMigrate = func(ctx context.Context, args ...string) ([]byte, int, error) {
 	var out bytes.Buffer
 	cmd := exec.CommandContext(ctx, migrateTool, args...)
 	cmd.Stdout = &out
+	// A service the tool restarts can keep its output open; once the tool
+	// has exited, do not wait on that for longer than this.
+	cmd.WaitDelay = migrateWaitDelay
 	err := cmd.Run()
+	if errors.Is(err, exec.ErrWaitDelay) {
+		err = nil
+	}
 	var exit *exec.ExitError
 	if errors.As(err, &exit) {
 		return out.Bytes(), exit.ExitCode(), nil
