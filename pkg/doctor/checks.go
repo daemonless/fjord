@@ -107,7 +107,7 @@ func fjorddOutdatedStatus(started, updated time.Time) (Status, string) {
 	}
 	return Warn, fmt.Sprintf(
 		"running since %s, but the binary on disk was updated %s -- restart fjordd to run the new version",
-		started.Format("Jan 2 15:04"), updated.Format("Jan 2 15:04"))
+		started.Format("2006-01-02 15:04"), updated.Format("2006-01-02 15:04"))
 }
 
 // fjorddUpdatedTime returns the newer of the running executable's mtime on disk

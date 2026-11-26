@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { isoDate } from './when';
   // A stack's services, each with the networks and storage IT holds -- and the
   // networking editable here rather than in a table below.
   //
@@ -74,7 +75,7 @@
   // Services pinned to an exact image (a rollback pins; so can the operator).
   export let pinned: Record<string, boolean> = {};
   let confirmRollback = '';
-  const day = (iso: string) => (iso ? new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : '');
+  const day = (iso: string) => isoDate(iso);
   export let networks: Net[] = [];
   // AppJail: one interface per bridge per service, so a second network on a
   // bridge the service already uses is shown but not offered.

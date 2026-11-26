@@ -12,7 +12,7 @@ describe('changeSentence', () => {
         createdTo: '2026-09-22T03:00:00Z',
         packages: true,
       }),
-    ).toBe('New build of the same version (10.11.19), built Sep 22 — no package changes');
+    ).toBe('New build of the same version (10.11.19), built 2026-09-22 — no package changes');
   });
 
   it('a version bump names both versions and the packages', () => {

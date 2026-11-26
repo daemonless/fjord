@@ -24,7 +24,7 @@ func TestServiceStaleCatchesTheJupiterIncident(t *testing.T) {
 	if st != Warn {
 		t.Fatalf("status = %v, want Warn: a service older than its package is the whole bug", st)
 	}
-	for _, want := range []string{"Sep 6", "podman", "Sep 21", "restarted"} {
+	for _, want := range []string{"2026-09-06", "podman", "2026-09-21", "restarted"} {
 		if !strings.Contains(msg, want) {
 			t.Errorf("message should mention %q, got %q", want, msg)
 		}

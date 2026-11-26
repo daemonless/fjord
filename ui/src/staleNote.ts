@@ -1,3 +1,4 @@
+import { isoTime } from './when';
 // What the page says when the engine did not answer in time and the status
 // shown is the last one it gave (status.staleSince, set by the daemon).
 // A clock time, not "40 s ago": nothing re-renders while the engine is busy,
@@ -11,7 +12,7 @@ export function staleNote(
   if (status.state === 'unknown') return `${who} is busy · no state yet`;
   const at = new Date(status.staleSince);
   if (isNaN(at.getTime())) return `${who} is busy · showing the last state`;
-  return `${who} is busy · showing the state from ${at.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`;
+  return `${who} is busy · showing the state from ${isoTime(at, true)}`;
 }
 
 /**

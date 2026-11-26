@@ -1114,7 +1114,7 @@ func serviceStale(started, installed time.Time, pkg string) (Status, string) {
 	}
 	return Warn, fmt.Sprintf(
 		"running since %s but %s was installed %s -- shells will fail until it is restarted",
-		started.Format("Jan 2 15:04"), pkg, installed.Format("Jan 2 15:04"))
+		started.Format("2006-01-02 15:04"), pkg, installed.Format("2006-01-02 15:04"))
 }
 
 // run is the output of a command, or "" if it fails at all. Every caller here
