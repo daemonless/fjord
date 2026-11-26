@@ -4,6 +4,7 @@
   import { insidePort, ownAddress } from './ownPort';
   import { publicUrlProblem, suggestedPublicUrl } from './publicUrl';
   import { onMount, createEventDispatcher } from 'svelte';
+  import { variantChoices, flatChoices } from './variants';
   import * as yaml from 'js-yaml';
   import Icon from './Icon.svelte';
   import Switch from './Switch.svelte';
@@ -244,29 +245,14 @@
   let trains: Record<string, { version: string; tag: string }[]> = {};
   let loadingVersions = false;
 
-  // Trains come from the registry (what's actually published); labels come from
-  // the catalog variants where known. Until the registry list loads (or if it's
-  // unreachable) fall back to the catalog variants.
-  $: trainList =
-    Object.keys(trains).length > 0
-      ? (() => {
-          const seen = new Set<string>();
-          const list: { id: string; label: string }[] = [];
-          for (const v of variants) {
-            if (trains[v.id] && !seen.has(v.id)) {
-              list.push({ id: v.id, label: v.label });
-              seen.add(v.id);
-            }
-          }
-          for (const id of Object.keys(trains)) {
-            if (!seen.has(id)) {
-              list.push({ id, label: variants.find((v) => v.id === id)?.label || id });
-              seen.add(id);
-            }
-          }
-          return list;
-        })()
-      : variants.map((v) => ({ id: v.id, label: v.label }));
+  // The version menu: the catalog's variants the registry publishes, each as
+  // "tag · newest release", grouped by release line when a line has several
+  // builds (variants.ts). Leftover tags and aliases in the registry are not
+  // offered; Custom tag reaches them.
+  $: groups = variantChoices(variants, trains);
+  $: trainList = flatChoices(groups).map((c) => ({ id: c.id, label: c.text }));
+  $: trainDesc = flatChoices(groups).find((c) => c.id === train)?.desc ?? '';
+  $: newestOf = (id: string) => trains[id]?.[0]?.version || variants.find((v) => v.id === id)?.version || '';
 
   // Keep `train` valid as the list resolves (initial pick + fix if it drops out).
   // The catalog's default variant id may carry a version the registry's train
@@ -1483,30 +1469,40 @@
           </div>
               {/if}
           {#if variants.length}
-            <div class="grid grid-cols-2 gap-3">
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <!-- One variant (most apps): nothing to choose, only Updates. -->
+              {#if trainList.length > 1}
               <div class="flex flex-col gap-1">
-                <label class="text-sm font-semibold text-fjord-fg-secondary" for="train">Build / channel</label>
+                <label class="text-sm font-semibold text-fjord-fg-secondary" for="train">Version</label>
                 <select
                   id="train"
                   bind:value={train}
                   on:change={() => (versionTag = '')}
                   class="bg-fjord-inset border border-fjord-border rounded-md px-3 py-2 text-fjord-fg-body focus:outline-none focus:border-fjord-accent"
                 >
-                  {#each trainList as t}
-                    <option value={t.id}>{t.label}</option>
+                  {#each groups as g}
+                    {#if groups.length > 1}
+                      <optgroup label={g.line ? `Release ${g.line}` : 'Other'}>
+                        {#each g.choices as c}<option value={c.id}>{c.text}</option>{/each}
+                      </optgroup>
+                    {:else}
+                      {#each g.choices as c}<option value={c.id}>{c.text}</option>{/each}
+                    {/if}
                   {/each}
                 </select>
+                {#if trainDesc}<span class="text-xs text-fjord-fg-dim" data-variant-desc>{trainDesc}</span>{/if}
               </div>
+              {/if}
               <div class="flex flex-col gap-1">
-                <label class="text-sm font-semibold text-fjord-fg-secondary" for="ver">Version</label>
+                <label class="text-sm font-semibold text-fjord-fg-secondary" for="ver">Updates</label>
                 <select
                   id="ver"
                   bind:value={versionTag}
                   class="bg-fjord-inset border border-fjord-border rounded-md px-3 py-2 text-fjord-fg-body focus:outline-none focus:border-fjord-accent"
                 >
-                  <option value="">Latest (rolling)</option>
+                  <option value="">Keep up to date{newestOf(train) ? ` (now ${newestOf(train)})` : ''}</option>
                   {#each trains[train] || [] as v}
-                    <option value={v.tag}>{v.version}</option>
+                    <option value={v.tag}>Stay on {v.version}</option>
                   {/each}
                 </select>
                 {#if loadingVersions}<span class="text-xs text-fjord-fg-dim">Loading versions…</span>{/if}

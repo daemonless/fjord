@@ -1587,6 +1587,7 @@
     name={changeVersion.service ? `${changeVersion.name} · ${changeVersion.service}` : changeVersion.name}
     image={changeVersion.image}
     suggestTag={changeVersion.suggest ?? ''}
+    appId={stack.state?.origin?.app_id ?? ''}
     on:apply={(e) => {
       if (changeVersion) onApplyVersion(changeVersion, e.detail.tag, e.detail.pin);
       changeVersion = null;

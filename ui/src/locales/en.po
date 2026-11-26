@@ -465,15 +465,11 @@ msgstr "Loading published versions…"
 msgid "No published tags found for this image."
 msgstr "No published tags found for this image."
 
-#: src/ChangeVersionModal.svelte
-#: src/InstallWizard.svelte
-msgid "Build / channel"
-msgstr "Build / channel"
+#~ msgid "Build / channel"
+#~ msgstr "Build / channel"
 
-#: src/ChangeVersionModal.svelte
-#: src/InstallWizard.svelte
-msgid "Latest (rolling)"
-msgstr "Latest (rolling)"
+#~ msgid "Latest (rolling)"
+#~ msgstr "Latest (rolling)"
 
 #: src/ChangeVersionModal.svelte
 #: src/InstallWizard.svelte
@@ -481,9 +477,8 @@ msgstr "Latest (rolling)"
 msgid "Version"
 msgstr "Version"
 
-#: src/ChangeVersionModal.svelte
-msgid "Custom tag (optional)"
-msgstr "Custom tag (optional)"
+#~ msgid "Custom tag (optional)"
+#~ msgstr "Custom tag (optional)"
 
 #: src/ChangeVersionModal.svelte
 msgid "Pin to exact image <0>(sha256 digest)</0> <1>Locks to the exact <0>sha256:…</0> that <1/> points to right now, so if that tag is later re-published to a different image, this stack stays on the bytes you pinned. Update won't move it until you unpin.</1>"
@@ -752,6 +747,8 @@ msgstr "Stopped"
 msgid "Problems"
 msgstr "Problems"
 
+#: src/ChangeVersionModal.svelte
+#: src/InstallWizard.svelte
 #: src/Sidebar.svelte
 msgid "Updates"
 msgstr "Updates"
@@ -5308,3 +5305,45 @@ msgstr "The ZFS dataset {0}: deleting it removes its snapshots too"
 #: src/StackDetail.svelte
 msgid "with its snapshots"
 msgstr "with its snapshots"
+
+#. 0: g.line
+#. 0: g.line
+#: src/ChangeVersionModal.svelte
+#: src/InstallWizard.svelte
+msgid "Release {0}"
+msgstr "Release {0}"
+
+#: src/ChangeVersionModal.svelte
+#: src/InstallWizard.svelte
+msgid "Other"
+msgstr "Other"
+
+#. 0: newest
+#. 0: newestOf(train)
+#: src/ChangeVersionModal.svelte
+#: src/InstallWizard.svelte
+msgid " (now {0})"
+msgstr " (now {0})"
+
+#. 0: v.version
+#. 0: v.version
+#: src/ChangeVersionModal.svelte
+#: src/InstallWizard.svelte
+msgid "Stay on {0}"
+msgstr "Stay on {0}"
+
+#. 0: newest ? ` (now ${newest})` \\: ''
+#. 0: newestOf(train) ? ` (now ${newestOf(train)})` \\: ''
+#: src/ChangeVersionModal.svelte
+#: src/InstallWizard.svelte
+msgid "Keep up to date{0}"
+msgstr "Keep up to date{0}"
+
+#: src/ChangeVersionModal.svelte
+msgid "Any published tag"
+msgstr "Any published tag"
+
+#: src/ChangeVersionModal.svelte
+#: src/ChangeVersionModal.svelte
+msgid "Custom tag"
+msgstr "Custom tag"
