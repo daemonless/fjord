@@ -473,8 +473,15 @@ func TestHandleAppPlanInstallsDirectly(t *testing.T) {
 		}
 	}
 
-	// Send the plan JSON straight to POST /api/apps/install.
-	instReq := httptest.NewRequest(http.MethodPost, "http://nas.local:3567/api/apps/install", bytes.NewReader(planRec.Body.Bytes()))
+	// Send the plan JSON straight to POST /api/apps/install, with the
+	// catalog it came from, as the wizard sends it.
+	var body map[string]any
+	if err := json.Unmarshal(planRec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	body["catalog"] = "daemonless"
+	planJSON, _ := json.Marshal(body)
+	instReq := httptest.NewRequest(http.MethodPost, "http://nas.local:3567/api/apps/install", bytes.NewReader(planJSON))
 	instRec := httptest.NewRecorder()
 	mux.ServeHTTP(instRec, instReq)
 	if instRec.Code != http.StatusOK {
@@ -487,5 +494,8 @@ func TestHandleAppPlanInstallsDirectly(t *testing.T) {
 	env := st.EnvMap()
 	if env["WEB_PORT"] != "17878" || env["PUBLIC_URL"] != "http://nas.local:17878" || len(env["API_KEY"]) != 64 {
 		t.Errorf("installed env = %v", env)
+	}
+	if st.State == nil || st.State.Origin.Catalog != "daemonless" {
+		t.Errorf("origin = %+v, want its catalog recorded", st.State)
 	}
 }

@@ -281,7 +281,7 @@
   type DeletePlan = {
     containers?: string[];
     stackDir: string;
-    appData: { path: string; bytes: number; more?: boolean }[];
+    appData: { path: string; dataset?: string; bytes: number; more?: boolean }[];
     keeps: { path: string; why: string }[];
   };
   let deletePlan: DeletePlan | 'loading' | 'error' | null = null;
@@ -834,7 +834,7 @@
                 {deleteData ? '— deleted with it:' : '— kept on disk unless you tick below:'}
                 {#each deletePlan.appData as d}
                   <span class="block font-mono {deleteData ? 'text-fjord-danger' : 'text-fjord-success'}"
-                    >{d.path} <span class="font-sans text-fjord-fg-dim">({d.more ? 'more than ' : ''}{fmtBytes(d.bytes)})</span></span
+                    >{d.path} <span class="font-sans text-fjord-fg-dim">({d.more ? 'more than ' : ''}{fmtBytes(d.bytes)}{#if d.dataset}, <span title="The ZFS dataset {d.dataset}: deleting it removes its snapshots too">with its snapshots</span>{/if})</span></span
                   >
                 {/each}
               </span>

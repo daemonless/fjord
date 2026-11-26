@@ -5283,6 +5283,18 @@ msgstr ""
 msgid "It answers on this host's own {0} <0/>. Nothing is published: the app listens there itself."
 msgstr "Elle répond sur ce même hôte, {0} <0/>. Rien n'est publié : l'application y écoute elle-même."
 
+#~ msgid ", the ZFS dataset <0/>"
+#~ msgstr ""
+
+#. 0: d.dataset
+#: src/StackDetail.svelte
+msgid "The ZFS dataset {0}: deleting it removes its snapshots too"
+msgstr ""
+
+#: src/StackDetail.svelte
+msgid "with its snapshots"
+msgstr ""
+
 #. 0: g.line
 #. 0: g.line
 #: src/ChangeVersionModal.svelte

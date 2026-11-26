@@ -22,7 +22,8 @@
 #              its own PASS/FAIL lines go through say, so they are counted
 #   UI_ENV     extra -e settings for the container
 # A test that only means something on some hosts says so in its .js, in a
-# line of its own: `// needs: freebsd appjail` (freebsd, linux, appjail).
+# line of its own: `// needs: freebsd appjail` (freebsd, linux, appjail;
+# lanlab: the lab bridges test/ui/README.md lists).
 # Elsewhere it is skipped, not failed.
 # Helpers for them: on, answers, del_stack, del_net, run_js, say (below).
 #
@@ -83,7 +84,7 @@ IMAGE=ghcr.io/daemonless/playwright:latest
 OUT=test/ui/out
 
 # The default order: cheap and read-only first, the long installs last.
-SUITE="open-link switch-stack keys default-install banner update wording busy output-elsewhere shell-light folders host-caps outcome tag-picker arch retag-var leftover french netavark appjail-dns dns-port appjail-update update-stopped update-badtag row-failed restart-row privdel apply wire type matrix multi extra restart store-off names-linked names-again shortcuts linux"
+SUITE="open-link switch-stack keys default-install banner update wording busy output-elsewhere shell-light folders host-caps outcome tag-picker arch retag-var leftover french netavark appjail-dns dns-port appjail-update update-stopped update-badtag row-failed restart-row privdel apply wire type matrix multi net-event extra restart store-off names-linked names-again shortcuts linux"
 # Opt-in: image-specific, or needing something the default host lacks.
 OPT_IN="lnms-admin choice"
 
@@ -151,6 +152,7 @@ rm -rf "$OUT"; mkdir -p "$OUT"
 
 HOST_OS=$(on uname -s | tr '[:upper:]' '[:lower:]')
 HOST_APPJAIL=$(on 'command -v appjail >/dev/null && echo yes')
+HOST_LANLAB=$(on 'for b in lanbridge lanbridge2 v6lab; do ifconfig $b >/dev/null 2>&1 || ip link show $b >/dev/null 2>&1 || exit 0; done; echo yes')
 # lacks <test> names what the test's `// needs:` line asks for that this host
 # does not have, or nothing.
 lacks() {
@@ -158,6 +160,7 @@ lacks() {
     case $_n in
       freebsd|linux) [ "$HOST_OS" = "$_n" ] || printf '%s ' "$_n" ;;
       appjail) [ -n "$HOST_APPJAIL" ] || printf '%s ' "$_n" ;;
+      lanlab) [ -n "$HOST_LANLAB" ] || printf '%s ' "$_n" ;;
       *) printf '%s(unknown) ' "$_n" ;;
     esac
   done

@@ -44,7 +44,10 @@
     return 'On a failed background health check, do nothing and report the failure.';
   }
 
-  function choices() {
+  // Reactive, not a function called in the markup: that would keep the
+  // sentence from redrawing as the numbers change.
+  $: choices = choicesFor(maxTries, cooldown);
+  function choicesFor(maxTries: number, cooldown: number) {
     return [
       {
         value: 'none',
@@ -72,7 +75,15 @@
       : d.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
   }
 
+  // What fjordd accepts. The field is set to it too, so it never shows a
+  // number other than the one saved.
+  const MAX_TRIES = 20;
+  const clampTries = (n: number) => Math.max(1, Math.min(MAX_TRIES, Math.round(n) || 3));
+  const clampCooldown = (n: number) => Math.max(10, Math.min(3600, Math.round(n) || 60));
+
   async function save(nextAction: string, tries = maxTries, wait = cooldown) {
+    tries = maxTries = clampTries(tries);
+    wait = cooldown = clampCooldown(wait);
     saving = true;
     try {
       const res = await fetch(`/api/stacks/${encodeURIComponent(name)}/recovery-policy`, {
@@ -80,8 +91,8 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           action: nextAction,
-          maxTries: Math.max(1, Math.min(20, Math.round(tries) || 3)),
-          cooldown: Math.max(10, Math.min(3600, Math.round(wait) || 60)),
+          maxTries: tries,
+          cooldown: wait,
         }),
       });
       if (!res.ok) {
@@ -108,7 +119,7 @@
     {describedBy}
     buttonAttrs={{ 'data-recovery': action }}
   >
-    {#each choices() as c}
+    {#each choices as c}
       <div class="flex flex-col gap-1.5 px-3 py-2 hover:bg-fjord-border/50 {action === c.value ? 'bg-fjord-border/30' : ''}">
         <button
           type="button"
@@ -136,7 +147,7 @@
                 type="number"
                 aria-label="Maximum recovery attempts"
                 min="1"
-                max="20"
+                max={MAX_TRIES}
                 bind:value={maxTries}
                 disabled={saving}
                 on:change={() => save('restart', maxTries, cooldown)}
