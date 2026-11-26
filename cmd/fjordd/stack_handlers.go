@@ -13,6 +13,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -21,6 +22,7 @@ import (
 	"time"
 
 	composepkg "github.com/daemonless/fjord/pkg/compose"
+	"github.com/daemonless/fjord/pkg/dataset"
 	"github.com/daemonless/fjord/pkg/engine"
 	"github.com/daemonless/fjord/pkg/history"
 	"github.com/daemonless/fjord/pkg/hostnet"
@@ -378,6 +380,16 @@ func (s *server) removeStackNow(name string, data bool) (int, string) {
 		}
 		if data {
 			for _, d := range s.planDelete(ctx, st).AppData {
+				if d.Dataset != "" {
+					// Only a dataset fjord made, with nothing in it someone
+					// else made (dataset.Owned).
+					if err := dataset.Destroy(ctx, d.Dataset, path.Base(d.Dataset)); err != nil {
+						keep()
+						return 500, "not deleted: " + err.Error() + " -- the stack is stopped and still listed"
+					}
+					log.Printf("delete %s: destroyed its dataset %s", name, d.Dataset)
+					continue
+				}
 				if err := os.RemoveAll(d.Path); err != nil {
 					keep()
 					return 500, "not deleted: could not remove its app data " + d.Path + ": " + err.Error() +
