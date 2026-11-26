@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { isoDateTime } from './when';
   import { onMount, tick } from 'svelte';
   import { staleNote } from './staleNote';
   import { ensureRemoteVolume, remoteKind } from './remote';
@@ -632,11 +633,7 @@
       default: return 'Failed';
     }
   }
-  const failedWhen = (at: string) => {
-    const d = new Date(at);
-    const sameDay = d.toDateString() === new Date().toDateString();
-    return sameDay ? d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : d.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
-  };
+  const failedWhen = (at: string) => isoDateTime(at);
   $: pendingApply = !!stack && (stack.state?.pending_services?.length ?? 0) > 0 &&
     ['running', 'partial'].includes(statusLabel(stack.status));
 </script>

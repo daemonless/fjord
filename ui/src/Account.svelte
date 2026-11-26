@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { isoDate, isoDateTime } from './when';
   import { onMount } from 'svelte';
   import Spinner from './Spinner.svelte';
   import { auth, loadAuth, postJSON } from './auth';
@@ -103,7 +104,7 @@
     if (mins < 2) return 'just now';
     if (mins < 60) return `${mins} minutes ago`;
     if (mins < 48 * 60) return `${Math.round(mins / 60)} hours ago`;
-    return d.toLocaleDateString();
+    return isoDate(d);
   }
 
   const input =
@@ -176,7 +177,7 @@
       <div class="border border-fjord-border rounded-xl overflow-hidden divide-y divide-fjord-border">
         {#each activity as e}
           <div class="flex items-center gap-4 px-4 py-2.5">
-            <span class="w-32 shrink-0 text-xs text-fjord-fg-dim" title={new Date(e.time).toLocaleString()}>{when(e.time)}</span>
+            <span class="w-32 shrink-0 text-xs text-fjord-fg-dim" title={isoDateTime(e.time, true)}>{when(e.time)}</span>
             <span class="min-w-0 flex-1 text-sm {e.kind === 'failed' ? 'text-fjord-warning' : 'text-fjord-fg-body'}">{e.text}</span>
             {#if e.addr}<span class="shrink-0 text-xs text-fjord-fg-dim font-mono">{e.addr}</span>{/if}
           </div>

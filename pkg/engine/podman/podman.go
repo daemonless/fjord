@@ -621,7 +621,7 @@ func (b *Backend) verifyRecreated(ctx context.Context, pw *io.PipeWriter, s *sta
 			// different clocks' roundings, never from different hosts.
 			if c.Created.Before(since.Add(-time.Second)) {
 				fmt.Fprintf(pw, "\n[error] %s was not %s: it still runs the container from %s, %s\n",
-					svc, done, c.Created.Local().Format("Jan 2 15:04"), still)
+					svc, done, c.Created.Local().Format("2006-01-02 15:04"), still)
 				ok = false
 			}
 		}

@@ -1,3 +1,4 @@
+import { isoDate } from './when';
 // What an update changes, in one sentence for the Update panel. It used to be
 // a log line -- "rebuild · same version (10.11.19) · built Sep 21 → Sep 22 ·
 // no package changes" -- with raw digests beside it; the digests now live in
@@ -15,8 +16,7 @@ export type Changes = {
   removed?: unknown[];
 };
 
-const day = (iso?: string) =>
-  iso ? new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric', timeZone: 'UTC' }) : '';
+const day = (iso?: string) => (iso ? isoDate(iso, true) : '');
 
 // Not `plural`: wuchale rewrites any plural(n, ...) call as its own, which
 // passed the locale in as the plural ("3 en changed").

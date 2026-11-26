@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { isoDateTime } from './when';
   import { createEventDispatcher } from 'svelte';
   import MenuField from './MenuField.svelte';
   import { toast } from './toast';
@@ -65,11 +66,7 @@
   }
 
   function fmtEventTime(at: string): string {
-    const d = new Date(at);
-    const sameDay = d.toDateString() === new Date().toDateString();
-    return sameDay
-      ? d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-      : d.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+    return isoDateTime(at);
   }
 
   async function save(nextAction: string, tries = maxTries, wait = cooldown) {

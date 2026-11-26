@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { isoDateTime } from './when';
   import { onMount } from 'svelte';
   import Icon from './Icon.svelte';
   import Spinner from './Spinner.svelte';
@@ -233,7 +234,7 @@
         <div class="flex items-start justify-between gap-4">
           <div>
             <p class="text-sm font-semibold text-fjord-fg">{n.title}</p>
-            <p class="text-xs text-fjord-fg-dim">{new Date(n.at).toLocaleString()}</p>
+            <p class="text-xs text-fjord-fg-dim">{isoDateTime(n.at)}</p>
           </div>
           <button
             on:click={() => dismissNotice(n.id)}
