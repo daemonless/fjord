@@ -2,6 +2,7 @@
 // through fjord's pages on netlab. lanbridge has no host address and DHCP on
 // VLAN 4; v6lab answers no DHCPv4; lan-range (192.168.86.0/24 on lanbridge)
 // is the wrong network left from before.
+// needs: freebsd lanlab
 const { chromium } = require('playwright-core');
 const { signedIn, openPage } = require('./session');
 const BASE = process.env.FJORD || 'http://127.0.0.1:3567';

@@ -1,7 +1,7 @@
 // One app on several networks, through fjord's pages: picked in the install
 // wizard, and added afterwards on the Services tab. run-multi.sh checks from
 // the host that every interface got an address and answers.
-// needs: freebsd appjail
+// needs: freebsd appjail lanlab
 const { chromium } = require('playwright-core');
 const { signedIn, openPage } = require('./session');
 const BASE = process.env.FJORD || 'http://127.0.0.1:3567';
