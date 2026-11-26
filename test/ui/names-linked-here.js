@@ -27,6 +27,9 @@ const shot = (page, n) => page.screenshot({ path: `/out/names-linked-here-${n}.p
       const install = page.getByRole('button', { name: 'Install', exact: true });
       await install.waitFor();
       await page.getByLabel('Name', { exact: true }).fill(STACK);
+      // It bind-mounts podman's socket: a capability asked for at install.
+      const caps = page.getByLabel(/Allow host capabilities/);
+      if (await caps.isVisible().catch(() => false)) await caps.check();
       await install.click();
       let d;
       for (let i = 0; i < 100; i++) {
