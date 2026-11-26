@@ -45,7 +45,7 @@ func (s *server) nameEnvHints(ctx context.Context, st *stack.Stack) map[string]s
 	if st.State == nil || st.State.Origin.AppID == "" || s.cat == nil {
 		return nil
 	}
-	raw, err := s.cat.ManifestAny(ctx, st.State.Origin.AppID)
+	raw, err := s.originManifest(ctx, st)
 	if err != nil {
 		return nil
 	}

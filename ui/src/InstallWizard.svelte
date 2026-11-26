@@ -1052,6 +1052,8 @@
     }
     dispatch('deploy', {
       name: stackName.trim(),
+      // The catalog it came from: two can carry the same app.
+      catalog: activeSource?.catalog || undefined,
       engine: engineChoice,
       manifest: manifestText,
       values,

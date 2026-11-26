@@ -1236,6 +1236,8 @@
     /** service -> built-in mode (host/bridge/none). */
     networkModes?: Record<string, string>;
     choices?: Record<string, string>;
+    /** The catalog source it came from. */
+    catalog?: string;
     /** The name to give it (radarr.apps.lan), once it runs. */
     givenName?: string;
     restart?: { policy: string; retries?: number };
@@ -1257,7 +1259,7 @@
       const res = await fetch('/api/apps/install', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, manifest, values, ...(paths ? { paths } : {}), ...(appData ? { appData } : {}), ...(appId ? { app_id: appId } : {}), ...(engine ? { engine } : {}), ...(tag ? { tag } : {}), ...(network ? { network, ip, ...(mac ? { mac } : {}) } : {}), ...(networkPlan ? { networkPlan } : {}), ...(netList?.length ? { networks: netList } : {}), ...(networkModes ? { networkModes } : {}), ...(choices ? { choices } : {}), ...(e.detail.givenName ? { givenName: e.detail.givenName } : {}), ...(restart ? { restart } : {}) }),
+        body: JSON.stringify({ name, manifest, values, ...(paths ? { paths } : {}), ...(appData ? { appData } : {}), ...(appId ? { app_id: appId } : {}), ...(e.detail.catalog ? { catalog: e.detail.catalog } : {}), ...(engine ? { engine } : {}), ...(tag ? { tag } : {}), ...(network ? { network, ip, ...(mac ? { mac } : {}) } : {}), ...(networkPlan ? { networkPlan } : {}), ...(netList?.length ? { networks: netList } : {}), ...(networkModes ? { networkModes } : {}), ...(choices ? { choices } : {}), ...(e.detail.givenName ? { givenName: e.detail.givenName } : {}), ...(restart ? { restart } : {}) }),
       });
       // The server sends the id as soon as the stack exists on disk -- also
       // when it then refuses to start it. So the header, not the status, says
