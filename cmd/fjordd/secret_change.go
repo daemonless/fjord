@@ -25,7 +25,7 @@ func (s *server) secretVars(ctx context.Context, st *stack.Stack) map[string]boo
 	if st.State == nil || st.State.Origin.AppID == "" || s.cat == nil {
 		return nil
 	}
-	raw, err := s.cat.ManifestAny(ctx, st.State.Origin.AppID)
+	raw, err := s.originManifest(ctx, st)
 	if err != nil {
 		return nil
 	}

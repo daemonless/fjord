@@ -31,6 +31,9 @@ const shot = (page, n) => page.screenshot({ path: `/out/names-${n}.png`, fullPag
     await page.getByLabel('Name', { exact: true }).fill(STACK);
     note('wizard: no name row for the proxy itself', !(await page.getByText('Open it at').isVisible().catch(() => false)), 'checked');
     await shot(page, '1-wizard');
+    // It bind-mounts podman's socket: a capability asked for at install.
+    const caps = page.getByLabel(/Allow host capabilities/);
+    if (await caps.isVisible().catch(() => false)) await caps.check();
     await install.click();
     let d;
     for (let i = 0; i < 80; i++) {
@@ -246,14 +249,17 @@ const shot = (page, n) => page.screenshot({ path: `/out/names-${n}.png`, fullPag
     // the install's Output must say so for a page opened later.
     const lan = ((await req('/api/networks')).body || []).find((n) => n.name === 't-lan');
     const manifest = await (await page.request.get(BASE + '/catalog/daemonless/manifests/' + APP + '.yaml')).text();
-    const body = { name: T, app_id: APP, manifest, values: {}, engine: 'podman', givenName: T, ...(lan ? { network: 't-lan', ip: '' } : {}) };
+    // The plan's values, as the wizard sends them: a free port, not the
+    // default another test app already holds.
+    const plan = (await req('/api/apps/' + APP + '/plan')).body || {};
+    const body = { name: T, app_id: APP, manifest, values: plan.values || {}, engine: 'podman', givenName: T, ...(lan ? { network: 't-lan', ip: '' } : {}) };
     const started = Date.now();
     const ins = await page.request.fetch(BASE + '/api/apps/install', { method: 'POST', data: body, headers: { Origin: BASE }, timeout: 600000 });
     const out = await ins.text();
     const d3 = await settle(T);
     const rec3 = (await req('/api/names')).body?.names?.[T] || null;
     const own = (d3?.status?.containers || []).map((c) => c.address).find((a) => a && a.startsWith('192.168.'));
-    note(`unwatched install${lan ? ' on its own address' : ''} came up`, d3?.status?.state === 'running', `state ${d3?.status?.state}${own ? ' at ' + own : ''} after ${Math.round((Date.now() - started) / 1000)}s`);
+    note(`unwatched install${lan ? ' on its own address' : ''} came up`, d3?.status?.state === 'running', `state ${d3?.status?.state}${own ? ' at ' + own : ''} after ${Math.round((Date.now() - started) / 1000)}s${d3?.status?.state === 'running' ? '' : ': ' + ins.status() + ' ' + out.trim().slice(-160)}`);
     note('the daemon gave it its name with nobody on the page', !!rec3?.url, rec3?.url ? `${rec3.url} -> ${rec3.target?.address}:${rec3.target?.port}` : 'no name');
     if (lan && own) note('the name points at the app\'s own address and its container port', rec3?.target?.address === own && rec3?.target?.port === 3000, `${rec3?.target?.address}:${rec3?.target?.port}, app at ${own}`);
     note('the install Output says where it is', new RegExp(`\\[fjord\\] ${T} is at https?://${T}\\.`).test(out), (out.match(/\[fjord\] [^\n]*name[^\n]*|\[fjord\] [^\n]* is at [^\n]*/) || ['no [fjord] line about the name'])[0]);

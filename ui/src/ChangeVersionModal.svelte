@@ -1,10 +1,13 @@
 <script lang="ts">
   import { onMount, createEventDispatcher } from 'svelte';
   import Icon from './Icon.svelte';
+  import { variantChoices, flatChoices, type Variant } from './variants';
 
   export let name: string;
   export let image: string; // current image, e.g. ghcr.io/x/tautulli:pkg
   export let suggestTag = ''; // pre-select this tag (e.g. a newer version to upgrade to)
+  /** The catalog app the stack came from: its variants name the menu. */
+  export let appId = '';
 
   const dispatch = createEventDispatcher();
 
@@ -26,10 +29,22 @@
   let train = '';
   let versionTag = '';
   let customTag = '';
+  let customOpen = false;
+  let variants: Variant[] = [];
   let pin = currentlyPinned;
   let applying = false;
 
-  $: trainList = Object.keys(trains);
+  // The same menu as the install wizard (variants.ts). The tag running now
+  // stays offered, marked, even when it is no longer a variant.
+  $: groups = (() => {
+    const g = variantChoices(variants, trains);
+    if (train && !flatChoices(g).some((c) => c.id === train))
+      g.unshift({ line: '', choices: [{ id: train, text: `${train}  (current)`, desc: '', rec: false, newest: '' }] });
+    return g;
+  })();
+  $: trainList = flatChoices(groups).map((c) => c.id);
+  $: trainDesc = flatChoices(groups).find((c) => c.id === train)?.desc ?? '';
+  $: newest = trains[train]?.[0]?.version ?? '';
   $: tag = customTag.trim() || versionTag || train;
   // Enable Apply when the version changed, or the pin state was toggled.
   $: dirty = tag !== currentTag || pin !== currentlyPinned;
@@ -53,9 +68,21 @@
     } catch {}
   }
 
+  // The catalog's variants for this app, when they describe this image.
+  async function loadVariants() {
+    if (!appId) return;
+    try {
+      const r = await fetch('/catalog/catalog.json', { cache: 'no-store' });
+      if (!r.ok) return;
+      const app = ((await r.json()).apps ?? []).find((a: any) => a.id === appId);
+      variants = (app?.variants ?? []).filter((v: any) => !v.image || String(v.image).startsWith(repo + ':'));
+    } catch {}
+  }
+
   async function load() {
     loading = true;
     loadError = '';
+    await loadVariants();
     try {
       const res = await fetch(`/api/registry/versions?image=${encodeURIComponent(repo)}`);
       if (res.ok) trains = (await res.json()) ?? {};
@@ -87,7 +114,7 @@
         }
       }
     }
-    if (!train) train = trainList[0] || currentTag;
+    if (!train) train = Object.keys(trains)[0] || currentTag;
   }
 
   onMount(load);
@@ -124,44 +151,61 @@
         Could not load the published versions: {loadError}
         <button on:click={load} class="ml-1 underline decoration-dotted hover:text-fjord-warning/80">Try again</button>
       </p>
-    {:else if trainList.length === 0}
+    {:else if Object.keys(trains).length === 0}
       <p class="text-fjord-fg-dim text-sm">No published tags found for this image.</p>
     {:else}
-      <div class="grid grid-cols-2 gap-3">
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        {#if trainList.length > 1}
         <div class="flex flex-col gap-1">
-          <label class="text-sm font-semibold text-fjord-fg-secondary" for="cv-train">Build / channel</label>
+          <label class="text-sm font-semibold text-fjord-fg-secondary" for="cv-train">Version</label>
           <select
             id="cv-train"
             bind:value={train}
             on:change={() => (versionTag = '')}
             class="bg-fjord-inset border border-fjord-border rounded-md px-3 py-2 text-fjord-fg-body focus:outline-none focus:border-fjord-accent"
           >
-            {#each trainList as t}<option value={t}>{t}</option>{/each}
+            {#each groups as g}
+              {#if groups.length > 1}
+                <optgroup label={g.line ? `Release ${g.line}` : 'Other'}>
+                  {#each g.choices as c}<option value={c.id}>{c.text}</option>{/each}
+                </optgroup>
+              {:else}
+                {#each g.choices as c}<option value={c.id}>{c.text}</option>{/each}
+              {/if}
+            {/each}
           </select>
+          {#if trainDesc}<span class="text-xs text-fjord-fg-dim">{trainDesc}</span>{/if}
         </div>
+        {/if}
         <div class="flex flex-col gap-1">
-          <label class="text-sm font-semibold text-fjord-fg-secondary" for="cv-ver">Version</label>
+          <label class="text-sm font-semibold text-fjord-fg-secondary" for="cv-ver">Updates</label>
           <select
             id="cv-ver"
             bind:value={versionTag}
             class="bg-fjord-inset border border-fjord-border rounded-md px-3 py-2 text-fjord-fg-body focus:outline-none focus:border-fjord-accent"
           >
-            <option value="">Latest (rolling)</option>
-            {#each trains[train] || [] as v}<option value={v.tag}>{v.version}</option>{/each}
+            <option value="">Keep up to date{newest ? ` (now ${newest})` : ''}</option>
+            {#each trains[train] || [] as v}<option value={v.tag}>Stay on {v.version}</option>{/each}
           </select>
         </div>
       </div>
     {/if}
 
     {#if !loading}
-      <div class="flex items-center gap-2 mt-3">
-        <input
-          bind:value={customTag}
-          placeholder="Custom tag (optional)"
-          class="flex-1 bg-fjord-inset border border-fjord-border rounded-md px-3 py-1.5 text-fjord-fg-body font-mono text-xs focus:outline-none focus:border-fjord-accent"
-        />
-        <span class="text-xs text-fjord-fg-dim shrink-0">→ <span class="font-mono text-fjord-fg-secondary">:{tag}</span></span>
-      </div>
+      <!-- Any other published tag (an old one, an alias) is typed here. -->
+      {#if customOpen || customTag}
+        <div class="flex items-center gap-2 mt-3">
+          <input
+            bind:value={customTag}
+            placeholder="Any published tag"
+            aria-label="Custom tag"
+            class="flex-1 bg-fjord-inset border border-fjord-border rounded-md px-3 py-1.5 text-fjord-fg-body font-mono text-xs focus:outline-none focus:border-fjord-accent"
+          />
+          <span class="text-xs text-fjord-fg-dim shrink-0">→ <span class="font-mono text-fjord-fg-secondary">:{tag}</span></span>
+        </div>
+      {:else}
+        <button on:click={() => (customOpen = true)} class="mt-2 text-xs text-fjord-accent hover:underline">Custom tag</button>
+      {/if}
       {#if noBuild}
         <p class="text-xs text-fjord-warning mt-2">{noBuild}</p>
       {/if}

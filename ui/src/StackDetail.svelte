@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { isoDateTime } from './when';
   import { onMount, tick } from 'svelte';
   import { staleNote } from './staleNote';
   import { ensureRemoteVolume, remoteKind } from './remote';
@@ -281,7 +282,7 @@
   type DeletePlan = {
     containers?: string[];
     stackDir: string;
-    appData: { path: string; bytes: number; more?: boolean }[];
+    appData: { path: string; dataset?: string; bytes: number; more?: boolean }[];
     keeps: { path: string; why: string }[];
   };
   let deletePlan: DeletePlan | 'loading' | 'error' | null = null;
@@ -632,11 +633,7 @@
       default: return 'Failed';
     }
   }
-  const failedWhen = (at: string) => {
-    const d = new Date(at);
-    const sameDay = d.toDateString() === new Date().toDateString();
-    return sameDay ? d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : d.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
-  };
+  const failedWhen = (at: string) => isoDateTime(at);
   $: pendingApply = !!stack && (stack.state?.pending_services?.length ?? 0) > 0 &&
     ['running', 'partial'].includes(statusLabel(stack.status));
 </script>
@@ -834,7 +831,7 @@
                 {deleteData ? '— deleted with it:' : '— kept on disk unless you tick below:'}
                 {#each deletePlan.appData as d}
                   <span class="block font-mono {deleteData ? 'text-fjord-danger' : 'text-fjord-success'}"
-                    >{d.path} <span class="font-sans text-fjord-fg-dim">({d.more ? 'more than ' : ''}{fmtBytes(d.bytes)})</span></span
+                    >{d.path} <span class="font-sans text-fjord-fg-dim">({d.more ? 'more than ' : ''}{fmtBytes(d.bytes)}{#if d.dataset}, <span title="The ZFS dataset {d.dataset}: deleting it removes its snapshots too">with its snapshots</span>{/if})</span></span
                   >
                 {/each}
               </span>
@@ -1590,6 +1587,7 @@
     name={changeVersion.service ? `${changeVersion.name} · ${changeVersion.service}` : changeVersion.name}
     image={changeVersion.image}
     suggestTag={changeVersion.suggest ?? ''}
+    appId={stack.state?.origin?.app_id ?? ''}
     on:apply={(e) => {
       if (changeVersion) onApplyVersion(changeVersion, e.detail.tag, e.detail.pin);
       changeVersion = null;

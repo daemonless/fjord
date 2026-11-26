@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { variantChoices, flatChoices } from './variants';
   import { forwardDeploy } from './installForward';
   import { safeHttpUrl } from './appUrl';
   import { matchesSearch, partLabels, type AppPart } from './storeParts';
@@ -520,10 +521,8 @@
           <div class="mt-5">
             <div class="text-xs font-semibold text-fjord-fg-dim mb-1.5">Builds</div>
             <div class="flex flex-wrap gap-1.5">
-              {#each detailApp.variants as v}
-                <span class="text-xs px-2 py-1 rounded bg-fjord-bg border border-fjord-border text-fjord-fg-secondary">
-                  {v.label}{v.version ? ` · ${v.version}` : ''}{v.default ? ' ★' : ''}
-                </span>
+              {#each flatChoices(variantChoices(detailApp.variants, {})) as c}
+                <span title={c.desc || undefined} class="text-xs px-2 py-1 rounded bg-fjord-bg border border-fjord-border text-fjord-fg-secondary">{c.text}</span>
               {/each}
             </div>
           </div>

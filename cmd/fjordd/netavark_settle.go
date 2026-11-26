@@ -34,6 +34,34 @@ func (s *server) settleNetavark(ctx context.Context) bool {
 			s.triggerConditions()
 		}
 	}()
+	// netavark-migrate first, when the port has it: the host side as the
+	// port does it. What it leaves undone, fjord's own fixes below still try.
+	if migrateUsable(ctx) {
+		rep, err := migrateHost(ctx)
+		switch {
+		case err != nil:
+			log.Printf("netavark: netavark-migrate host: %v", err)
+		default:
+			for _, line := range rep.did() {
+				changed = true
+				s.noteHost(netavarkNotice, netavarkNoticeTitle, line)
+			}
+			if rep.ExitCode != 0 || len(rep.Warnings) > 0 {
+				log.Printf("netavark: netavark-migrate host (exit %d): %s", rep.ExitCode, rep.problems())
+			} else if rep.Changed {
+				log.Printf("netavark: netavark-migrate set the host up: %s", strings.Join(rep.did(), " "))
+			}
+			// It sets the port; containers already using names follow it
+			// only once restarted, which fjord's own fix does (it writes
+			// nothing when the port is set).
+			if rep.DNS.Changed {
+				var out bytes.Buffer
+				if err := doctor.Install(doctor.Unattended(ctx), cfg, "dns-port", &out); err != nil {
+					log.Printf("netavark: restart podman's DNS on its new port: %v", err)
+				}
+			}
+		}
+	}
 	for _, id := range netavarkNeeds {
 		r, ok := doctor.RunOne(ctx, cfg, id)
 		if !ok || r.Status == doctor.OK {

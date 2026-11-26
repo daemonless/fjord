@@ -1114,7 +1114,7 @@ func serviceStale(started, installed time.Time, pkg string) (Status, string) {
 	}
 	return Warn, fmt.Sprintf(
 		"running since %s but %s was installed %s -- shells will fail until it is restarted",
-		started.Format("Jan 2 15:04"), pkg, installed.Format("Jan 2 15:04"))
+		started.Format("2006-01-02 15:04"), pkg, installed.Format("2006-01-02 15:04"))
 }
 
 // run is the output of a command, or "" if it fails at all. Every caller here
@@ -1205,7 +1205,33 @@ func enableService(service, rcvar string) func(context.Context, io.Writer) error
 		if err := runShown(ctx, w, nil, "sysrc", rcvar+"=YES"); err != nil {
 			return err
 		}
-		return runShown(ctx, w, nil, "service", service, "onerestart")
+		err := runShown(ctx, w, nil, "service", service, "onerestart")
+		if err == nil {
+			return nil
+		}
+		// rc gives a service a few seconds to show it is up (podman_service:
+		// 5 s for its socket) and calls it failed after that, though it may
+		// still be coming up: podman on a new, empty store takes longer. A
+		// service that is running soon after is started, not failed.
+		if serviceUp(ctx, service, 15*time.Second) {
+			fmt.Fprintf(w, "%s took a while, but it is running.\n", service)
+			return nil
+		}
+		return err
+	}
+}
+
+// serviceUp says whether an rc.d service is running, asked every half
+// second for up to wait.
+var serviceUp = func(ctx context.Context, service string, wait time.Duration) bool {
+	for end := time.Now().Add(wait); ; {
+		if out := run(ctx, "service", service, "onestatus"); out != "" && !strings.Contains(out, "not running") {
+			return true
+		}
+		if time.Now().After(end) || ctx.Err() != nil {
+			return false
+		}
+		time.Sleep(500 * time.Millisecond)
 	}
 }
 

@@ -44,6 +44,9 @@ type OriginInfo struct {
 	Variant        string `json:"variant,omitempty"`
 	ManifestSHA256 string `json:"manifest_sha256,omitempty"`
 	CatalogURL     string `json:"catalog_url,omitempty"`
+	// Catalog is the id of the catalog source the app came from: two
+	// catalogs can carry the same app id.
+	Catalog string `json:"catalog,omitempty"`
 }
 
 // State represents state.json (schema_version 1) inside a stack directory.
@@ -61,6 +64,9 @@ type State struct {
 	AppVersion    string            `json:"app_version,omitempty"`
 	InstalledAt   string            `json:"installed_at"`
 	UpdatedAt     string            `json:"updated_at"`
+	// Dataset is the ZFS dataset fjord made for the stack's data at install
+	// (tagged fjord:stack); "" when its data is in plain folders.
+	Dataset string `json:"dataset,omitempty"`
 	// Restart is the restart policy of a stack whose engine does not read the
 	// compose's `restart:` (AppJail): only start on boot follows it.
 	Restart string `json:"restart,omitempty"`

@@ -1,6 +1,6 @@
 // fjord UI test matrix: everything through the real pages, checked by outcome.
 // Run in ghcr.io/daemonless/playwright on the fjord host (--network host).
-// needs: freebsd appjail
+// needs: freebsd appjail lanlab
 const { chromium } = require('playwright-core');
 const { signedIn, openPage } = require('./session');
 const BASE = process.env.FJORD || 'http://127.0.0.1:3567';

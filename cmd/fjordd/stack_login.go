@@ -47,7 +47,7 @@ func (s *server) loginOf(ctx context.Context, st *stack.Stack) (stackLoginView, 
 	if st.State == nil || st.State.Origin.Type != "catalog" || st.State.Origin.AppID == "" || s.cat == nil {
 		return stackLoginView{}, false
 	}
-	raw, err := s.cat.ManifestAny(ctx, st.State.Origin.AppID)
+	raw, err := s.originManifest(ctx, st)
 	if err != nil {
 		return stackLoginView{}, false
 	}
