@@ -1,6 +1,7 @@
 <script lang="ts">
   import { isoDateTime } from './when';
   import { onMount } from 'svelte';
+  import NetworkBackend from './NetworkBackend.svelte';
   import Icon from './Icon.svelte';
   import Spinner from './Spinner.svelte';
   import HistoryList from './HistoryList.svelte';
@@ -348,6 +349,8 @@
           {/if}
         {/if}
       </div>
+
+      <NetworkBackend />
 
       <!-- Storage cleanup (prune) -->
       <h3 class="text-lg font-bold text-fjord-fg mt-8 mb-1">Storage cleanup</h3>

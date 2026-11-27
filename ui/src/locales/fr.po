@@ -66,6 +66,7 @@ msgstr "Monter dans <0/> — modifie le compose, <1>Enregistrer</1> pour appliqu
 #: src/DirPicker.svelte
 #: src/InstallWizard.svelte
 #: src/NamesPrompt.svelte
+#: src/NetworkBackend.svelte
 #: src/Networks.svelte
 #: src/Networks.svelte
 #: src/Networks.svelte
@@ -5354,3 +5355,68 @@ msgstr "Historique"
 #: src/System.svelte
 msgid "What happened to your stacks, newest first. Each stack's own History tab has the rest."
 msgstr "Ce qui est arrivé à vos piles, du plus récent au plus ancien. L'onglet Historique de chaque pile contient le reste."
+
+#: src/NetworkBackend.svelte
+msgid "podman connects containers with its <0/> network backend."
+msgstr "podman relie les conteneurs avec son backend réseau <0/>."
+
+#: src/NetworkBackend.svelte
+msgid "Switch to netavark…"
+msgstr "Passer à netavark…"
+
+#: src/NetworkBackend.svelte
+msgid "Switch back to CNI…"
+msgstr "Revenir à CNI…"
+
+#: src/NetworkBackend.svelte
+msgid "These stop while podman moves and start again after: <0/>."
+msgstr "Ceux-ci s'arrêtent pendant que podman change, puis redémarrent : <0/>."
+
+#: src/NetworkBackend.svelte
+msgid "No stack on podman is running, so nothing stops."
+msgstr "Aucune pile podman ne tourne, rien ne s'arrête donc."
+
+#. 0: target
+#: src/NetworkBackend.svelte
+msgid "These networks are made again on {0}, with the same names and addresses: <0/>."
+msgstr "Ces réseaux sont recréés sur {0}, avec les mêmes noms et adresses : <0/>."
+
+#: src/NetworkBackend.svelte
+msgid "You can switch back to CNI from here later."
+msgstr "Vous pourrez revenir à CNI d'ici plus tard."
+
+#. 0: target
+#: src/NetworkBackend.svelte
+msgid "Switch to {0}"
+msgstr "Passer à {0}"
+
+#. 0: target
+#: src/NetworkBackend.svelte
+msgid "Switch podman to {0}?"
+msgstr "Passer podman à {0} ?"
+
+#. 0: st.canSwitch ? 'You can switch back to CNI from here later.' \\: ''
+#: src/NetworkBackend.svelte
+msgid "AppJail is not touched. {0}"
+msgstr "AppJail n'est pas modifié. {0}"
+
+#. 0: label(st.to || (st.canSwitch ? 'netavark' \\: 'cni'))
+#: src/NetworkBackend.svelte
+msgid "Switching to {0}… it carries on if you leave this page."
+msgstr "Passage à {0}… cela continue si vous quittez cette page."
+
+#: src/NetworkBackend.svelte
+msgid "Done."
+msgstr "Terminé."
+
+#: src/NetworkBackend.svelte
+msgid "Nothing was changed."
+msgstr "Rien n'a été modifié."
+
+#: src/NetworkBackend.svelte
+msgid "Not everything came back: the lines below say what."
+msgstr "Tout n'est pas revenu : les lignes ci-dessous disent quoi."
+
+#: src/NetworkBackend.svelte
+msgid "Network backend"
+msgstr "Backend réseau"
