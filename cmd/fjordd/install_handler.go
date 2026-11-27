@@ -22,6 +22,7 @@ import (
 	"github.com/daemonless/fjord/pkg/history"
 	"github.com/daemonless/fjord/pkg/manifest"
 	"github.com/daemonless/fjord/pkg/stack"
+	"github.com/daemonless/fjord/pkg/updates"
 )
 
 // storageBase is the default "App data" folder: every app gets
@@ -205,6 +206,10 @@ type installRequest struct {
 	GivenName string `json:"givenName,omitempty"`
 	// Restart is the stack's restart policy; nil takes the Settings default.
 	Restart *composepkg.Restart `json:"restart,omitempty"`
+	// KeepUpToDate is the wizard's "Keep up to date": true installs its
+	// rebuilds and new minor versions by itself (policy minor), false is
+	// off, said; nil (an older client, a script) leaves it unset.
+	KeepUpToDate *bool `json:"keepUpToDate,omitempty"`
 }
 
 // handleInstall installs a catalog app end-to-end: resolve wizard input,
@@ -758,6 +763,15 @@ func (s *server) handleInstall(w http.ResponseWriter, r *http.Request) {
 	// now, even when the bring-up is refused), so the UI can navigate to it
 	// instead of keeping a phantom "installing:<name>" draft.
 	w.Header().Set("X-Fjord-Stack-Id", id)
+	if req.KeepUpToDate != nil {
+		policy := updates.Off
+		if *req.KeepUpToDate {
+			policy = updates.Minors
+		}
+		if err := s.manager.SetUpdatePolicy(id, string(policy), nil); err != nil {
+			log.Printf("install %s: keep up to date: %v", id, err)
+		}
+	}
 	// The stack is saved either way (so the user can edit ports and start it),
 	// but abort the bring-up with a clear message if it can't bind its ports.
 	if problems := s.preflight(ctx, st); len(problems) > 0 {

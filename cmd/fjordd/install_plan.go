@@ -307,8 +307,11 @@ func (s *server) handleAppPlan(w http.ResponseWriter, r *http.Request, appID str
 		choicesOut = picks
 	}
 
+	// New installs keep themselves up to date unless someone says otherwise.
+	keepUpToDate := true
 	plan := installPlan{
 		installRequest: installRequest{
+			KeepUpToDate: &keepUpToDate,
 			Name:         name,
 			AppID:        appID,
 			Manifest:     manifestText,

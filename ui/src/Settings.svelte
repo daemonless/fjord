@@ -1,6 +1,8 @@
 <script lang="ts">
   import Account from './Account.svelte';
-  import { onMount, createEventDispatcher, tick } from 'svelte';
+  import { isoDateTime } from './when';
+  import { onMount, onDestroy, createEventDispatcher, tick } from 'svelte';
+  import { resultLine, runSummary, type AutoUpdate } from './autoupdate';
   import Icon from './Icon.svelte';
   import { LOCALES, currentLocale, setLocale, type Locale } from './locale';
   import Spinner from './Spinner.svelte';
@@ -103,7 +105,7 @@
 
   // Settings is organized into tabs; the active one lives in the URL
   // (#/settings/<tab>), owned by App: it arrives as a prop, changes go up.
-  export let tab: 'storage' | 'extensions' | 'catalogs' | 'names' | 'advanced' | 'account' = 'storage';
+  export let tab: 'storage' | 'extensions' | 'catalogs' | 'updates' | 'names' | 'advanced' | 'account' = 'storage';
   // A linked proxy has no page here: the apps it has not named yet are
   // offered on this tab instead.
   let nameStacks: any[] = [];
@@ -111,11 +113,60 @@
     fetch('/api/stacks').then((r) => (r.ok ? r.json() : [])).then((s) => (nameStacks = s || [])).catch(() => {});
   const dispatch = createEventDispatcher();
   const locale = currentLocale();
-  let activeTab: 'storage' | 'extensions' | 'catalogs' | 'names' | 'advanced' | 'account' = tab;
+  let activeTab: 'storage' | 'extensions' | 'catalogs' | 'updates' | 'names' | 'advanced' | 'account' = tab;
   $: activeTab = tab;
-  function selectTab(t: 'storage' | 'extensions' | 'catalogs' | 'names' | 'advanced' | 'account') {
+  function selectTab(t: 'storage' | 'extensions' | 'catalogs' | 'updates' | 'names' | 'advanced' | 'account') {
     activeTab = t;
     dispatch('tab', t);
+  }
+
+  // ---- automatic updates (Updates tab) ----
+  let au: AutoUpdate | null = null;
+  let auStart = '03:00';
+  let auEnd = '05:00';
+  let auStarting = false;
+  let auLoaded = false;
+  let auPoll: ReturnType<typeof setTimeout> | undefined;
+  async function loadAuto() {
+    clearTimeout(auPoll);
+    try {
+      const r = await fetch('/api/autoupdate');
+      if (!r.ok) return;
+      au = await r.json();
+      // The fields take the saved window once: later loads (after a save, or
+      // while a run is watched) must not undo what is being typed.
+      if (au && !auLoaded) {
+        ({ start: auStart, end: auEnd } = au);
+        auLoaded = true;
+      }
+      if (au?.running) auPoll = setTimeout(loadAuto, 3000);
+    } catch {
+      // shown as it was; the next visit asks again
+    }
+  }
+  $: if (activeTab === 'updates') loadAuto();
+  onDestroy(() => clearTimeout(auPoll));
+  async function saveWindow() {
+    if (!auStart || !auEnd || auStart === auEnd) return;
+    const r = await fetch('/api/autoupdate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ start: auStart, end: auEnd }),
+    }).catch(() => null);
+    if (!r?.ok) toast(`Update window: ${(await r?.text())?.trim() || 'not saved'}`, { kind: 'error' });
+    await loadAuto();
+  }
+  async function resumeAuto() {
+    const r = await fetch('/api/autoupdate/resume', { method: 'POST' }).catch(() => null);
+    if (!r?.ok) toast(`Resume: ${(await r?.text())?.trim() || 'failed'}`, { kind: 'error' });
+    await loadAuto();
+  }
+  async function runNow() {
+    auStarting = true;
+    const r = await fetch('/api/autoupdate/run', { method: 'POST' }).catch(() => null);
+    auStarting = false;
+    if (!r?.ok) toast(`Run now: ${(await r?.text())?.trim() || 'did not start'}`, { kind: 'error' });
+    await loadAuto();
   }
 
   // ---- provider plugins (homelab, ...) ----
@@ -686,6 +737,12 @@
             : 'border-transparent text-fjord-fg-muted hover:text-fjord-fg-body'}">Catalogs</button
         >
         <button
+          on:click={() => selectTab('updates')}
+          class="px-4 py-2 text-sm font-medium -mb-px border-b-2 transition-colors {activeTab === 'updates'
+            ? 'border-fjord-accent text-fjord-fg'
+            : 'border-transparent text-fjord-fg-muted hover:text-fjord-fg-body'}">Updates</button
+        >
+        <button
           on:click={() => selectTab('names')}
           class="px-4 py-2 text-sm font-medium -mb-px border-b-2 transition-colors {activeTab === 'names'
             ? 'border-fjord-accent text-fjord-fg'
@@ -1087,6 +1144,67 @@
         the systemd unit on Linux, or the container environment). Host readiness checks live on the <b>System</b> page.
       </p>
       {/if}
+    {/if}
+
+    {#if activeTab === 'updates'}
+      <div class="max-w-2xl flex flex-col gap-6" data-updates-settings>
+        <div>
+          <h3 class="text-sm font-semibold text-fjord-fg-secondary mb-1">Automatic updates</h3>
+          <p class="text-xs text-fjord-fg-dim mb-3">
+            Stacks with <b>Keep up to date</b> on (in each stack's Settings tab) get their rebuilds and new minor
+            versions in this window, one stack at a time. Each is checked to stay up and recorded in History.
+          </p>
+          {#if au?.paused}
+            <div data-au-paused class="flex items-center gap-3 mb-3 px-4 py-2.5 rounded-lg bg-fjord-danger/10 border border-fjord-danger/25 text-sm text-fjord-fg-body">
+              <span class="flex-1">
+                <b>Paused</b> since {isoDateTime(au.paused)}: two automatic updates failed within a day. Each was
+                rolled back; see the stacks named below. Nothing updates by itself until you resume.
+              </span>
+              <button on:click={resumeAuto}
+                class="shrink-0 px-3 py-1.5 rounded-lg text-sm font-medium bg-fjord-accent text-white hover:bg-fjord-accent-hover transition-colors"
+                >Resume</button>
+            </div>
+          {/if}
+          <div class="flex flex-wrap items-center gap-2 text-sm">
+            <label for="au-start" class="text-fjord-fg-muted">Between</label>
+            <input id="au-start" type="time" step="900" bind:value={auStart} on:change={saveWindow}
+              class="bg-fjord-inset border border-fjord-border rounded-md px-2 py-1 font-mono text-fjord-fg-body focus:outline-none focus:border-fjord-accent" />
+            <label for="au-end" class="text-fjord-fg-muted">and</label>
+            <input id="au-end" type="time" step="900" bind:value={auEnd} on:change={saveWindow}
+              class="bg-fjord-inset border border-fjord-border rounded-md px-2 py-1 font-mono text-fjord-fg-body focus:outline-none focus:border-fjord-accent" />
+          </div>
+          <div class="flex items-center gap-3 mt-3 text-sm">
+            {#if au?.running}
+              <span class="flex items-center gap-2 text-fjord-fg-muted" data-au-running><Spinner size={13} /> Updating now…</span>
+            {:else if au?.next}
+              <span class="text-fjord-fg-muted" data-au-next>Next: {isoDateTime(au.next)}</span>
+            {/if}
+            <button on:click={runNow} disabled={!!au?.running || auStarting}
+              class="text-xs font-medium text-fjord-fg-muted hover:text-fjord-fg py-1 px-2.5 rounded-md border border-fjord-border hover:border-fjord-accent/40 transition-colors disabled:opacity-40"
+              >Run now</button>
+          </div>
+        </div>
+        <div>
+          <h3 class="text-sm font-semibold text-fjord-fg-secondary mb-1">Last run</h3>
+          {#if au?.last?.at}
+            <p class="text-xs text-fjord-fg-dim mb-2" data-au-last>
+              {isoDateTime(au.last.at)}{au.last.trigger === 'automatic' ? '' : ', started by hand'}: {runSummary(au.last)}.
+            </p>
+            {#if au.last.results?.length}
+              <ul class="flex flex-col gap-1 text-sm" data-au-results>
+                {#each au.last.results as r}
+                  <li class="flex gap-2">
+                    <span class="font-semibold text-fjord-fg-body">{r.stack}</span>
+                    <span class={r.result === 'failed' || r.result === 'rolled back' ? 'text-fjord-danger' : r.result === 'updated' ? 'text-fjord-fg-body' : 'text-fjord-fg-muted'}>{resultLine(r)}</span>
+                  </li>
+                {/each}
+              </ul>
+            {/if}
+          {:else}
+            <p class="text-xs text-fjord-fg-dim">Not run yet.</p>
+          {/if}
+        </div>
+      </div>
     {/if}
 
     {#if activeTab === 'names'}

@@ -141,7 +141,9 @@
   // Host-mode fjordd can browse the host filesystem; a container can't.
   let hostMode = false;
   // Runtime engines available for this install (podman, appjail, ...).
-  let engines: { name: string; available: boolean; default: boolean; warning?: string; restartPolicies?: string[]; restartOnExit?: boolean }[] = [];
+  let engines: { name: string; available: boolean; default: boolean; warning?: string; restartPolicies?: string[]; restartOnExit?: boolean; keepsUpToDate?: boolean }[] = [];
+  // Keep up to date: on for a new install, where its engine can do it.
+  let keepUpToDate = true;
   // The restart policy, from the engine's choices, starting from its default
   // in Settings; picking another engine starts again from that one's. An
   // engine that offers none installs without one.
@@ -153,6 +155,7 @@
   $: restartEngine = engines.find((e) => e.name === engineChoice);
   $: restartPolicies = restartEngine?.restartPolicies ?? [];
   $: restartOnExit = !!restartEngine?.restartOnExit;
+  $: canKeepUpToDate = !!restartEngine?.keepsUpToDate;
   function restartFromDefault(eng: string) {
     restartFor = eng;
     restartPolicy = restartDefaults[eng]?.policy || 'unless-stopped';
@@ -970,6 +973,7 @@
           restartPolicy = planData.restart.policy;
           restartRetries = planData.restart.retries || DEFAULT_RETRIES;
         }
+        if (typeof planData.keepUpToDate === 'boolean') keepUpToDate = planData.keepUpToDate;
         if (planData.network) netChoice = planData.network;
         if (planData.interfaces && Object.keys(planData.interfaces).length) {
           planEdits = planData.interfaces;
@@ -1061,6 +1065,7 @@
       choices: picks,
       givenName: offerName && wantName && givenName ? givenName : undefined,
       restart: restartPolicies.includes(restartPolicy) ? { policy: restartPolicy, retries: restartPolicy === 'on-failure' ? restartRetries : 0 } : undefined,
+      keepUpToDate: canKeepUpToDate ? keepUpToDate : undefined,
     });
   }
 
@@ -1689,6 +1694,23 @@
                 note="{engineChoice || 'This engine'} does not take a restart policy from fjord."
               />
             </div>
+
+            {#if canKeepUpToDate}
+              <div class="flex items-start justify-between gap-3" data-wizard-keep-up-to-date>
+                <div class="flex flex-col gap-0.5">
+                  <span class="text-sm font-semibold text-fjord-fg-secondary">Keep up to date</span>
+                  <span class="text-xs text-fjord-fg-dim">
+                    {#if keepUpToDate}
+                      Rebuilds and new minor versions are installed by themselves at night, and rolled back if one fails. New major
+                      versions wait for you.
+                    {:else}
+                      Updates wait for you. You can turn this on later in its Settings tab.
+                    {/if}
+                  </span>
+                </div>
+                <Switch bind:checked={keepUpToDate} label="Keep up to date" />
+              </div>
+            {/if}
 
               {#if advancedVars.length || availableEngines.length > 1 || variants.length}
                 <details class="group border-t border-fjord-border pt-4" open={advancedOpen}>

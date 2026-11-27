@@ -236,6 +236,8 @@ func (s *server) handleStackRoutes(w http.ResponseWriter, r *http.Request) {
 		s.stackRename(w, r, name)
 	case "policy":
 		s.stackPolicy(w, r, name)
+	case "auto-rollback":
+		s.stackAutoRollback(w, r, name)
 	case "restart-policy":
 		s.stackRestart(w, r, name)
 	case "recovery-policy":
@@ -526,50 +528,18 @@ func (s *server) stackChanges(w http.ResponseWriter, r *http.Request, name strin
 		http.Error(w, fmt.Sprintf("%s has no service %q", name, want), 400)
 		return
 	}
-	target := sv.Image
-	up := updates.Check(ctx, s.backendFor(st), []updates.Service{*sv}, s.schemeFor)
-	if up.State == "upgrade" && up.NewTag != "" {
-		target = registry.Repo(sv.Image) + ":" + up.NewTag
-	}
-	newIndex, err := registry.Digest(ctx, target)
+	c, err := s.classifyService(ctx, st, *sv)
 	if err != nil {
 		http.Error(w, err.Error(), 502)
 		return
 	}
-	newDoc, err := sbom.For(ctx, target, newIndex, platformOf(ctx, target, newIndex))
-	if err != nil {
-		http.Error(w, err.Error(), 502)
-		return
-	}
-	// The running side is best effort: an old image can be gone from the
-	// registry, and the answer is then the new side on its own.
-	var oldDoc *sbom.Doc
-	if sv.Running != "" {
-		oldDoc, _ = sbom.For(ctx, sv.Image, sv.Running, platformOf(ctx, sv.Image, sv.Running))
-	}
-	diff := sbom.Compare(oldDoc, newDoc)
-	// The versions the class is judged by: labels, else the SBOM's entry for
-	// the app, else the tags a version bump moves between.
-	repo := registry.Repo(sv.Image)
-	from, to := oldDoc.AppVersion(repo), newDoc.AppVersion(repo)
-	if from == "" && to == "" && up.State == "upgrade" {
-		from, to = up.FromVersion, up.ToVersion
-	}
-	if diff.VersionFrom == "" {
-		diff.VersionFrom = from
-	}
-	if diff.VersionTo == "" {
-		diff.VersionTo = to
-	}
-	class := updates.Classify(from, to)
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(struct {
 		sbom.Diff
 		Class updates.Class `json:"class"`
-		// Auto is what auto-update would do with this, under the stack's
-		// policy -- shown, not acted on, until the scheduler exists.
+		// Auto is what auto-update does with this, under the stack's policy.
 		Auto updates.Verdict `json:"auto"`
-	}{diff, class, s.verdict(st, sv.Name, sv.Image, class, candidateKey(up.State, sv.Image, up.Latest, up.NewTag))})
+	}{c.Diff, c.Class, s.verdict(st, sv.Name, sv.Image, c.Class, c.Key)})
 }
 
 // platformOf is this host's manifest inside an index, or the digest itself

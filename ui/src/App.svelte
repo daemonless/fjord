@@ -12,6 +12,7 @@
   import SetupWizard from './SetupWizard.svelte';
   import Dashboard from './Dashboard.svelte';
   import ConditionsBanner from './ConditionsBanner.svelte';
+  import AutoUpdateOffer from './AutoUpdateOffer.svelte';
   import { type Condition } from './conditions';
   import Spinner from './Spinner.svelte';
   import { loadNames } from './names';
@@ -70,7 +71,7 @@
   let originalMakejail = '';
   let currentView: 'stacks' | 'store' | 'volumes' | 'networks' | 'system' | 'settings' | 'adopt' = 'stacks';
   // Settings sub-tab, mirrored into the URL (#/settings/<tab>) like the views.
-  let settingsTab: 'storage' | 'extensions' | 'catalogs' | 'advanced' | 'account' = 'storage';
+  let settingsTab: 'storage' | 'extensions' | 'catalogs' | 'updates' | 'advanced' | 'account' = 'storage';
 
   // Draft for the "+" button: an image that comes Up as-is, so a blank stack
   // is immediately a box you can open a shell in -- FreeBSD's base image, or
@@ -646,7 +647,7 @@
     } else if (section === 'settings') {
       currentView = 'settings';
       // 'plugins' is the pre-rename route; keep it working for old links
-      settingsTab = name === 'extensions' || name === 'plugins' ? 'extensions' : name === 'catalogs' || name === 'advanced' || name === 'account' ? name : 'storage';
+      settingsTab = name === 'extensions' || name === 'plugins' ? 'extensions' : name === 'catalogs' || name === 'updates' || name === 'advanced' || name === 'account' ? name : 'storage';
       await selectStack(null);
     } else if (section === 'stacks' && name) {
       currentView = 'stacks';
@@ -1247,6 +1248,7 @@
     /** The name to give it (radarr.apps.lan), once it runs. */
     givenName?: string;
     restart?: { policy: string; retries?: number };
+    keepUpToDate?: boolean;
     accepted?: () => void;
     refused?: (msg: string) => void;
   }>) {
@@ -1265,7 +1267,7 @@
       const res = await fetch('/api/apps/install', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, manifest, values, ...(paths ? { paths } : {}), ...(appData ? { appData } : {}), ...(appId ? { app_id: appId } : {}), ...(e.detail.catalog ? { catalog: e.detail.catalog } : {}), ...(engine ? { engine } : {}), ...(tag ? { tag } : {}), ...(network ? { network, ip, ...(mac ? { mac } : {}) } : {}), ...(networkPlan ? { networkPlan } : {}), ...(netList?.length ? { networks: netList } : {}), ...(networkModes ? { networkModes } : {}), ...(choices ? { choices } : {}), ...(e.detail.givenName ? { givenName: e.detail.givenName } : {}), ...(restart ? { restart } : {}) }),
+        body: JSON.stringify({ name, manifest, values, ...(paths ? { paths } : {}), ...(appData ? { appData } : {}), ...(appId ? { app_id: appId } : {}), ...(e.detail.catalog ? { catalog: e.detail.catalog } : {}), ...(engine ? { engine } : {}), ...(tag ? { tag } : {}), ...(network ? { network, ip, ...(mac ? { mac } : {}) } : {}), ...(networkPlan ? { networkPlan } : {}), ...(netList?.length ? { networks: netList } : {}), ...(networkModes ? { networkModes } : {}), ...(choices ? { choices } : {}), ...(e.detail.givenName ? { givenName: e.detail.givenName } : {}), ...(restart ? { restart } : {}), ...(typeof e.detail.keepUpToDate === 'boolean' ? { keepUpToDate: e.detail.keepUpToDate } : {}) }),
       });
       // The server sends the id as soon as the stack exists on disk -- also
       // when it then refuses to start it. So the header, not the status, says
@@ -1442,6 +1444,7 @@
       ><Icon name={theme === 'dark' ? 'sun' : 'moon'} size={16} /></button
     >
     <ConditionsBanner {conditions} on:changed={loadConditions} />
+    {#if !selectedStack && currentView === 'stacks'}<AutoUpdateOffer />{/if}
     {#if selectedStack}
       <StackDetail
         bind:this={stackDetail}

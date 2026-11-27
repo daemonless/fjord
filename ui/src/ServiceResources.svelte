@@ -74,6 +74,9 @@
   export let rollbacks: Record<string, { ref: string; at: string }> = {};
   // Services pinned to an exact image (a rollback pins; so can the operator).
   export let pinned: Record<string, boolean> = {};
+  // Services held on their earlier image after an automatic update failed:
+  // pinned, but a newer update still goes by itself.
+  export let held: Record<string, string> = {};
   let confirmRollback = '';
   const day = (iso: string) => isoDate(iso);
   export let networks: Net[] = [];
@@ -343,7 +346,15 @@
                 : 'update'}</button
             >
           {/if}
-          {#if pinned[s.name]}
+          {#if pinned[s.name] && held[s.name]}
+            <button
+              on:click={() => dispatch('unpin', s.name)}
+              title="Kept on the image it ran before an automatic update failed. A newer update is still taken by itself. Unpin to follow its tag now."
+              data-held
+              class="shrink-0 ml-3 inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-fjord-warning/15 text-fjord-warning border border-fjord-warning/30 hover:bg-fjord-warning/25"
+              ><Icon name="pin" size={10} />held after a failed update · unpin</button
+            >
+          {:else if pinned[s.name]}
             <button
               on:click={() => dispatch('unpin', s.name)}
               title="Pinned to an exact image, so it takes no updates. Unpin to follow its tag again."

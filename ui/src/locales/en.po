@@ -749,6 +749,7 @@ msgstr "Problems"
 
 #: src/ChangeVersionModal.svelte
 #: src/InstallWizard.svelte
+#: src/Settings.svelte
 #: src/Sidebar.svelte
 msgid "Updates"
 msgstr "Updates"
@@ -927,6 +928,8 @@ msgid "<0>Switch to {0}?</0> It replaces this {0} with {1} — your edits are lo
 msgstr "<0>Switch to {0}?</0> It replaces this {0} with {1} — your edits are lost."
 
 #. 0: stack.engine ?? defaultEngine
+#. 0: ar.from
+#: src/StackDetail.svelte
 #: src/StackDetail.svelte
 msgid "Keep {0}"
 msgstr "Keep {0}"
@@ -1129,6 +1132,7 @@ msgstr "Update"
 msgid "<0>Not saved.</0> The compose changed on the server after you opened it — a rollback, version change or unpin, or another tab. Reload to see it; copy your edits first, reloading replaces them."
 msgstr "<0>Not saved.</0> The compose changed on the server after you opened it — a rollback, version change or unpin, or another tab. Reload to see it; copy your edits first, reloading replaces them."
 
+#: src/StackDetail.svelte
 #: src/StackDetail.svelte
 #: src/StackDetail.svelte
 #: src/System.svelte
@@ -3060,6 +3064,8 @@ msgstr "Show commands"
 
 #: src/Root.svelte
 #: src/SetupReady.svelte
+#: src/StackDetail.svelte
+#: src/StackDetail.svelte
 #: src/StackDetail.svelte
 msgid "Try again"
 msgstr "Try again"
@@ -5365,3 +5371,178 @@ msgstr "History"
 #: src/System.svelte
 msgid "What happened to your stacks, newest first. Each stack's own History tab has the rest."
 msgstr "What happened to your stacks, newest first. Each stack's own History tab has the rest."
+
+#: src/AutoUpdateOffer.svelte
+msgid "Your app keeps itself up to date from tonight."
+msgstr "Your app keeps itself up to date from tonight."
+
+#. 0: n
+#: src/AutoUpdateOffer.svelte
+msgid "All {0} apps keep themselves up to date from tonight."
+msgstr "All {0} apps keep themselves up to date from tonight."
+
+#: src/AutoUpdateOffer.svelte
+msgid "Not turned on. Each app's Settings tab can turn it on."
+msgstr "Not turned on. Each app's Settings tab can turn it on."
+
+#. 0: e.message
+#. 0: e.message
+#: src/AutoUpdateOffer.svelte
+#: src/KeepUpToDate.svelte
+msgid "Keep up to date: {0}"
+msgstr "Keep up to date: {0}"
+
+#: src/AutoUpdateOffer.svelte
+msgid "your app"
+msgstr "your app"
+
+#. 0: unasked.length
+#: src/AutoUpdateOffer.svelte
+msgid "all {0} apps"
+msgstr "all {0} apps"
+
+#. 0: start; 1: end
+#: src/AutoUpdateOffer.svelte
+msgid "<0>fjord can keep your apps up to date by itself.</0> Each night between {0} and {1} it installs rebuilds and new minor versions, one app at a time, and rolls back any that fails. New major versions still wait for you. <1>Change the time</1>"
+msgstr "<0>fjord can keep your apps up to date by itself.</0> Each night between {0} and {1} it installs rebuilds and new minor versions, one app at a time, and rolls back any that fails. New major versions still wait for you. <1>Change the time</1>"
+
+#. 0: unasked.length === 1 ? 'your app' \\: `all ${unasked.length} apps`
+#: src/AutoUpdateOffer.svelte
+msgid "Turn on for {0}"
+msgstr "Turn on for {0}"
+
+#: src/AutoUpdateOffer.svelte
+msgid "No, thanks"
+msgstr "No, thanks"
+
+#: src/InstallWizard.svelte
+#: src/InstallWizard.svelte
+#: src/KeepUpToDate.svelte
+#: src/StackDetail.svelte
+msgid "Keep up to date"
+msgstr "Keep up to date"
+
+#. 0: start; 1: end
+#: src/KeepUpToDate.svelte
+msgid "Between {0} and {1}, fjord installs its rebuilds, and new minor versions a day after it first sees them. It checks the app stays up and records each update in History. New major versions wait for you. <0/>"
+msgstr "Between {0} and {1}, fjord installs its rebuilds, and new minor versions a day after it first sees them. It checks the app stays up and records each update in History. New major versions wait for you. <0/>"
+
+#. 0: start; 1: end
+#: src/KeepUpToDate.svelte
+msgid "Updates wait for you. On, fjord installs rebuilds and new minor versions between {0} and {1} by itself."
+msgstr "Updates wait for you. On, fjord installs rebuilds and new minor versions between {0} and {1} by itself."
+
+#: src/InstallWizard.svelte
+msgid "Rebuilds and new minor versions are installed by themselves at night, and rolled back if one fails. New major versions wait for you."
+msgstr "Rebuilds and new minor versions are installed by themselves at night, and rolled back if one fails. New major versions wait for you."
+
+#: src/InstallWizard.svelte
+msgid "Updates wait for you. You can turn this on later in its Settings tab."
+msgstr "Updates wait for you. You can turn this on later in its Settings tab."
+
+#: src/ServiceResources.svelte
+msgid "Kept on the image it ran before an automatic update failed. A newer update is still taken by itself. Unpin to follow its tag now."
+msgstr "Kept on the image it ran before an automatic update failed. A newer update is still taken by itself. Unpin to follow its tag now."
+
+#: src/ServiceResources.svelte
+msgid "<0/>held after a failed update · unpin"
+msgstr "<0/>held after a failed update · unpin"
+
+#. 0: (await r?.text())?.trim() || 'not saved'
+#: src/Settings.svelte
+msgid "Update window: {0}"
+msgstr "Update window: {0}"
+
+#. 0: (await r?.text())?.trim() || 'failed'
+#: src/Settings.svelte
+msgid "Resume: {0}"
+msgstr "Resume: {0}"
+
+#. 0: (await r?.text())?.trim() || 'did not start'
+#: src/Settings.svelte
+msgid "Run now: {0}"
+msgstr "Run now: {0}"
+
+#. 0: isoDateTime(au.paused)
+#: src/Settings.svelte
+msgid "<0>Paused</0> since {0}: two automatic updates failed within a day. Each was rolled back; see the stacks named below. Nothing updates by itself until you resume."
+msgstr "<0>Paused</0> since {0}: two automatic updates failed within a day. Each was rolled back; see the stacks named below. Nothing updates by itself until you resume."
+
+#: src/Settings.svelte
+msgid "Resume"
+msgstr "Resume"
+
+#: src/Settings.svelte
+msgid "Between"
+msgstr "Between"
+
+#: src/Settings.svelte
+msgid "and"
+msgstr "and"
+
+#: src/Settings.svelte
+msgid "<0/> Updating now…"
+msgstr "<0/> Updating now…"
+
+#. 0: isoDateTime(au.next)
+#: src/Settings.svelte
+msgid "Next: {0}"
+msgstr "Next: {0}"
+
+#: src/Settings.svelte
+msgid "Run now"
+msgstr "Run now"
+
+#: src/Settings.svelte
+msgid "Automatic updates"
+msgstr "Automatic updates"
+
+#: src/Settings.svelte
+msgid "Stacks with <0>Keep up to date</0> on (in each stack's Settings tab) get their rebuilds and new minor versions in this window, one stack at a time. Each is checked to stay up and recorded in History."
+msgstr "Stacks with <0>Keep up to date</0> on (in each stack's Settings tab) get their rebuilds and new minor versions in this window, one stack at a time. Each is checked to stay up and recorded in History."
+
+#: src/Settings.svelte
+msgid ", started by hand"
+msgstr ", started by hand"
+
+#: src/Settings.svelte
+msgid "Not run yet."
+msgstr "Not run yet."
+
+#: src/Settings.svelte
+msgid "Last run"
+msgstr "Last run"
+
+#: src/StackDetail.svelte
+msgid "Keep"
+msgstr "Keep"
+
+#. 0: ar.to
+#. 0: ar.to
+#: src/StackDetail.svelte
+#: src/StackDetail.svelte
+msgid " to {0}"
+msgstr " to {0}"
+
+#. 0: ar.from
+#: src/StackDetail.svelte
+msgid "{0} is back"
+msgstr "{0} is back"
+
+#: src/StackDetail.svelte
+msgid "It is back on what it ran before"
+msgstr "It is back on what it ran before"
+
+#. 0.0: ar.to ? ` to ${ar.to}` \\: ''; 0: ar.why; 1: ar.from ? `${ar.from} is back` \\: 'It is back on what it ran before'
+#: src/StackDetail.svelte
+msgid "<0>The automatic update{0} failed</0>: {0}. {1}, and that update waits until a newer one comes out."
+msgstr "<0>The automatic update{0} failed</0>: {0}. {1}, and that update waits until a newer one comes out."
+
+#. 0.0: ar.to ? ` to ${ar.to}` \\: ''; 0: ar.why; 1: ar.backWhy
+#: src/StackDetail.svelte
+msgid "<0>The automatic update{0} failed</0>: {0}. Going back failed too: {1}."
+msgstr "<0>The automatic update{0} failed</0>: {0}. Going back failed too: {1}."
+
+#: src/StackDetail.svelte
+msgid "Keep it"
+msgstr "Keep it"

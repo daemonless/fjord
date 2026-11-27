@@ -42,6 +42,12 @@ export type StackStatus = {
 
 export type StackState = {
   group?: string;
+  /** How far updates apply themselves: off (or none), notify, rebuilds, patch, minor, all. */
+  update_policy?: string;
+  /** Per service: the automatic update that failed there and was rolled back. */
+  auto_hold?: Record<string, string>;
+  /** The last automatic update that failed and was rolled back, until answered. */
+  auto_rollback?: { at: string; services: string[]; to?: string; from?: string; why?: string; back: boolean; backWhy?: string };
   desired_state?: string;
   engine?: string;
   order?: number;

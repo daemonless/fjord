@@ -46,8 +46,11 @@ type savedSettings struct {
 	// (each offers its own; see engine.Capabilities), as compose spells it;
 	// none = unless-stopped.
 	DefaultRestartFor map[string]string `json:"defaultRestartFor,omitempty"`
-	CatalogRefresh    string            `json:"catalogRefresh,omitempty"` // automatic catalog refresh: off | 1h | 6h (default) | 24h
-	SetupDone         bool              `json:"setupDone,omitempty"`      // first-run setup wizard finished (or skipped)
+	CatalogRefresh    string            `json:"catalogRefresh,omitempty"`    // automatic catalog refresh: off | 1h | 6h (default) | 24h
+	AutoUpdateStart   string            `json:"autoUpdateStart,omitempty"`   // automatic updates' window, HH:MM (default 03:00)
+	AutoUpdateEnd     string            `json:"autoUpdateEnd,omitempty"`     // and its end (default 05:00); may cross midnight
+	AutoUpdateOffered bool              `json:"autoUpdateOffered,omitempty"` // the offer to turn it on for existing stacks was answered
+	SetupDone         bool              `json:"setupDone,omitempty"`         // first-run setup wizard finished (or skipped)
 	// The default catalog was added once on first run. Never re-added after
 	// that, so removing it in Settings sticks across restarts.
 	CatalogBootstrapped bool `json:"catalogBootstrapped,omitempty"`

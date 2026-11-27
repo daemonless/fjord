@@ -73,6 +73,14 @@ type State struct {
 	// Rollback is, per service, the image the last update replaced -- what
 	// "Roll back" returns to, and what "Unpin" restores the compose from.
 	Rollback map[string]RollbackImage `json:"rollback,omitempty"`
+	// AutoHold is, per service, the update auto-update rolled back after it
+	// failed (a registry digest, or repo:tag for a version): held on the
+	// image before it until a different one comes out, or someone tries it
+	// again. Unlike a pin set by Roll back, it lets newer updates through.
+	AutoHold map[string]string `json:"auto_hold,omitempty"`
+	// AutoRollback is the last automatic update that failed and was rolled
+	// back, shown on the stack until someone answers it.
+	AutoRollback *AutoRollback `json:"auto_rollback,omitempty"`
 	// UpdatePolicy is how far updates apply themselves ("" = off; see
 	// updates.Policy), and ServicePolicy overrides it per service -- a
 	// database can be stricter than the app in front of it.
@@ -136,6 +144,25 @@ type Failure struct {
 	Action  string    `json:"action"` // install, up, update, restart, down
 	At      time.Time `json:"at"`
 	Message string    `json:"message"` // the first [error] line, without the tag
+}
+
+// AutoRollback is an automatic update that failed, and what was done.
+type AutoRollback struct {
+	At       time.Time `json:"at"`
+	Services []string  `json:"services"`
+	// To is what the update would have installed, From what runs again:
+	// versions when known, else tags.
+	To   string `json:"to,omitempty"`
+	From string `json:"from,omitempty"`
+	// Why is the update's failure, in one line.
+	Why string `json:"why,omitempty"`
+	// Back says whether the rollback itself worked.
+	Back bool `json:"back"`
+	// BackWhy is why the rollback failed, when it did.
+	BackWhy string `json:"backWhy,omitempty"`
+	// Tags are the version tags the update moved to, per service: what
+	// Try again retags to.
+	Tags map[string]string `json:"tags,omitempty"`
 }
 
 // RollbackImage is one service's image before an update.
