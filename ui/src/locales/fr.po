@@ -5356,6 +5356,43 @@ msgstr "Historique"
 msgid "What happened to your stacks, newest first. Each stack's own History tab has the rest."
 msgstr "Ce qui est arrivé à vos piles, du plus récent au plus ancien. L'onglet Historique de chaque pile contient le reste."
 
+#. 0: $names.provider; 1: appName
+#: src/InstallWizard.svelte
+msgid "Behind {0}, {1} gets <0/>."
+msgstr "Derrière {0}, {1} reçoit <0/>."
+
+#. 0: $names.provider
+#. 0: $names.provider
+#: src/InstallWizard.svelte
+#: src/InstallWizard.svelte
+msgid "Set because it opens through {0}."
+msgstr "Rempli parce qu'elle s'ouvre par {0}."
+
+#: src/InstallWizard.svelte
+msgid "Filled in from its name."
+msgstr "Rempli d'après son nom."
+
+#: src/InstallWizard.svelte
+msgid "Turn on Open it at above to give it one, or type the address your own proxy serves."
+msgstr "Activez L'ouvrir à ci-dessus pour lui en donner une, ou saisissez l'adresse que sert votre propre proxy."
+
+#: src/InstallWizard.svelte
+msgid "To have fjord give it one, install a names provider from the App Store first, or type the address your own proxy serves."
+msgstr "Pour que fjord lui en donne une, installez d'abord un fournisseur de noms depuis la Boutique, ou saisissez l'adresse que sert votre propre proxy."
+
+#: src/InstallWizard.svelte
+msgid "Type the address your proxy serves it at."
+msgstr "Saisissez l'adresse à laquelle votre proxy la sert."
+
+#. 0: appName
+#: src/InstallWizard.svelte
+msgid "{0} needs an https:// address with a domain name, the one you will open it at. <0/>"
+msgstr "{0} a besoin d'une adresse https:// avec un nom de domaine, celle à laquelle vous l'ouvrirez. <0/>"
+
+#: src/InstallWizard.svelte
+msgid "The address your proxy serves it at, starting https://."
+msgstr "L'adresse à laquelle votre proxy la sert, commençant par https://."
+
 #: src/NetworkBackend.svelte
 msgid "podman connects containers with its <0/> network backend."
 msgstr "podman relie les conteneurs avec son backend réseau <0/>."

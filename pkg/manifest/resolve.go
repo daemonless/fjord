@@ -3,6 +3,7 @@ package manifest
 import (
 	"fmt"
 	composepkg "github.com/daemonless/fjord/pkg/compose"
+	"net"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -124,6 +125,9 @@ func (m *Manifest) Resolve(values map[string]string, slug, storageBase string) (
 				if u, err := url.Parse(val); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
 					return nil, fmt.Errorf("%s must be an address like http://host:port, got %q", v.Name, val)
 				}
+				if why := domainProblem(v, val); why != "" {
+					return nil, fmt.Errorf("%s: %s, got %q", v.Name, why, val)
+				}
 			}
 			res.Env[v.Name] = val
 
@@ -240,4 +244,27 @@ func (m *Manifest) fjordFills(name string) bool {
 		}
 	}
 	return false
+}
+
+// domainProblem is why an app that takes only an https:// domain (`needs:
+// domain`) would refuse val at start, or "". The same rules as the wizard's
+// publicUrlProblem.
+func domainProblem(v Var, val string) string {
+	if !v.NeedsDomain {
+		return ""
+	}
+	u, err := url.Parse(val)
+	if err != nil {
+		return "not a valid address"
+	}
+	host := u.Hostname()
+	switch {
+	case u.Scheme != "https":
+		return "needs https://"
+	case net.ParseIP(host) != nil:
+		return "needs a domain name, not an address"
+	case !strings.Contains(host, "."):
+		return "needs a full domain name"
+	}
+	return ""
 }
