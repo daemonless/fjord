@@ -113,6 +113,7 @@ dns-port
 appjail-update
 update-stopped
 update-badtag
+autoupdate
 row-failed
 restart-row
 privdel

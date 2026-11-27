@@ -9,6 +9,7 @@
   import ChangeVersionModal from './ChangeVersionModal.svelte';
   import RestartPolicy from './RestartPolicy.svelte';
   import RecoveryPolicy from './RecoveryPolicy.svelte';
+  import KeepUpToDate from './KeepUpToDate.svelte';
   import DirPicker from './DirPicker.svelte';
   import Spinner from './Spinner.svelte';
   import LoginButton from './LoginButton.svelte';
@@ -90,6 +91,17 @@
   export let onUpdate: (name: string, services?: string[]) => Promise<void> | void = () => {};
   export let onRollback: (name: string, service: string) => Promise<void> | void = () => {};
   export let onUnpin: (name: string, service: string) => Promise<void> | void = () => {};
+  // The banner of an automatic update that failed and was rolled back.
+  async function answerAutoRollback(answer: 'retry' | 'keep') {
+    const name = stack.name;
+    const r = await fetch(`/api/stacks/${encodeURIComponent(name)}/auto-rollback`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ answer }),
+    }).catch(() => null);
+    if (!r?.ok) toast(`${answer === 'retry' ? 'Try again' : 'Keep'}: ${(await r?.text())?.trim() || 'failed'}`, { kind: 'error' });
+    await onSelectStack({ name } as Stack);
+  }
   export let onUpgradeTo: (name: string, tag: string) => Promise<void> | void = () => {};
   export let onUpdatePicked: (name: string, svcs: ServiceUpdate[]) => Promise<void> | void = () => {};
   export let onApplyVersion: (
@@ -1198,7 +1210,36 @@
     </div>
   {/if}
 
-  {#if stack.state?.last_failure && !failureDismissed[stack.name] && !busyNow}
+  {#if stack.state?.auto_rollback && !busyNow}
+    {@const ar = stack.state.auto_rollback}
+    <div
+      data-auto-rollback
+      class="flex items-center gap-3 mb-4 shrink-0 px-4 py-2.5 rounded-lg text-sm text-fjord-fg-body border {ar.back
+        ? 'bg-fjord-warning/10 border-fjord-warning/25'
+        : 'bg-fjord-danger/10 border-fjord-danger/25'}"
+    >
+      <span class="flex-1 min-w-0">
+        {#if ar.back}
+          <b>The automatic update{ar.to ? ` to ${ar.to}` : ''} failed</b>: {ar.why}. {ar.from ? `${ar.from} is back` : 'It is back on what it ran before'},
+          and that update waits until a newer one comes out.
+        {:else}
+          <b>The automatic update{ar.to ? ` to ${ar.to}` : ''} failed</b>: {ar.why}. Going back failed too: {ar.backWhy}.
+        {/if}
+      </span>
+      <button
+        on:click={() => answerAutoRollback('retry')}
+        class="shrink-0 px-3 py-1.5 rounded-lg text-sm font-medium bg-fjord-accent text-white hover:bg-fjord-accent-hover transition-colors"
+        >Try again</button
+      >
+      <button
+        on:click={() => answerAutoRollback('keep')}
+        class="shrink-0 px-3 py-1.5 rounded-lg text-sm font-medium text-fjord-fg-muted hover:text-fjord-fg transition-colors"
+        >{ar.back ? (ar.from ? `Keep ${ar.from}` : 'Keep it') : 'Dismiss'}</button
+      >
+    </div>
+  {/if}
+
+  {#if stack.state?.last_failure && !stack.state?.auto_rollback && !failureDismissed[stack.name] && !busyNow}
     {@const f = stack.state.last_failure}
     <div class="flex items-center gap-3 mb-4 shrink-0 px-4 py-2.5 rounded-lg bg-fjord-danger/10 border border-fjord-danger/25 text-sm text-fjord-fg-body">
       <span class="flex-1 min-w-0"
@@ -1473,6 +1514,15 @@
                 }}
               />
             </div>
+            <span class="text-fjord-fg-muted self-start pt-0.5">Keep up to date</span>
+            <KeepUpToDate
+              name={stack.name}
+              policy={stack.state?.update_policy}
+              disabled={busyNow}
+              on:changed={async () => {
+                await onSelectStack({ name: stack.name } as Stack);
+              }}
+            />
             <label for="stack-group" class="text-fjord-fg-muted">Group</label>
             <div>
               <input
@@ -1517,6 +1567,7 @@
               updates={svcUpdates}
               rollbacks={updateInfo?.rollback ?? {}}
               pinned={svcPinned}
+              held={stack.state?.auto_hold ?? {}}
               on:openUpdate={() => openUpdatePanel(stack.name)}
               on:rollback={(e) => onRollback(stack.name, e.detail)}
               on:unpin={(e) => onUnpin(stack.name, e.detail)}

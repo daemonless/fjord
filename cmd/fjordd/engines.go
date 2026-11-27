@@ -37,6 +37,9 @@ type engineInfo struct {
 	// engine.Capabilities).
 	RestartPolicies []string `json:"restartPolicies,omitempty"`
 	RestartOnExit   bool     `json:"restartOnExit,omitempty"`
+	// KeepsUpToDate: automatic updates can act on its stacks (they need an
+	// update of one service at a time, watched).
+	KeepsUpToDate bool `json:"keepsUpToDate,omitempty"`
 }
 
 // pinDefaultEngine writes the default that is in effect right now, so adding
@@ -84,6 +87,7 @@ func (s *server) handleEngine(w http.ResponseWriter, r *http.Request) {
 			if registered {
 				c := be.Capabilities()
 				info.RestartPolicies, info.RestartOnExit = c.RestartPolicies, c.RestartOnExit
+				info.KeepsUpToDate = c.UpdateServices
 			}
 			engines = append(engines, info)
 		}

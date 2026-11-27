@@ -748,6 +748,7 @@ msgstr "Problèmes"
 
 #: src/ChangeVersionModal.svelte
 #: src/InstallWizard.svelte
+#: src/Settings.svelte
 #: src/Sidebar.svelte
 msgid "Updates"
 msgstr "Mises à jour"
@@ -928,6 +929,8 @@ msgid "<0>Switch to {0}?</0> It replaces this {0} with {1} — your edits are lo
 msgstr "<0>Passer à {0} ?</0> Ce {0} est remplacé par {1} — vos modifications sont perdues."
 
 #. 0: stack.engine ?? defaultEngine
+#. 0: ar.from
+#: src/StackDetail.svelte
 #: src/StackDetail.svelte
 msgid "Keep {0}"
 msgstr "Garder {0}"
@@ -1130,6 +1133,7 @@ msgstr "Mettre à jour"
 msgid "<0>Not saved.</0> The compose changed on the server after you opened it — a rollback, version change or unpin, or another tab. Reload to see it; copy your edits first, reloading replaces them."
 msgstr "<0>Non enregistré.</0> Le compose a changé sur le serveur depuis son ouverture — un retour en arrière, un changement de version ou un désépinglage, ou un autre onglet. Rechargez pour le voir ; copiez d'abord vos modifications, le rechargement les remplace."
 
+#: src/StackDetail.svelte
 #: src/StackDetail.svelte
 #: src/StackDetail.svelte
 #: src/System.svelte
@@ -3042,6 +3046,8 @@ msgstr "Afficher les commandes"
 
 #: src/Root.svelte
 #: src/SetupReady.svelte
+#: src/StackDetail.svelte
+#: src/StackDetail.svelte
 #: src/StackDetail.svelte
 msgid "Try again"
 msgstr "Réessayer"
@@ -5487,3 +5493,178 @@ msgstr "Makejail"
 #: src/StackDetail.svelte
 msgid "A newer version is published"
 msgstr "Une version plus récente est publiée"
+
+#: src/AutoUpdateOffer.svelte
+msgid "Your app keeps itself up to date from tonight."
+msgstr "Votre app se tient à jour toute seule dès ce soir."
+
+#. 0: n
+#: src/AutoUpdateOffer.svelte
+msgid "All {0} apps keep themselves up to date from tonight."
+msgstr "Les {0} apps se tiennent à jour toutes seules dès ce soir."
+
+#: src/AutoUpdateOffer.svelte
+msgid "Not turned on. Each app's Settings tab can turn it on."
+msgstr "Pas activé. L'onglet Réglages de chaque app peut l'activer."
+
+#. 0: e.message
+#. 0: e.message
+#: src/AutoUpdateOffer.svelte
+#: src/KeepUpToDate.svelte
+msgid "Keep up to date: {0}"
+msgstr "Garder à jour : {0}"
+
+#: src/AutoUpdateOffer.svelte
+msgid "your app"
+msgstr "votre app"
+
+#. 0: unasked.length
+#: src/AutoUpdateOffer.svelte
+msgid "all {0} apps"
+msgstr "les {0} apps"
+
+#. 0: start; 1: end
+#: src/AutoUpdateOffer.svelte
+msgid "<0>fjord can keep your apps up to date by itself.</0> Each night between {0} and {1} it installs rebuilds and new minor versions, one app at a time, and rolls back any that fails. New major versions still wait for you. <1>Change the time</1>"
+msgstr "<0>fjord peut tenir vos apps à jour tout seul.</0> Chaque nuit entre {0} et {1}, il installe les reconstructions et les nouvelles versions mineures, une app à la fois, et annule celle qui échoue. Les nouvelles versions majeures vous attendent toujours. <1>Changer l'heure</1>"
+
+#. 0: unasked.length === 1 ? 'your app' \\: `all ${unasked.length} apps`
+#: src/AutoUpdateOffer.svelte
+msgid "Turn on for {0}"
+msgstr "Activer pour {0}"
+
+#: src/AutoUpdateOffer.svelte
+msgid "No, thanks"
+msgstr "Non, merci"
+
+#: src/InstallWizard.svelte
+#: src/InstallWizard.svelte
+#: src/KeepUpToDate.svelte
+#: src/StackDetail.svelte
+msgid "Keep up to date"
+msgstr "Garder à jour"
+
+#. 0: start; 1: end
+#: src/KeepUpToDate.svelte
+msgid "Between {0} and {1}, fjord installs its rebuilds, and new minor versions a day after it first sees them. It checks the app stays up and records each update in History. New major versions wait for you. <0/>"
+msgstr "Entre {0} et {1}, fjord installe ses reconstructions, et les nouvelles versions mineures un jour après les avoir vues pour la première fois. Il vérifie que l'app reste en marche et note chaque mise à jour dans l'Historique. Les nouvelles versions majeures vous attendent. <0/>"
+
+#. 0: start; 1: end
+#: src/KeepUpToDate.svelte
+msgid "Updates wait for you. On, fjord installs rebuilds and new minor versions between {0} and {1} by itself."
+msgstr "Les mises à jour vous attendent. Activé, fjord installe lui-même les reconstructions et les nouvelles versions mineures entre {0} et {1}."
+
+#: src/InstallWizard.svelte
+msgid "Rebuilds and new minor versions are installed by themselves at night, and rolled back if one fails. New major versions wait for you."
+msgstr "Les reconstructions et les nouvelles versions mineures s'installent seules la nuit, et sont annulées si l'une échoue. Les nouvelles versions majeures vous attendent."
+
+#: src/InstallWizard.svelte
+msgid "Updates wait for you. You can turn this on later in its Settings tab."
+msgstr "Les mises à jour vous attendent. Vous pourrez l'activer plus tard dans son onglet Réglages."
+
+#: src/ServiceResources.svelte
+msgid "Kept on the image it ran before an automatic update failed. A newer update is still taken by itself. Unpin to follow its tag now."
+msgstr "Gardé sur l'image d'avant l'échec d'une mise à jour automatique. Une mise à jour plus récente passe quand même d'elle-même. Désépinglez pour suivre son tag dès maintenant."
+
+#: src/ServiceResources.svelte
+msgid "<0/>held after a failed update · unpin"
+msgstr "<0/>retenu après un échec · désépingler"
+
+#. 0: (await r?.text())?.trim() || 'not saved'
+#: src/Settings.svelte
+msgid "Update window: {0}"
+msgstr "Plage de mise à jour : {0}"
+
+#. 0: (await r?.text())?.trim() || 'failed'
+#: src/Settings.svelte
+msgid "Resume: {0}"
+msgstr "Reprendre : {0}"
+
+#. 0: (await r?.text())?.trim() || 'did not start'
+#: src/Settings.svelte
+msgid "Run now: {0}"
+msgstr "Lancer maintenant : {0}"
+
+#. 0: isoDateTime(au.paused)
+#: src/Settings.svelte
+msgid "<0>Paused</0> since {0}: two automatic updates failed within a day. Each was rolled back; see the stacks named below. Nothing updates by itself until you resume."
+msgstr "<0>En pause</0> depuis {0} : deux mises à jour automatiques ont échoué en une journée. Chacune a été annulée ; voir les stacks nommées ci-dessous. Rien ne se met à jour tout seul tant que vous ne reprenez pas."
+
+#: src/Settings.svelte
+msgid "Resume"
+msgstr "Reprendre"
+
+#: src/Settings.svelte
+msgid "Between"
+msgstr "Entre"
+
+#: src/Settings.svelte
+msgid "and"
+msgstr "et"
+
+#: src/Settings.svelte
+msgid "<0/> Updating now…"
+msgstr "<0/> Mise à jour en cours…"
+
+#. 0: isoDateTime(au.next)
+#: src/Settings.svelte
+msgid "Next: {0}"
+msgstr "Prochaine : {0}"
+
+#: src/Settings.svelte
+msgid "Run now"
+msgstr "Lancer maintenant"
+
+#: src/Settings.svelte
+msgid "Automatic updates"
+msgstr "Mises à jour automatiques"
+
+#: src/Settings.svelte
+msgid "Stacks with <0>Keep up to date</0> on (in each stack's Settings tab) get their rebuilds and new minor versions in this window, one stack at a time. Each is checked to stay up and recorded in History."
+msgstr "Les stacks avec <0>Garder à jour</0> activé (dans l'onglet Réglages de chaque stack) reçoivent leurs reconstructions et nouvelles versions mineures dans cette plage, une stack à la fois. Chacune est vérifiée pour rester en marche et notée dans l'Historique."
+
+#: src/Settings.svelte
+msgid ", started by hand"
+msgstr ", lancée à la main"
+
+#: src/Settings.svelte
+msgid "Not run yet."
+msgstr "Pas encore lancée."
+
+#: src/Settings.svelte
+msgid "Last run"
+msgstr "Dernier passage"
+
+#: src/StackDetail.svelte
+msgid "Keep"
+msgstr "Garder"
+
+#. 0: ar.to
+#. 0: ar.to
+#: src/StackDetail.svelte
+#: src/StackDetail.svelte
+msgid " to {0}"
+msgstr " vers {0}"
+
+#. 0: ar.from
+#: src/StackDetail.svelte
+msgid "{0} is back"
+msgstr "{0} est revenu"
+
+#: src/StackDetail.svelte
+msgid "It is back on what it ran before"
+msgstr "Il est revenu à ce qu'il utilisait avant"
+
+#. 0.0: ar.to ? ` to ${ar.to}` \\: ''; 0: ar.why; 1: ar.from ? `${ar.from} is back` \\: 'It is back on what it ran before'
+#: src/StackDetail.svelte
+msgid "<0>The automatic update{0} failed</0>: {0}. {1}, and that update waits until a newer one comes out."
+msgstr "<0>La mise à jour automatique{0} a échoué</0> : {0}. {1}, et cette mise à jour attend qu'une plus récente sorte."
+
+#. 0.0: ar.to ? ` to ${ar.to}` \\: ''; 0: ar.why; 1: ar.backWhy
+#: src/StackDetail.svelte
+msgid "<0>The automatic update{0} failed</0>: {0}. Going back failed too: {1}."
+msgstr "<0>La mise à jour automatique{0} a échoué</0> : {0}. Le retour en arrière a échoué aussi : {1}."
+
+#: src/StackDetail.svelte
+msgid "Keep it"
+msgstr "Le garder"

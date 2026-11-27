@@ -47,6 +47,7 @@ type server struct {
 	listenAddr string       // reported by /api/about
 	fleet      fleetUpdates // cached fleet-wide update state
 	seen       *firstSeen   // when each update candidate was first seen (soak)
+	auto       *autoState   // automatic updates: running, last run (autoupdate.go)
 	live       *liveStatus  // status for the pages, never waiting long on the engine
 	events     *eventHub    // SSE pub/sub; fed by runEventLoop
 	conds      *conditionsState
@@ -237,6 +238,10 @@ func (s *server) routes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/settings/restart", s.handleRestartSettings)
 	mux.HandleFunc("/api/settings/network", s.handleDefaultNetwork)
 	mux.HandleFunc("/api/settings/catalog-refresh", s.handleCatalogRefreshSettings)
+	mux.HandleFunc("/api/autoupdate", s.handleAutoUpdate)
+	mux.HandleFunc("/api/autoupdate/run", s.handleAutoUpdate)
+	mux.HandleFunc("/api/autoupdate/resume", s.handleAutoUpdate)
+	mux.HandleFunc("/api/autoupdate/offer", s.handleAutoUpdate)
 	mux.HandleFunc("/api/setup/state", s.handleSetupState)
 	mux.HandleFunc("/api/setup/install", s.handleSetupInstall)
 	mux.HandleFunc("/api/system/netavark", s.handleNetavarkSwitchState)

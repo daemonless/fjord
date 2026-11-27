@@ -360,6 +360,7 @@ func main() {
 		listenAddr: addr,
 		events:     newEventHub(),
 		seen:       newFirstSeen(fjordRoot),
+		auto:       newAutoState(fjordRoot),
 		live:       newLiveStatus(),
 		conds:      newConditionsState(),
 		health:     newHealthMonitor(),
@@ -399,6 +400,7 @@ func main() {
 	// Keep the app store's versions current (interval in Settings → Catalogs).
 	go runCatalogScheduler(srv)
 	go runFleetScheduler(srv)
+	go runAutoUpdateScheduler(srv)
 
 	// Default binds all interfaces so container port publishing reaches it; a
 	// host daemon can narrow it to loopback via FJORD_LISTEN.

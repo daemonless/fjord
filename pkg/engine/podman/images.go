@@ -50,6 +50,42 @@ func (b *Backend) ImageRepoDigests(ctx context.Context, ref string) ([]string, e
 	return out.RepoDigests, nil
 }
 
+// ImageVersion is a locally-present image's org.opencontainers.image.version
+// label: the running image's version when the registry no longer has it.
+// Not pulled -> "", nil.
+func (b *Backend) ImageVersion(ctx context.Context, ref string) (string, error) {
+	u := "http://d/v4.0.0/libpod/images/" + url.PathEscape(ref) + "/json"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return "", err
+	}
+	resp, err := b.http.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("libpod images inspect: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound {
+		return "", nil
+	}
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("libpod images inspect: unexpected status %s", resp.Status)
+	}
+	var out struct {
+		Labels map[string]string `json:"Labels"`
+		Config struct {
+			Labels map[string]string `json:"Labels"`
+		} `json:"Config"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return "", fmt.Errorf("decode image inspect: %w", err)
+	}
+	const key = "org.opencontainers.image.version"
+	if v := out.Labels[key]; v != "" {
+		return v, nil
+	}
+	return out.Config.Labels[key], nil
+}
+
 // ImageExposedPorts returns a locally-present image's EXPOSE entries as
 // "port/proto" keys ("5432/tcp"). Not pulled yet -> nil, nil. Pre-flight uses
 // it for network_mode: host services, whose ports never appear in `ports:`.

@@ -160,7 +160,88 @@ func (s *server) stackUnpin(w http.ResponseWriter, r *http.Request, name string)
 		return
 	}
 	s.fleet.forget(name)
+	s.clearAutoHold(name, []string{req.Service})
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// stackAutoRollback answers an automatic update that failed and was rolled
+// back: POST .../auto-rollback {"answer": "keep" | "retry"}. Keep leaves it
+// on what it runs, and the update that failed stays held. Try again gives
+// the services back their tag, or the version they were moving to, and
+// updates them now, as the Update button does.
+func (s *server) stackAutoRollback(w http.ResponseWriter, r *http.Request, name string) {
+	var req struct {
+		Answer string `json:"answer"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || (req.Answer != "keep" && req.Answer != "retry") {
+		http.Error(w, `send {"answer": "keep" | "retry"}`, 400)
+		return
+	}
+	state, err := s.manager.LoadState(name)
+	if err != nil || state == nil || state.AutoRollback == nil {
+		http.Error(w, "no failed automatic update to answer", 404)
+		return
+	}
+	ar := *state.AutoRollback
+	if req.Answer == "keep" {
+		if err := s.manager.UpdateState(name, func(st *stack.State) *stack.State {
+			if st == nil {
+				return nil
+			}
+			st.AutoRollback = nil
+			return st
+		}); err != nil {
+			replyErr(w, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	unlock, ok := lockStackAs(name, "update")
+	if !ok {
+		http.Error(w, anotherOperation(name), http.StatusConflict)
+		return
+	}
+	if _, err := s.manager.Update(name, func(st *stack.Stack) error {
+		for _, svc := range ar.Services {
+			cur := serviceImage(st, svc)
+			if ar.Tags[svc] != "" || !strings.Contains(cur, "@") {
+				continue
+			}
+			restore := withoutDigest(cur)
+			if rb, ok := state.Rollback[svc]; ok && rb.Compose != "" &&
+				composepkg.ExpandEnv(rb.Compose, st.EnvMap()) == restore {
+				restore = rb.Compose
+			}
+			if err := setServiceImage(st, svc, restore); err != nil {
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
+		unlock()
+		replyErr(w, err)
+		return
+	}
+	for svc, tag := range ar.Tags {
+		if err := s.retagForUpdate(name, svc, tag); err != nil {
+			unlock()
+			replyErr(w, err)
+			return
+		}
+	}
+	s.clearAutoHold(name, ar.Services)
+	if err := s.manager.UpdateState(name, func(st *stack.State) *stack.State {
+		if st == nil {
+			return nil
+		}
+		st.AutoRollback = nil
+		return st
+	}); err != nil {
+		log.Printf("try again %s: %v", name, err)
+	}
+	s.updateDetached(name, unlock, ar.Services, triggerOf(r))
+	w.WriteHeader(http.StatusAccepted)
 }
 
 // withoutDigest drops an @sha256:... from an image ref.
