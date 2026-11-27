@@ -42,6 +42,10 @@ describe('imageLabel', () => {
     expect(imageLabel({ ref: 'reg.lan:5000/app' , digest: 'sha256:0123456789abcdef' })).toBe('sha256:01234567');
     expect(imageLabel({ ref: 'reg.lan:5000/app:2.1' })).toBe('2.1');
   });
+  it('shortens digest-pinned refs instead of printing the full hash', () => {
+    expect(imageLabel({ ref: 'ghcr.io/daemonless/syncthing@sha256:33c8b82470abcdef1234567890' })).toBe('sha256:33c8b824');
+    expect(imageLabel({ ref: 'ghcr.io/daemonless/syncthing:latest@sha256:33c8b82470abcdef1234567890' })).toBe('latest');
+  });
 });
 
 describe('whenLabel', () => {

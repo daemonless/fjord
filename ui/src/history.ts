@@ -68,11 +68,14 @@ export function historyTitle(e: HistoryEntry): string {
 /** A tag or short digest for one image: "1.133.0", or "sha256:4f1c2a3b" when the ref has no tag. */
 export function imageLabel(img?: HistoryImage): string {
   if (!img) return '';
-  const ref = img.ref ?? '';
+  const raw = img.ref ?? '';
+  const at = raw.indexOf('@');
+  const ref = at >= 0 ? raw.slice(0, at) : raw;
   const slash = ref.lastIndexOf('/');
   const colon = ref.lastIndexOf(':');
   if (colon > slash && colon >= 0) return ref.slice(colon + 1);
-  return img.digest ? img.digest.slice(0, 15) : ref;
+  const digest = img.digest || (at >= 0 ? raw.slice(at + 1) : '');
+  return digest ? digest.slice(0, 15) : ref;
 }
 
 /** "server 1.132.3 → 1.133.0" for each service whose image changed; a rebuild keeps its tag, so its digest shows. */

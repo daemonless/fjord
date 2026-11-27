@@ -376,9 +376,9 @@ func (s *server) stackRestore(w http.ResponseWriter, r *http.Request, name strin
 		stream.Close()
 	}
 
-	msg := "Data restored from " + snap
-	if keptName != "" {
-		msg += " (kept copy: " + filepath.Base(keptName) + ")"
+	msg := "Data restored"
+	if targetSnap != nil && !targetSnap.Created.IsZero() {
+		msg = "Data restored from " + targetSnap.Created.Local().Format("2006-01-02 15:04")
 	}
 	n := newNote(history.Rollback, triggerOf(r))
 	n.detail = msg
@@ -582,14 +582,10 @@ func (s *server) stackSnapshots(w http.ResponseWriter, r *http.Request, name str
 			http.Error(w, "snapshot query param required", http.StatusBadRequest)
 			return
 		}
-		freed, err := dataset.DestroyManualSnapshot(ctx, dsName, snap, name)
-		if err != nil {
+		if _, err := dataset.DestroyManualSnapshot(ctx, dsName, snap, name); err != nil {
 			http.Error(w, err.Error(), http.StatusConflict)
 			return
 		}
-		n := newNote(history.Delete, triggerOf(r))
-		n.detail = fmt.Sprintf("Deleted restore point (%s freed)", formatBytes(freed))
-		s.writeHistory(name, n, false, "")
 		w.WriteHeader(http.StatusNoContent)
 	default:
 		http.NotFound(w, r)
@@ -630,14 +626,10 @@ func (s *server) stackKeptManage(w http.ResponseWriter, r *http.Request, name st
 			return
 		}
 		defer unlock()
-		freed, err := dataset.DestroyKept(ctx, ds, name)
-		if err != nil {
+		if _, err := dataset.DestroyKept(ctx, ds, name); err != nil {
 			http.Error(w, err.Error(), http.StatusConflict)
 			return
 		}
-		n := newNote(history.Delete, triggerOf(r))
-		n.detail = fmt.Sprintf("Deleted saved copy (%s freed)", formatBytes(freed))
-		s.writeHistory(name, n, false, "")
 		w.WriteHeader(http.StatusNoContent)
 	default:
 		http.NotFound(w, r)
