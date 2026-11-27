@@ -218,26 +218,32 @@ func (s *server) recordOutcome(name, action string, note *histNote, stream io.Re
 	kept := outputs.current(name, action)
 	return &thenReader{r: io.TeeReader(io.TeeReader(stream, watch), kept), c: stream, after: func() string {
 		kept.finish()
-		if watch.seen {
-			log.Printf("%s %s failed: %s", action, name, watch.Message())
-		}
-		err := s.manager.UpdateState(name, func(st *stack.State) *stack.State {
-			if st == nil || (!watch.seen && st.LastFailure == nil) {
-				return nil
-			}
-			if watch.seen {
-				st.LastFailure = &stack.Failure{Action: action, At: time.Now(), Message: watch.Message()}
-			} else {
-				st.LastFailure = nil
-			}
-			return st
-		})
-		if err != nil {
-			log.Printf("%s %s: record outcome: %v", action, name, err)
-		}
-		s.writeHistory(name, note, watch.seen, watch.Message())
+		s.settleOutcome(name, action, note, watch.seen, watch.Message())
 		return ""
 	}}
+}
+
+// settleOutcome records how an action ended: the stack's failure banner set
+// or cleared, and its History entry.
+func (s *server) settleOutcome(name, action string, note *histNote, failed bool, msg string) {
+	if failed {
+		log.Printf("%s %s failed: %s", action, name, msg)
+	}
+	err := s.manager.UpdateState(name, func(st *stack.State) *stack.State {
+		if st == nil || (!failed && st.LastFailure == nil) {
+			return nil
+		}
+		if failed {
+			st.LastFailure = &stack.Failure{Action: action, At: time.Now(), Message: msg}
+		} else {
+			st.LastFailure = nil
+		}
+		return st
+	})
+	if err != nil {
+		log.Printf("%s %s: record outcome: %v", action, name, err)
+	}
+	s.writeHistory(name, note, failed, msg)
 }
 
 // thenStream reads first to its end, then starts next and reads that: the two

@@ -126,7 +126,7 @@ func (b *Backend) Networks(ctx context.Context) ([]engine.Network, error) {
 			if !d.Compose && d.Name != defaultBridge {
 				nets = append(nets, engine.Network{
 					Name: d.Name, Driver: d.Type, Subnet: d.Subnet, Gateway: d.Gateway,
-					Problem: legacyProblem + b.remakeHint(d.Name),
+					Problem: legacyNote(backend) + b.remakeHint(d.Name),
 					Remake:  true,
 				})
 			}
@@ -138,9 +138,9 @@ func (b *Backend) Networks(ctx context.Context) ([]engine.Network, error) {
 		row := engine.Network{Name: d.Name, Driver: epairPlugin, Subnet: d.Subnet, Gateway: d.Gateway, Problem: networkProblem()}
 		switch {
 		case d.Legacy && d.DHCP && !netavarkPlugin():
-			row.Problem = legacyProblem + ". " + netavarkDHCPNote
+			row.Problem = legacyNote(backend) + ". " + netavarkDHCPNote
 		case d.Legacy:
-			row.Problem = legacyProblem + b.remakeHint(d.Name)
+			row.Problem = legacyNote(backend) + b.remakeHint(d.Name)
 			row.Remake = true
 		}
 		nets = append(nets, row)
@@ -199,6 +199,15 @@ func parseNetworks(data []byte) ([]engine.Network, error) {
 // legacyProblem is a LAN network made for podman's CNI backend on a host that
 // has since moved to netavark.
 const legacyProblem = "podman no longer loads this network: it was made for the CNI network backend and podman here now uses netavark"
+
+// legacyNote is legacyProblem for the backend podman uses now: a network left
+// by netavark reads the other way round on a host that went back to CNI.
+func legacyNote(backend string) string {
+	if backend == backendCNI {
+		return "podman no longer loads this network: it was made for the netavark network backend and podman here now uses CNI"
+	}
+	return legacyProblem
+}
 
 // networkProblem explains why the runtime ignored a network fjord can see.
 func networkProblem() string {

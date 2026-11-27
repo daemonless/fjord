@@ -77,8 +77,12 @@ func (b *Backend) networkBackend(ctx context.Context) string {
 	if name := b.askNetworkBackend(ctx); name != "" {
 		b.net.name, b.net.asked, b.net.epoch = name, time.Now(), epoch
 		hostnet.SetBackend(name)
-		if name == backendNetavark && runtime.GOOS == "freebsd" {
-			go b.carryOver()
+		if runtime.GOOS == "freebsd" {
+			if name == backendNetavark {
+				go b.carryOver()
+			} else {
+				go b.carryBack()
+			}
 		}
 	}
 	if b.net.name == "" {
@@ -275,8 +279,9 @@ func (b *Backend) lanByPlugin() bool {
 // which this package cannot import.
 var SettleHost func(ctx context.Context) bool
 
-// CarriedOver, when set, is told each network carryOver made again.
-var CarriedOver func(name string)
+// CarriedOver, when set, is told each network made again on the other
+// backend, and which backend that was ("netavark" or "cni").
+var CarriedOver func(name, backend string)
 
 // carryOver makes the networks podman's CNI backend left behind again under
 // netavark, so a host that switched backends has nothing to redo by hand:
@@ -329,7 +334,55 @@ func (b *Backend) carryOver() {
 		if changed {
 			log.Printf("network %s: %s", d.Name, said)
 			if CarriedOver != nil && said == "made again under netavark" {
-				CarriedOver(d.Name)
+				CarriedOver(d.Name, "netavark")
+			}
+		}
+	}
+}
+
+// carryBack is carryOver the other way: after podman went back to CNI
+// (netavark-migrate back, by fjord or by hand), the networks made under
+// netavark, which the script keeps in its backup, are made again as CNI
+// networks with the same names, bridges, subnets and ranges, so the stacks
+// on them start as they were.
+func (b *Backend) carryBack() {
+	b.net.carry.Lock()
+	defer b.net.carry.Unlock()
+	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
+	defer cancel()
+	seen := map[string]bool{}
+	defer func() {
+		b.net.mu.Lock()
+		for name := range b.net.said {
+			if !seen[name] {
+				delete(b.net.said, name)
+			}
+		}
+		b.net.mu.Unlock()
+	}()
+	for _, d := range hostnet.List() {
+		if !d.Legacy || d.Compose || d.Name == defaultBridge || (d.For != "" && d.For != "podman") {
+			continue
+		}
+		if d.Type != "bridge" && d.Type != epairPlugin {
+			continue
+		}
+		seen[d.Name] = true
+		said := "made again under CNI"
+		if _, err := b.remakeUnderCNI(ctx, d); err != nil {
+			said = "not carried back to CNI: " + err.Error()
+		}
+		b.net.mu.Lock()
+		if b.net.said == nil {
+			b.net.said = map[string]string{}
+		}
+		changed := b.net.said[d.Name] != said
+		b.net.said[d.Name] = said
+		b.net.mu.Unlock()
+		if changed {
+			log.Printf("network %s: %s", d.Name, said)
+			if CarriedOver != nil && said == "made again under CNI" {
+				CarriedOver(d.Name, "cni")
 			}
 		}
 	}
@@ -339,8 +392,10 @@ func (b *Backend) carryOver() {
 func (b *Backend) carryNote(name string) string {
 	b.net.mu.Lock()
 	defer b.net.mu.Unlock()
-	if why, ok := strings.CutPrefix(b.net.said[name], "not carried over to netavark: "); ok {
-		return why
+	for _, prefix := range []string{"not carried over to netavark: ", "not carried back to CNI: "} {
+		if why, ok := strings.CutPrefix(b.net.said[name], prefix); ok {
+			return why
+		}
 	}
 	return ""
 }
@@ -408,7 +463,13 @@ func notIn(names []string, set map[string]bool) []string {
 // it instead of making a new one; with it gone, compose up makes the network
 // and the container again. Data lives in volumes and is not touched.
 func (b *Backend) dropOtherBackendContainers(ctx context.Context, pw io.Writer, s *stack.Stack) {
-	if runtime.GOOS != "freebsd" || b.networkBackend(ctx) != backendNetavark {
+	if runtime.GOOS != "freebsd" {
+		return
+	}
+	if b.networkBackend(ctx) == backendCNI {
+		// Back on CNI: the networks made under netavark come first, or the
+		// stack starts before its network exists again.
+		b.carryBack()
 		return
 	}
 	// Asked again before every start: what holds port 53 may have arrived
