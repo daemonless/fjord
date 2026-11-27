@@ -64,6 +64,12 @@ msgstr "Mount into <0/> — edits the compose, <1>Save</1> to apply."
 #: src/ConfirmDialog.svelte
 #: src/Dashboard.svelte
 #: src/DirPicker.svelte
+#: src/HistoryList.svelte
+#: src/HistoryList.svelte
+#: src/HistoryList.svelte
+#: src/HistoryList.svelte
+#: src/HistoryList.svelte
+#: src/HistoryList.svelte
 #: src/InstallWizard.svelte
 #: src/NamesPrompt.svelte
 #: src/NetworkBackend.svelte
@@ -90,6 +96,10 @@ msgid "Cancel"
 msgstr "Cancel"
 
 #: src/AddMount.svelte
+#: src/HistoryList.svelte
+#: src/HistoryList.svelte
+#: src/HistoryList.svelte
+#: src/HistoryList.svelte
 msgid "Host path"
 msgstr "Host path"
 
@@ -264,6 +274,7 @@ msgstr "Adopt"
 #: src/AppStore.svelte
 #: src/AppStore.svelte
 #: src/BottomDrawer.svelte
+#: src/HistoryList.svelte
 #: src/NamesPrompt.svelte
 #: src/Sidebar.svelte
 msgid "All"
@@ -980,6 +991,8 @@ msgstr "<0>Stop {0}?</0> Stops and removes the containers. Your data is preserve
 msgid "Delete stack and data"
 msgstr "Delete stack and data"
 
+#: src/HistoryList.svelte
+#: src/HistoryList.svelte
 #: src/Networks.svelte
 #: src/Networks.svelte
 #: src/Networks.svelte
@@ -4217,6 +4230,8 @@ msgstr "With"
 msgid "Download"
 msgstr "Download"
 
+#: src/HistoryList.svelte
+#: src/HistoryList.svelte
 #: src/InstallWizard.svelte
 msgid "Data"
 msgstr "Data"
@@ -4795,7 +4810,6 @@ msgid "Not loaded"
 msgstr "Not loaded"
 
 #: src/Dashboard.svelte
-#: src/HistoryList.svelte
 #: src/Sidebar.svelte
 msgid "Loading…"
 msgstr "Loading…"
@@ -5650,8 +5664,12 @@ msgstr "Last run"
 msgid "Keep"
 msgstr "Keep"
 
+#. 0: rp.currentVersion
+#. 0: restoreCopyTarget.version
 #. 0: ar.to
 #. 0: ar.to
+#: src/HistoryList.svelte
+#: src/HistoryList.svelte
 #: src/StackDetail.svelte
 #: src/StackDetail.svelte
 msgid " to {0}"
@@ -5679,3 +5697,421 @@ msgstr "<0>The automatic update{0} failed</0>: {0}. Going back failed too: {1}."
 #: src/StackDetail.svelte
 msgid "Keep it"
 msgstr "Keep it"
+
+#. 0: r.status
+#. 0: r.status
+#: src/HistoryList.svelte
+#: src/HistoryList.svelte
+msgid "Restore failed ({0})"
+msgstr "Restore failed ({0})"
+
+#: src/HistoryList.svelte
+msgid "Restore completed."
+msgstr "Restore completed."
+
+#: src/HistoryList.svelte
+#: src/HistoryList.svelte
+msgid "Restore failed"
+msgstr "Restore failed"
+
+#~ msgid "Saved copy restored. Automatic updates stay paused."
+#~ msgstr "Saved copy restored. Automatic updates stay paused."
+
+#. 0: r.status
+#. 0: r.status
+#: src/HistoryList.svelte
+#: src/HistoryList.svelte
+msgid "Delete failed ({0})"
+msgstr "Delete failed ({0})"
+
+#: src/HistoryList.svelte
+msgid "Automatic updates resumed."
+msgstr "Automatic updates resumed."
+
+#: src/HistoryList.svelte
+msgid "Path copied."
+msgstr "Path copied."
+
+#: src/HistoryList.svelte
+msgid "Loading..."
+msgstr "Loading..."
+
+#~ msgid "Pinned{0}. Automatic updates are paused."
+#~ msgstr "Pinned{0}. Automatic updates are paused."
+
+#: src/HistoryList.svelte
+msgid "Resume updates"
+msgstr "Resume updates"
+
+#: src/HistoryList.svelte
+msgid "Data restore points are off because <0/> uses a plain folder instead of its own dataset."
+msgstr "Data restore points are off because <0/> uses a plain folder instead of its own dataset."
+
+#~ msgid "Removed after {0}"
+#~ msgstr "Removed after {0}"
+
+#~ msgid "Kept forever"
+#~ msgstr "Kept forever"
+
+#: src/HistoryList.svelte
+#: src/HistoryList.svelte
+#: src/HistoryList.svelte
+#: src/HistoryList.svelte
+msgid "Hide path"
+msgstr "Hide path"
+
+#~ msgid "Saved copy from {0}{1}"
+#~ msgstr "Saved copy from {0}{1}"
+
+#: src/HistoryList.svelte
+#: src/HistoryList.svelte
+#: src/HistoryList.svelte
+#: src/HistoryList.svelte
+msgid "Restore"
+msgstr "Restore"
+
+#: src/HistoryList.svelte
+#: src/HistoryList.svelte
+msgid "Keep forever"
+msgstr "Keep forever"
+
+#~ msgid "Expire in 30 days"
+#~ msgstr "Expire in 30 days"
+
+#: src/HistoryList.svelte
+#: src/HistoryList.svelte
+#: src/HistoryList.svelte
+#: src/HistoryList.svelte
+msgid "Copy path"
+msgstr "Copy path"
+
+#. 0: totalPointCount; 1: totalPointBytes ? ` · ${fmtBytes(totalPointBytes)}` \\: ''
+#: src/HistoryList.svelte
+msgid "Restore points ({0}{1})"
+msgstr "Restore points ({0}{1})"
+
+#: src/HistoryList.svelte
+msgid "Running now: <0/>"
+msgstr "Running now: <0/>"
+
+#: src/HistoryList.svelte
+msgid "No saved restore points yet."
+msgstr "No saved restore points yet."
+
+#: src/HistoryList.svelte
+#: src/HistoryList.svelte
+msgid "Saved restore point"
+msgstr "Saved restore point"
+
+#~ msgid "Pre-update snapshot"
+#~ msgstr "Pre-update snapshot"
+
+#~ msgid "Data saved · {0}"
+#~ msgstr "Data saved · {0}"
+
+#. 0: fmtBytes(s.usedBytes)
+#. 0: fmtBytes(matchedSnap.usedBytes)
+#: src/HistoryList.svelte
+#: src/HistoryList.svelte
+msgid "Data saved before update · {0}"
+msgstr "Data saved before update · {0}"
+
+#: src/HistoryList.svelte
+msgid "App only"
+msgstr "App only"
+
+#: src/HistoryList.svelte
+msgid "Restore the previous app version. Keep all current data untouched."
+msgstr "Restore the previous app version. Keep all current data untouched."
+
+#: src/HistoryList.svelte
+msgid "Restored:"
+msgstr "Restored:"
+
+#: src/HistoryList.svelte
+msgid "Not restored:"
+msgstr "Not restored:"
+
+#~ msgid "{0} newer restore point(s) stay with the kept copy and expire with it."
+#~ msgstr "{0} newer restore point(s) stay with the kept copy and expire with it."
+
+#. 0: newerSnapsForModal.length
+#: src/HistoryList.svelte
+msgid "{0} newer restore point(s) will be permanently deleted."
+msgstr "{0} newer restore point(s) will be permanently deleted."
+
+#~ msgid "Keep a copy of current data for 30 days"
+#~ msgstr "Keep a copy of current data for 30 days"
+
+#. 0: whenLabel(restoreSnap.createdAt)
+#: src/HistoryList.svelte
+msgid "Changes made since {0} will be permanently deleted."
+msgstr "Changes made since {0} will be permanently deleted."
+
+#: src/HistoryList.svelte
+msgid "App and data"
+msgstr "App and data"
+
+#: src/HistoryList.svelte
+#: src/HistoryList.svelte
+msgid "Restoring..."
+msgstr "Restoring..."
+
+#: src/HistoryList.svelte
+msgid "Choose an option"
+msgstr "Choose an option"
+
+#: src/HistoryList.svelte
+msgid "Restore app"
+msgstr "Restore app"
+
+#~ msgid "Restore and keep a copy"
+#~ msgstr "Restore and keep a copy"
+
+#: src/HistoryList.svelte
+#: src/HistoryList.svelte
+msgid "Restore and delete current data"
+msgstr "Restore and delete current data"
+
+#. 0: stack; 1: whenLabel(restoreSnap.createdAt)
+#. 0: stack; 1: whenLabel(restoreCopyTarget.createdAt)
+#: src/HistoryList.svelte
+#: src/HistoryList.svelte
+msgid "Restore {0} to {1}?"
+msgstr "Restore {0} to {1}?"
+
+#. 0: stack
+#: src/HistoryList.svelte
+msgid "{0} stops briefly while this runs, and automatic updates pause until you resume them."
+msgstr "{0} stops briefly while this runs, and automatic updates pause until you resume them."
+
+#~ msgid "Restore saved copy from {0}?"
+#~ msgstr "Restore saved copy from {0}?"
+
+#~ msgid "Restores {0}{1} along with the data in this saved copy."
+#~ msgstr "Restores {0}{1} along with the data in this saved copy."
+
+#. 0: stack
+#: src/HistoryList.svelte
+msgid "{0} stops briefly while this runs. Automatic updates stay paused until you resume them."
+msgstr "{0} stops briefly while this runs. Automatic updates stay paused until you resume them."
+
+#: src/HistoryList.svelte
+#: src/HistoryList.svelte
+msgid "Deleting..."
+msgstr "Deleting..."
+
+#. 0: fmtBytes(deleteSnapTarget.usedBytes)
+#. 0: fmtBytes(deleteCopyTarget.usedBytes)
+#: src/HistoryList.svelte
+#: src/HistoryList.svelte
+msgid "Delete {0}"
+msgstr "Delete {0}"
+
+#~ msgid "Delete saved copy?"
+#~ msgstr "Delete saved copy?"
+
+#~ msgid "Permanently removes the saved copy from {0} ({1}). Running data is not affected."
+#~ msgstr "Permanently removes the saved copy from {0} ({1}). Running data is not affected."
+
+#. 0: r.status
+#: src/HistoryList.svelte
+msgid "Snapshot failed ({0})"
+msgstr "Snapshot failed ({0})"
+
+#: src/HistoryList.svelte
+msgid "Restore point saved."
+msgstr "Restore point saved."
+
+#: src/HistoryList.svelte
+msgid "Snapshot failed"
+msgstr "Snapshot failed"
+
+#: src/HistoryList.svelte
+#: src/HistoryList.svelte
+msgid "Restore point deleted."
+msgstr "Restore point deleted."
+
+#: src/HistoryList.svelte
+msgid "Needs its own dataset"
+msgstr "Needs its own dataset"
+
+#: src/HistoryList.svelte
+msgid "Data snapshots need ZFS"
+msgstr "Data snapshots need ZFS"
+
+#: src/HistoryList.svelte
+msgid "+ Save restore point"
+msgstr "+ Save restore point"
+
+#: src/HistoryList.svelte
+msgid "Manual"
+msgstr "Manual"
+
+#: src/HistoryList.svelte
+msgid "Note (optional)"
+msgstr "Note (optional)"
+
+#: src/HistoryList.svelte
+msgid "Saving..."
+msgstr "Saving..."
+
+#: src/HistoryList.svelte
+#: src/HistoryList.svelte
+msgid "Save restore point"
+msgstr "Save restore point"
+
+#. 0: stack
+#: src/HistoryList.svelte
+msgid "Saves a snapshot of {0}'s data right now. The app keeps running with no interruption."
+msgstr "Saves a snapshot of {0}'s data right now. The app keeps running with no interruption."
+
+#: src/HistoryList.svelte
+#: src/HistoryList.svelte
+msgid "Delete restore point?"
+msgstr "Delete restore point?"
+
+#. 0: whenLabel(deleteSnapTarget.createdAt); 1: fmtBytes(deleteSnapTarget.usedBytes)
+#: src/HistoryList.svelte
+msgid "Permanently removes the manual restore point from {0} ({1}). Running data is not affected."
+msgstr "Permanently removes the manual restore point from {0} ({1}). Running data is not affected."
+
+#: src/HistoryList.svelte
+msgid "Restore completed. Automatic updates stay paused."
+msgstr "Restore completed. Automatic updates stay paused."
+
+#: src/HistoryList.svelte
+msgid "Automatic updates resumed (skipping the version you rolled back from)."
+msgstr "Automatic updates resumed (skipping the version you rolled back from)."
+
+#. 0: isoDate(latestKept.until)
+#. 0: isoDate(c.until)
+#. 0: isoDate(matchedCopy.until)
+#: src/HistoryList.svelte
+#: src/HistoryList.svelte
+#: src/HistoryList.svelte
+msgid "kept until {0}"
+msgstr "kept until {0}"
+
+#: src/HistoryList.svelte
+#: src/HistoryList.svelte
+#: src/HistoryList.svelte
+msgid "kept forever"
+msgstr "kept forever"
+
+#. 0: latestKept.version ? `${latestKept.version} ` \\: ''; 1: latestKept.until ? `kept until ${isoDate(latestKept.until)}` \\: 'kept forever'
+#: src/HistoryList.svelte
+msgid "Your {0}data is {1}."
+msgstr "Your {0}data is {1}."
+
+#. 0: rp.currentVersion ? ` to ${rp.currentVersion}` \\: ''
+#: src/HistoryList.svelte
+msgid "Pinned{0}. Automatic updates are paused.<0/>"
+msgstr "Pinned{0}. Automatic updates are paused.<0/>"
+
+#. 0: c.version
+#. 0: matchedCopy.version
+#: src/HistoryList.svelte
+#: src/HistoryList.svelte
+msgid "{0} data"
+msgstr "{0} data"
+
+#. 0: c.version ? `${c.version} data` \\: 'Data'; 1: fmtBytes(c.usedBytes); 2: c.until ? `kept until ${isoDate(c.until)}` \\: 'kept forever'
+#. 0: matchedCopy.version ? `${matchedCopy.version} data` \\: 'Data'; 1: fmtBytes(matchedCopy.usedBytes); 2: matchedCopy.until ? `kept until ${isoDate(matchedCopy.until)}` \\: 'kept forever'
+#: src/HistoryList.svelte
+#: src/HistoryList.svelte
+msgid "{0} saved before restore · {1} · {2}"
+msgstr "{0} saved before restore · {1} · {2}"
+
+#: src/HistoryList.svelte
+msgid "Restored"
+msgstr "Restored"
+
+#: src/HistoryList.svelte
+#: src/HistoryList.svelte
+msgid "More options"
+msgstr "More options"
+
+#. 0: isoDate30DaysFromNow()
+#. 0: isoDate30DaysFromNow()
+#: src/HistoryList.svelte
+#: src/HistoryList.svelte
+msgid "Expire on {0}"
+msgstr "Expire on {0}"
+
+#. 0: fmtBytes(c.usedBytes)
+#. 0: fmtBytes(matchedCopy.usedBytes)
+#: src/HistoryList.svelte
+#: src/HistoryList.svelte
+msgid "Delete ({0})"
+msgstr "Delete ({0})"
+
+#: src/HistoryList.svelte
+msgid "Updated"
+msgstr "Updated"
+
+#. 0: fmtBytes(s.usedBytes)
+#. 0: fmtBytes(matchedSnap.usedBytes)
+#: src/HistoryList.svelte
+#: src/HistoryList.svelte
+msgid "Data saved · {0} · kept forever"
+msgstr "Data saved · {0} · kept forever"
+
+#: src/HistoryList.svelte
+#: src/HistoryList.svelte
+msgid "the newer version"
+msgstr "the newer version"
+
+#: src/HistoryList.svelte
+msgid "that version"
+msgstr "that version"
+
+#. 0: latestKept.version || 'that version'
+#: src/HistoryList.svelte
+msgid "Skip {0} and wait for the next release"
+msgstr "Skip {0} and wait for the next release"
+
+#. 0: latestKept.version || 'the newer version'
+#: src/HistoryList.svelte
+msgid "Resume all updates (includes {0})"
+msgstr "Resume all updates (includes {0})"
+
+#: src/HistoryList.svelte
+msgid "Resume automatic updates?"
+msgstr "Resume automatic updates?"
+
+#. 0: latestKept.version || 'the newer version'
+#: src/HistoryList.svelte
+msgid "You rolled back from {0}. Resuming all updates will pull it back in on the next update window."
+msgstr "You rolled back from {0}. Resuming all updates will pull it back in on the next update window."
+
+#. 0: newerSnapsForModal.length
+#: src/HistoryList.svelte
+msgid "{0} newer restore point(s) stay with the saved copy and expire with it."
+msgstr "{0} newer restore point(s) stay with the saved copy and expire with it."
+
+#. 0: isoDate30DaysFromNow()
+#. 0: isoDate30DaysFromNow()
+#: src/HistoryList.svelte
+#: src/HistoryList.svelte
+msgid "Save current data as a restore point until {0}"
+msgstr "Save current data as a restore point until {0}"
+
+#: src/HistoryList.svelte
+#: src/HistoryList.svelte
+msgid "Restore and save current data"
+msgstr "Restore and save current data"
+
+#: src/HistoryList.svelte
+msgid "Current running data will be permanently deleted."
+msgstr "Current running data will be permanently deleted."
+
+#. 0: stack; 1: restoreCopyTarget.version ? ` to ${restoreCopyTarget.version}` \\: ''
+#: src/HistoryList.svelte
+msgid "Restores {0}{1} along with the data saved before your rollback."
+msgstr "Restores {0}{1} along with the data saved before your rollback."
+
+#. 0: whenLabel(deleteCopyTarget.createdAt); 1: fmtBytes(deleteCopyTarget.usedBytes)
+#: src/HistoryList.svelte
+msgid "Permanently removes the data saved before restore on {0} ({1}). Running data is not affected."
+msgstr "Permanently removes the data saved before restore on {0} ({1}). Running data is not affected."

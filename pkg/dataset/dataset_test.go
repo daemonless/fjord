@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 )
 
 // fake answers zfs commands from a table and records what ran.
@@ -18,13 +19,18 @@ func (f *fake) install(t *testing.T) {
 	run = func(_ context.Context, args ...string) ([]byte, error) {
 		cmd := strings.Join(args, " ")
 		f.ran = append(f.ran, cmd)
+		var bestPrefix, bestOut string
+		matched := false
 		for prefix, out := range f.answers {
-			if strings.HasPrefix(cmd, prefix) {
-				if strings.HasPrefix(out, "ERR ") {
-					return nil, errors.New(out[4:])
-				}
-				return []byte(out), nil
+			if strings.HasPrefix(cmd, prefix) && (!matched || len(prefix) > len(bestPrefix)) {
+				bestPrefix, bestOut, matched = prefix, out, true
 			}
+		}
+		if matched {
+			if strings.HasPrefix(bestOut, "ERR ") {
+				return nil, errors.New(bestOut[4:])
+			}
+			return []byte(bestOut), nil
 		}
 		return nil, nil
 	}
@@ -48,6 +54,27 @@ func TestAtNoZFS(t *testing.T) {
 	(&fake{answers: map[string]string{"list": "ERR zfs: not found"}}).install(t)
 	if _, ok := At(context.Background(), "/containers"); ok {
 		t.Fatal("no zfs, yet a dataset")
+	}
+}
+
+func TestLiveByTagSkipsKeptCopies(t *testing.T) {
+	out := strings.Join([]string{
+		"zroot/containers/app.kept-2026-11-27-0530\tapp\trollback",
+		"zroot/containers/app\tapp\t-",
+		"zroot/containers/other\tother\t-",
+	}, "\n") + "\n"
+	(&fake{answers: map[string]string{"list -H -o name,fjord:stack,fjord:kept-kind": out}}).install(t)
+
+	got, ok := LiveByTag(context.Background(), "app")
+	if !ok || got != "zroot/containers/app" {
+		t.Fatalf("got %q %v, want zroot/containers/app", got, ok)
+	}
+
+	// Only a kept copy exists: must not return it as the live dataset.
+	onlyKept := "zroot/containers/app.kept-2026-11-27-0530\tapp\trollback\n"
+	(&fake{answers: map[string]string{"list -H -o name,fjord:stack,fjord:kept-kind": onlyKept}}).install(t)
+	if got, ok := LiveByTag(context.Background(), "app"); ok {
+		t.Fatalf("returned kept copy %q as live dataset", got)
 	}
 }
 
@@ -93,5 +120,113 @@ func TestDestroyOnlyWhatFjordMade(t *testing.T) {
 	other.install(t)
 	if err := Destroy(ctx, "zroot/containers/immich", "immich"); err == nil {
 		t.Fatal("destroyed a dataset tagged for another stack")
+	}
+}
+
+func TestSnapPredicatesAndInternalDirs(t *testing.T) {
+	ds := "zroot/containers/app"
+	if !IsUpdateSnap(ds, ds+"@fjord-update-1795774303") {
+		t.Error("new update snap not recognized")
+	}
+	if !IsUpdateSnap(ds, ds+"@fjord-1795774303") {
+		t.Error("legacy update snap not recognized")
+	}
+	if IsUpdateSnap(ds, ds+"@fjord-manual-1795774303") {
+		t.Error("manual snap misclassified as update snap")
+	}
+	if !IsManualSnap(ds, ds+"@fjord-manual-1795774303") {
+		t.Error("manual snap not recognized")
+	}
+	if IsFjordSnap(ds, ds+"@user-backup") {
+		t.Error("non-fjord snap matched")
+	}
+	for _, internal := range []string{
+		"app.kept-2026-11-27-0530",
+		"app.pre-dataset-20261127-0530",
+		"app.deleting-1795774600",
+	} {
+		if !IsInternalDir(internal) {
+			t.Errorf("%q not recognized as internal dir", internal)
+		}
+	}
+	if IsInternalDir("app") || IsInternalDir("my-kept-notes") {
+		t.Error("normal folder misclassified as internal dir")
+	}
+}
+
+func TestSnapshotPrunerSkipsManualDeferredAndCloneHeld(t *testing.T) {
+	ds := "zroot/containers/app"
+	snapList := strings.Join([]string{
+		ds + "@user-snap\t1700000000\t1024\toff\t-",
+		ds + "@fjord-1700000100\t1700000100\t2048\ton\t" + ds + ".kept-old",
+		ds + "@fjord-update-1700000200\t1700000200\t2048\toff\t" + ds + ".kept-active",
+		ds + "@fjord-manual-1700000250\t1700000250\t4096\toff\t-",
+		ds + "@fjord-update-1700000300\t1700000300\t1000\toff\t-",
+		ds + "@fjord-update-1700000400\t1700000400\t1000\toff\t-",
+		ds + "@fjord-update-1700000500\t1700000500\t1000\toff\t-",
+		ds + "@fjord-update-1700000600\t1700000600\t1000\toff\t-",
+		ds + "@fjord-update-1700000700\t1700000700\t1000\toff\t-",
+	}, "\n") + "\n"
+
+	f := &fake{answers: map[string]string{
+		"list -H -p -t snapshot": snapList,
+		// Simulate first prune failing: loop must still prune the second excess snap.
+		"destroy -d " + ds + "@fjord-update-1700000300": "ERR dataset is busy",
+	}}
+	f.install(t)
+
+	got, err := Snapshot(context.Background(), ds, time.Unix(1700000700, 0), 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != ds+"@fjord-update-1700000700" {
+		t.Fatalf("got %q", got)
+	}
+
+	var destroyed []string
+	for _, c := range f.ran {
+		if strings.HasPrefix(c, "destroy ") {
+			destroyed = append(destroyed, c)
+		}
+	}
+	// 5 countable update snaps (300..700), keep 3 -> must prune 300 and 400 with -d,
+	// never touch manual (250), deferred (100), clone-held (200), or user-snap.
+	want := []string{
+		"destroy -d " + ds + "@fjord-update-1700000300",
+		"destroy -d " + ds + "@fjord-update-1700000400",
+	}
+	if strings.Join(destroyed, "|") != strings.Join(want, "|") {
+		t.Fatalf("destroyed %v, want %v", destroyed, want)
+	}
+
+	// ListSnapshots with includeDeferred=false must hide the defer_destroy=on snap.
+	visible, err := ListSnapshots(context.Background(), ds, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range visible {
+		if s.DeferDestroy {
+			t.Fatalf("deferred snapshot %s leaked into UI list", s.Name)
+		}
+	}
+}
+
+func TestRollbackRefusesWhenCloneDependsOnNewerSnapshot(t *testing.T) {
+	ds := "zroot/containers/app"
+	snapList := strings.Join([]string{
+		ds + "@fjord-update-1700000100\t1700000100\t1000\toff\t-",
+		ds + "@fjord-update-1700000200\t1700000200\t2000\toff\t" + ds + ".kept-2026-11-27-0530",
+	}, "\n") + "\n"
+	f := &fake{answers: map[string]string{"list -H -p -t snapshot": snapList}}
+	f.install(t)
+
+	err := Rollback(context.Background(), ds, ds+"@fjord-update-1700000100")
+	if err == nil || !strings.Contains(err.Error(), ".kept-2026-11-27-0530") {
+		t.Fatalf("expected clone refusal, got %v", err)
+	}
+	for _, c := range f.ran {
+		if strings.HasPrefix(c, "rollback") {
+			t.Fatal("ran zfs rollback despite clone dependency")
+		}
 	}
 }

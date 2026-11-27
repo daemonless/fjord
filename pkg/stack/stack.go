@@ -67,6 +67,11 @@ type State struct {
 	// Dataset is the ZFS dataset fjord made for the stack's data at install
 	// (tagged fjord:stack); "" when its data is in plain folders.
 	Dataset string `json:"dataset,omitempty"`
+	// UpdateSnapshot is the most recent pre-update snapshot taken on Dataset.
+	UpdateSnapshot string `json:"update_snapshot,omitempty"`
+	// PendingDatasetOp records an in-flight ZFS rename/clone/promote so
+	// startOnBoot can reconcile or roll back if fjordd dies mid-operation.
+	PendingDatasetOp *PendingDatasetOp `json:"pending_dataset_op,omitempty"`
 	// Restart is the restart policy of a stack whose engine does not read the
 	// compose's `restart:` (AppJail): only start on boot follows it.
 	Restart string `json:"restart,omitempty"`
@@ -137,6 +142,20 @@ type RecoveryEvent struct {
 	Max     int       `json:"max,omitempty"`
 	Outcome string    `json:"outcome"` // "detected" | "restarted" | "failed" | "stopped" | "exhausted"
 	Message string    `json:"message,omitempty"`
+}
+
+// PendingDatasetOp is persisted before the first zfs rename of a restore or
+// migration so fjordd can recover a missing live dataset on restart before
+// start-on-boot runs.
+type PendingDatasetOp struct {
+	Kind           string    `json:"kind"` // "restore_keep" | "restore_kept_keep" | "restore_kept_drop" | "migrate_dataset"
+	LiveDataset    string    `json:"live_dataset"`
+	KeptDataset    string    `json:"kept_dataset,omitempty"`
+	NewKeptDataset string    `json:"new_kept_dataset,omitempty"`
+	DropDataset    string    `json:"drop_dataset,omitempty"`
+	Snapshot       string    `json:"snapshot,omitempty"`
+	LocalMP        string    `json:"local_mp,omitempty"`
+	StartedAt      time.Time `json:"started_at"`
 }
 
 // Failure is one action's [error], as the stack page shows it.

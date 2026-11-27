@@ -33,6 +33,7 @@ const done: Record<string, string> = {
   apply: 'Applied changes',
   update: 'Updated',
   rollback: 'Rolled back',
+  snapshot: 'Saved restore point',
   delete: 'Deleted',
 };
 
@@ -45,6 +46,7 @@ const failed: Record<string, string> = {
   apply: 'Applying changes failed',
   update: 'Update failed',
   rollback: 'Roll back failed',
+  snapshot: 'Saving restore point failed',
   delete: 'Delete failed',
 };
 

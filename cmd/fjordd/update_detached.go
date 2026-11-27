@@ -20,10 +20,12 @@ import (
 // recreate, and the changes a Save left pending cleared as they land.
 // services nil is the whole stack.
 func (s *server) updateStream(ctx context.Context, st *stack.Stack, read uint64, services []string, record bool) (io.ReadCloser, error) {
+	var snapNote string
 	if record {
 		s.recordRollback(ctx, st, services)
+		snapNote = s.snapshotBeforeUpdate(ctx, st)
 	}
-	note := keptNote(s.keepAddresses(ctx, st))
+	note := snapNote + keptNote(s.keepAddresses(ctx, st))
 	stream, err := s.backendFor(st).Update(watchable(ctx, st.Name), st, services)
 	if err != nil {
 		return nil, err
