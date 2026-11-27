@@ -90,11 +90,7 @@ export function changeLines(e: HistoryEntry): string[] {
   return out;
 }
 
-/** "just now", "3 min ago", then "2026-11-12 09:30". now is passed for tests. */
-export function whenLabel(at: string, now: Date = new Date()): string {
-  const t = new Date(at);
-  const s = Math.round((now.getTime() - t.getTime()) / 1000);
-  if (s < 60) return 'just now';
-  if (s < 3600) return `${Math.floor(s / 60)} min ago`;
-  return isoDateTime(t);
+/** "2026-11-12 09:30", the date in the chosen format; never "3 min ago". */
+export function whenLabel(at: string): string {
+  return isoDateTime(at);
 }

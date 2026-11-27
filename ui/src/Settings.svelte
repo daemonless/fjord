@@ -1,8 +1,10 @@
 <script lang="ts">
   import Account from './Account.svelte';
+  import { isoDateTime } from './when';
   import { onMount, createEventDispatcher, tick } from 'svelte';
   import Icon from './Icon.svelte';
   import { LOCALES, currentLocale, setLocale, type Locale } from './locale';
+  import { FORMATS, currentDateFormat, setDateFormat, formatById, formatDate } from './dateFormat';
   import Spinner from './Spinner.svelte';
   import EmptyState from './EmptyState.svelte';
   import DirPicker from './DirPicker.svelte';
@@ -111,6 +113,12 @@
     fetch('/api/stacks').then((r) => (r.ok ? r.json() : [])).then((s) => (nameStacks = s || [])).catch(() => {});
   const dispatch = createEventDispatcher();
   const locale = currentLocale();
+  // Every ISO 8601 date format there is, then a few that are not.
+  let dateFormat = currentDateFormat();
+  $: chosenFormat = formatById(dateFormat);
+  const now = new Date();
+  const isoCount = FORMATS.filter((f) => f.iso).length;
+  const todayIn = (format: string) => formatDate(now.getFullYear(), now.getMonth() + 1, now.getDate(), format, locale);
   let activeTab: 'storage' | 'extensions' | 'catalogs' | 'names' | 'advanced' | 'account' = tab;
   $: activeTab = tab;
   function selectTab(t: 'storage' | 'extensions' | 'catalogs' | 'names' | 'advanced' | 'account') {
@@ -373,22 +381,9 @@
 
   // ---- catalogs management ----
   type CatalogRow = { id: string; name: string; url: string; apps: number; enabled?: boolean; icon?: string; builtin?: boolean; fetchedAt?: string };
-  // Relative time for "fetched 2h ago" style hints.
-  const ago = (iso?: string) => {
-    if (!iso) return '';
-    const s = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000);
-    if (s < 90) return 'just now';
-    if (s < 5400) return `${Math.round(s / 60)}m ago`;
-    if (s < 129600) return `${Math.round(s / 3600)}h ago`;
-    return `${Math.round(s / 86400)}d ago`;
-  };
-  const until = (iso?: string) => {
-    if (!iso) return '';
-    const s = (new Date(iso).getTime() - Date.now()) / 1000;
-    if (s <= 60) return 'now';
-    if (s < 5400) return `in ${Math.round(s / 60)}m`;
-    return `in ${Math.round(s / 3600)}h`;
-  };
+  // When the catalogs were fetched and refresh next, in the date format.
+  const ago = (iso?: string) => (iso ? isoDateTime(iso) : '');
+  const until = ago;
 
   // ---- automatic catalog refresh ----
   const REFRESH_LABELS: Record<string, string> = { off: 'Off', '1h': 'Hourly', '6h': 'Every 6 hours', '24h': 'Daily' };
@@ -653,16 +648,53 @@
       </div>
 
 
-      <div class="flex items-center gap-4 px-4 py-3 mt-3 border border-fjord-border rounded-xl max-w-2xl">
-        <label for="fjord-locale" class="w-40 shrink-0 text-sm text-fjord-fg-muted">Language</label>
-        <select
-          id="fjord-locale"
-          value={locale}
-          on:change={(e) => setLocale(e.currentTarget.value as Locale)}
-          class="bg-fjord-inset border border-fjord-border rounded-lg px-2 py-1 text-sm text-fjord-fg-body focus:border-fjord-accent outline-none"
-        >
-          {#each LOCALES as l (l.id)}<option value={l.id}>{l.name}</option>{/each}
-        </select>
+      <div class="mt-3 border border-fjord-border rounded-xl max-w-2xl divide-y divide-fjord-border">
+        <div class="flex items-center gap-4 px-4 py-3">
+          <label for="fjord-locale" class="w-40 shrink-0 text-sm text-fjord-fg-muted">Language</label>
+          <select
+            id="fjord-locale"
+            value={locale}
+            on:change={(e) => setLocale(e.currentTarget.value as Locale)}
+            class="bg-fjord-inset border border-fjord-border rounded-lg px-2 py-1 text-sm text-fjord-fg-body focus:border-fjord-accent outline-none"
+          >
+            {#each LOCALES as l (l.id)}<option value={l.id}>{l.name}</option>{/each}
+          </select>
+        </div>
+        <div class="flex items-start gap-4 px-4 py-3">
+          <label for="fjord-date-format" class="w-40 shrink-0 pt-1 text-sm text-fjord-fg-muted">Date format</label>
+          <div class="min-w-0 flex-1">
+            <select
+              id="fjord-date-format"
+              data-date-format
+              value={dateFormat}
+              on:change={(e) => {
+                dateFormat = e.currentTarget.value;
+                setDateFormat(dateFormat);
+              }}
+              title="{chosenFormat.description} ({chosenFormat.ref})"
+              class="w-full max-w-md bg-fjord-inset border border-fjord-border rounded-lg px-2 py-1 text-sm text-fjord-fg-body focus:border-fjord-accent outline-none"
+            >
+              <optgroup label="ISO 8601">
+                {#each FORMATS.filter((f) => f.iso) as f (f.id)}<option value={f.id}>{f.standard} · {f.format}</option>{/each}
+              </optgroup>
+              <optgroup label="Other">
+                {#each FORMATS.filter((f) => !f.iso) as f (f.id)}<option value={f.id}>{f.standard} · {todayIn(f.format)}</option>{/each}
+              </optgroup>
+            </select>
+            <p class="mt-1.5 text-xs text-fjord-fg-dim" data-date-format-note>
+              Dates look like {todayIn(chosenFormat.format)}.
+              {#if chosenFormat.url}
+                <a href={chosenFormat.url} target="_blank" rel="noopener noreferrer" class="text-fjord-accent hover:underline">{chosenFormat.ref}</a>
+              {:else if chosenFormat.id === 'month-first'}
+                We listed {isoCount} ISO 8601 formats and you chose a crime. Is 03/04 in March or April? Depends who you ask.
+              {:else if chosenFormat.id === 'day-first'}
+                We listed {isoCount} ISO 8601 formats and you chose a crime. 02/11 is November here and February across the ocean.
+              {:else}
+                We listed {isoCount} ISO 8601 formats and you chose a crime. Lovely to read, impossible to sort.
+              {/if}
+            </p>
+          </div>
+        </div>
       </div>
 
       <!-- Storage / Extensions / Catalogs / Advanced tabs -->

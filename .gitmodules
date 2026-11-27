@@ -1,0 +1,3 @@
+[submodule "ui/vendor/yyyymmdd"]
+	path = ui/vendor/yyyymmdd
+	url = https://github.com/ahze/yyyymmdd
