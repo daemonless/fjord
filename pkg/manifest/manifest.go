@@ -32,6 +32,12 @@ type Var struct {
 	Min, Max *int
 	// Options are the allowed values for a "choice" variable.
 	Options []VarOption
+	// NeedsDomain: a public_url the app takes only as https:// and a domain
+	// name (passkeys bind to one). Manifest `needs: domain`.
+	NeedsDomain bool
+	// BehindProxy is the value the variable takes when the app is served
+	// through a reverse proxy (TRUST_PROXY=true). Manifest `behind_proxy`.
+	BehindProxy *string
 }
 
 // VarOption is one selectable answer for a variable of type "choice".
@@ -324,6 +330,8 @@ type xfVar struct {
 	Min             *int        `yaml:"min"`
 	Max             *int        `yaml:"max"`
 	Options         []VarOption `yaml:"options"`
+	Needs           string      `yaml:"needs"`
+	BehindProxy     *string     `yaml:"behind_proxy"`
 	HostPermissions *struct {
 		Uid  int    `yaml:"uid"`
 		Gid  int    `yaml:"gid"`
@@ -431,6 +439,9 @@ func Parse(manifestYAML string) (*Manifest, error) {
 			Min:     v.Min,
 			Max:     v.Max,
 			Options: v.Options,
+
+			NeedsDomain: v.Type == "public_url" && v.Needs == "domain",
+			BehindProxy: v.BehindProxy,
 		}
 		if (nv.Type == "" || nv.Type == "string") && isTrueFalse(nv.Default) {
 			nv.Type = "bool"
