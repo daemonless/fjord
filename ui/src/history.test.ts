@@ -45,13 +45,8 @@ describe('imageLabel', () => {
 });
 
 describe('whenLabel', () => {
-  const now = new Date('2026-11-23T15:00:00');
-  it('is relative when recent', () => {
-    expect(whenLabel(new Date('2026-11-23T14:59:40').toISOString(), now)).toBe('just now');
-    expect(whenLabel(new Date('2026-11-23T14:40:00').toISOString(), now)).toBe('20 min ago');
-  });
-  it('is the ISO date and time after an hour', () => {
-    expect(whenLabel(new Date('2026-11-22T09:30:00').toISOString(), now)).toBe('2026-11-22 09:30');
-    expect(whenLabel(new Date('2026-11-23T13:05:00').toISOString(), now)).toBe('2026-11-23 13:05');
+  it('is the date and time, even a minute ago', () => {
+    expect(whenLabel(new Date('2026-11-22T09:30:00').toISOString())).toBe('2026-11-22 09:30');
+    expect(whenLabel(new Date(Date.now() - 60000).toISOString())).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
   });
 });

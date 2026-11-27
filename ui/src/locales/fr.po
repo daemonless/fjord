@@ -2601,20 +2601,14 @@ msgstr "Niveau de détail de l'assistant enregistré"
 msgid "Folder sets saved"
 msgstr "Jeux de dossiers enregistrés"
 
-#. 0: Math.round(s / 60)
-#: src/Settings.svelte
-msgid "{0}m ago"
-msgstr "il y a {0} min"
+#~ msgid "{0}m ago"
+#~ msgstr "il y a {0} min"
 
-#. 0: Math.round(s / 3600)
-#: src/Settings.svelte
-msgid "{0}h ago"
-msgstr "il y a {0} h"
+#~ msgid "{0}h ago"
+#~ msgstr "il y a {0} h"
 
-#. 0: Math.round(s / 86400)
-#: src/Settings.svelte
-msgid "{0}d ago"
-msgstr "il y a {0} j"
+#~ msgid "{0}d ago"
+#~ msgstr "il y a {0} j"
 
 #: src/Settings.svelte
 msgid "Off"
@@ -3891,15 +3885,11 @@ msgstr "{0} sur {1}"
 msgid "Unknown browser"
 msgstr "Navigateur inconnu"
 
-#. 0: mins
-#: src/Account.svelte
-msgid "{0} minutes ago"
-msgstr "il y a {0} minutes"
+#~ msgid "{0} minutes ago"
+#~ msgstr "il y a {0} minutes"
 
-#. 0: Math.round(mins / 60)
-#: src/Account.svelte
-msgid "{0} hours ago"
-msgstr "il y a {0} heures"
+#~ msgid "{0} hours ago"
+#~ msgstr "il y a {0} heures"
 
 #: src/Account.svelte
 msgid "Sign-in is off (<0/>): only this host and the proxy in front of it can reach fjord, with no password."
@@ -5305,6 +5295,7 @@ msgstr "Branche {0}"
 
 #: src/ChangeVersionModal.svelte
 #: src/InstallWizard.svelte
+#: src/Settings.svelte
 msgid "Other"
 msgstr "Autres"
 
@@ -5354,3 +5345,36 @@ msgstr "Historique"
 #: src/System.svelte
 msgid "What happened to your stacks, newest first. Each stack's own History tab has the rest."
 msgstr "Ce qui est arrivé à vos piles, du plus récent au plus ancien. L'onglet Historique de chaque pile contient le reste."
+
+#~ msgid "Dates look like {0}."
+#~ msgstr "Les dates s’écrivent {0}."
+
+#~ msgid "{0} is ISO 8601 too. fjord writes {1} anyway."
+#~ msgstr "{0} est aussi de l’ISO 8601. fjord écrit {1} quand même."
+
+#: src/Settings.svelte
+msgid "Date format"
+msgstr "Format de date"
+
+#~ msgid "Not ISO 8601."
+#~ msgstr "Pas de l'ISO 8601."
+
+#. 0: todayIn(chosenFormat.format)
+#: src/Settings.svelte
+msgid "Dates look like {0}. <0/>"
+msgstr "Les dates s'écrivent {0}. <0/>"
+
+#. 0: isoCount
+#: src/Settings.svelte
+msgid "We listed {0} ISO 8601 formats and you chose a crime. Is 03/04 in March or April? Depends who you ask."
+msgstr "Nous avons listé {0} formats ISO 8601 et vous avez choisi un crime. 03/04, c'est mars ou avril ? Ça dépend à qui on demande."
+
+#. 0: isoCount
+#: src/Settings.svelte
+msgid "We listed {0} ISO 8601 formats and you chose a crime. 02/11 is November here and February across the ocean."
+msgstr "Nous avons listé {0} formats ISO 8601 et vous avez choisi un crime. 02/11, c'est novembre ici et février de l'autre côté de l'océan."
+
+#. 0: isoCount
+#: src/Settings.svelte
+msgid "We listed {0} ISO 8601 formats and you chose a crime. Lovely to read, impossible to sort."
+msgstr "Nous avons listé {0} formats ISO 8601 et vous avez choisi un crime. Joli à lire, impossible à trier."
