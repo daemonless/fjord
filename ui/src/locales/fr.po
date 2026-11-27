@@ -6202,3 +6202,7 @@ msgstr ""
 #: src/HistoryList.svelte
 msgid "Path"
 msgstr ""
+
+#: src/Settings.svelte
+msgid "Time format"
+msgstr ""

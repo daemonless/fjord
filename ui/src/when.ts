@@ -4,10 +4,9 @@
 // same moment differently to each viewer.
 
 import { showDate } from './dateFormat';
+import { showTime, showDateTime } from './timeFormat';
 
 type When = string | number | Date;
-
-const pad = (n: number) => String(n).padStart(2, '0');
 
 function at(t: When): Date | undefined {
   const d = t instanceof Date ? t : new Date(t);
@@ -23,15 +22,14 @@ export function isoDate(t: When, utc = false): string {
     : showDate(d.getFullYear(), d.getMonth() + 1, d.getDate());
 }
 
-/** 07:11, or 07:11:05 with seconds. */
+/** 07:11, 7:11 AM, or 07:11-05:00 in the chosen time format. */
 export function isoTime(t: When, seconds = false): string {
   const d = at(t);
-  if (!d) return '';
-  return `${pad(d.getHours())}:${pad(d.getMinutes())}${seconds ? `:${pad(d.getSeconds())}` : ''}`;
+  return d ? showTime(d, seconds) : '';
 }
 
-/** 2026-11-24 07:11, or 2026-11-24 07:11:05 with seconds; the date in the chosen format. */
+/** Date and time in the chosen formats. */
 export function isoDateTime(t: When, seconds = false): string {
   const d = at(t);
-  return d ? `${isoDate(d)} ${isoTime(d, seconds)}` : '';
+  return d ? showDateTime(isoDate(d), d, seconds) : '';
 }

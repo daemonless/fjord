@@ -6213,3 +6213,7 @@ msgstr "until {0}"
 #: src/HistoryList.svelte
 msgid "Path"
 msgstr "Path"
+
+#: src/Settings.svelte
+msgid "Time format"
+msgstr "Time format"
