@@ -57,7 +57,7 @@
     aria-describedby={describedBy || undefined}
     title={title || undefined}
     {...buttonAttrs}
-    class="flex items-center justify-between gap-3 min-w-56 bg-fjord-inset border border-fjord-border rounded-lg px-2.5 py-1 text-sm text-fjord-fg-body hover:border-fjord-fg-faint focus:outline-none focus:border-fjord-accent disabled:opacity-50 disabled:hover:border-fjord-border"
+    class="flex items-center justify-between gap-3 w-full sm:w-auto sm:min-w-56 bg-fjord-inset border border-fjord-border rounded-lg px-2.5 py-1 text-sm text-fjord-fg-body hover:border-fjord-fg-faint focus:outline-none focus:border-fjord-accent disabled:opacity-50 disabled:hover:border-fjord-border"
     ><span>{label}</span><span aria-hidden="true" class="text-fjord-fg-dim">▾</span></button
   >
   {#if open}

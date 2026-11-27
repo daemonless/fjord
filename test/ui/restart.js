@@ -90,6 +90,8 @@ async function install(page, name, engine, port) {
       await group.press('Enter');
       await sleep(1000);
       // Unsaved edits lock Restart and If unhealthy, and the tab says why.
+      // The raw files are under Compose.
+      await page.locator('[data-tab="files"]').click();
       await page.getByRole('button', { name: 'compose.yaml', exact: true }).click();
       await page.locator('.cm-content').click();
       await page.keyboard.press('Control+End');

@@ -772,7 +772,6 @@ msgid "{0}v{1} available"
 msgstr "{0}v{1} disponible"
 
 #: src/Sidebar.svelte
-#: src/StackDetail.svelte
 msgid "Update available"
 msgstr "Mise à jour disponible"
 
@@ -867,13 +866,12 @@ msgid "Open {0}"
 msgstr "Ouvrir {0}"
 
 #: src/StackDetail.svelte
+#: src/StackDetail.svelte
 msgid "<0/> Open"
 msgstr "<0/> Ouvrir"
 
-#. 0: links.length
-#: src/StackDetail.svelte
-msgid "Open another of this stack's {0} apps"
-msgstr "Ouvrir une autre des {0} applications de cette pile"
+#~ msgid "Open another of this stack's {0} apps"
+#~ msgstr "Ouvrir une autre des {0} applications de cette pile"
 
 #~ msgid "Assign this stack to a sidebar group"
 #~ msgstr "Ranger cette pile dans un groupe de la barre latérale"
@@ -887,9 +885,11 @@ msgid "Engine <0/>"
 msgstr "Moteur <0/>"
 
 #: src/StackDetail.svelte
+#: src/StackDetail.svelte
 msgid "Discard unsaved changes and restore the last saved version"
 msgstr "Abandonner les modifications non enregistrées et restaurer la dernière version enregistrée"
 
+#: src/StackDetail.svelte
 #: src/StackDetail.svelte
 msgid "Revert"
 msgstr "Rétablir"
@@ -902,6 +902,7 @@ msgstr "Création…"
 
 #: src/Settings.svelte
 #: src/Settings.svelte
+#: src/StackDetail.svelte
 #: src/StackDetail.svelte
 msgid "Saving…"
 msgstr "Enregistrement…"
@@ -916,6 +917,7 @@ msgstr "Créer"
 #: src/OpenMenu.svelte
 #: src/Settings.svelte
 #: src/Settings.svelte
+#: src/StackDetail.svelte
 #: src/StackDetail.svelte
 msgid "Save"
 msgstr "Enregistrer"
@@ -1170,6 +1172,7 @@ msgid "{0} {1} an update"
 msgstr "{0} {1} une mise à jour"
 
 #: src/StackDetail.svelte
+#: src/StackDetail.svelte
 msgid "Check for updates"
 msgstr "Vérifier les mises à jour"
 
@@ -1177,13 +1180,11 @@ msgstr "Vérifier les mises à jour"
 msgid "Checking…"
 msgstr "Vérification…"
 
-#: src/StackDetail.svelte
-msgid "Registry has a newer image than what's pulled"
-msgstr "Le registre a une image plus récente que celle tirée"
+#~ msgid "Registry has a newer image than what's pulled"
+#~ msgstr "Le registre a une image plus récente que celle tirée"
 
-#: src/StackDetail.svelte
-msgid "A newer version is published — switch to it via Change Version"
-msgstr "Une version plus récente est publiée — passez-y via Changer de version"
+#~ msgid "A newer version is published — switch to it via Change Version"
+#~ msgstr "Une version plus récente est publiée — passez-y via Changer de version"
 
 #: src/StackDetail.svelte
 msgid "Check again"
@@ -1237,17 +1238,14 @@ msgstr "<0/> Arrêter…"
 msgid "<0/> Update"
 msgstr "<0/> Mettre à jour"
 
-#: src/StackDetail.svelte
-msgid "appjail-director.yml<0/>"
-msgstr "appjail-director.yml<0/>"
+#~ msgid "appjail-director.yml<0/>"
+#~ msgstr "appjail-director.yml<0/>"
 
-#: src/StackDetail.svelte
-msgid "compose.yaml<0/>"
-msgstr "compose.yaml<0/>"
+#~ msgid "compose.yaml<0/>"
+#~ msgstr "compose.yaml<0/>"
 
-#: src/StackDetail.svelte
-msgid "Makejail<0/>"
-msgstr "Makejail<0/>"
+#~ msgid "Makejail<0/>"
+#~ msgstr "Makejail<0/>"
 
 #: src/BottomDrawer.svelte
 #: src/StackDetail.svelte
@@ -1255,9 +1253,8 @@ msgstr "Makejail<0/>"
 msgid "Services"
 msgstr "Services"
 
-#: src/StackDetail.svelte
-msgid ".env<0/>"
-msgstr ".env<0/>"
+#~ msgid ".env<0/>"
+#~ msgstr ".env<0/>"
 
 #: src/StackDetail.svelte
 msgid "Hide the values shown after each ${VAR}"
@@ -1318,9 +1315,8 @@ msgstr "<0/> Installation en cours — ceci se remplit dès que la pile est écr
 msgid "Chosen at install: {0}"
 msgstr "Choisi à l'installation : {0}"
 
-#: src/StackDetail.svelte
-msgid "What each service holds, and where each one is on the network. Changes apply to the stack on <0>Save</0>."
-msgstr "Ce que chaque service contient, et où chacun se trouve sur le réseau. Les changements s'appliquent à la pile à l'<0>Enregistrement</0>."
+#~ msgid "What each service holds, and where each one is on the network. Changes apply to the stack on <0>Save</0>."
+#~ msgstr "Ce que chaque service contient, et où chacun se trouve sur le réseau. Les changements s'appliquent à la pile à l'<0>Enregistrement</0>."
 
 #: src/BottomDrawer.svelte
 msgid "Output height"
@@ -4065,9 +4061,8 @@ msgstr "Menu"
 msgid "A stack on its own IP publishes nothing on the host, so there is no link to open until the network gives it an address. {0}"
 msgstr "Une pile sur sa propre IP ne publie rien sur l'hôte, il n'y a donc pas de lien à ouvrir tant que le réseau ne lui a pas donné d'adresse. {0}"
 
-#: src/StackDetail.svelte
-msgid "<0/> Open <1/>"
-msgstr "<0/> Ouvrir <1/>"
+#~ msgid "<0/> Open <1/>"
+#~ msgstr "<0/> Ouvrir <1/>"
 
 #~ msgid "Save or discard your edits first"
 #~ msgstr "Enregistrez ou abandonnez d'abord vos modifications"
@@ -5472,3 +5467,23 @@ msgstr "Les dates s'écrivent {0}. <0/>"
 #: src/Settings.svelte
 msgid "Date format"
 msgstr "Format de date"
+
+#: src/OpenMenu.svelte
+msgid "Also open"
+msgstr "Ouvrir aussi"
+
+#: src/StackDetail.svelte
+msgid "Director"
+msgstr "Director"
+
+#: src/StackDetail.svelte
+msgid "Compose"
+msgstr "Compose"
+
+#: src/StackDetail.svelte
+msgid "Makejail"
+msgstr "Makejail"
+
+#: src/StackDetail.svelte
+msgid "A newer version is published"
+msgstr "Une version plus récente est publiée"

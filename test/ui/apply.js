@@ -33,6 +33,8 @@ const banner = (page) => page.getByText(/still use the old configuration/);
       const before = (await detail(page)).status.containers[0].id;
       await openPage(page, BASE + '/#/stacks/t-apply');
       await sleep(1500);
+      // The raw files are under Compose.
+      await page.locator('[data-tab="files"]').click();
       await page.getByRole('button', { name: '.env', exact: true }).click();
       await page.locator('.cm-content').click();
       await page.keyboard.press('Control+A');

@@ -84,6 +84,8 @@ async function logo(page, name, shot) {
     const name = 't-ban-podman';
     await openPage(page, BASE + '/?t=' + Date.now() + '#/stacks/' + name);
     await sleep(1500);
+    // The raw files are under Compose.
+    await page.locator('[data-tab="files"]').click();
     await page.getByRole('button', { name: '.env', exact: true }).click();
     await page.locator('.cm-content').click();
     await page.keyboard.press('Control+A');

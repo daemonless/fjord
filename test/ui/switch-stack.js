@@ -33,7 +33,7 @@ const bare = (u) => (u || '').replace(/^https?:\/\//, '').replace(/[#?].*$/, '')
   const open = page.getByRole('link', { name: /Open/ }).first();
   if (await open.count()) {
     const href = await open.getAttribute('href');
-    const text = await open.locator('span.font-mono').innerText();
+    const text = await page.locator('header span.font-mono').first().innerText();
     note('Open says where it goes', text.trim() === bare(href), `${text.trim()} -> ${href}`);
   }
   await b.close();
