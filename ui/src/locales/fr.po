@@ -4792,6 +4792,7 @@ msgid "Not loaded"
 msgstr "Non chargé"
 
 #: src/Dashboard.svelte
+#: src/HistoryList.svelte
 #: src/Sidebar.svelte
 msgid "Loading…"
 msgstr "Chargement…"
@@ -5336,3 +5337,20 @@ msgstr "N'importe quel tag publié"
 #: src/ChangeVersionModal.svelte
 msgid "Custom tag"
 msgstr "Tag personnalisé"
+
+#: src/HistoryList.svelte
+msgid "History could not be read."
+msgstr "L'historique n'a pas pu être lu."
+
+#: src/HistoryList.svelte
+msgid "Nothing has happened here yet."
+msgstr "Rien ne s'est encore passé ici."
+
+#: src/StackDetail.svelte
+#: src/System.svelte
+msgid "History"
+msgstr "Historique"
+
+#: src/System.svelte
+msgid "What happened to your stacks, newest first. Each stack's own History tab has the rest."
+msgstr "Ce qui est arrivé à vos piles, du plus récent au plus ancien. L'onglet Historique de chaque pile contient le reste."
