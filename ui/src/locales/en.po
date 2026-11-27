@@ -773,7 +773,6 @@ msgid "{0}v{1} available"
 msgstr "{0}v{1} available"
 
 #: src/Sidebar.svelte
-#: src/StackDetail.svelte
 msgid "Update available"
 msgstr "Update available"
 
@@ -868,13 +867,12 @@ msgid "Open {0}"
 msgstr "Open {0}"
 
 #: src/StackDetail.svelte
+#: src/StackDetail.svelte
 msgid "<0/> Open"
 msgstr "<0/> Open"
 
-#. 0: links.length
-#: src/StackDetail.svelte
-msgid "Open another of this stack's {0} apps"
-msgstr "Open another of this stack's {0} apps"
+#~ msgid "Open another of this stack's {0} apps"
+#~ msgstr "Open another of this stack's {0} apps"
 
 #~ msgid "Assign this stack to a sidebar group"
 #~ msgstr "Assign this stack to a sidebar group"
@@ -888,9 +886,11 @@ msgid "Engine <0/>"
 msgstr "Engine <0/>"
 
 #: src/StackDetail.svelte
+#: src/StackDetail.svelte
 msgid "Discard unsaved changes and restore the last saved version"
 msgstr "Discard unsaved changes and restore the last saved version"
 
+#: src/StackDetail.svelte
 #: src/StackDetail.svelte
 msgid "Revert"
 msgstr "Revert"
@@ -903,6 +903,7 @@ msgstr "Creating…"
 
 #: src/Settings.svelte
 #: src/Settings.svelte
+#: src/StackDetail.svelte
 #: src/StackDetail.svelte
 msgid "Saving…"
 msgstr "Saving…"
@@ -917,6 +918,7 @@ msgstr "Create"
 #: src/OpenMenu.svelte
 #: src/Settings.svelte
 #: src/Settings.svelte
+#: src/StackDetail.svelte
 #: src/StackDetail.svelte
 msgid "Save"
 msgstr "Save"
@@ -1171,6 +1173,7 @@ msgid "{0} {1} an update"
 msgstr "{0} {1} an update"
 
 #: src/StackDetail.svelte
+#: src/StackDetail.svelte
 msgid "Check for updates"
 msgstr "Check for updates"
 
@@ -1178,13 +1181,11 @@ msgstr "Check for updates"
 msgid "Checking…"
 msgstr "Checking…"
 
-#: src/StackDetail.svelte
-msgid "Registry has a newer image than what's pulled"
-msgstr "Registry has a newer image than what's pulled"
+#~ msgid "Registry has a newer image than what's pulled"
+#~ msgstr "Registry has a newer image than what's pulled"
 
-#: src/StackDetail.svelte
-msgid "A newer version is published — switch to it via Change Version"
-msgstr "A newer version is published — switch to it via Change Version"
+#~ msgid "A newer version is published — switch to it via Change Version"
+#~ msgstr "A newer version is published — switch to it via Change Version"
 
 #: src/StackDetail.svelte
 msgid "Check again"
@@ -1238,17 +1239,14 @@ msgstr "<0/> Stop…"
 msgid "<0/> Update"
 msgstr "<0/> Update"
 
-#: src/StackDetail.svelte
-msgid "appjail-director.yml<0/>"
-msgstr "appjail-director.yml<0/>"
+#~ msgid "appjail-director.yml<0/>"
+#~ msgstr "appjail-director.yml<0/>"
 
-#: src/StackDetail.svelte
-msgid "compose.yaml<0/>"
-msgstr "compose.yaml<0/>"
+#~ msgid "compose.yaml<0/>"
+#~ msgstr "compose.yaml<0/>"
 
-#: src/StackDetail.svelte
-msgid "Makejail<0/>"
-msgstr "Makejail<0/>"
+#~ msgid "Makejail<0/>"
+#~ msgstr "Makejail<0/>"
 
 #: src/BottomDrawer.svelte
 #: src/StackDetail.svelte
@@ -1256,9 +1254,8 @@ msgstr "Makejail<0/>"
 msgid "Services"
 msgstr "Services"
 
-#: src/StackDetail.svelte
-msgid ".env<0/>"
-msgstr ".env<0/>"
+#~ msgid ".env<0/>"
+#~ msgstr ".env<0/>"
 
 #: src/StackDetail.svelte
 msgid "Hide the values shown after each ${VAR}"
@@ -1319,9 +1316,8 @@ msgstr "<0/> Still installing — this fills in as soon as the stack is written.
 msgid "Chosen at install: {0}"
 msgstr "Chosen at install: {0}"
 
-#: src/StackDetail.svelte
-msgid "What each service holds, and where each one is on the network. Changes apply to the stack on <0>Save</0>."
-msgstr "What each service holds, and where each one is on the network. Changes apply to the stack on <0>Save</0>."
+#~ msgid "What each service holds, and where each one is on the network. Changes apply to the stack on <0>Save</0>."
+#~ msgstr "What each service holds, and where each one is on the network. Changes apply to the stack on <0>Save</0>."
 
 #: src/BottomDrawer.svelte
 msgid "Output height"
@@ -4083,9 +4079,8 @@ msgstr "Menu"
 msgid "A stack on its own IP publishes nothing on the host, so there is no link to open until the network gives it an address. {0}"
 msgstr "A stack on its own IP publishes nothing on the host, so there is no link to open until the network gives it an address. {0}"
 
-#: src/StackDetail.svelte
-msgid "<0/> Open <1/>"
-msgstr "<0/> Open <1/>"
+#~ msgid "<0/> Open <1/>"
+#~ msgstr "<0/> Open <1/>"
 
 #~ msgid "Save or discard your edits first"
 #~ msgstr "Save or discard your edits first"
@@ -5365,3 +5360,23 @@ msgstr "History"
 #: src/System.svelte
 msgid "What happened to your stacks, newest first. Each stack's own History tab has the rest."
 msgstr "What happened to your stacks, newest first. Each stack's own History tab has the rest."
+
+#: src/OpenMenu.svelte
+msgid "Also open"
+msgstr "Also open"
+
+#: src/StackDetail.svelte
+msgid "Director"
+msgstr "Director"
+
+#: src/StackDetail.svelte
+msgid "Compose"
+msgstr "Compose"
+
+#: src/StackDetail.svelte
+msgid "Makejail"
+msgstr "Makejail"
+
+#: src/StackDetail.svelte
+msgid "A newer version is published"
+msgstr "A newer version is published"

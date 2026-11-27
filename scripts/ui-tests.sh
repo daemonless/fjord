@@ -101,6 +101,7 @@ folders
 host-caps
 outcome
 history
+layout
 tag-picker
 arch
 retag-var
