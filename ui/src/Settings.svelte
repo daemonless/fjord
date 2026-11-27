@@ -6,6 +6,7 @@
   import Icon from './Icon.svelte';
   import { LOCALES, currentLocale, setLocale, type Locale } from './locale';
   import { FORMATS, currentDateFormat, setDateFormat, formatById, formatDate } from './dateFormat';
+  import { currentTimeFormat, setTimeFormat, formatTime, type TimeFormat } from './timeFormat';
   import Spinner from './Spinner.svelte';
   import EmptyState from './EmptyState.svelte';
   import DirPicker from './DirPicker.svelte';
@@ -117,6 +118,8 @@
   // Every ISO 8601 date format there is, then a few that are not.
   let dateFormat = currentDateFormat();
   $: chosenFormat = formatById(dateFormat);
+  let timeFormat: TimeFormat = currentTimeFormat();
+  const sampleTime = new Date(2026, 10, 27, 14, 5, 0);
   const now = new Date();
   const isoCount = FORMATS.filter((f) => f.iso).length;
   const todayIn = (format: string) => formatDate(now.getFullYear(), now.getMonth() + 1, now.getDate(), format, locale);
@@ -794,6 +797,34 @@
               {:else}
                 We listed {isoCount} ISO 8601 formats and you chose a crime. Lovely to read, impossible to sort.
               {/if}
+            </p>
+          </div>
+        </div>
+        <div class="flex items-start gap-4 px-4 py-3">
+          <span class="w-40 shrink-0 pt-1 text-sm text-fjord-fg-muted">Time format</span>
+          <div class="min-w-0 flex-1">
+            <div class="inline-flex rounded-lg border border-fjord-border bg-fjord-inset p-0.5 text-sm" data-time-format>
+              {#each [
+                { id: '24', label: '24-hour' },
+                { id: '12', label: '12-hour' },
+                { id: 'iso', label: 'ISO 8601' },
+              ] as opt (opt.id)}
+                <button
+                  type="button"
+                  on:click={() => {
+                    timeFormat = opt.id as TimeFormat;
+                    setTimeFormat(timeFormat);
+                  }}
+                  class="rounded-md px-3 py-1 text-xs transition-colors {timeFormat === opt.id
+                    ? 'bg-fjord-border font-semibold text-fjord-fg'
+                    : 'text-fjord-fg-muted hover:text-fjord-fg'}"
+                >{opt.label}</button>
+              {/each}
+            </div>
+            <p class="mt-1.5 text-xs text-fjord-fg-dim" data-time-format-note>
+              {timeFormat === 'iso'
+                ? `${todayIn(chosenFormat.format)}T${formatTime(sampleTime, 'iso')}`
+                : `${todayIn(chosenFormat.format)} ${formatTime(sampleTime, timeFormat)}`}
             </p>
           </div>
         </div>
