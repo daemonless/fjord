@@ -66,6 +66,7 @@ msgstr "Monter dans <0/> — modifie le compose, <1>Enregistrer</1> pour appliqu
 #: src/DirPicker.svelte
 #: src/InstallWizard.svelte
 #: src/NamesPrompt.svelte
+#: src/NetworkBackend.svelte
 #: src/Networks.svelte
 #: src/Networks.svelte
 #: src/Networks.svelte
@@ -772,7 +773,6 @@ msgid "{0}v{1} available"
 msgstr "{0}v{1} disponible"
 
 #: src/Sidebar.svelte
-#: src/StackDetail.svelte
 msgid "Update available"
 msgstr "Mise à jour disponible"
 
@@ -867,13 +867,12 @@ msgid "Open {0}"
 msgstr "Ouvrir {0}"
 
 #: src/StackDetail.svelte
+#: src/StackDetail.svelte
 msgid "<0/> Open"
 msgstr "<0/> Ouvrir"
 
-#. 0: links.length
-#: src/StackDetail.svelte
-msgid "Open another of this stack's {0} apps"
-msgstr "Ouvrir une autre des {0} applications de cette pile"
+#~ msgid "Open another of this stack's {0} apps"
+#~ msgstr "Ouvrir une autre des {0} applications de cette pile"
 
 #~ msgid "Assign this stack to a sidebar group"
 #~ msgstr "Ranger cette pile dans un groupe de la barre latérale"
@@ -887,9 +886,11 @@ msgid "Engine <0/>"
 msgstr "Moteur <0/>"
 
 #: src/StackDetail.svelte
+#: src/StackDetail.svelte
 msgid "Discard unsaved changes and restore the last saved version"
 msgstr "Abandonner les modifications non enregistrées et restaurer la dernière version enregistrée"
 
+#: src/StackDetail.svelte
 #: src/StackDetail.svelte
 msgid "Revert"
 msgstr "Rétablir"
@@ -902,6 +903,7 @@ msgstr "Création…"
 
 #: src/Settings.svelte
 #: src/Settings.svelte
+#: src/StackDetail.svelte
 #: src/StackDetail.svelte
 msgid "Saving…"
 msgstr "Enregistrement…"
@@ -916,6 +918,7 @@ msgstr "Créer"
 #: src/OpenMenu.svelte
 #: src/Settings.svelte
 #: src/Settings.svelte
+#: src/StackDetail.svelte
 #: src/StackDetail.svelte
 msgid "Save"
 msgstr "Enregistrer"
@@ -1173,6 +1176,7 @@ msgid "{0} {1} an update"
 msgstr "{0} {1} une mise à jour"
 
 #: src/StackDetail.svelte
+#: src/StackDetail.svelte
 msgid "Check for updates"
 msgstr "Vérifier les mises à jour"
 
@@ -1180,13 +1184,11 @@ msgstr "Vérifier les mises à jour"
 msgid "Checking…"
 msgstr "Vérification…"
 
-#: src/StackDetail.svelte
-msgid "Registry has a newer image than what's pulled"
-msgstr "Le registre a une image plus récente que celle tirée"
+#~ msgid "Registry has a newer image than what's pulled"
+#~ msgstr "Le registre a une image plus récente que celle tirée"
 
-#: src/StackDetail.svelte
-msgid "A newer version is published — switch to it via Change Version"
-msgstr "Une version plus récente est publiée — passez-y via Changer de version"
+#~ msgid "A newer version is published — switch to it via Change Version"
+#~ msgstr "Une version plus récente est publiée — passez-y via Changer de version"
 
 #: src/StackDetail.svelte
 msgid "Check again"
@@ -1240,17 +1242,14 @@ msgstr "<0/> Arrêter…"
 msgid "<0/> Update"
 msgstr "<0/> Mettre à jour"
 
-#: src/StackDetail.svelte
-msgid "appjail-director.yml<0/>"
-msgstr "appjail-director.yml<0/>"
+#~ msgid "appjail-director.yml<0/>"
+#~ msgstr "appjail-director.yml<0/>"
 
-#: src/StackDetail.svelte
-msgid "compose.yaml<0/>"
-msgstr "compose.yaml<0/>"
+#~ msgid "compose.yaml<0/>"
+#~ msgstr "compose.yaml<0/>"
 
-#: src/StackDetail.svelte
-msgid "Makejail<0/>"
-msgstr "Makejail<0/>"
+#~ msgid "Makejail<0/>"
+#~ msgstr "Makejail<0/>"
 
 #: src/BottomDrawer.svelte
 #: src/StackDetail.svelte
@@ -1258,9 +1257,8 @@ msgstr "Makejail<0/>"
 msgid "Services"
 msgstr "Services"
 
-#: src/StackDetail.svelte
-msgid ".env<0/>"
-msgstr ".env<0/>"
+#~ msgid ".env<0/>"
+#~ msgstr ".env<0/>"
 
 #: src/StackDetail.svelte
 msgid "Hide the values shown after each ${VAR}"
@@ -1321,9 +1319,8 @@ msgstr "<0/> Installation en cours — ceci se remplit dès que la pile est écr
 msgid "Chosen at install: {0}"
 msgstr "Choisi à l'installation : {0}"
 
-#: src/StackDetail.svelte
-msgid "What each service holds, and where each one is on the network. Changes apply to the stack on <0>Save</0>."
-msgstr "Ce que chaque service contient, et où chacun se trouve sur le réseau. Les changements s'appliquent à la pile à l'<0>Enregistrement</0>."
+#~ msgid "What each service holds, and where each one is on the network. Changes apply to the stack on <0>Save</0>."
+#~ msgstr "Ce que chaque service contient, et où chacun se trouve sur le réseau. Les changements s'appliquent à la pile à l'<0>Enregistrement</0>."
 
 #: src/BottomDrawer.svelte
 msgid "Output height"
@@ -2605,20 +2602,14 @@ msgstr "Niveau de détail de l'assistant enregistré"
 msgid "Folder sets saved"
 msgstr "Jeux de dossiers enregistrés"
 
-#. 0: Math.round(s / 60)
-#: src/Settings.svelte
-msgid "{0}m ago"
-msgstr "il y a {0} min"
+#~ msgid "{0}m ago"
+#~ msgstr "il y a {0} min"
 
-#. 0: Math.round(s / 3600)
-#: src/Settings.svelte
-msgid "{0}h ago"
-msgstr "il y a {0} h"
+#~ msgid "{0}h ago"
+#~ msgstr "il y a {0} h"
 
-#. 0: Math.round(s / 86400)
-#: src/Settings.svelte
-msgid "{0}d ago"
-msgstr "il y a {0} j"
+#~ msgid "{0}d ago"
+#~ msgstr "il y a {0} j"
 
 #: src/Settings.svelte
 msgid "Off"
@@ -3897,15 +3888,11 @@ msgstr "{0} sur {1}"
 msgid "Unknown browser"
 msgstr "Navigateur inconnu"
 
-#. 0: mins
-#: src/Account.svelte
-msgid "{0} minutes ago"
-msgstr "il y a {0} minutes"
+#~ msgid "{0} minutes ago"
+#~ msgstr "il y a {0} minutes"
 
-#. 0: Math.round(mins / 60)
-#: src/Account.svelte
-msgid "{0} hours ago"
-msgstr "il y a {0} heures"
+#~ msgid "{0} hours ago"
+#~ msgstr "il y a {0} heures"
 
 #: src/Account.svelte
 msgid "Sign-in is off (<0/>): only this host and the proxy in front of it can reach fjord, with no password."
@@ -4080,9 +4067,8 @@ msgstr "Menu"
 msgid "A stack on its own IP publishes nothing on the host, so there is no link to open until the network gives it an address. {0}"
 msgstr "Une pile sur sa propre IP ne publie rien sur l'hôte, il n'y a donc pas de lien à ouvrir tant que le réseau ne lui a pas donné d'adresse. {0}"
 
-#: src/StackDetail.svelte
-msgid "<0/> Open <1/>"
-msgstr "<0/> Ouvrir <1/>"
+#~ msgid "<0/> Open <1/>"
+#~ msgstr "<0/> Ouvrir <1/>"
 
 #~ msgid "Save or discard your edits first"
 #~ msgstr "Enregistrez ou abandonnez d'abord vos modifications"
@@ -5311,6 +5297,7 @@ msgstr "Branche {0}"
 
 #: src/ChangeVersionModal.svelte
 #: src/InstallWizard.svelte
+#: src/Settings.svelte
 msgid "Other"
 msgstr "Autres"
 
@@ -5360,6 +5347,152 @@ msgstr "Historique"
 #: src/System.svelte
 msgid "What happened to your stacks, newest first. Each stack's own History tab has the rest."
 msgstr "Ce qui est arrivé à vos piles, du plus récent au plus ancien. L'onglet Historique de chaque pile contient le reste."
+
+#. 0: $names.provider; 1: appName
+#: src/InstallWizard.svelte
+msgid "Behind {0}, {1} gets <0/>."
+msgstr "Derrière {0}, {1} reçoit <0/>."
+
+#. 0: $names.provider
+#. 0: $names.provider
+#: src/InstallWizard.svelte
+#: src/InstallWizard.svelte
+msgid "Set because it opens through {0}."
+msgstr "Rempli parce qu'elle s'ouvre par {0}."
+
+#: src/InstallWizard.svelte
+msgid "Filled in from its name."
+msgstr "Rempli d'après son nom."
+
+#: src/InstallWizard.svelte
+msgid "Turn on Open it at above to give it one, or type the address your own proxy serves."
+msgstr "Activez L'ouvrir à ci-dessus pour lui en donner une, ou saisissez l'adresse que sert votre propre proxy."
+
+#: src/InstallWizard.svelte
+msgid "To have fjord give it one, install a names provider from the App Store first, or type the address your own proxy serves."
+msgstr "Pour que fjord lui en donne une, installez d'abord un fournisseur de noms depuis la Boutique, ou saisissez l'adresse que sert votre propre proxy."
+
+#: src/InstallWizard.svelte
+msgid "Type the address your proxy serves it at."
+msgstr "Saisissez l'adresse à laquelle votre proxy la sert."
+
+#. 0: appName
+#: src/InstallWizard.svelte
+msgid "{0} needs an https:// address with a domain name, the one you will open it at. <0/>"
+msgstr "{0} a besoin d'une adresse https:// avec un nom de domaine, celle à laquelle vous l'ouvrirez. <0/>"
+
+#: src/InstallWizard.svelte
+msgid "The address your proxy serves it at, starting https://."
+msgstr "L'adresse à laquelle votre proxy la sert, commençant par https://."
+
+#: src/NetworkBackend.svelte
+msgid "podman connects containers with its <0/> network backend."
+msgstr "podman relie les conteneurs avec son backend réseau <0/>."
+
+#: src/NetworkBackend.svelte
+msgid "Switch to netavark…"
+msgstr "Passer à netavark…"
+
+#: src/NetworkBackend.svelte
+msgid "Switch back to CNI…"
+msgstr "Revenir à CNI…"
+
+#: src/NetworkBackend.svelte
+msgid "These stop while podman moves and start again after: <0/>."
+msgstr "Ceux-ci s'arrêtent pendant que podman change, puis redémarrent : <0/>."
+
+#: src/NetworkBackend.svelte
+msgid "No stack on podman is running, so nothing stops."
+msgstr "Aucune pile podman ne tourne, rien ne s'arrête donc."
+
+#. 0: target
+#: src/NetworkBackend.svelte
+msgid "These networks are made again on {0}, with the same names and addresses: <0/>."
+msgstr "Ces réseaux sont recréés sur {0}, avec les mêmes noms et adresses : <0/>."
+
+#: src/NetworkBackend.svelte
+msgid "You can switch back to CNI from here later."
+msgstr "Vous pourrez revenir à CNI d'ici plus tard."
+
+#. 0: target
+#: src/NetworkBackend.svelte
+msgid "Switch to {0}"
+msgstr "Passer à {0}"
+
+#. 0: target
+#: src/NetworkBackend.svelte
+msgid "Switch podman to {0}?"
+msgstr "Passer podman à {0} ?"
+
+#. 0: st.canSwitch ? 'You can switch back to CNI from here later.' \\: ''
+#: src/NetworkBackend.svelte
+msgid "AppJail is not touched. {0}"
+msgstr "AppJail n'est pas modifié. {0}"
+
+#. 0: label(st.to || (st.canSwitch ? 'netavark' \\: 'cni'))
+#: src/NetworkBackend.svelte
+msgid "Switching to {0}… it carries on if you leave this page."
+msgstr "Passage à {0}… cela continue si vous quittez cette page."
+
+#: src/NetworkBackend.svelte
+msgid "Done."
+msgstr "Terminé."
+
+#: src/NetworkBackend.svelte
+msgid "Nothing was changed."
+msgstr "Rien n'a été modifié."
+
+#: src/NetworkBackend.svelte
+msgid "Not everything came back: the lines below say what."
+msgstr "Tout n'est pas revenu : les lignes ci-dessous disent quoi."
+
+#: src/NetworkBackend.svelte
+msgid "Network backend"
+msgstr "Backend réseau"
+
+#. 0: isoCount
+#: src/Settings.svelte
+msgid "We listed {0} ISO 8601 formats and you chose a crime. Is 03/04 in March or April? Depends who you ask."
+msgstr "Nous avons listé {0} formats ISO 8601 et vous avez choisi un crime. 03/04, c'est mars ou avril ? Ça dépend à qui on demande."
+
+#. 0: isoCount
+#: src/Settings.svelte
+msgid "We listed {0} ISO 8601 formats and you chose a crime. 02/11 is November here and February across the ocean."
+msgstr "Nous avons listé {0} formats ISO 8601 et vous avez choisi un crime. 02/11, c'est novembre ici et février de l'autre côté de l'océan."
+
+#. 0: isoCount
+#: src/Settings.svelte
+msgid "We listed {0} ISO 8601 formats and you chose a crime. Lovely to read, impossible to sort."
+msgstr "Nous avons listé {0} formats ISO 8601 et vous avez choisi un crime. Joli à lire, impossible à trier."
+
+#. 0: todayIn(chosenFormat.format)
+#: src/Settings.svelte
+msgid "Dates look like {0}. <0/>"
+msgstr "Les dates s'écrivent {0}. <0/>"
+
+#: src/Settings.svelte
+msgid "Date format"
+msgstr "Format de date"
+
+#: src/OpenMenu.svelte
+msgid "Also open"
+msgstr "Ouvrir aussi"
+
+#: src/StackDetail.svelte
+msgid "Director"
+msgstr "Director"
+
+#: src/StackDetail.svelte
+msgid "Compose"
+msgstr "Compose"
+
+#: src/StackDetail.svelte
+msgid "Makejail"
+msgstr "Makejail"
+
+#: src/StackDetail.svelte
+msgid "A newer version is published"
+msgstr "Une version plus récente est publiée"
 
 #: src/AutoUpdateOffer.svelte
 msgid "Your app keeps itself up to date from tonight."

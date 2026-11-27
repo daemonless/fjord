@@ -39,18 +39,19 @@ const note = (id, ok, msg) => console.log(`${ok ? 'PASS' : 'FAIL'} ${id}: ${msg}
     // the list and stays there: wait for the stack to exist.
     for (let i = 0; i < 100 && !(await page.request.get(BASE + '/api/stacks/t-word')).ok(); i++) await sleep(200);
     await other.goto(BASE + '/#/stacks/t-word', { waitUntil: 'load' });
-    const reasonLine = other.locator('span.text-xs').filter({ hasText: /come back when it finishes/ }).first();
+    const reasonLine = other.locator('[data-stack-note]').filter({ hasText: /come back when it finishes/ }).first();
     await reasonLine.waitFor({ timeout: 30000 }).catch(() => {});
     const reason = await reasonLine.innerText().catch(() => '');
-    const start = other.getByRole('button', { name: /^Start$/ }).first();
-    const startTitle = await start.getAttribute('title').catch(() => null);
-    const stopTitle = await other.getByRole('button', { name: 'Stop…', exact: true }).getAttribute('title').catch(() => null);
+    // Start while anything is down, Stop while anything is up: whichever is
+    // shown is disabled and says why.
+    const action = other.getByRole('button', { name: /^(Start|Stop…)$/ }).first();
+    const actionName = (await action.innerText().catch(() => '')).trim();
+    const actionTitle = await action.getAttribute('title').catch(() => null);
     const more = await other.getByRole('button', { name: /come back when it finishes/ }).count();
     await other.screenshot({ path: '/out/wording-busy.png', fullPage: true });
-    note('mid-pull: the action row says why', /^Installing… — actions come back when it finishes$/.test(reason), `"${reason}"`);
-    note('mid-pull: Start disabled with the reason', (await start.isDisabled()) && startTitle === reason, `title "${startTitle}"`);
-    note('mid-pull: Stop carries the reason', stopTitle === reason, `title "${stopTitle}"`);
-    note('mid-pull: More Actions carries it too', more >= 1, `${more} button(s) titled with the reason (Start, Stop, More Actions expected)`);
+    note('mid-pull: the line under the header says why', /^Installing… — actions come back when it finishes$/.test(reason), `"${reason}"`);
+    note('mid-pull: Start or Stop is disabled with the reason', !!actionName && (await action.isDisabled().catch(() => false)) && actionTitle === reason, `${actionName || 'neither shown'}, title "${actionTitle}"`);
+    note('mid-pull: More Actions carries it too', more >= 1, `${more} button(s) titled with the reason (Start or Stop, and More Actions, expected)`);
 
     for (let i = 0; i < 80; i++) {
       const d = await (await other.request.get(BASE + '/api/stacks/t-word')).json().catch(() => ({}));
@@ -58,10 +59,12 @@ const note = (id, ok, msg) => console.log(`${ok ? 'PASS' : 'FAIL'} ${id}: ${msg}
       await sleep(3000);
     }
     await sleep(2500);
-    const gone = await other.locator('span.text-xs').filter({ hasText: /come back when it finishes/ }).count();
-    const startAfter = await other.getByRole('button', { name: /^Start$/ }).first().getAttribute('title').catch(() => 'n/a');
+    const gone = await other.locator('[data-stack-note]').filter({ hasText: /come back when it finishes/ }).count();
+    const afterBtn = other.getByRole('button', { name: /^(Start|Stop…)$/ }).first();
+    const afterName = (await afterBtn.innerText().catch(() => '')).trim();
+    const afterTitle = await afterBtn.getAttribute('title').catch(() => 'n/a');
     await other.screenshot({ path: '/out/wording-after.png', fullPage: true });
-    note('after: reason gone, Start has no title', gone === 0 && !startAfter, `reason lines ${gone}, Start title ${JSON.stringify(startAfter)}`);
+    note('after: reason gone, Start or Stop has no title', gone === 0 && !!afterName && !afterTitle, `reason lines ${gone}, ${afterName || 'neither shown'} title ${JSON.stringify(afterTitle)}`);
   } catch (e) {
     note('run', false, e.message.split('\n')[0]);
   }

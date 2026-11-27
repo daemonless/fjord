@@ -226,6 +226,13 @@ func (s *server) handleStackRoutes(w http.ResponseWriter, r *http.Request) {
 	}
 	name, action := parts[0], parts[1]
 	switch action {
+	case "save", "up", "restart", "recreate", "update", "apply":
+		if why := switchBusy(); why != "" {
+			http.Error(w, why, http.StatusConflict)
+			return
+		}
+	}
+	switch action {
 	case "save":
 		s.stackSave(w, r, name)
 	case "set-tag":

@@ -206,6 +206,11 @@
       )
     : [];
   let linksOpen = false;
+  // The app's other web pages, listed at the top of Open's menu.
+  $: otherLinks =
+    links.length > 1
+      ? links.filter((l, i) => (links.some((x) => x.url === openUrl) ? l.url !== openUrl : i > 0)).map((l) => ({ ...l, icon: linkIcon(l.service) }))
+      : [];
   $: linkIcon = (service: string) =>
     serviceIcon($imageIcons, (stack?.services ?? []).find((s: any) => s.name === service)?.image);
 
@@ -633,6 +638,29 @@
 
   // Why Restart and If unhealthy are disabled on the Settings tab: both
   // rewrite the compose on the server, so they wait for edits and for work.
+  // Start while anything is down, Stop while anything is up; a
+  // half-up app (or one whose state is not known yet) gets both.
+  $: stateNow = statusLabel(stack.status);
+  $: canStart = stateNow !== 'running';
+  $: canStop =
+    stateNow === 'checking' ||
+    ['running', 'partial', 'restarting'].includes(stateNow) ||
+    (stack.status?.containers ?? []).some((c) => c.state === 'running' || c.state === 'restarting');
+  // The raw files sit under Compose (Director on AppJail), as pills; it
+  // opens on the last one.
+  $: inFiles = ['compose', 'env', 'makejail'].includes(activeTab);
+  let lastFile: typeof activeTab = 'compose';
+  $: topTabs = (isDraft
+    ? [['net', 'Services'], ['files', filesLabel]]
+    : [['net', 'Services'], ['files', filesLabel], ['history', 'History'], ['settings', 'Settings']]) as [string, string][];
+  // Named for what is in it: compose.yaml and .env, or AppJail's director
+  // file and Makejail.
+  $: filesLabel = isDirector ? 'Director' : 'Compose';
+  $: fileTabs = [
+    ['compose', isDirector ? 'appjail-director.yml' : 'compose.yaml', isDirector ? (stack.director ?? '') !== originalDirector : stack.compose !== originalCompose],
+    ['env', '.env', stack.env !== originalEnv],
+    ...(isDirector ? [['makejail', 'Makejail', (stack.makejail ?? '') !== originalMakejail]] : []),
+  ] as [typeof activeTab, string, boolean][];
   // History reads again when the stack goes busy or comes back, starts or
   // stops, or an action on the page ends.
   let historyBump = 0;
@@ -670,7 +698,7 @@
   }}
 />
 
-<div class="flex flex-col h-full overflow-hidden p-6">
+<div class="flex flex-col h-full overflow-hidden px-4 py-4 md:p-6">
   <!-- Header -->
   <header class="flex justify-between items-center mb-4 shrink-0 flex-wrap gap-y-2">
     <div class="flex items-center gap-3 min-w-0 flex-wrap gap-y-1">
@@ -706,7 +734,8 @@
       >
       <!-- Chips only up here. What the engine or a container has to say
            is the status line under the actions (stackNote). -->
-      {#if stack.state?.engine}
+      <!-- Only where more than one engine runs: there it tells two kinds of app apart. -->
+      {#if stack.state?.engine && engines.filter((e) => e.available && e.enabled).length > 1}
         <span class="shrink-0 flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-fjord-bg border border-fjord-border text-fjord-fg-muted" title="Runtime engine"
           ><EngineMark engine={stack.state.engine} size={12} strokeWidth={2.25} />{stack.state.engine}</span
         >
@@ -720,62 +749,169 @@
         >
       {/if}
       {#if openUrl}
-        <a
-          href={openUrl}
-          target="_blank"
-          rel="noreferrer"
-          title="Open {openUrl}"
-          class="min-w-0 flex items-center gap-1 text-sm font-medium text-fjord-accent hover:text-fjord-accent-hover hover:underline {statusLabel(
-            stack.status,
-          ) === 'running'
-            ? ''
-            : 'opacity-40 pointer-events-none'}"
-          ><Icon name="external" size={13} /> Open
-          <!-- where it goes, as the dashboard shows it: the name once the
-               app has one, so the name is in sight, not only in the ▾ -->
-          <span class="min-w-0 max-w-64 truncate font-mono font-normal text-fjord-fg-secondary">{openUrl.replace(/^https?:\/\//, '').replace(/[#?].*$/, '').replace(/\/$/, '')}</span></a
-        >
+        <!-- Open is the page's main button, joined with its menu; the address beside it. -->
+        <span class="shrink-0 inline-flex items-stretch rounded-lg bg-fjord-accent/15 border border-fjord-accent/30 {statusLabel(stack.status) === 'running' ? '' : 'opacity-40'}">
+          <a
+            href={openUrl}
+            target="_blank"
+            rel="noreferrer"
+            title="Open {openUrl}"
+            class="flex items-center gap-1.5 px-3 py-1.5 rounded-l-lg text-sm font-medium text-fjord-accent hover:bg-fjord-accent/20 {statusLabel(stack.status) === 'running' ? '' : 'pointer-events-none'}"
+            ><Icon name="external" size={13} /> Open</a
+          >
+          <OpenMenu
+            {stack}
+            disabled={statusLabel(stack.status) !== 'running'}
+            others={otherLinks}
+            triggerClass="h-full flex items-center px-2 rounded-r-lg border-l border-fjord-accent/30 text-sm text-fjord-accent hover:bg-fjord-accent/20"
+          />
+        </span>
+        <span class="min-w-0 max-w-64 truncate font-mono text-sm text-fjord-fg-secondary">{openUrl.replace(/^https?:\/\//, '').replace(/[#?].*$/, '').replace(/\/$/, '')}</span>
         {#if openByName && statusLabel(stack.status) === 'running'}<TrustMark {stacks} size={13} />{/if}
-        <OpenMenu {stack} disabled={statusLabel(stack.status) !== 'running'} />
         {#if openHowNote}<span class="shrink-0 text-xs text-fjord-fg-dim" title="An app with its own address answers on its container port; x-fjord web_port is where it would be published at this host's address.">{openHowNote}</span>{/if}
         <LoginButton stack={stack.name} />
       {/if}
-      {#if openUrl && links.length > 1}
-        <details
-          class="svc-links relative shrink-0 {statusLabel(stack.status) === 'running' ? '' : 'opacity-40 pointer-events-none'}"
-          bind:open={linksOpen}
-        >
-          <summary
-            class="list-none cursor-pointer text-sm font-medium text-fjord-accent hover:text-fjord-accent-hover"
-            title="Open another of this stack's {links.length} apps">▾ {links.length}</summary
-          >
-          <div use:fitMenu class="absolute z-30 left-0 mt-1 min-w-72 bg-fjord-card border border-fjord-border rounded-lg shadow-xl py-1">
-            {#each links as l}
-              <a
-                href={l.url}
-                target="_blank"
-                rel="noreferrer"
-                on:click={() => (linksOpen = false)}
-                class="flex items-center justify-between gap-4 px-3 py-1.5 text-sm hover:bg-fjord-border/50"
-                ><span class="flex items-center gap-2 font-medium text-fjord-fg-body"
-                  >{#if linkIcon(l.service)}<img src={linkIcon(l.service)} alt="" class="w-4 h-4 rounded object-contain" />{:else}<span
-                      class="w-4 h-4"
-                    ></span>{/if}{l.service}</span
-                ><span class="font-mono text-xs text-fjord-fg-muted"
-                  >{l.url.replace(/^https?:\/\//, '')}</span
-                ></a
-              >
-            {/each}
-          </div>
-        </details>
-      {/if}
-      {#if isDirty}
+      {#if isDirty && isDraft}
         <span class="shrink-0 text-fjord-warning text-xs bg-fjord-warning/10 border border-fjord-warning/20 px-2 py-0.5 rounded"
           >Unsaved</span
         >
       {/if}
     </div>
     <div class="flex items-center gap-3 shrink-0">
+  <!-- Action bar: primary actions visible, the rest in the overflow menu.
+       Hidden until the stack exists on the server -- a draft can only be
+       created (the Save button reads "Create"), not started/updated. -->
+  {#if !isDraft}
+  <div class="flex flex-wrap items-center gap-2">
+    {#if canStart}
+    <button
+      on:click={() => onUp(stack.name)}
+      disabled={busyNow}
+      title={busyReason || undefined}
+      class="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-fjord-border hover:bg-fjord-success/80 hover:text-white transition-colors disabled:opacity-40"
+      ><Icon name="play" size={14} /> Start</button
+    >
+    {/if}
+    {#if canStop}
+    <button
+      on:click={() => (pendingAction = { kind: 'stop', stack: stack.name })}
+      disabled={busyNow}
+      title={busyReason || undefined}
+      class="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-fjord-border hover:bg-fjord-danger hover:text-white transition-colors disabled:opacity-40"
+      ><Icon name="stop" size={14} /> Stop…</button
+    >
+    {/if}
+    {#if updateInfo?.state === 'available' || updateInfo?.state === 'upgrade'}
+    <button
+      on:click={() => (updatePanel === stack.name ? (updatePanel = '') : openUpdatePanel(stack.name))}
+      disabled={busyNow || !!updateButtonReason}
+      title={busyReason ||
+        updateButtonReason ||
+        (updateInfo?.state === 'available'
+          ? `${updatable.map((s) => s.service).join(', ')} ${updatable.length === 1 ? 'has' : 'have'} an update`
+          : 'Check for updates')}
+      class="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-40 {updateInfo?.state ===
+      'available'
+        ? 'bg-fjord-warning/15 text-fjord-warning border border-fjord-warning/40 hover:bg-fjord-warning/25'
+        : 'bg-fjord-border hover:bg-fjord-accent hover:text-white'}"
+      ><Icon name="update" size={14} /> Update</button
+    >
+    {/if}
+    <!-- update-availability badge -->
+    {#if checkingUpdate}
+      <span class="text-xs text-fjord-fg-dim self-center">Checking…</span>
+    {:else if updateInfo?.state === 'upgrade'}
+      <button
+        on:click={() => openUpdatePanel(stack.name)}
+        class="text-xs text-fjord-warning self-center underline decoration-dotted hover:text-fjord-warning/80"
+        title="A newer version is published"
+        >{updateInfo!.fromVersion ? `v${updateInfo!.fromVersion} → ` : ''}v{updateInfo!.toVersion} available</button
+      >
+    {:else if updateInfo?.state === 'current'}
+      <!-- The button is off when there is nothing to pull, so asking
+           again lives here, on the claim it would refresh. -->
+      <button
+        on:click={() => onCheckForUpdate(stack.name)}
+        title="Check again"
+        class="flex items-center gap-1 text-xs text-fjord-success self-center hover:underline decoration-dotted"
+        ><Icon name="check" size={12} /> Up to date</button
+      >
+    {:else if updateInfo?.state === 'pinned'}
+      <span class="flex items-center gap-1 text-xs text-fjord-accent self-center"
+        ><Icon name="pin" size={12} /> Pinned</span
+      >
+    {:else if updateInfo?.state !== 'available'}
+      <button
+        on:click={() => onCheckForUpdate(stack.name)}
+        class="text-xs text-fjord-fg-muted self-center hover:underline decoration-dotted"
+        >Check for updates</button
+      >
+    {/if}
+    <div class="relative">
+      <button
+        on:click={() => (actionsMenuOpen = !actionsMenuOpen)}
+        disabled={busyNow}
+        title={busyReason || 'More Actions'}
+        class="flex items-center px-2.5 py-2 rounded-lg text-sm font-medium bg-fjord-border hover:bg-fjord-border/70 hover:text-fjord-fg transition-colors disabled:opacity-40"
+        ><Icon name="menu" size={16} /></button
+      >
+      {#if actionsMenuOpen}
+        <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+        <div class="fixed inset-0 z-20" on:click={() => (actionsMenuOpen = false)}></div>
+        <div
+          class="absolute z-30 top-full right-0 mt-1 bg-fjord-card border border-fjord-border rounded-xl shadow-2xl p-1.5 min-w-52"
+        >
+          <button
+            on:click={() => {
+              actionsMenuOpen = false;
+              onRestart(stack.name);
+            }}
+            class="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-fjord-fg-body hover:bg-fjord-border transition-colors"
+            ><Icon name="restart" size={14} class="text-fjord-fg-muted" /> Restart</button
+          >
+          <button
+            on:click={() => {
+              actionsMenuOpen = false;
+              pendingAction = { kind: 'recreate', stack: stack.name };
+            }}
+            title="Pull every image and recreate every service, even ones already up to date"
+            class="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-fjord-fg-body hover:bg-fjord-border transition-colors"
+            ><Icon name="update" size={14} class="text-fjord-fg-muted" /> Pull &amp; recreate all…</button
+          >
+          {#if !multiImage}
+            <button
+              on:click={() => {
+                actionsMenuOpen = false;
+                changeVersion = {
+                  name: stack.name,
+                  image: currentImage(stack),
+                  suggest: updateInfo?.state === 'upgrade' ? updateInfo.newTag : undefined,
+                };
+              }}
+              disabled={!stackImage(stack.compose)}
+              class="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-fjord-fg-body hover:bg-fjord-border transition-colors disabled:opacity-40"
+              ><Icon name="swap" size={14} class="text-fjord-fg-muted" /> Change Version…{#if /@sha256:/.test(stack.compose)}<Icon
+                name="pin"
+                size={12}
+                class="text-fjord-accent ml-auto"
+              />{/if}</button
+            >
+          {/if}
+          <div class="h-px bg-fjord-border my-1.5 mx-1"></div>
+          <button
+            on:click={() => {
+              actionsMenuOpen = false;
+              pendingAction = { kind: 'delete', stack: stack.name };
+            }}
+            class="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-fjord-danger hover:bg-fjord-danger/15 transition-colors"
+            ><Icon name="trash" size={14} /> Delete…</button
+          >
+        </div>
+      {/if}
+    </div>
+  </div>
+  {/if}
+
       {#if isDraft && engines.length > 1}
         <!-- Runtime for a new stack: podman = compose, appjail = native director + Makejail. -->
         <label class="flex items-center gap-2 text-xs text-fjord-fg-muted">
@@ -795,7 +931,7 @@
           </select>
         </label>
       {/if}
-      {#if isDirty}
+      {#if isDirty && isDraft}
         <button
           on:click={revert}
           title="Discard unsaved changes and restore the last saved version"
@@ -803,14 +939,25 @@
           >Revert</button
         >
       {/if}
+      {#if isDraft}
       <button
         on:click={onSave}
         disabled={saving}
         class="bg-fjord-accent hover:bg-fjord-accent-hover text-white text-sm font-medium py-1.5 px-4 rounded-lg disabled:opacity-50"
         >{saving ? (isDraft ? 'Creating…' : 'Saving…') : isDraft ? 'Create' : 'Save'}</button
       >
+      {/if}
     </div>
   </header>
+  {#if stackNote}
+    <p
+      data-stack-note
+      class="-mt-2 mb-3 text-xs {stackNote === containerNote ? 'text-fjord-warning' : 'text-fjord-fg-dim'}"
+      title={stackNote === staleText
+        ? 'The engine did not answer in time -- usually a pull writing an image to disk. The state updates as soon as it answers.'
+        : stackNote}>{stackNote}</p
+    >
+  {/if}
 
   <!-- Inline confirmation for Stop / Delete: visible, but nothing is blocked -->
   {#if engineSwitch && isDraft}
@@ -1138,203 +1285,57 @@
     </div>
   {/if}
 
-  <!-- Action bar: primary actions visible, the rest in the overflow menu.
-       Hidden until the stack exists on the server -- a draft can only be
-       created (the Save button reads "Create"), not started/updated. -->
-  {#if !isDraft}
-  <div class="flex flex-wrap items-center gap-2 mb-4 shrink-0">
-    <button
-      on:click={() => onUp(stack.name)}
-      disabled={busyNow}
-      title={busyReason || undefined}
-      class="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-fjord-border hover:bg-fjord-success/80 hover:text-white transition-colors disabled:opacity-40"
-      ><Icon name="play" size={14} /> Start</button
-    >
-    <button
-      on:click={() => (pendingAction = { kind: 'stop', stack: stack.name })}
-      disabled={busyNow}
-      title={busyReason || undefined}
-      class="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-fjord-border hover:bg-fjord-danger hover:text-white transition-colors disabled:opacity-40"
-      ><Icon name="stop" size={14} /> Stop…</button
-    >
-    <button
-      on:click={() => (updatePanel === stack.name ? (updatePanel = '') : openUpdatePanel(stack.name))}
-      disabled={busyNow || !!updateButtonReason}
-      title={busyReason ||
-        updateButtonReason ||
-        (updateInfo?.state === 'available'
-          ? `${updatable.map((s) => s.service).join(', ')} ${updatable.length === 1 ? 'has' : 'have'} an update`
-          : 'Check for updates')}
-      class="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-40 {updateInfo?.state ===
-      'available'
-        ? 'bg-fjord-warning/15 text-fjord-warning border border-fjord-warning/40 hover:bg-fjord-warning/25'
-        : 'bg-fjord-border hover:bg-fjord-accent hover:text-white'}"
-      ><Icon name="update" size={14} /> Update</button
-    >
-    <!-- update-availability badge -->
-    {#if checkingUpdate}
-      <span class="text-xs text-fjord-fg-dim self-center">Checking…</span>
-    {:else if updateInfo?.state === 'available'}
-      <span class="text-xs text-fjord-warning self-center" title="Registry has a newer image than what's pulled"
-        >Update available</span
-      >
-    {:else if updateInfo?.state === 'upgrade'}
-      <button
-        on:click={() =>
-          (changeVersion = {
-            name: stack.name,
-            image: currentImage(stack),
-            suggest: updateInfo!.newTag,
-          })}
-        class="text-xs text-fjord-warning self-center underline decoration-dotted hover:text-fjord-warning/80"
-        title="A newer version is published — switch to it via Change Version"
-        >{updateInfo!.fromVersion ? `v${updateInfo!.fromVersion} → ` : ''}v{updateInfo!.toVersion} available</button
-      >
-    {:else if updateInfo?.state === 'current'}
-      <!-- The button is off when there is nothing to pull, so asking
-           again lives here, on the claim it would refresh. -->
-      <button
-        on:click={() => onCheckForUpdate(stack.name)}
-        title="Check again"
-        class="flex items-center gap-1 text-xs text-fjord-success self-center hover:underline decoration-dotted"
-        ><Icon name="check" size={12} /> Up to date</button
-      >
-    {:else if updateInfo?.state === 'pinned'}
-      <span class="flex items-center gap-1 text-xs text-fjord-accent self-center"
-        ><Icon name="pin" size={12} /> Pinned</span
-      >
-    {/if}
-    {#if stackNote}
-      <span
-        class="min-w-0 truncate text-xs {stackNote === containerNote ? 'text-fjord-warning' : 'text-fjord-fg-dim'}"
-        title={stackNote === staleText
-          ? 'The engine did not answer in time -- usually a pull writing an image to disk. The state updates as soon as it answers.'
-          : stackNote}>{stackNote}</span
-      >
-    {/if}
-    <div class="flex-1"></div>
-    <div class="relative">
-      <button
-        on:click={() => (actionsMenuOpen = !actionsMenuOpen)}
-        disabled={busyNow}
-        title={busyReason || 'More Actions'}
-        class="flex items-center px-2.5 py-2 rounded-lg text-sm font-medium bg-fjord-border hover:bg-fjord-border/70 hover:text-fjord-fg transition-colors disabled:opacity-40"
-        ><Icon name="menu" size={16} /></button
-      >
-      {#if actionsMenuOpen}
-        <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
-        <div class="fixed inset-0 z-20" on:click={() => (actionsMenuOpen = false)}></div>
-        <div
-          class="absolute z-30 top-full right-0 mt-1 bg-fjord-card border border-fjord-border rounded-xl shadow-2xl p-1.5 min-w-52"
+  <NamesPrompt {stack} {stacks} />
+
+  <!-- Editor + tabs -->
+  <div class="flex-1 flex flex-col overflow-hidden min-h-0">
+    <!-- Services | Compose | History | Settings. Compose holds the raw
+         files as pills. Revert and Save sit at the end of the tab row
+         whenever there is an edit, on every tab. -->
+    <div class="flex flex-wrap items-end gap-x-6 gap-y-2 border-b border-fjord-border text-sm font-medium px-1">
+      {#each topTabs as [k, l]}
+        {@const on = k === 'files' ? inFiles : activeTab === k}
+        <button
+          data-tab={k === 'net' ? 'services' : k}
+          on:click={() => (activeTab = k === 'files' ? (inFiles ? activeTab : lastFile) : (k as typeof activeTab))}
+          class="pb-2.5 pt-1 -mb-px border-b-2 {on ? 'text-fjord-fg border-fjord-accent' : 'border-transparent text-fjord-fg-muted hover:text-fjord-fg-body'}"
+          >{l}</button
         >
-          <button
-            on:click={() => {
-              actionsMenuOpen = false;
-              onRestart(stack.name);
-            }}
-            class="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-fjord-fg-body hover:bg-fjord-border transition-colors"
-            ><Icon name="restart" size={14} class="text-fjord-fg-muted" /> Restart</button
-          >
-          <button
-            on:click={() => {
-              actionsMenuOpen = false;
-              pendingAction = { kind: 'recreate', stack: stack.name };
-            }}
-            title="Pull every image and recreate every service, even ones already up to date"
-            class="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-fjord-fg-body hover:bg-fjord-border transition-colors"
-            ><Icon name="update" size={14} class="text-fjord-fg-muted" /> Pull &amp; recreate all…</button
-          >
-          {#if !multiImage}
+      {/each}
+      <div class="flex-1"></div>
+      {#if (isDirty || saving) && !isDraft}
+        <div class="flex items-center gap-2 pb-1.5">
+          {#if isDirty}
             <button
-              on:click={() => {
-                actionsMenuOpen = false;
-                changeVersion = {
-                  name: stack.name,
-                  image: currentImage(stack),
-                  suggest: updateInfo?.state === 'upgrade' ? updateInfo.newTag : undefined,
-                };
-              }}
-              disabled={!stackImage(stack.compose)}
-              class="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-fjord-fg-body hover:bg-fjord-border transition-colors disabled:opacity-40"
-              ><Icon name="swap" size={14} class="text-fjord-fg-muted" /> Change Version…{#if /@sha256:/.test(stack.compose)}<Icon
-                name="pin"
-                size={12}
-                class="text-fjord-accent ml-auto"
-              />{/if}</button
+              on:click={revert}
+              title="Discard unsaved changes and restore the last saved version"
+              class="text-fjord-fg-muted hover:text-fjord-fg text-sm font-medium py-1 px-3 rounded-lg border border-fjord-border hover:border-fjord-accent/40 transition-colors"
+              >Revert</button
             >
           {/if}
-          <div class="h-px bg-fjord-border my-1.5 mx-1"></div>
           <button
-            on:click={() => {
-              actionsMenuOpen = false;
-              pendingAction = { kind: 'delete', stack: stack.name };
-            }}
-            class="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-fjord-danger hover:bg-fjord-danger/15 transition-colors"
-            ><Icon name="trash" size={14} /> Delete…</button
+            on:click={onSave}
+            disabled={saving}
+            class="bg-fjord-accent hover:bg-fjord-accent-hover text-white text-sm font-medium py-1 px-4 rounded-lg disabled:opacity-40"
+            >{saving ? 'Saving…' : 'Save'}</button
           >
         </div>
       {/if}
     </div>
-  </div>
-  {/if}
-
-  <NamesPrompt {stack} {stacks} />
-
-  <!-- Editor + tabs -->
-  <div class="flex-1 flex flex-col bg-fjord-card border border-fjord-border rounded-xl shadow-xl overflow-hidden min-h-0">
-    <div class="bg-fjord-border/50 flex border-b border-fjord-border text-xs font-semibold text-fjord-fg-secondary">
-      <button
-        on:click={() => (activeTab = 'net')}
-        class="px-4 py-2.5 border-r border-fjord-border {activeTab === 'net'
-          ? 'bg-fjord-card text-fjord-fg border-b-2 border-b-fjord-accent'
-          : 'text-fjord-fg-muted hover:text-fjord-fg-body'}">Services</button
-      >
-      <button
-        on:click={() => (activeTab = 'compose')}
-        class="px-4 py-2.5 border-r border-fjord-border flex items-center gap-2 {activeTab === 'compose'
-          ? 'bg-fjord-card text-fjord-fg border-b-2 border-b-fjord-accent'
-          : 'text-fjord-fg-muted hover:text-fjord-fg-body'}"
-      >
-        {#if isDirector}appjail-director.yml{#if (stack.director ?? '') !== originalDirector}<span class="text-fjord-warning font-bold">*</span>{/if}{:else}compose.yaml{#if stack.compose !== originalCompose}<span class="text-fjord-warning font-bold">*</span>{/if}{/if}
-      </button>
-      <!-- .env after the file it feeds: the compose tab shows each ${VAR}'s
-           value and the Variables panel sets them; this is the whole file. -->
-      <button
-        on:click={() => (activeTab = 'env')}
-        class="px-4 py-2.5 border-r border-fjord-border flex items-center gap-2 {activeTab === 'env'
-          ? 'bg-fjord-card text-fjord-fg border-b-2 border-b-fjord-accent'
-          : 'text-fjord-fg-muted hover:text-fjord-fg-body'}"
-      >
-        .env{#if stack.env !== originalEnv}<span class="text-fjord-warning font-bold">*</span>{/if}
-      </button>
-      {#if isDirector}
-        <button
-          on:click={() => (activeTab = 'makejail')}
-          class="px-4 py-2.5 border-r border-fjord-border flex items-center gap-2 {activeTab === 'makejail'
-            ? 'bg-fjord-card text-fjord-fg border-b-2 border-b-fjord-accent'
-            : 'text-fjord-fg-muted hover:text-fjord-fg-body'}"
-        >
-          Makejail{#if (stack.makejail ?? '') !== originalMakejail}<span class="text-fjord-warning font-bold">*</span>{/if}
-        </button>
-      {/if}
-      <!-- What happened to it, then how it runs. A draft has neither yet. -->
-      {#if !isDraft}
-        <button
-          on:click={() => (activeTab = 'history')}
-          data-tab="history"
-          class="px-4 py-2.5 border-r border-fjord-border {activeTab === 'history'
-            ? 'bg-fjord-card text-fjord-fg border-b-2 border-b-fjord-accent'
-            : 'text-fjord-fg-muted hover:text-fjord-fg-body'}">History</button
-        >
-        <button
-          on:click={() => (activeTab = 'settings')}
-          data-tab="settings"
-          class="px-4 py-2.5 border-r border-fjord-border {activeTab === 'settings'
-            ? 'bg-fjord-card text-fjord-fg border-b-2 border-b-fjord-accent'
-            : 'text-fjord-fg-muted hover:text-fjord-fg-body'}">Settings</button
-        >
-      {/if}
-    </div>
+    {#if inFiles}
+      <div class="flex flex-wrap items-center gap-1 pt-3 text-sm">
+        {#each fileTabs as [k, l, dirty]}
+          <button
+            data-tab={k}
+            on:click={() => (activeTab = lastFile = k)}
+            class="px-3 py-1 rounded-full font-medium transition-colors {activeTab === k
+              ? 'bg-fjord-accent/15 text-fjord-fg'
+              : 'text-fjord-fg-muted hover:text-fjord-fg-body hover:bg-fjord-border/40'}"
+            >{l}{#if dirty}<span class="text-fjord-warning font-bold">*</span>{/if}</button
+          >
+        {/each}
+      </div>
+    {/if}
 
     {#if filesLoading && (activeTab === 'compose' || activeTab === 'env' || activeTab === 'makejail')}
       <div class="shrink-0 flex items-center gap-2 px-4 py-2 text-xs bg-fjord-card border-b border-fjord-border text-fjord-fg-secondary">
@@ -1462,18 +1463,18 @@
         </div>
       {:else if activeTab === 'history' && !isDraft}
         <!-- Read each time the tab opens. -->
-        <div class="p-6 overflow-y-auto h-full">
+        <div class="pt-4 overflow-y-auto h-full">
           <HistoryList stack={stack.name} reload={historyBump} />
         </div>
       {:else if activeTab === 'settings' && !isDraft}
         <!-- Each one applies when it changes, as before; no Save. -->
-        <div class="p-6 overflow-y-auto h-full">
+        <div class="pt-4 overflow-y-auto h-full">
           {#if settingsLocked}
             <p id="settings-locked" data-settings-locked class="flex items-center gap-2 mb-4 max-w-prose text-sm text-fjord-fg-muted">
               <Icon name="alert" size={14} />{settingsLocked}
             </p>
           {/if}
-          <div class="grid grid-cols-[8rem_minmax(0,1fr)] gap-x-6 gap-y-4 items-center max-w-xl text-sm">
+          <div class="grid grid-cols-1 sm:grid-cols-[8rem_minmax(0,1fr)] gap-x-6 gap-y-2 sm:gap-y-4 items-center max-w-xl text-sm">
             <span class="text-fjord-fg-muted">Restart</span>
             <div>
               <!-- The restart policy rewrites the compose on the server: with
@@ -1530,7 +1531,7 @@
                 value={stack.state?.group ?? ''}
                 on:change={(e) => onSetStackGroup(stack.name, e.currentTarget.value)}
                 placeholder="None"
-                class="w-56 bg-fjord-inset border border-fjord-border rounded-lg px-2.5 py-1 text-sm text-fjord-fg-body placeholder:text-fjord-fg-faint focus:outline-none focus:border-fjord-accent"
+                class="w-full sm:w-56 bg-fjord-inset border border-fjord-border rounded-lg px-2.5 py-1 text-sm text-fjord-fg-body placeholder:text-fjord-fg-faint focus:outline-none focus:border-fjord-accent"
               />
               <datalist id="fjord-groups">
                 {#each existingGroups as g}<option value={g}></option>{/each}
@@ -1539,7 +1540,7 @@
           </div>
         </div>
       {:else}
-        <div class="p-6 overflow-y-auto h-full">
+        <div class="pt-4 overflow-y-auto h-full">
           {#if !stack.compose && !stack.director && !stack.dir}
             <!-- The optimistic placeholder the install flow puts up: no
                  compose yet, so every answer here would be a guess. -->
@@ -1548,15 +1549,10 @@
               Still installing — this fills in as soon as the stack is written.
             </div>
           {:else}
-          <h3 class="text-lg font-bold text-fjord-fg mb-1">Services</h3>
-          <p class="text-xs text-fjord-fg-dim mb-3">
-            What each service holds, and where each one is on the network.
-            Changes apply to the stack on <b>Save</b>.
-          </p>
           <!-- Answers given at install, not status: here with the
                services they decided, not as chips in the header. -->
           {#if Object.keys(stack.state?.choices ?? {}).length}
-            <p class="text-xs text-fjord-fg-dim -mt-2 mb-3">
+            <p class="text-xs text-fjord-fg-dim mb-3">
               Chosen at install: {Object.entries(stack.state?.choices ?? {})
                 .map(([c, o]) => `${c.replace(/_/g, ' ')} ${o}`)
                 .join(' · ')}

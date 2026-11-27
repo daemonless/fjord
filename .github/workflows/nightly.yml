@@ -39,6 +39,7 @@ jobs:
           ref: main
           fetch-depth: 0 # tags, and the commits since the last release
           persist-credentials: false
+          submodules: true # ui/vendor/yyyymmdd, the date formats
 
       - name: Decide
         id: decide

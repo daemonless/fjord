@@ -28,7 +28,7 @@
   }
 
   // Again whenever the stack or reload changes, and every half minute for
-  // what happened elsewhere and so "just now" ages.
+  // what happened elsewhere.
   $: load(stack, reload);
   onMount(() => {
     const t = setInterval(() => load(stack, reload), 30000);

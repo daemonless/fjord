@@ -20,6 +20,29 @@ describe('suggestedPublicUrl', () => {
   });
 });
 
+describe('a name, and apps that take only a domain', () => {
+  it('is the name it is given, wherever it lands', () => {
+    expect(suggestedPublicUrl({ ...base, named: 'https://vikunja.apps.lan' })).toBe('https://vikunja.apps.lan');
+    expect(suggestedPublicUrl({ ...base, ownAddress: true, ownIP: '192.168.4.50', named: 'https://vikunja.apps.lan' })).toBe('https://vikunja.apps.lan');
+  });
+  it('is never the host or its own address for an app that needs a domain', () => {
+    expect(suggestedPublicUrl({ ...base, needsDomain: true })).toBe('');
+    expect(suggestedPublicUrl({ ...base, ownAddress: true, ownIP: '192.168.4.50', needsDomain: true })).toBe('');
+    expect(suggestedPublicUrl({ ...base, needsDomain: true, named: 'https://auth.apps.lan' })).toBe('https://auth.apps.lan');
+  });
+  it('refuses what such an app would refuse at start', () => {
+    expect(publicUrlProblem('https://auth.example.com', true)).toBe('');
+    expect(publicUrlProblem('https://auth.example.com:8443/', true)).toBe('');
+    expect(publicUrlProblem('http://auth.example.com', true)).toBe('Needs https://, not http://');
+    expect(publicUrlProblem('https://192.0.2.5:1411', true)).toBe('Needs a domain name, not an address');
+    expect(publicUrlProblem('https://[fd00::5]', true)).toBe('Needs a domain name, not an address');
+    expect(publicUrlProblem('https://nas:1411', true)).toBe('Needs a full domain name, like nas.example.com');
+    expect(publicUrlProblem('auth.example.com', true)).toBe('Start with https://');
+    // Any address still does for the rest.
+    expect(publicUrlProblem('http://192.0.2.5:3456')).toBe('');
+  });
+});
+
 describe('publicUrlProblem', () => {
   it('wants an http(s) address with a host', () => {
     expect(publicUrlProblem('f/')).toBe('Start with http:// or https://');

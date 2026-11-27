@@ -87,6 +87,8 @@ const detail = async (page) => (await page.request.get(BASE + '/api/stacks/' + N
     note('set-tag refused with the reason', r.status() === 409 && /no build for this host/.test(rt), `${r.status()} "${rt}"`);
 
     // 4. A compose edited by hand: Save, Apply -- judged after the pull, before the teardown.
+    // The raw files are under Compose.
+    await page.locator('[data-tab="files"]').click();
     await page.getByRole('button', { name: 'compose.yaml', exact: true }).click();
     await page.locator('.cm-content').click();
     await page.keyboard.press('Control+A');

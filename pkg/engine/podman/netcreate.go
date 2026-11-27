@@ -320,10 +320,13 @@ func (b *Backend) RemakeNetwork(ctx context.Context, name string) (engine.Networ
 	if !hostnet.NameRe.MatchString(name) {
 		return engine.Network{}, fmt.Errorf("invalid network name %q", name)
 	}
-	b.networkBackend(ctx)
+	backend := b.networkBackend(ctx)
 	def, ok := hostnet.Get(name)
 	if !ok || !def.Legacy {
 		return engine.Network{}, fmt.Errorf("%s is not a network an earlier network backend left behind", name)
+	}
+	if backend == backendCNI {
+		return b.remakeUnderCNI(ctx, def)
 	}
 	lan := def.Type == lannet.Plugin
 	var vlan, tagged string
@@ -382,6 +385,37 @@ func (b *Backend) RemakeNetwork(ctx context.Context, name string) (engine.Networ
 	}
 	keepConflist(name, old)
 	return n, nil
+}
+
+// remakeUnderCNI makes a network that was made under netavark again as a CNI
+// network: a LAN one as the epair plugin's conflist, a private one through
+// podman. Nothing of the old definition is touched (netavark-migrate keeps
+// it); the new one hides it, being the same name in the directory podman
+// reads.
+func (b *Backend) remakeUnderCNI(ctx context.Context, def hostnet.Network) (engine.Network, error) {
+	if users, err := b.networkUsersRunning(ctx, def.Name); err == nil && len(users) > 0 {
+		return engine.Network{}, fmt.Errorf("%w: %s still runs on the old %s -- stop it first", engine.ErrInUse, strings.Join(users, ", "), def.Name)
+	}
+	spec := engine.NetworkSpec{Name: def.Name, Kind: "nat", Subnet: def.Subnet, Gateway: def.Gateway, MTU: def.MTU}
+	if def.Type != lannet.Plugin {
+		return b.createNAT(ctx, spec)
+	}
+	spec.Kind, spec.Parent, spec.For = "lan", def.Bridge, def.For
+	spec.RangeStart, spec.RangeEnd = def.RangeStart, def.RangeEnd
+	spec.Subnet6, spec.Gateway6 = def.Subnet6, def.Gateway6
+	switch {
+	case def.DHCP:
+		spec.AddressSource = "dhcp"
+		if !pluginSupports("dhcp") {
+			return engine.Network{}, fmt.Errorf("the installed %s plugin cannot do DHCP; upgrade sysutils/cni-epair", epairPlugin)
+		}
+	case def.Static:
+		spec.AddressSource = "static"
+		if !cniPlugin("static") {
+			return engine.Network{}, errors.New("the CNI static IPAM plugin is not installed at /usr/local/libexec/cni/static")
+		}
+	}
+	return lannet.Create(ctx, spec)
 }
 
 // KeptConflistDir is where the CNI definitions fjord replaced are kept.

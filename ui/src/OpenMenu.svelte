@@ -14,6 +14,10 @@
 
   export let stack: any;
   export let disabled = false;
+  /** The app's other web pages, listed first ("Also open"). */
+  export let others: { service: string; url: string; icon?: string }[] = [];
+  /** The ▾ button's look, so a page can join it to its Open button. */
+  export let triggerClass = 'flex items-center text-sm font-medium text-fjord-accent hover:text-fjord-accent-hover';
 
   let open = false;
   let busy = false;
@@ -35,7 +39,8 @@
   // Suggested with labels free on the provider (radarr-2 when another
   // fjord, or a hand-made host, holds radarr).
   $: missing = isProvider ? [] : freeLabels(targets.filter((t) => !$names.names?.[t.key]), $names);
-  $: show = $names.ready && stack && targets.length > 0 && (!isProvider || ownUrl !== '');
+  $: namesShow = $names.ready && stack && targets.length > 0 && (!isProvider || ownUrl !== '');
+  $: show = namesShow || others.length > 0;
   $: usesName = (named.length > 0 || ownUrl !== '') && $openBy === 'name';
   $: first = targets[0];
   $: firstName = first ? $names.names?.[first.key] : undefined;
@@ -137,11 +142,11 @@
 <svelte:window on:pointerdown={(e) => open && !root?.contains(e.target as Node) && close()} on:keydown={(e) => open && e.key === 'Escape' && close()} />
 
 {#if show}
-  <span class="relative shrink-0 {disabled ? 'opacity-40 pointer-events-none' : ''}" bind:this={root}>
+  <span class="relative shrink-0 flex {disabled ? 'opacity-40 pointer-events-none' : ''}" bind:this={root}>
     <button
       on:click={() => (open ? close() : (open = true))}
       title="Open by name, or direct without the proxy"
-      class="flex items-center text-sm font-medium text-fjord-accent hover:text-fjord-accent-hover"
+      class={triggerClass}
       >{#if busy}<Spinner size={12} />{:else}▾{/if}</button
     >
     {#if open}
@@ -167,6 +172,23 @@
             </div>
           </form>
         {:else}
+        {#if others.length}
+          <div class="px-3 pt-1 pb-0.5 text-xs text-fjord-fg-dim">Also open</div>
+          {#each others as l}
+            <a
+              href={l.url}
+              target="_blank"
+              rel="noreferrer"
+              on:click={close}
+              class="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-fjord-border"
+              ><span class="w-4 shrink-0">{#if l.icon}<img src={l.icon} alt="" class="w-4 h-4 rounded object-contain" />{/if}</span
+              ><span class="text-fjord-fg-secondary">{l.service}</span
+              ><span class="ml-auto pl-4 font-mono text-xs text-fjord-fg-muted">{bare(l.url)}</span></a
+            >
+          {/each}
+          {#if namesShow}<div class="my-1 border-t border-fjord-border"></div>{/if}
+        {/if}
+        {#if namesShow}
         {#if named.length || ownUrl}
           <button on:click={() => pick('name')} class="w-full flex items-center gap-2 px-3 py-1.5 text-left hover:bg-fjord-border">
             <span class="w-4 shrink-0 text-fjord-accent">{#if usesName}<Icon name="check" size={13} />{/if}</span>
@@ -201,6 +223,7 @@
           <button on:click={remove} class="w-full flex items-center gap-2 px-3 py-1.5 text-left text-fjord-fg-secondary hover:bg-fjord-border">
             <span class="w-4 shrink-0"><Icon name="close" size={12} /></span> Remove {named.length === 1 ? 'name' : `${named.length} names`}
           </button>
+        {/if}
         {/if}
         {/if}
       </div>
