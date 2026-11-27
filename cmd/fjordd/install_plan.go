@@ -278,25 +278,23 @@ func (s *server) handleAppPlan(w http.ResponseWriter, r *http.Request, appID str
 	}
 	webOwn := isOwnAddressNetwork(webNet, nets)
 	host := originHost(requestOrigin(r))
-	for _, v := range m.Variables {
-		if v.Type != "public_url" {
-			continue
-		}
-		if u := suggestedPublicURL(m.WebPort, m.WebHTTPS, values, host, webOwn, "", manifestText); u != "" {
-			values[v.Name] = u
-		}
-	}
 
 	// Suggest a free name when a names provider is ready and this app has a web page.
-	givenName := ""
+	givenName, named := "", ""
 	if m.WebPort != "" && m.Names == nil {
 		nctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 		ns := s.namesState(nctx)
 		cancel()
 		if ns.Ready {
 			givenName = freeNameFor(nameLabel(slug), ns)
+			if givenName != "" {
+				named = "https://" + givenName + "." + ns.Domain
+			}
 		}
 	}
+	fillNamedValues(m.Variables, values, named, func() string {
+		return suggestedPublicURL(m.WebPort, m.WebHTTPS, values, host, webOwn, "", manifestText)
+	})
 
 	stackNet := netChoice
 	if perService {
@@ -750,4 +748,24 @@ func freeNameFor(base string, ns namesView) string {
 		l = fmt.Sprintf("%s-%d", base, n)
 	}
 	return l
+}
+
+// fillNamedValues fills what depends on where the app is opened: each
+// public_url with its name when it gets one (else hostURL, except for an app
+// that takes only a domain, which then has to be typed), and each
+// behind_proxy variable with its value when the name puts a proxy in front.
+func fillNamedValues(vars []manifest.Var, values map[string]string, named string, hostURL func() string) {
+	for _, v := range vars {
+		switch {
+		case v.Type == "public_url" && named != "":
+			values[v.Name] = named
+		case v.Type == "public_url" && !v.NeedsDomain:
+			if u := hostURL(); u != "" {
+				values[v.Name] = u
+			}
+		}
+		if v.BehindProxy != nil && named != "" {
+			values[v.Name] = *v.BehindProxy
+		}
+	}
 }

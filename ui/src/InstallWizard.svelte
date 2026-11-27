@@ -220,6 +220,8 @@
   // A typed label another app has: said under the field, Install held.
   $: nameOwnedBy = offerName && wantName ? nameOwner(nameLabel(givenName), $names) : undefined;
   $: nameTaken = nameOwnedBy ? `${nameLabel(givenName)}.${$names.domain} is ${nameOwnedBy.split('/')[0]}'s already` : '';
+  // Where it is opened once it has a name, so that is its public address.
+  $: namedUrl = offerName && wantName && nameLabel(givenName) && !nameTaken ? `https://${nameLabel(givenName)}.${$names.domain}` : '';
   let givesNames = false;
   // Mirrors the server's ValidDisplayName: a human label, not a path.
   $: validName = /^[\p{L}\p{N}][\p{L}\p{N} ._-]{0,63}$/u.test(stackName);
@@ -394,6 +396,9 @@
   //   options  -- things people change sometimes: paths, ports, image tags
   //   advanced -- change once or never: env strings (PUID/TZ), managed dirs
   // `advanced: true|false` is the older spelling. Everything else follows its type.
+  // A public address the app takes only as https:// and a domain name
+  // (`needs: domain`): Pocket ID's passkeys bind to one.
+  const needsDomain = (v: any) => v.type === 'public_url' && v.needs === 'domain';
   const levelOf = (v: any): 'primary' | 'options' | 'advanced' => {
     if (v.level === 'primary' || v.level === 'options' || v.level === 'advanced') return v.level;
     if (madeUp(v)) return 'options'; // nothing to do, but there to set one's own
@@ -411,7 +416,10 @@
   // A required address nothing can fill in (the app's own address on a DHCP
   // network is known once it starts) is up front: woodpecker's
   // WOODPECKER_HOST held Install from inside the folded Advanced section.
-  $: mustType = (v: any) => v.type === 'public_url' && v.optional !== true && !!webOwnAddress && !webIP;
+  // An app that takes only an https:// domain, with no name to fill it from,
+  // is the same: up front, where it can't be missed.
+  $: mustType = (v: any) =>
+    v.type === 'public_url' && v.optional !== true && ((!!webOwnAddress && !webIP && !namedUrl) || (needsDomain(v) && !namedUrl));
   $: primaryVars = listedVars.filter((v) => mustType(v) || levelOf(v) === 'primary');
   $: optionVars = listedVars.filter((v) => !mustType(v) && levelOf(v) === 'options');
   $: advancedVars = listedVars.filter((v) => !mustType(v) && levelOf(v) === 'advanced');
@@ -755,10 +763,10 @@
   $: webIP = perService
     ? (Object.entries(planEdits).find(([svc]) => netPlan[svc] === PLAN_DEFAULT)?.[1] ?? planEdits[svcNames[0]] ?? [])[0]?.ip ?? ''
     : netIP;
-  $: fillPublicUrls(variables, formData, webPortHint, webHttps, webOwnAddress, webIP);
+  $: fillPublicUrls(variables, formData, webPortHint, webHttps, webOwnAddress, webIP, namedUrl);
   // Only a value this put there is replaced: anything else was typed.
   let suggestedUrl: Record<string, string> = {};
-  function fillPublicUrls(vars: any[], values: Record<string, string>, port: string, https: boolean, own: boolean, ip: string) {
+  function fillPublicUrls(vars: any[], values: Record<string, string>, port: string, https: boolean, own: boolean, ip: string, named: string) {
     let changed = false;
     for (const v of vars) {
       if (v.type !== 'public_url' || touched.has(v.name)) continue;
@@ -767,6 +775,7 @@
       const url = suggestedPublicUrl({
         webPort: port, https, values, host: location.hostname, ownAddress: own, ownIP: ip,
         insidePort: portVar ? insidePort(manifestText, portVar) : '',
+        named, needsDomain: needsDomain(v),
       });
       suggestedUrl[v.name] = url;
       if (values[v.name] !== url) {
@@ -776,7 +785,27 @@
     }
     if (changed) formData = formData;
   }
-  $: badUrls = variables.filter((v) => v.type === 'public_url' && publicUrlProblem(formData[v.name] ?? ''));
+  $: badUrls = variables.filter((v) => v.type === 'public_url' && publicUrlProblem(formData[v.name] ?? '', needsDomain(v)));
+  // Settings an app needs behind a reverse proxy (TRUST_PROXY=true) follow
+  // the name: turning it on or off sets them, every time, since that is a
+  // new decision about the proxy. A switch flipped by hand holds until the
+  // name is turned on or off again. The last thing done wins.
+  $: behindProxy = variables.filter((v: any) => v.behind_proxy !== undefined && v.behind_proxy !== null);
+  let proxiedFor: boolean | null = null; // what they were last set for
+  $: applyBehindProxy(behindProxy, !!namedUrl);
+  function applyBehindProxy(vars: any[], on: boolean) {
+    if (!vars.length || proxiedFor === on) return;
+    proxiedFor = on;
+    for (const v of vars) {
+      formData[v.name] = on ? String(v.behind_proxy) : String(v.default ?? '');
+      touched.delete(v.name);
+    }
+    formData = formData;
+  }
+  // Said only while it is so: a switch turned back by hand is not "set".
+  $: proxySet = (v: any) =>
+    !!namedUrl && v.behind_proxy !== undefined && v.behind_proxy !== null && formData[v.name] === String(v.behind_proxy);
+  $: proxiedNow = behindProxy.filter((v: any) => proxySet(v));
   const PLAN_PRIVATE = 'private';
   const PLAN_DEFAULT = 'default';
   const PLAN_NONE = 'none';
@@ -925,6 +954,7 @@
     choices = [];
     picks = {};
     touched.clear();
+    proxiedFor = null; // another catalog's manifest: set its own afresh
     await storageReady;
     try {
       const params = new URLSearchParams();
@@ -1132,6 +1162,11 @@
                 {:else}
                   <div class="text-xs text-fjord-fg-dim">{$names.provider} gives it this name once it is running, home network only.</div>
                 {/if}
+                {#if proxiedNow.length}
+                  <div class="text-xs text-fjord-fg-dim" data-behind-proxy>
+                    Behind {$names.provider}, {appName} gets <span class="font-mono">{listed(proxiedNow.map((v) => `${v.name}=${v.behind_proxy}`))}</span>.
+                  </div>
+                {/if}
               {:else}
                 <div class="text-xs text-fjord-fg-dim">Only its address, no name. You can add one later from its page.</div>
               {/if}
@@ -1162,6 +1197,9 @@
                   <span class="text-sm font-semibold font-mono text-fjord-accent/90">{v.name}</span>
                   {#if v.label}
                     <div class="text-xs text-fjord-fg-dim">{#each linkify(v.label) as seg}{#if seg.url}<a href={seg.url} target="_blank" rel="noopener noreferrer" class="text-fjord-accent hover:underline">{seg.text}</a>{:else}{seg.text}{/if}{/each}</div>
+                  {/if}
+                  {#if proxySet(v)}
+                    <div class="text-xs text-fjord-fg-dim">Set because it opens through {$names.provider}.</div>
                   {/if}
                 </div>
                 <Switch
@@ -1304,8 +1342,26 @@
                   <div class="text-xs text-fjord-danger">{typedVarProblem(v, formData[v.name] ?? '')}</div>
                 {/if}
               {:else}
+                {#if proxySet(v)}
+                  <div class="text-xs text-fjord-fg-dim">Set because it opens through {$names.provider}.</div>
+                {/if}
                 {#if v.type === 'public_url'}
-                  {#if webOwnAddress && !webIP && v.optional !== true && isEmpty(v)}
+                  {#if namedUrl && formData[v.name] === namedUrl}
+                    <div class="text-xs text-fjord-fg-dim" data-url-from-name>Filled in from its name.</div>
+                  {:else if needsDomain(v) && !namedUrl && isEmpty(v)}
+                    <div class="text-xs text-fjord-warning" data-needs-domain>
+                      {appName} needs an https:// address with a domain name, the one you will open it at.
+                      {#if offerName}
+                        Turn on Open it at above to give it one, or type the address your own proxy serves.
+                      {:else if !$names.provider}
+                        To have fjord give it one, install a names provider from the App Store first, or type the address your own proxy serves.
+                      {:else}
+                        Type the address your proxy serves it at.
+                      {/if}
+                    </div>
+                  {:else if needsDomain(v)}
+                    <div class="text-xs text-fjord-fg-dim">The address your proxy serves it at, starting https://.</div>
+                  {:else if webOwnAddress && !webIP && v.optional !== true && isEmpty(v)}
                     <div class="text-xs text-fjord-warning">
                       Its address on {webNet} is only known once it starts, so it can't be filled in for you. Type the address you will open it at
                       (a name or address and its port), or put it on bridge in Networking.
@@ -1323,10 +1379,10 @@
                   bind:value={formData[v.name]}
                   on:input={() => touched.add(v.name)}
                   placeholder={madeUp(v) ? 'made up at install — or type your own' : given(v) ? (v.optional !== true ? 'required' : '') : v.default || (v.optional !== true ? 'required' : '')}
-                  class="w-full bg-fjord-inset border rounded-md px-3 py-2 text-fjord-fg-body focus:outline-none focus:border-fjord-accent transition-colors {(v.optional !== true && !madeUp(v) && isEmpty(v)) || (v.type === 'public_url' && publicUrlProblem(formData[v.name] ?? '')) ? 'border-fjord-danger/60' : 'border-fjord-border'}"
+                  class="w-full bg-fjord-inset border rounded-md px-3 py-2 text-fjord-fg-body focus:outline-none focus:border-fjord-accent transition-colors {(v.optional !== true && !madeUp(v) && isEmpty(v)) || (v.type === 'public_url' && publicUrlProblem(formData[v.name] ?? '', needsDomain(v))) ? 'border-fjord-danger/60' : 'border-fjord-border'}"
                 />
-                {#if v.type === 'public_url' && publicUrlProblem(formData[v.name] ?? '')}
-                  <div class="text-xs text-fjord-danger">{publicUrlProblem(formData[v.name] ?? '')}</div>
+                {#if v.type === 'public_url' && publicUrlProblem(formData[v.name] ?? '', needsDomain(v))}
+                  <div class="text-xs text-fjord-danger">{publicUrlProblem(formData[v.name] ?? '', needsDomain(v))}</div>
                 {/if}
               {/if}
             </div>
