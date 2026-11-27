@@ -239,6 +239,12 @@ export function isolatedServices(edits: Record<string, Iface[]>): string[] {
   return out;
 }
 
+/** The services the plan puts anywhere but the host's network. */
+export function offHostServices(edits: Record<string, Iface[]>): string[] {
+  const { modes } = splitPlan(edits);
+  return Object.keys(edits).filter((svc) => modes[svc] !== 'host');
+}
+
 /**
  * keepAttachable carries the operator's interface edits over to a new
  * engine's network list instead of re-seeding them.

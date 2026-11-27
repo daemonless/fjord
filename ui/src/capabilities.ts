@@ -13,6 +13,9 @@ export type CapabilityCheckInput = {
   storageBase?: string;
   allowedRoots?: string[];
   folderSets?: { folders?: string[] }[];
+  /** Services the install puts on a network of their own, so a
+   * network_mode: host in the compose is not what they get. */
+  offHost?: string[];
 };
 
 export function normalizePosixPath(p: string): string {
@@ -347,7 +350,7 @@ export function detectHostCapabilities(input: CapabilityCheckInput): string[] {
     }
   };
 
-  for (const [, svc] of serviceEntries) {
+  for (const [name, svc] of serviceEntries) {
     if (!svc || typeof svc !== 'object') continue;
 
     if (isTruthyYamlBool(svc.privileged)) {
@@ -382,7 +385,7 @@ export function detectHostCapabilities(input: CapabilityCheckInput): string[] {
     if (cleanMode(svc.userns_mode) === 'host') {
       add('userns_mode: host');
     }
-    if (cleanMode(svc.network_mode) === 'host') {
+    if (cleanMode(svc.network_mode) === 'host' && !input.offHost?.includes(name)) {
       add('network_mode: host');
     }
 

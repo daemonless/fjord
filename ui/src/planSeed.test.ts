@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { resolveDefault, seedInterfaces, splitPlan, setInterface, serviceType, switchType, isMode, isolatedServices, keepAttachable, addressesNeeded } from './planSeed';
+import { resolveDefault, seedInterfaces, splitPlan, setInterface, serviceType, switchType, isMode, isolatedServices, keepAttachable, addressesNeeded, offHostServices } from './planSeed';
 
 // immich's declaration, as the catalog carries it.
 const immich = { 'immich-server': 'default', '*': 'private' };
@@ -405,5 +405,13 @@ describe('splitPlan: what is drawn is what is saved', () => {
   });
   it('still says none for a service left with no rows', () => {
     expect(splitPlan({ web: [] })).toEqual({ networks: [], modes: { web: 'none' } });
+  });
+});
+
+describe('offHostServices', () => {
+  it('lists the services the plan moves off the host network', () => {
+    expect(offHostServices({ actual: [{ network: 'lan', ip: '', mac: '' }] })).toEqual(['actual']);
+    expect(offHostServices({ web: [{ network: 'host' }], db: [{ network: 'bridge' }] })).toEqual(['db']);
+    expect(offHostServices({})).toEqual([]);
   });
 });
