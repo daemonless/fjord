@@ -28,6 +28,7 @@ const (
 	Apply    = "apply"
 	Update   = "update"
 	Rollback = "rollback"
+	Snapshot = "snapshot"
 	Delete   = "delete"
 	Recovery = "recovery"
 )

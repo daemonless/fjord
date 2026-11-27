@@ -212,6 +212,9 @@ func (s *server) handleStackRoutes(w http.ResponseWriter, r *http.Request) {
 		case "history":
 			s.stackHistory(w, r, parts[0])
 			return
+		case "restore-points":
+			s.stackRestorePoints(w, r, parts[0])
+			return
 		case "delete-preview":
 			s.stackDeletePreview(w, parts[0])
 			return
@@ -219,6 +222,18 @@ func (s *server) handleStackRoutes(w http.ResponseWriter, r *http.Request) {
 			s.stackLogin(w, r, parts[0])
 			return
 		}
+	}
+	if len(parts) == 3 && parts[1] == "kept" && parts[2] == "restore" && r.Method == http.MethodPost {
+		s.stackKeptRestore(w, r, parts[0])
+		return
+	}
+	if len(parts) == 2 && parts[1] == "kept" && (r.Method == http.MethodPatch || r.Method == http.MethodDelete) {
+		s.stackKeptManage(w, r, parts[0])
+		return
+	}
+	if len(parts) == 2 && parts[1] == "snapshots" && (r.Method == http.MethodPost || r.Method == http.MethodDelete) {
+		s.stackSnapshots(w, r, parts[0])
+		return
 	}
 	if len(parts) != 2 || r.Method != http.MethodPost {
 		http.NotFound(w, r)
@@ -251,6 +266,8 @@ func (s *server) handleStackRoutes(w http.ResponseWriter, r *http.Request) {
 		s.stackRecovery(w, r, name)
 	case "rollback":
 		s.stackRollback(w, r, name)
+	case "restore":
+		s.stackRestore(w, r, name)
 	case "unpin":
 		s.stackUnpin(w, r, name)
 	case "dismiss-failure":
@@ -388,6 +405,17 @@ func (s *server) removeStackNow(name string, data bool) (int, string) {
 			return http.StatusConflict, "not deleted: containers are still up after the stop attempt -- " + strings.Join(alive, ", ") + ". Check Output/Logs, stop them, then delete again."
 		}
 		if data {
+			// Destroy kept copies FIRST because they are clones of snapshots
+			// on the live dataset; destroying the live dataset first would fail.
+			if keptCopies, kerr := dataset.ListKept(ctx, name); kerr == nil {
+				for _, kc := range keptCopies {
+					if _, derr := dataset.DestroyKept(ctx, kc.Dataset, name); derr != nil {
+						keep()
+						return 500, "not deleted: kept copy " + kc.Dataset + ": " + derr.Error() + " -- the stack is stopped and still listed"
+					}
+					log.Printf("delete %s: destroyed kept copy %s", name, kc.Dataset)
+				}
+			}
 			for _, d := range s.planDelete(ctx, st).AppData {
 				if d.Dataset != "" {
 					// Only a dataset fjord made, with nothing in it someone

@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/daemonless/fjord/pkg/dataset"
 	"github.com/daemonless/fjord/pkg/engine"
 )
 
@@ -75,7 +76,8 @@ func (s *server) findLeftovers(ctx context.Context) (leftovers, error) {
 			// Compared with links followed: a mount named through a symlink
 			// is this folder, in use.
 			real := resolved(dir)
-			if strings.HasPrefix(e.Name(), ".") || stacks[e.Name()] || !isRealDir(dir) ||
+			if strings.HasPrefix(e.Name(), ".") || dataset.IsInternalDir(e.Name()) ||
+				stacks[e.Name()] || !isRealDir(dir) ||
 				anyInside(used, real) || containsAny(used, real) {
 				continue
 			}

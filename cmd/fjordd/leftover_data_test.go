@@ -136,3 +136,25 @@ func TestLeftoversSeeThroughSymlinks(t *testing.T) {
 		t.Errorf("listed an in-use folder: %+v", found.Folders)
 	}
 }
+
+// Kept copies, pre-dataset safety folders, and in-flight deletion folders
+// live beside app folders under App data and must never be flagged as
+// orphaned leftovers.
+func TestLeftoversSkipInternalDatasetDirs(t *testing.T) {
+	s, root := leftoverFixture(t)
+	apps := filepath.Join(root, "apps")
+	for _, d := range []string{
+		"notes.kept-2026-11-27-0530",
+		"notes.pre-dataset-20261127-0530",
+		"notes.deleting-1795774600",
+	} {
+		os.MkdirAll(filepath.Join(apps, d), 0o755)
+	}
+	found, err := s.findLeftovers(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(found.Folders) != 1 || found.Folders[0].Path != filepath.Join(apps, "oldapp") {
+		t.Fatalf("internal dirs leaked into leftovers: %+v", found.Folders)
+	}
+}

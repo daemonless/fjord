@@ -128,6 +128,7 @@ func (s *server) stackRollback(w http.ResponseWriter, r *http.Request, name stri
 func (s *server) stackUnpin(w http.ResponseWriter, r *http.Request, name string) {
 	var req struct {
 		Service string `json:"service"`
+		Hold    string `json:"hold,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Service == "" {
 		http.Error(w, `send {"service": "..."}`, 400)
@@ -160,8 +161,53 @@ func (s *server) stackUnpin(w http.ResponseWriter, r *http.Request, name string)
 		return
 	}
 	s.fleet.forget(name)
-	s.clearAutoHold(name, []string{req.Service})
+	if req.Hold != "" {
+		holdKey := holdKeyForImage(req.Service, req.Hold)
+		if holdKey != "" {
+			_ = s.manager.UpdateState(name, func(st *stack.State) *stack.State {
+				if st == nil {
+					return nil
+				}
+				if st.AutoHold == nil {
+					st.AutoHold = map[string]string{}
+				}
+				st.AutoHold[req.Service] = holdKey
+				return st
+			})
+		}
+	} else {
+		s.clearAutoHold(name, []string{req.Service})
+	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// holdKeyForImage converts a pinned image ref (or JSON service->image map)
+// into the key auto-update's candidateKey compares against: repo:tag for a
+// versioned tag, or the bare sha256:... digest for a moved :latest/untagged
+// image.
+func holdKeyForImage(service, img string) string {
+	if strings.HasPrefix(img, "{") {
+		var m map[string]string
+		if json.Unmarshal([]byte(img), &m) == nil {
+			img = m[service]
+		}
+	}
+	if img == "" {
+		return ""
+	}
+	ref := withoutDigest(img)
+	slash := strings.LastIndex(ref, "/")
+	colon := strings.LastIndex(ref, ":")
+	if colon > slash && colon >= 0 {
+		tag := ref[colon+1:]
+		if tag != "" && tag != "latest" {
+			return ref
+		}
+	}
+	if at := strings.LastIndex(img, "@"); at >= 0 {
+		return img[at+1:]
+	}
+	return img
 }
 
 // stackAutoRollback answers an automatic update that failed and was rolled

@@ -401,6 +401,7 @@ func main() {
 	go runCatalogScheduler(srv)
 	go runFleetScheduler(srv)
 	go runAutoUpdateScheduler(srv)
+	go runKeptCopySweep(srv)
 
 	// Default binds all interfaces so container port publishing reaches it; a
 	// host daemon can narrow it to loopback via FJORD_LISTEN.
@@ -551,6 +552,9 @@ func startOnBoot(srv *server) {
 		// a fjordd restarted while it runs meets the same race, and when
 		// nothing is starting the check costs one pgrep.
 		settleBoot(settled, s.EngineName(), srv.backendFor(s))
+		if s.State != nil && s.State.PendingDatasetOp != nil {
+			reconcilePendingDatasetOp(srv, s.Name)
+		}
 		if s.State != nil && s.State.DesiredState == desiredDeleting {
 			finishDelete(srv, s.Name)
 			continue

@@ -10,11 +10,47 @@ import (
 	"fmt"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"time"
 )
 
 // Tag is the user property fjord sets on a dataset it made: its stack.
 const Tag = "fjord:stack"
+
+// Snapshot name prefixes. Automatic update snapshots use UpdateSnapPrefix
+// (and legacy LegacySnapPrefix followed strictly by digits). Manual restore
+// points use ManualSnapPrefix so the auto-pruner never touches them.
+const (
+	UpdateSnapPrefix = "fjord-update-"
+	LegacySnapPrefix = "fjord-"
+	ManualSnapPrefix = "fjord-manual-"
+)
+
+// User properties stored on kept-copy datasets created during restore or
+// dataset migration. Live-dataset lookups skip any dataset with PropKeptKind
+// set. PropNote stores an optional user note on a manual snapshot.
+const (
+	PropKeptKind    = "fjord:kept-kind"
+	PropKeptAt      = "fjord:kept-at"
+	PropKeptUntil   = "fjord:kept-until"
+	PropKeptVersion = "fjord:kept-version"
+	PropKeptImage   = "fjord:kept-image"
+	PropNote        = "fjord:note"
+	PropImages      = "fjord:images"
+)
+
+// SnapInfo describes one fjord-managed ZFS snapshot.
+type SnapInfo struct {
+	Name         string
+	Kind         string // "update" or "manual"
+	Note         string
+	Images       string // JSON map of service -> ref@digest captured when taken
+	Created      time.Time
+	UsedBytes    int64
+	DeferDestroy bool
+	Clones       []string
+}
 
 // run is the zfs command; tests replace it.
 var run = func(ctx context.Context, args ...string) ([]byte, error) {
@@ -41,6 +77,29 @@ func At(ctx context.Context, dir string) (name string, ok bool) {
 	for _, line := range strings.Split(string(out), "\n") {
 		f := strings.Split(line, "\t")
 		if len(f) == 2 && filepath.Clean(f[1]) == dir {
+			return f[0], true
+		}
+	}
+	return "", false
+}
+
+// LiveByTag finds the live dataset tagged for stack, ignoring any kept-copy
+// datasets (which also carry fjord:stack for ownership checks, plus
+// fjord:kept-kind).
+func LiveByTag(ctx context.Context, stack string) (name string, ok bool) {
+	if stack == "" {
+		return "", false
+	}
+	out, err := run(ctx, "list", "-H", "-o", "name,"+Tag+","+PropKeptKind, "-t", "filesystem")
+	if err != nil {
+		return "", false
+	}
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		f := strings.Split(line, "\t")
+		if len(f) != 3 {
+			continue
+		}
+		if f[1] == stack && (f[2] == "-" || f[2] == "") {
 			return f[0], true
 		}
 	}
@@ -96,6 +155,199 @@ func Destroy(ctx context.Context, name, stack string) error {
 	}
 	if _, err := run(ctx, "destroy", "-r", name); err != nil {
 		return fmt.Errorf("zfs destroy %s: %w", name, err)
+	}
+	return nil
+}
+
+// IsInternalDir reports whether a directory entry under an App data location
+// is a fjord-managed kept copy, pre-dataset safety folder, or in-flight
+// deletion folder that orphan and adoption scans must skip.
+func IsInternalDir(name string) bool {
+	return strings.Contains(name, ".kept-") ||
+		strings.Contains(name, ".pre-dataset-") ||
+		strings.Contains(name, ".deleting-")
+}
+
+// IsUpdateSnap reports whether fullSnap is one of fjord's automatic
+// pre-update snapshots of datasetName (<name>@fjord-update-<digits> or legacy
+// <name>@fjord-<digits>).
+func IsUpdateSnap(datasetName, fullSnap string) bool {
+	rest, ok := strings.CutPrefix(fullSnap, datasetName+"@")
+	if !ok {
+		return false
+	}
+	if tail, ok := strings.CutPrefix(rest, UpdateSnapPrefix); ok {
+		return allDigits(tail)
+	}
+	if tail, ok := strings.CutPrefix(rest, LegacySnapPrefix); ok {
+		return allDigits(tail)
+	}
+	return false
+}
+
+// IsManualSnap reports whether fullSnap is one of fjord's manual restore
+// points of datasetName (<name>@fjord-manual-<digits>).
+func IsManualSnap(datasetName, fullSnap string) bool {
+	rest, ok := strings.CutPrefix(fullSnap, datasetName+"@")
+	if !ok {
+		return false
+	}
+	tail, ok := strings.CutPrefix(rest, ManualSnapPrefix)
+	return ok && allDigits(tail)
+}
+
+// IsFjordSnap reports whether fullSnap is any fjord-managed snapshot of
+// datasetName.
+func IsFjordSnap(datasetName, fullSnap string) bool {
+	return IsUpdateSnap(datasetName, fullSnap) || IsManualSnap(datasetName, fullSnap)
+}
+
+func allDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		if s[i] < '0' || s[i] > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+// ListSnapshots returns fjord-managed snapshots of name in creation order.
+// When includeDeferred is false, snapshots already marked defer_destroy=on
+// are omitted so UI lists do not show deleted-but-clone-held snapshots.
+func ListSnapshots(ctx context.Context, name string, includeDeferred bool) ([]SnapInfo, error) {
+	out, err := run(ctx, "list", "-H", "-p", "-t", "snapshot",
+		"-o", "name,creation,used,defer_destroy,clones,"+PropNote+","+PropImages,
+		"-s", "creation", "-d", "1", name)
+	if err != nil {
+		return nil, fmt.Errorf("zfs list snapshots %s: %w", name, err)
+	}
+	var snaps []SnapInfo
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		if line == "" {
+			continue
+		}
+		f := strings.Split(line, "\t")
+		if len(f) < 5 {
+			continue
+		}
+		kind := ""
+		switch {
+		case IsUpdateSnap(name, f[0]):
+			kind = "update"
+		case IsManualSnap(name, f[0]):
+			kind = "manual"
+		default:
+			continue
+		}
+		deferred := f[3] == "on"
+		if deferred && !includeDeferred {
+			continue
+		}
+		sec, _ := strconv.ParseInt(f[1], 10, 64)
+		used, _ := strconv.ParseInt(f[2], 10, 64)
+		var clones []string
+		if f[4] != "" && f[4] != "-" {
+			for _, c := range strings.Split(f[4], ",") {
+				if c = strings.TrimSpace(c); c != "" {
+					clones = append(clones, c)
+				}
+			}
+		}
+		note := ""
+		if len(f) >= 6 && f[5] != "-" {
+			note = f[5]
+		}
+		images := ""
+		if len(f) >= 7 && f[6] != "-" {
+			images = f[6]
+		}
+		snaps = append(snaps, SnapInfo{
+			Name:         f[0],
+			Kind:         kind,
+			Note:         note,
+			Images:       images,
+			Created:      time.Unix(sec, 0).UTC(),
+			UsedBytes:    used,
+			DeferDestroy: deferred,
+			Clones:       clones,
+		})
+	}
+	return snaps, nil
+}
+
+// NewerSnapshots returns all fjord-managed snapshots of name created after
+// snap, including deferred ones, so callers can preview removals or refuse a
+// destructive rollback when a kept copy depends on a newer snapshot.
+func NewerSnapshots(ctx context.Context, name, snap string) ([]SnapInfo, error) {
+	all, err := ListSnapshots(ctx, name, true)
+	if err != nil {
+		return nil, err
+	}
+	for i, s := range all {
+		if s.Name == snap {
+			return all[i+1:], nil
+		}
+	}
+	return nil, fmt.Errorf("%s not found on %s", snap, name)
+}
+
+// Snapshot takes <name>@fjord-update-<unix> and keeps the newest keep usable
+// automatic update snapshots. Optional imagesJSON records the running service
+// images (service -> ref@digest) in fjord:images so restoring this snapshot
+// pins the exact version that wrote its data.
+func Snapshot(ctx context.Context, name string, at time.Time, keep int, imagesJSON ...string) (string, error) {
+	snap := fmt.Sprintf("%s@%s%d", name, UpdateSnapPrefix, at.Unix())
+	args := []string{"snapshot"}
+	if len(imagesJSON) > 0 && imagesJSON[0] != "" {
+		args = append(args, "-o", PropImages+"="+imagesJSON[0])
+	}
+	args = append(args, snap)
+	if _, err := run(ctx, args...); err != nil {
+		return "", fmt.Errorf("zfs snapshot %s: %w", snap, err)
+	}
+	all, err := ListSnapshots(ctx, name, true)
+	if err != nil {
+		return snap, nil // taken; pruning waits for the next one
+	}
+	var countable []SnapInfo
+	for _, s := range all {
+		if s.Kind != "update" || s.DeferDestroy || len(s.Clones) > 0 {
+			continue
+		}
+		countable = append(countable, s)
+	}
+	if keep < 0 {
+		keep = 0
+	}
+	for len(countable) > keep {
+		target := countable[0]
+		countable = countable[1:]
+		_, _ = run(ctx, "destroy", "-d", target.Name)
+	}
+	return snap, nil
+}
+
+// Rollback puts name's data back to snap, one of fjord's own snapshots of it.
+// Refuses when any newer snapshot has a dependent clone (kept copy) so fjord
+// never uses -R or silently destroys a kept copy.
+func Rollback(ctx context.Context, name, snap string) error {
+	if !IsFjordSnap(name, snap) {
+		return fmt.Errorf("%s is not one of fjord's snapshots of %s", snap, name)
+	}
+	newer, err := NewerSnapshots(ctx, name, snap)
+	if err != nil {
+		return err
+	}
+	for _, s := range newer {
+		if len(s.Clones) > 0 {
+			return fmt.Errorf("cannot roll back past %s: kept copy %s depends on it", s.Name, s.Clones[0])
+		}
+	}
+	if _, err := run(ctx, "rollback", "-r", snap); err != nil {
+		return fmt.Errorf("zfs rollback %s: %w", snap, err)
 	}
 	return nil
 }
