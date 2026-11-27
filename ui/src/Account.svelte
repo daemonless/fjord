@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { isoDate, isoDateTime } from './when';
+  import { isoDateTime } from './when';
   import { onMount } from 'svelte';
   import Spinner from './Spinner.svelte';
   import { auth, loadAuth, postJSON } from './auth';
@@ -98,14 +98,7 @@
     return b || os || 'Unknown browser';
   }
 
-  function when(iso: string): string {
-    const d = new Date(iso);
-    const mins = Math.round((Date.now() - d.getTime()) / 60000);
-    if (mins < 2) return 'just now';
-    if (mins < 60) return `${mins} minutes ago`;
-    if (mins < 48 * 60) return `${Math.round(mins / 60)} hours ago`;
-    return isoDate(d);
-  }
+  const when = (iso: string) => isoDateTime(iso);
 
   const input =
     'w-full bg-fjord-inset border border-fjord-border rounded-md px-3 py-2 text-sm text-fjord-fg-body focus:outline-none focus:border-fjord-accent';

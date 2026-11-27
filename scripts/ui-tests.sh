@@ -131,7 +131,7 @@ shortcuts
 linux
 "
 # Opt-in: image-specific, or needing something the default host lacks.
-OPT_IN="lnms-admin choice"
+OPT_IN="lnms-admin choice netavark-switch"
 
 step() { printf '\n==> %s\n' "$*"; }
 # on runs a command on the host (as root either way).
