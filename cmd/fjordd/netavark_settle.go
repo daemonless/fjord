@@ -109,8 +109,19 @@ var netavarkDid = map[string]string{
 	"dns-port": "Port 53 is taken on this host, so podman's DNS server now listens on another port (set in /usr/local/etc/containers/containers.conf.d/50-fjord-dns-port.conf).",
 }
 
-// noteCarriedOver records the networks fjord made again under netavark.
-func (s *server) noteCarriedOver(name string) {
+// The notice for the way back: networks fjord made again under CNI.
+const (
+	cniNotice      = "cni"
+	cniNoticeTitle = "podman on this host uses its CNI network backend again, and fjord made its networks again"
+)
+
+// noteCarriedOver records a network fjord made again on the other backend,
+// in that backend's notice.
+func (s *server) noteCarriedOver(name, backend string) {
+	if backend == "cni" {
+		s.noteHost(cniNotice, cniNoticeTitle, "Made the network "+name+" again as a CNI network, with the name and addresses it had under netavark, so its stacks start as they were.")
+		return
+	}
 	s.noteHost(netavarkNotice, netavarkNoticeTitle, "Made the network "+name+" again, with the name and addresses it had, so its stacks start as they were. Its old definition is kept in "+podman.KeptConflistDir()+".")
 }
 

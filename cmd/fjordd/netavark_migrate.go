@@ -76,6 +76,22 @@ func migrateUsable(ctx context.Context) bool {
 	return has("host") && has("json")
 }
 
+// migrateHas says the tool's version line lists capability c ("no-start").
+func migrateHas(ctx context.Context, c string) bool {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	out, code, err := runMigrate(ctx, "version")
+	if err != nil || code != 0 {
+		return false
+	}
+	for _, x := range strings.Fields(string(out))[min(2, len(strings.Fields(string(out)))):] {
+		if x == c {
+			return true
+		}
+	}
+	return false
+}
+
 type migrateStep struct {
 	Changed bool   `json:"changed"`
 	Status  string `json:"status"`
@@ -103,6 +119,20 @@ type migrateReport struct {
 	Backups  struct {
 		PfConf string `json:"pf_conf"`
 	} `json:"backups"`
+	// switch and back.
+	Backend struct {
+		Changed bool   `json:"changed"`
+		From    string `json:"from"`
+		To      string `json:"to"`
+	} `json:"backend"`
+	Networks []struct {
+		Name   string `json:"name"`
+		Result string `json:"result"`
+		Error  string `json:"error"`
+	} `json:"networks"`
+	KeptNetavark []string `json:"kept_netavark_networks"`
+	NeedRecreate []string `json:"containers_need_recreating"`
+	Failed       []string `json:"containers_failed"`
 }
 
 // migrateHost runs `netavark-migrate host --json`. Exit 1 (refused, nothing

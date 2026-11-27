@@ -30,6 +30,9 @@ import (
 var (
 	cniDir      = "/usr/local/etc/cni/net.d"
 	netavarkDir = "/usr/local/etc/containers/networks"
+	// netavarkBackupDir is where `netavark-migrate back` keeps the networks
+	// made under netavark, so they can be made again under CNI.
+	netavarkBackupDir = "/var/db/netavark-migrate/netavark-networks.bak"
 )
 
 // source is one directory of network definitions and how to read them.
@@ -61,13 +64,17 @@ func current() layout {
 
 // SetBackend follows podman's network backend ("cni" or "netavark"): the
 // engine calls it with what podman reports. A host that moved to netavark
-// keeps its conflists readable.
+// keeps its conflists readable; one that moved back keeps the networks it
+// made under netavark readable, from netavark-migrate's backup.
 func SetBackend(backend string) {
 	if cniDir == "" || netavarkDir == "" {
 		return
 	}
 	cni := source{cniDir, ".conflist", parse}
 	next := layout{primary: cni}
+	if netavarkBackupDir != "" {
+		next.legacy = []source{{netavarkBackupDir, ".json", parseNetavark}}
+	}
 	if backend == "netavark" {
 		next = layout{primary: source{netavarkDir, ".json", parseNetavark}, legacy: []source{cni}}
 	}

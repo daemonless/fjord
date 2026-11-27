@@ -75,6 +75,22 @@ func (s *server) noteHost(id, title string, lines ...string) {
 	s.writeHostNotices(append(all, hostNotice{ID: id, At: time.Now(), Title: title, Lines: lines}))
 }
 
+// dropHostNotice removes the notice with this id, if there is one.
+func (s *server) dropHostNotice(id string) {
+	hostNoticesMu.Lock()
+	defer hostNoticesMu.Unlock()
+	all := s.readHostNotices()
+	kept := all[:0]
+	for _, n := range all {
+		if n.ID != id {
+			kept = append(kept, n)
+		}
+	}
+	if len(kept) != len(all) {
+		s.writeHostNotices(kept)
+	}
+}
+
 func contains(list []string, s string) bool {
 	for _, v := range list {
 		if v == s {
@@ -96,16 +112,7 @@ func (s *server) handleHostNotices(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(n)
 	case r.Method == http.MethodDelete && id != "":
-		hostNoticesMu.Lock()
-		all := s.readHostNotices()
-		kept := all[:0]
-		for _, n := range all {
-			if n.ID != id {
-				kept = append(kept, n)
-			}
-		}
-		s.writeHostNotices(kept)
-		hostNoticesMu.Unlock()
+		s.dropHostNotice(id)
 		w.WriteHeader(http.StatusNoContent)
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)

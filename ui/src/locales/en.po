@@ -66,6 +66,7 @@ msgstr "Mount into <0/> — edits the compose, <1>Save</1> to apply."
 #: src/DirPicker.svelte
 #: src/InstallWizard.svelte
 #: src/NamesPrompt.svelte
+#: src/NetworkBackend.svelte
 #: src/Networks.svelte
 #: src/Networks.svelte
 #: src/Networks.svelte
@@ -5402,3 +5403,68 @@ msgstr "{0} needs an https:// address with a domain name, the one you will open 
 #: src/InstallWizard.svelte
 msgid "The address your proxy serves it at, starting https://."
 msgstr "The address your proxy serves it at, starting https://."
+
+#: src/NetworkBackend.svelte
+msgid "podman connects containers with its <0/> network backend."
+msgstr "podman connects containers with its <0/> network backend."
+
+#: src/NetworkBackend.svelte
+msgid "Switch to netavark…"
+msgstr "Switch to netavark…"
+
+#: src/NetworkBackend.svelte
+msgid "Switch back to CNI…"
+msgstr "Switch back to CNI…"
+
+#: src/NetworkBackend.svelte
+msgid "These stop while podman moves and start again after: <0/>."
+msgstr "These stop while podman moves and start again after: <0/>."
+
+#: src/NetworkBackend.svelte
+msgid "No stack on podman is running, so nothing stops."
+msgstr "No stack on podman is running, so nothing stops."
+
+#. 0: target
+#: src/NetworkBackend.svelte
+msgid "These networks are made again on {0}, with the same names and addresses: <0/>."
+msgstr "These networks are made again on {0}, with the same names and addresses: <0/>."
+
+#: src/NetworkBackend.svelte
+msgid "You can switch back to CNI from here later."
+msgstr "You can switch back to CNI from here later."
+
+#. 0: target
+#: src/NetworkBackend.svelte
+msgid "Switch to {0}"
+msgstr "Switch to {0}"
+
+#. 0: target
+#: src/NetworkBackend.svelte
+msgid "Switch podman to {0}?"
+msgstr "Switch podman to {0}?"
+
+#. 0: st.canSwitch ? 'You can switch back to CNI from here later.' \\: ''
+#: src/NetworkBackend.svelte
+msgid "AppJail is not touched. {0}"
+msgstr "AppJail is not touched. {0}"
+
+#. 0: label(st.to || (st.canSwitch ? 'netavark' \\: 'cni'))
+#: src/NetworkBackend.svelte
+msgid "Switching to {0}… it carries on if you leave this page."
+msgstr "Switching to {0}… it carries on if you leave this page."
+
+#: src/NetworkBackend.svelte
+msgid "Done."
+msgstr "Done."
+
+#: src/NetworkBackend.svelte
+msgid "Nothing was changed."
+msgstr "Nothing was changed."
+
+#: src/NetworkBackend.svelte
+msgid "Not everything came back: the lines below say what."
+msgstr "Not everything came back: the lines below say what."
+
+#: src/NetworkBackend.svelte
+msgid "Network backend"
+msgstr "Network backend"

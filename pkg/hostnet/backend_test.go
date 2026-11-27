@@ -10,6 +10,9 @@ import (
 // netavark's directory and the conflists it left stay listed, marked legacy.
 func TestSetBackend(t *testing.T) {
 	cni, nv := t.TempDir(), t.TempDir()
+	oldBak := netavarkBackupDir
+	netavarkBackupDir = t.TempDir() // never the host's own
+	t.Cleanup(func() { netavarkBackupDir = oldBak })
 	oldCNI, oldNV := cniDir, netavarkDir
 	mu.Lock()
 	oldCur, oldPinned := cur, pinned
@@ -89,5 +92,41 @@ func TestSetBackend(t *testing.T) {
 	restore()
 	if Dir() != nv {
 		t.Errorf("restore: %s", Dir())
+	}
+}
+
+// A host that went back to CNI: the networks it made under netavark, kept by
+// netavark-migrate back, are listed as legacy; a name CNI has again is not.
+func TestSetBackendBack(t *testing.T) {
+	cni, nv, bak := t.TempDir(), t.TempDir(), t.TempDir()
+	oldCNI, oldNV, oldBak := cniDir, netavarkDir, netavarkBackupDir
+	mu.Lock()
+	oldCur, oldPinned := cur, pinned
+	pinned = false
+	mu.Unlock()
+	cniDir, netavarkDir, netavarkBackupDir = cni, nv, bak
+	t.Cleanup(func() {
+		cniDir, netavarkDir, netavarkBackupDir = oldCNI, oldNV, oldBak
+		mu.Lock()
+		cur, pinned = oldCur, oldPinned
+		mu.Unlock()
+	})
+	write := func(dir, file, body string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(dir, file), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(cni, "old.conflist", `{"plugins":[{"type":"bridge","bridge":"cni-old"}]}`)
+	write(bak, "new.json", `{"name":"new","driver":"bridge","network_interface":"podman3","subnets":[{"subnet":"10.89.3.0/24","gateway":"10.89.3.1"}]}`)
+	write(bak, "old.json", `{"name":"old","driver":"bridge","network_interface":"podman4"}`)
+
+	SetBackend("cni")
+	got := List()
+	if len(got) != 2 || got[0].Name != "new" || !got[0].Legacy || got[0].Subnet != "10.89.3.0/24" || got[1].Name != "old" || got[1].Legacy {
+		t.Errorf("back on cni: %+v", got)
+	}
+	if n, ok := Get("new"); !ok || !n.Legacy {
+		t.Errorf("Get(new) = %+v, %v; want the backup's, legacy", n, ok)
 	}
 }
