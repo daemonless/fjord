@@ -99,8 +99,6 @@ msgstr "Annuler"
 #: src/AddMount.svelte
 #: src/HistoryList.svelte
 #: src/HistoryList.svelte
-#: src/HistoryList.svelte
-#: src/HistoryList.svelte
 msgid "Host path"
 msgstr "Chemin sur l'hôte"
 
@@ -241,6 +239,7 @@ msgstr "Rien à adopter — chaque conteneur de cet hôte appartient déjà à u
 
 #: src/Adopt.svelte
 #: src/Dashboard.svelte
+#: src/HistoryList.svelte
 #: src/LoginButton.svelte
 #: src/Networks.svelte
 msgid "Hide"
@@ -4226,7 +4225,6 @@ msgid "Download"
 msgstr "Téléchargement"
 
 #: src/HistoryList.svelte
-#: src/HistoryList.svelte
 #: src/InstallWizard.svelte
 msgid "Data"
 msgstr "Données"
@@ -5749,7 +5747,6 @@ msgstr ""
 #: src/HistoryList.svelte
 #: src/HistoryList.svelte
 #: src/HistoryList.svelte
-#: src/HistoryList.svelte
 msgid "Hide path"
 msgstr ""
 
@@ -5803,8 +5800,6 @@ msgstr ""
 #~ msgstr ""
 
 #. 0: fmtBytes(s.usedBytes)
-#. 0: fmtBytes(matchedSnap.usedBytes)
-#: src/HistoryList.svelte
 #: src/HistoryList.svelte
 msgid "Data saved before update · {0}"
 msgstr ""
@@ -5979,8 +5974,6 @@ msgstr ""
 
 #. 0: isoDate(latestKept.until)
 #. 0: isoDate(c.until)
-#. 0: isoDate(matchedCopy.until)
-#: src/HistoryList.svelte
 #: src/HistoryList.svelte
 #: src/HistoryList.svelte
 msgid "kept until {0}"
@@ -6003,15 +5996,11 @@ msgid "Pinned{0}. Automatic updates are paused.<0/>"
 msgstr ""
 
 #. 0: c.version
-#. 0: matchedCopy.version
-#: src/HistoryList.svelte
 #: src/HistoryList.svelte
 msgid "{0} data"
 msgstr ""
 
 #. 0: c.version ? `${c.version} data` \\: 'Data'; 1: fmtBytes(c.usedBytes); 2: c.until ? `kept until ${isoDate(c.until)}` \\: 'kept forever'
-#. 0: matchedCopy.version ? `${matchedCopy.version} data` \\: 'Data'; 1: fmtBytes(matchedCopy.usedBytes); 2: matchedCopy.until ? `kept until ${isoDate(matchedCopy.until)}` \\: 'kept forever'
-#: src/HistoryList.svelte
 #: src/HistoryList.svelte
 msgid "{0} saved before restore · {1} · {2}"
 msgstr ""
@@ -6044,8 +6033,6 @@ msgid "Updated"
 msgstr ""
 
 #. 0: fmtBytes(s.usedBytes)
-#. 0: fmtBytes(matchedSnap.usedBytes)
-#: src/HistoryList.svelte
 #: src/HistoryList.svelte
 msgid "Data saved · {0} · kept forever"
 msgstr ""
@@ -6195,4 +6182,23 @@ msgstr ""
 
 #: src/Settings.svelte
 msgid "App datasets"
+msgstr ""
+
+#. 0: matchedCopy.version
+#: src/HistoryList.svelte
+msgid "{0} data saved"
+msgstr ""
+
+#: src/HistoryList.svelte
+msgid "Data saved"
+msgstr ""
+
+#. 0: isoDate(matchedCopy.until)
+#: src/HistoryList.svelte
+msgid "until {0}"
+msgstr ""
+
+#: src/HistoryList.svelte
+#: src/HistoryList.svelte
+msgid "Path"
 msgstr ""

@@ -685,52 +685,46 @@
         {@const matchedSnap = stack ? (entrySnapMap.get(entryKey(e, idx)) ?? null) : null}
         {@const matchedCopy = stack ? keptCopyForEntry(e, keptCopies) : null}
         {@const menuKey = 'row:' + e.at + e.action}
-        <li class="py-2.5 flex items-start justify-between gap-4" data-history-entry data-action={e.action} data-result={e.result}>
+        {@const changes = changeLines(e)}
+        <li class="py-2 flex items-start justify-between gap-4" data-history-entry data-action={e.action} data-result={e.result}>
           <div class="flex gap-4 min-w-0 flex-1">
-            <span class="w-32 shrink-0 text-fjord-fg-muted tabular-nums" title={isoDateTime(e.at, true)}>{whenLabel(e.at)}</span>
+            <span class="w-32 shrink-0 text-fjord-fg-muted tabular-nums text-xs pt-0.5" title={isoDateTime(e.at, true)}>{whenLabel(e.at)}</span>
             <div class="min-w-0 flex-1">
-              <div class={e.result === 'failed' ? 'text-fjord-danger' : 'text-fjord-fg'}>
-                {#if !stack}<span class="font-semibold">{e.stack}</span>{': '}{/if}{historyTitle(e)}
-              </div>
-              {#each changeLines(e) as line}
-                <div class="text-xs text-fjord-fg-muted font-mono">{line}</div>
-              {/each}
-              {#if e.message && !matchedCopy}
-                <div class="text-xs text-fjord-fg-muted break-words">{e.message}</div>
-              {/if}
-              {#if matchedSnap}
-                <div class="text-xs text-emerald-400 flex flex-wrap items-center gap-1.5">
-                  <span>{matchedSnap.kind === 'manual'
-                    ? `Data saved · ${fmtBytes(matchedSnap.usedBytes)} · kept forever`
-                    : `Data saved before update · ${fmtBytes(matchedSnap.usedBytes)}`}</span>
-                  {#if matchedSnap.hostPath}
-                    <span>·</span>
-                    <button
-                      class="text-fjord-accent hover:underline"
-                      on:click={() => (expandedPaths = { ...expandedPaths, [matchedSnap.name]: !expandedPaths[matchedSnap.name] })}
-                    >{expandedPaths[matchedSnap.name] ? 'Hide path' : 'Host path'}</button>
-                  {/if}
-                </div>
-                {#if expandedPaths[matchedSnap.name] && matchedSnap.hostPath}
-                  <div class="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-md border border-fjord-border bg-fjord-bg px-2.5 py-1.5 text-xs">
-                    <code class="font-mono text-fjord-fg-muted break-all">{matchedSnap.hostPath}</code>
-                    <button class="rounded border border-fjord-border px-2 py-0.5 text-xs hover:bg-fjord-border" on:click={() => copyPath(matchedSnap.hostPath || '')}>Copy path</button>
-                  </div>
+              <div class="flex flex-wrap items-baseline gap-x-2.5 gap-y-0.5">
+                <span class={e.result === 'failed' ? 'text-fjord-danger font-medium' : 'text-fjord-fg font-medium'}>
+                  {#if !stack}<span class="font-semibold">{e.stack}</span>{': '}{/if}{historyTitle(e)}
+                </span>
+                {#if changes.length === 1}
+                  <span class="text-xs text-fjord-fg-muted font-mono">{changes[0]}</span>
                 {/if}
+                {#if e.message && !matchedCopy}
+                  <span class="text-xs text-fjord-fg-muted break-words">{e.message}</span>
+                {/if}
+              </div>
+              {#if changes.length > 1}
+                {#each changes as line}
+                  <div class="text-xs text-fjord-fg-muted font-mono">{line}</div>
+                {/each}
+              {/if}
+              {#if matchedSnap && expandedPaths[matchedSnap.name] && matchedSnap.hostPath}
+                <div class="mt-1.5 flex flex-wrap items-center justify-between gap-2 rounded-md border border-fjord-border bg-fjord-bg px-2.5 py-1.5 text-xs">
+                  <code class="font-mono text-fjord-fg-muted break-all">{matchedSnap.hostPath}</code>
+                  <button class="rounded border border-fjord-border px-2 py-0.5 text-xs hover:bg-fjord-border" on:click={() => copyPath(matchedSnap.hostPath || '')}>Copy path</button>
+                </div>
               {/if}
               {#if matchedCopy}
-                <div class="text-xs text-emerald-400 flex flex-wrap items-center gap-1.5">
-                  <span>{matchedCopy.version ? `${matchedCopy.version} data` : 'Data'} saved before restore · {fmtBytes(matchedCopy.usedBytes)} · {matchedCopy.until ? `kept until ${isoDate(matchedCopy.until)}` : 'kept forever'}</span>
+                <div class="mt-0.5 text-xs text-emerald-400 flex flex-wrap items-center gap-1.5">
+                  <span>{matchedCopy.version ? `${matchedCopy.version} data saved` : 'Data saved'} · {fmtBytes(matchedCopy.usedBytes)} · {matchedCopy.until ? `until ${isoDate(matchedCopy.until)}` : 'kept forever'}</span>
                   {#if matchedCopy.mountpoint && matchedCopy.mountpoint !== 'none'}
                     <span>·</span>
                     <button
                       class="text-fjord-accent hover:underline"
                       on:click={() => (expandedPaths = { ...expandedPaths, [matchedCopy.dataset]: !expandedPaths[matchedCopy.dataset] })}
-                    >{expandedPaths[matchedCopy.dataset] ? 'Hide path' : 'Host path'}</button>
+                    >{expandedPaths[matchedCopy.dataset] ? 'Hide path' : 'Path'}</button>
                   {/if}
                 </div>
                 {#if expandedPaths[matchedCopy.dataset] && matchedCopy.mountpoint}
-                  <div class="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-md border border-fjord-border bg-fjord-bg px-2.5 py-1.5 text-xs">
+                  <div class="mt-1.5 flex flex-wrap items-center justify-between gap-2 rounded-md border border-fjord-border bg-fjord-bg px-2.5 py-1.5 text-xs">
                     <code class="font-mono text-fjord-fg-muted break-all">{matchedCopy.mountpoint}</code>
                     <button class="rounded border border-fjord-border px-2 py-0.5 text-xs hover:bg-fjord-border" on:click={() => copyPath(matchedCopy.mountpoint)}>Copy path</button>
                   </div>
@@ -741,6 +735,13 @@
 
           {#if matchedSnap}
             <div class="flex items-center gap-2 shrink-0">
+              <span class="text-xs text-emerald-400 tabular-nums">{fmtBytes(matchedSnap.usedBytes)}</span>
+              {#if matchedSnap.hostPath}
+                <button
+                  class="text-xs text-fjord-fg-muted hover:text-fjord-accent"
+                  on:click={() => (expandedPaths = { ...expandedPaths, [matchedSnap.name]: !expandedPaths[matchedSnap.name] })}
+                >{expandedPaths[matchedSnap.name] ? 'Hide' : 'Path'}</button>
+              {/if}
               <button
                 class="rounded-md border border-fjord-border px-2.5 py-1 text-xs font-medium hover:bg-fjord-border"
                 disabled={busy}
