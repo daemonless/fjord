@@ -234,6 +234,7 @@ func (s *server) routes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/compose/pass-env", s.handleComposePassEnv)
 	mux.HandleFunc("/api/ports/free", s.handleFreePorts)
 	mux.HandleFunc("/api/settings/storage", s.handleStorageSettings)
+	mux.HandleFunc("/api/settings/storage/datasets", s.handleStorageDatasets)
 	mux.HandleFunc("/api/settings/wizard", s.handleWizardSettings)
 	mux.HandleFunc("/api/settings/restart", s.handleRestartSettings)
 	mux.HandleFunc("/api/settings/network", s.handleDefaultNetwork)

@@ -60,6 +60,39 @@ func HasZFS(ctx context.Context) bool {
 	return err == nil && strings.TrimSpace(string(out)) != ""
 }
 
+// FirstPool returns the name of the first ZFS pool (e.g. "zroot"), or "".
+func FirstPool(ctx context.Context) string {
+	out, err := run(ctx, "list", "-H", "-d", "0", "-o", "name", "-t", "filesystem")
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			return line
+		}
+	}
+	return ""
+}
+
+// IsBootEnv reports whether ds is a FreeBSD boot environment dataset
+// (*/ROOT/*) where per-app child datasets must never be created.
+func IsBootEnv(ds string) bool {
+	return strings.Contains(ds, "/ROOT/") || strings.HasSuffix(ds, "/ROOT")
+}
+
+// AvailableBytes returns the free bytes available to dataset name on its pool.
+func AvailableBytes(ctx context.Context, name string) (int64, error) {
+	out, err := run(ctx, "get", "-H", "-p", "-o", "value", "available", name)
+	if err != nil {
+		return 0, fmt.Errorf("zfs get available %s: %w", name, err)
+	}
+	n, err := strconv.ParseInt(strings.TrimSpace(string(out)), 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("parse available %q: %w", strings.TrimSpace(string(out)), err)
+	}
+	return n, nil
+}
+
 // requireKept verifies that name belongs to stack AND carries fjord:kept-kind
 // so kept-copy operations can never touch or destroy a stack's live dataset.
 func requireKept(ctx context.Context, name, stack string) error {

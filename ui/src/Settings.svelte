@@ -276,6 +276,57 @@
   }
   // Which inline help panel is open ('' = none); a click toggles, not a hover.
   let helpOpen: '' | 'appdata' | 'sets' = '';
+  interface StorageLocationInfo {
+    path: string;
+    dataset?: string;
+    isDataset: boolean;
+    zfsCreateHint?: string;
+  }
+  interface StorageStackInfo {
+    name: string;
+    displayName: string;
+    dataset?: string;
+    plainFolder?: string;
+    eligible: boolean;
+    reason?: string;
+    targetDataset?: string;
+    sizeBytes: number;
+  }
+  interface StorageDatasetsData {
+    hasZfs: boolean;
+    zfsCreateHint?: string;
+    locations: StorageLocationInfo[];
+    stacks: StorageStackInfo[];
+  }
+  let storageDatasets: StorageDatasetsData | null = null;
+  let migratingStack = '';
+
+  async function loadStorageDatasets() {
+    try {
+      const r = await fetch('/api/settings/storage/datasets');
+      if (r.ok) storageDatasets = await r.json();
+    } catch {}
+  }
+
+  async function moveStackToDataset(name: string) {
+    if (migratingStack) return;
+    migratingStack = name;
+    try {
+      const r = await fetch(`/api/stacks/${encodeURIComponent(name)}/migrate-dataset`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ keepOld: true }),
+      });
+      if (!r.ok) throw new Error((await r.text()).trim() || `HTTP ${r.status}`);
+      toast(`${name} moved to its own dataset`, { kind: 'success' });
+      await loadStorageDatasets();
+    } catch (e: any) {
+      toast(e.message || `Could not move ${name}`, { kind: 'error' });
+    } finally {
+      migratingStack = '';
+    }
+  }
+
   async function loadStorage() {
     try {
       const r = await fetch('/api/settings/storage');
@@ -284,6 +335,7 @@
         appData = d.locations || [d.base];
       }
     } catch {}
+    await loadStorageDatasets();
   }
   onMount(loadStorage);
   async function saveStorage() {
@@ -849,6 +901,65 @@
           fjord keeps its own files (compose files, settings, catalog cache) in
           <span class="font-mono">{about.fjordRoot}</span>. Nothing of yours lives there.
         </p>
+
+        {#if storageDatasets?.hasZfs}
+          {@const nonDatasetLocs = storageDatasets.locations.filter((l) => !l.isDataset)}
+          {#if nonDatasetLocs.length > 0 && storageDatasets.zfsCreateHint}
+            <div class="mt-4 rounded-lg border border-fjord-accent/40 bg-fjord-accent/10 px-3.5 py-2.5 text-xs text-fjord-fg-body">
+              <div>
+                <span class="font-mono">{nonDatasetLocs.map((l) => l.path).join(', ')}</span> sits on the OS root filesystem instead of its own ZFS dataset. Create a dedicated dataset on a new mountpoint and add it above so new or moved apps get instant data restore points:
+              </div>
+              <div class="mt-1.5 flex flex-wrap items-center gap-2">
+                <code class="rounded border border-fjord-border bg-fjord-bg px-2 py-0.5 font-mono text-fjord-fg">{storageDatasets.zfsCreateHint}</code>
+                <button
+                  type="button"
+                  class="text-fjord-accent hover:underline"
+                  on:click={() => {
+                    if (navigator.clipboard) navigator.clipboard.writeText(storageDatasets?.zfsCreateHint || '').catch(() => {});
+                    toast('Command copied', { kind: 'success' });
+                  }}
+                >Copy</button>
+              </div>
+            </div>
+          {/if}
+
+          {#if storageDatasets.stacks.length > 0}
+            <div class="mt-6">
+              <h4 class="text-xs font-semibold uppercase tracking-wide text-fjord-fg-muted mb-2">App datasets</h4>
+              <ul class="divide-y divide-fjord-border rounded-lg border border-fjord-border bg-fjord-inset text-xs">
+                {#each storageDatasets.stacks as st (st.name)}
+                  <li class="flex flex-wrap items-center justify-between gap-2 px-3 py-2">
+                    <div class="min-w-0">
+                      <span class="font-medium text-fjord-fg">{st.displayName || st.name}</span>
+                      {#if st.dataset}
+                        <span class="ml-2 font-mono text-fjord-fg-dim">{st.dataset}</span>
+                      {:else if st.plainFolder}
+                        <span class="ml-2 font-mono text-fjord-fg-dim">{st.plainFolder}</span>
+                      {/if}
+                      {#if !st.dataset && !st.eligible && st.reason}
+                        <div class="text-fjord-fg-dim mt-0.5">{st.reason}</div>
+                      {/if}
+                    </div>
+                    <div class="shrink-0">
+                      {#if st.dataset}
+                        <span class="rounded border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 text-[11px] font-medium text-emerald-400">Own dataset</span>
+                      {:else if st.eligible}
+                        <button
+                          type="button"
+                          disabled={migratingStack !== ''}
+                          on:click={() => moveStackToDataset(st.name)}
+                          class="rounded-md border border-fjord-border bg-fjord-surface px-2.5 py-1 text-xs font-medium text-fjord-fg hover:bg-fjord-border disabled:opacity-50"
+                        >{migratingStack === st.name ? 'Moving...' : 'Move to dataset'}</button>
+                      {:else}
+                        <span class="rounded border border-fjord-border px-2 py-0.5 text-[11px] text-fjord-fg-dim">Plain folder</span>
+                      {/if}
+                    </div>
+                  </li>
+                {/each}
+              </ul>
+            </div>
+          {/if}
+        {/if}
       </div>
 
         <!-- Folder sets (homelab provider plugin) -->

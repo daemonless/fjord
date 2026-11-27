@@ -43,8 +43,25 @@
     keptCopies: KeptCopy[];
   }
 
+  interface MigratePreview {
+    eligible: boolean;
+    reason?: string;
+    hasZfs: boolean;
+    sourceDir?: string;
+    targetLocation?: string;
+    targetDataset?: string;
+    sizeBytes: number;
+    neededBytes: number;
+    freeBytes: number;
+    estSeconds: number;
+    zfsCreateHint?: string;
+  }
+
   let entries: HistoryEntry[] = [];
   let rp: RestorePointsData | null = null;
+  let migratePlan: MigratePreview | null = null;
+  let migrateModalOpen = false;
+  let migrateKeepOld = true;
   let loading = true;
   let failedToLoad = false;
 
@@ -162,8 +179,15 @@
       entries = await hr.json();
       if (rr && rr.ok) {
         rp = await rr.json();
+        if (rp && rp.hasZfs && !rp.dataset) {
+          const mr = await fetch(`/api/stacks/${encodeURIComponent(stack)}/migrate-dataset`);
+          migratePlan = mr.ok ? await mr.json() : null;
+        } else {
+          migratePlan = null;
+        }
       } else {
         rp = null;
+        migratePlan = null;
       }
       failedToLoad = false;
     } catch {
@@ -228,11 +252,37 @@
     if (busy) return;
     saveModalOpen = false;
     resumeModalOpen = false;
+    migrateModalOpen = false;
     restoreSnap = null;
     restoreCopyTarget = null;
     deleteCopyTarget = null;
     deleteSnapTarget = null;
     actionError = '';
+  }
+
+  async function confirmMigrateDataset() {
+    if (!stack || busy) return;
+    busy = true;
+    actionError = '';
+    try {
+      const r = await fetch(`/api/stacks/${encodeURIComponent(stack)}/migrate-dataset`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ keepOld: migrateKeepOld }),
+      });
+      if (!r.ok) {
+        actionError = (await r.text()) || `Migration failed (${r.status})`;
+        return;
+      }
+      migrateModalOpen = false;
+      statusNote = 'Moved to its own ZFS dataset. Data restore points are now on.';
+      await load(stack, reload + 1);
+      dispatch('changed');
+    } catch (err) {
+      actionError = err instanceof Error ? err.message : 'Migration failed';
+    } finally {
+      busy = false;
+    }
   }
 
   async function confirmSavePoint() {
@@ -444,9 +494,31 @@
 
       {#if isPlainOnZfs}
         <div class="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-fjord-accent/40 bg-fjord-accent/10 px-3.5 py-2.5 text-sm">
-          <span>
-            Data restore points are off because <strong>{stack}</strong> uses a plain folder instead of its own dataset.
-          </span>
+          <div class="min-w-0 flex-1">
+            <span>
+              Data restore points are off because <strong>{stack}</strong> uses a plain folder instead of its own dataset.
+            </span>
+            {#if migratePlan && !migratePlan.eligible && migratePlan.reason}
+              <div class="mt-1 text-xs text-fjord-fg-muted">{migratePlan.reason}.</div>
+            {/if}
+            {#if migratePlan?.zfsCreateHint}
+              <div class="mt-1.5 flex flex-wrap items-center gap-2 text-xs">
+                <code class="rounded border border-fjord-border bg-fjord-bg px-2 py-0.5 font-mono text-fjord-fg">{migratePlan.zfsCreateHint}</code>
+                <button class="text-fjord-accent hover:underline" on:click={() => copyPath(migratePlan?.zfsCreateHint || '')}>Copy</button>
+              </div>
+            {/if}
+          </div>
+          {#if migratePlan?.eligible}
+            <button
+              class="shrink-0 rounded-md bg-fjord-accent px-2.5 py-1 text-xs font-semibold text-white hover:opacity-90 disabled:opacity-50"
+              disabled={busy}
+              on:click={() => {
+                actionError = '';
+                migrateKeepOld = true;
+                migrateModalOpen = true;
+              }}
+            >Move to dataset</button>
+          {/if}
         </div>
       {/if}
     </div>
@@ -722,6 +794,45 @@
     </ul>
   {/if}
 </div>
+{/if}
+
+{#if migrateModalOpen && migratePlan}
+  <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" role="dialog" aria-modal="true">
+    <div class="w-full max-w-lg rounded-xl border border-fjord-border bg-fjord-surface p-5 shadow-xl flex flex-col gap-3.5 text-sm">
+      <h2 class="text-base font-semibold text-fjord-fg">Move {stack} to its own dataset?</h2>
+      <p class="text-xs text-fjord-fg-muted">
+        Creates <code class="font-mono text-fjord-fg">{migratePlan.targetDataset}</code> and copies {fmtBytes(migratePlan.sizeBytes)} from <code class="font-mono text-fjord-fg">{migratePlan.sourceDir}</code> so fjord can take instant data restore points before updates.
+      </p>
+      <div class="grid grid-cols-2 gap-3 rounded-lg border border-fjord-border bg-fjord-bg px-3 py-2.5 text-xs">
+        <div>
+          <div class="text-[10px] uppercase tracking-wide text-fjord-fg-muted">Estimated downtime</div>
+          <div class="mt-0.5 font-medium text-fjord-fg">~{migratePlan.estSeconds}s ({fmtBytes(migratePlan.sizeBytes)} at ~100 MB/s)</div>
+        </div>
+        <div>
+          <div class="text-[10px] uppercase tracking-wide text-fjord-fg-muted">Space needed</div>
+          <div class="mt-0.5 font-medium text-fjord-fg">{fmtBytes(migratePlan.neededBytes)} ({fmtBytes(migratePlan.freeBytes)} free)</div>
+        </div>
+      </div>
+      <div class="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+        {stack} stops while files are copied, then starts again automatically. If anything fails, the original folder is restored untouched.
+      </div>
+      <label class="flex items-center gap-2 text-xs text-fjord-fg cursor-pointer">
+        <input type="checkbox" bind:checked={migrateKeepOld} />
+        <span>Keep the old folder as a safety copy (uses ~{fmtBytes(migratePlan.sizeBytes * 2)} total until removed)</span>
+      </label>
+      {#if actionError}
+        <p class="text-xs text-fjord-danger">{actionError}</p>
+      {/if}
+      <div class="flex justify-end gap-2 pt-1">
+        <button class="rounded-lg px-3 py-1.5 text-xs text-fjord-fg-muted hover:bg-fjord-border" disabled={busy} on:click={closeModals}>Cancel</button>
+        <button
+          class="rounded-lg bg-fjord-accent px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
+          disabled={busy}
+          on:click={confirmMigrateDataset}
+        >{busy ? 'Moving...' : 'Move to dataset'}</button>
+      </div>
+    </div>
+  </div>
 {/if}
 
 {#if resumeModalOpen && latestKept}

@@ -215,6 +215,9 @@ func (s *server) handleStackRoutes(w http.ResponseWriter, r *http.Request) {
 		case "restore-points":
 			s.stackRestorePoints(w, r, parts[0])
 			return
+		case "migrate-dataset":
+			s.stackMigrateDatasetPreview(w, r, parts[0])
+			return
 		case "delete-preview":
 			s.stackDeletePreview(w, parts[0])
 			return
@@ -268,6 +271,8 @@ func (s *server) handleStackRoutes(w http.ResponseWriter, r *http.Request) {
 		s.stackRollback(w, r, name)
 	case "restore":
 		s.stackRestore(w, r, name)
+	case "migrate-dataset":
+		s.stackMigrateDataset(w, r, name)
 	case "unpin":
 		s.stackUnpin(w, r, name)
 	case "dismiss-failure":

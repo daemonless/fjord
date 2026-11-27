@@ -70,6 +70,7 @@ msgstr "Mount into <0/> — edits the compose, <1>Save</1> to apply."
 #: src/HistoryList.svelte
 #: src/HistoryList.svelte
 #: src/HistoryList.svelte
+#: src/HistoryList.svelte
 #: src/InstallWizard.svelte
 #: src/NamesPrompt.svelte
 #: src/NetworkBackend.svelte
@@ -1583,8 +1584,10 @@ msgid "Could not copy — select the text instead"
 msgstr "Could not copy — select the text instead"
 
 #: src/FixSnippet.svelte
+#: src/HistoryList.svelte
 #: src/LoginButton.svelte
 #: src/LoginButton.svelte
+#: src/Settings.svelte
 #: src/Terminal.svelte
 msgid "Copy"
 msgstr "Copy"
@@ -3346,6 +3349,7 @@ msgstr "Warning"
 msgid "Unverified"
 msgstr "Unverified"
 
+#: src/Settings.svelte
 #: src/System.svelte
 msgid "Command copied"
 msgstr "Command copied"
@@ -6115,3 +6119,91 @@ msgstr "Restores {0}{1} along with the data saved before your rollback."
 #: src/HistoryList.svelte
 msgid "Permanently removes the data saved before restore on {0} ({1}). Running data is not affected."
 msgstr "Permanently removes the data saved before restore on {0} ({1}). Running data is not affected."
+
+#. 0: r.status
+#: src/HistoryList.svelte
+msgid "Migration failed ({0})"
+msgstr "Migration failed ({0})"
+
+#: src/HistoryList.svelte
+msgid "Moved to its own ZFS dataset. Data restore points are now on."
+msgstr "Moved to its own ZFS dataset. Data restore points are now on."
+
+#: src/HistoryList.svelte
+msgid "Migration failed"
+msgstr "Migration failed"
+
+#: src/HistoryList.svelte
+#: src/HistoryList.svelte
+#: src/Settings.svelte
+msgid "Move to dataset"
+msgstr "Move to dataset"
+
+#: src/HistoryList.svelte
+msgid "Estimated downtime"
+msgstr "Estimated downtime"
+
+#. 0: migratePlan.estSeconds; 1: fmtBytes(migratePlan.sizeBytes)
+#: src/HistoryList.svelte
+msgid "~{0}s ({1} at ~100 MB/s)"
+msgstr "~{0}s ({1} at ~100 MB/s)"
+
+#: src/HistoryList.svelte
+msgid "Space needed"
+msgstr "Space needed"
+
+#. 0: fmtBytes(migratePlan.neededBytes); 1: fmtBytes(migratePlan.freeBytes)
+#: src/HistoryList.svelte
+msgid "{0} ({1} free)"
+msgstr "{0} ({1} free)"
+
+#. 0: fmtBytes(migratePlan.sizeBytes * 2)
+#: src/HistoryList.svelte
+msgid "Keep the old folder as a safety copy (uses ~{0} total until removed)"
+msgstr "Keep the old folder as a safety copy (uses ~{0} total until removed)"
+
+#: src/HistoryList.svelte
+#: src/Settings.svelte
+msgid "Moving..."
+msgstr "Moving..."
+
+#. 0: stack
+#: src/HistoryList.svelte
+msgid "Move {0} to its own dataset?"
+msgstr "Move {0} to its own dataset?"
+
+#. 0: fmtBytes(migratePlan.sizeBytes)
+#: src/HistoryList.svelte
+msgid "Creates <0/> and copies {0} from <1/> so fjord can take instant data restore points before updates."
+msgstr "Creates <0/> and copies {0} from <1/> so fjord can take instant data restore points before updates."
+
+#. 0: stack
+#: src/HistoryList.svelte
+msgid "{0} stops while files are copied, then starts again automatically. If anything fails, the original folder is restored untouched."
+msgstr "{0} stops while files are copied, then starts again automatically. If anything fails, the original folder is restored untouched."
+
+#. 0: name
+#: src/Settings.svelte
+msgid "{0} moved to its own dataset"
+msgstr "{0} moved to its own dataset"
+
+#. 0: name
+#: src/Settings.svelte
+msgid "Could not move {0}"
+msgstr "Could not move {0}"
+
+#: src/Settings.svelte
+msgid "<0/> sits on the OS root filesystem instead of its own ZFS dataset. Create a dedicated dataset on a new mountpoint and add it above so new or moved apps get instant data restore points:"
+msgstr "<0/> sits on the OS root filesystem instead of its own ZFS dataset. Create a dedicated dataset on a new mountpoint and add it above so new or moved apps get instant data restore points:"
+
+#: src/Settings.svelte
+msgid "Own dataset"
+msgstr "Own dataset"
+
+#: src/Settings.svelte
+msgid "Plain folder"
+msgstr "Plain folder"
+
+#: src/Settings.svelte
+msgid "App datasets"
+msgstr "App datasets"

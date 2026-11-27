@@ -54,7 +54,12 @@ func reconcilePendingDatasetOp(srv *server, name string) {
 	op := st.State.PendingDatasetOp
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	note := dataset.ReconcilePending(ctx, op.LiveDataset, op.KeptDataset, op.NewKeptDataset, op.DropDataset, op.LocalMP)
+	var note string
+	if op.Kind == "migrate_dataset" {
+		note = reconcileMigrateDataset(ctx, name, op.LiveDataset, op.KeptDataset)
+	} else {
+		note = dataset.ReconcilePending(ctx, op.LiveDataset, op.KeptDataset, op.NewKeptDataset, op.DropDataset, op.LocalMP)
+	}
 	if note != "" {
 		log.Printf("start-on-boot: %s: %s", name, note)
 		n := newNote(history.Rollback, history.ByBoot)
