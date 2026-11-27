@@ -527,6 +527,7 @@ func finishDelete(srv *server, name string) {
 }
 
 func startOnBoot(srv *server) {
+	began := time.Now()
 	srv.booting.Store(true)
 	defer srv.booting.Store(false)
 	stacks, err := srv.manager.List()
@@ -541,6 +542,7 @@ func startOnBoot(srv *server) {
 		return boolOrder(isBootSettler(srv.backendFor(a)), isBootSettler(srv.backendFor(b)))
 	})
 	settled := map[string]bool{}
+	var later []*stack.Stack // no DHCP answer yet: tried again below
 	for _, s := range stacks {
 		// Before any action on the stack, a delete included: each one races
 		// the engine's own boot start the same way. Not only at a host boot --
@@ -603,48 +605,114 @@ func startOnBoot(srv *server) {
 			cancel()
 			continue
 		}
-		// Held like any action: the page shows it starting, and a Start
-		// pressed meanwhile is refused instead of racing this one.
-		unlock, ok := lockStackAs(s.Name, "up")
-		if !ok {
-			cancel()
-			continue // something else is already acting on it
-		}
-		if chose := srv.chooseAddresses(ctx, full); chose != "" {
-			log.Printf("start-on-boot: %s: %s", s.Name, strings.TrimSpace(chose))
-		}
-		stream, err := srv.backendFor(full).Up(ctx, full)
-		if err != nil {
-			log.Printf("start-on-boot: up %s: %v", s.Name, err)
-			srv.writeHistory(s.Name, newNote(history.Start, history.ByBoot), true, err.Error())
-			unlock()
-			cancel()
-			continue
-		}
-		// Judged like any action: an [error] becomes the stack's failure
-		// banner. It used to be thrown away and "brought up" logged anyway --
-		// for a stack with nothing running (immich, 2026-10-05).
-		watch := &errorWatch{}
-		io.Copy(watch, srv.recordOutcome(s.Name, "start on boot", newNote(history.Start, history.ByBoot), stream)) // wait before the next
-		stream.Close()
-		unlock()
-		kept, skipped := srv.keepAddresses(ctx, full)
-		logKept(s.Name, kept, skipped)
-		state := "unknown"
-		if st, err := srv.backendFor(full).Status(ctx, full); err == nil {
-			state = st.State
-		}
-		timedOut := ctx.Err() != nil
 		cancel()
-		switch {
-		case watch.seen:
-			log.Printf("start-on-boot: %s did not come up: %s", s.Name, watch.Message())
-		case timedOut:
-			log.Printf("start-on-boot: %s: gave up after 10m (now %s)", s.Name, state)
-		case state != "running":
-			log.Printf("start-on-boot: %s is %s after its bring-up", s.Name, state)
-		default:
-			log.Printf("start-on-boot: brought up %s", s.Name)
+		if bootBringUp(srv, full, booted, began) {
+			later = append(later, full)
 		}
 	}
+	retryNoDHCP(srv, later, began)
+}
+
+// bootDHCPWaits are the pauses between tries of a stack whose network did
+// not answer DHCP at a host boot: about five minutes, plus each try's own
+// wait for an answer (about 23 s on FreeBSD's epair plugin). Right after a
+// boot the network can still be coming up (saturn, 2026-11-27: no answer at
+// 22 and 44 s, an address at three minutes); a stack given up on then stays
+// down until someone presses Start.
+var bootDHCPWaits = []time.Duration{15 * time.Second, 30 * time.Second, 60 * time.Second, 60 * time.Second, 60 * time.Second, 60 * time.Second}
+
+// noDHCPAnswer is the engine's message for a service that got no address.
+func noDHCPAnswer(msg string) bool { return strings.Contains(msg, "no DHCP server answered") }
+
+// retryNoDHCP tries again, after each wait, the stacks whose network gave
+// them no address at boot. The last try records its outcome as any boot
+// start does; the ones before only log, so the page does not blame the
+// network for a boot that has not settled.
+func retryNoDHCP(srv *server, later []*stack.Stack, began time.Time) {
+	for i, wait := range bootDHCPWaits {
+		if len(later) == 0 {
+			return
+		}
+		names := make([]string, len(later))
+		for j, s := range later {
+			names[j] = s.Name
+		}
+		log.Printf("start-on-boot: no DHCP answer yet for %s, trying again in %s", strings.Join(names, ", "), wait)
+		time.Sleep(wait)
+		last := i == len(bootDHCPWaits)-1
+		var still []*stack.Stack
+		for _, s := range later {
+			if bootBringUp(srv, s, !last, began) {
+				still = append(still, s)
+			}
+		}
+		later = still
+	}
+}
+
+// bootBringUp brings one stack up at boot. With retry set, a try that got no
+// DHCP answer is not recorded: it returns true and the caller tries again.
+// began is when the boot start did, for how long it was tried.
+func bootBringUp(srv *server, full *stack.Stack, retry bool, began time.Time) (again bool) {
+	name := full.Name
+	// Long enough for a pull: two minutes cut immich's install off
+	// mid-pull and left it half made (netlab, 2026-10-04).
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+	// Held like any action: the page shows it starting, and a Start
+	// pressed meanwhile is refused instead of racing this one.
+	unlock, ok := lockStackAs(name, "up")
+	if !ok {
+		return false // something else is already acting on it
+	}
+	if chose := srv.chooseAddresses(ctx, full); chose != "" {
+		log.Printf("start-on-boot: %s: %s", name, strings.TrimSpace(chose))
+	}
+	note := newNote(history.Start, history.ByBoot)
+	stream, err := srv.backendFor(full).Up(ctx, full)
+	if err != nil {
+		log.Printf("start-on-boot: up %s: %v", name, err)
+		srv.writeHistory(name, note, true, err.Error())
+		unlock()
+		return false
+	}
+	// Judged like any action: an [error] becomes the stack's failure
+	// banner. It used to be thrown away and "brought up" logged anyway --
+	// for a stack with nothing running (immich, 2026-10-05).
+	watch := &errorWatch{}
+	kept := outputs.current(name, "start on boot")
+	io.Copy(io.MultiWriter(watch, kept), stream) // wait before the next
+	stream.Close()
+	kept.finish()
+	if retry && watch.seen && noDHCPAnswer(watch.Message()) {
+		unlock()
+		return true
+	}
+	msg := watch.Message()
+	if watch.seen && noDHCPAnswer(msg) && !retry && len(bootDHCPWaits) > 0 {
+		n, unit := max(1, int(time.Since(began).Round(time.Minute).Minutes())), "minutes"
+		if n == 1 {
+			unit = "minute"
+		}
+		msg = fmt.Sprintf("Tried for %d %s after the host started: %s", n, unit, msg)
+	}
+	srv.settleOutcome(name, "start on boot", note, watch.seen, msg)
+	unlock()
+	keptAddrs, skipped := srv.keepAddresses(ctx, full)
+	logKept(name, keptAddrs, skipped)
+	state := "unknown"
+	if st, err := srv.backendFor(full).Status(ctx, full); err == nil {
+		state = st.State
+	}
+	switch {
+	case watch.seen:
+		log.Printf("start-on-boot: %s did not come up: %s", name, msg)
+	case ctx.Err() != nil:
+		log.Printf("start-on-boot: %s: gave up after 10m (now %s)", name, state)
+	case state != "running":
+		log.Printf("start-on-boot: %s is %s after its bring-up", name, state)
+	default:
+		log.Printf("start-on-boot: brought up %s", name)
+	}
+	return false
 }
