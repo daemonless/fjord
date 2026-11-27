@@ -4803,6 +4803,7 @@ msgid "Not loaded"
 msgstr "Not loaded"
 
 #: src/Dashboard.svelte
+#: src/HistoryList.svelte
 #: src/Sidebar.svelte
 msgid "Loading…"
 msgstr "Loading…"
@@ -5347,3 +5348,20 @@ msgstr "Any published tag"
 #: src/ChangeVersionModal.svelte
 msgid "Custom tag"
 msgstr "Custom tag"
+
+#: src/HistoryList.svelte
+msgid "History could not be read."
+msgstr "History could not be read."
+
+#: src/HistoryList.svelte
+msgid "Nothing has happened here yet."
+msgstr "Nothing has happened here yet."
+
+#: src/StackDetail.svelte
+#: src/System.svelte
+msgid "History"
+msgstr "History"
+
+#: src/System.svelte
+msgid "What happened to your stacks, newest first. Each stack's own History tab has the rest."
+msgstr "What happened to your stacks, newest first. Each stack's own History tab has the rest."

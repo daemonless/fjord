@@ -1,5 +1,6 @@
 <script lang="ts">
   import { isoDateTime } from './when';
+  import HistoryList from './HistoryList.svelte';
   import { onMount, tick } from 'svelte';
   import { staleNote } from './staleNote';
   import { ensureRemoteVolume, remoteKind } from './remote';
@@ -47,7 +48,7 @@
 
   export let stack: Stack;
   export let stacks: Stack[] = [];
-  export let activeTab: 'compose' | 'makejail' | 'env' | 'net' | 'settings' = 'compose';
+  export let activeTab: 'compose' | 'makejail' | 'env' | 'net' | 'history' | 'settings' = 'compose';
   export let originalCompose = '';
   export let originalEnv = '';
   export let originalDirector = '';
@@ -620,6 +621,17 @@
 
   // Why Restart and If unhealthy are disabled on the Settings tab: both
   // rewrite the compose on the server, so they wait for edits and for work.
+  // History reads again when the stack goes busy or comes back, starts or
+  // stops, or an action on the page ends.
+  let historyBump = 0;
+  let historyKey = '';
+  $: {
+    const k = [stack.name, stack.busy ?? '', statusLabel(stack.status), execStatus[stack.name] ?? ''].join('|');
+    if (k !== historyKey) {
+      historyKey = k;
+      historyBump++;
+    }
+  }
   $: settingsLocked = busyReason || (isDirty ? 'Save or revert your edits first' : '');
 
   function failedLabel(action: string): string {
@@ -1264,8 +1276,15 @@
           Makejail{#if (stack.makejail ?? '') !== originalMakejail}<span class="text-fjord-warning font-bold">*</span>{/if}
         </button>
       {/if}
-      <!-- How the stack runs, kept out of the header. A draft has none yet. -->
+      <!-- What happened to it, then how it runs. A draft has neither yet. -->
       {#if !isDraft}
+        <button
+          on:click={() => (activeTab = 'history')}
+          data-tab="history"
+          class="px-4 py-2.5 border-r border-fjord-border {activeTab === 'history'
+            ? 'bg-fjord-card text-fjord-fg border-b-2 border-b-fjord-accent'
+            : 'text-fjord-fg-muted hover:text-fjord-fg-body'}">History</button
+        >
         <button
           on:click={() => (activeTab = 'settings')}
           data-tab="settings"
@@ -1399,6 +1418,11 @@
               on:save={onSave}
             />
           </div>
+        </div>
+      {:else if activeTab === 'history' && !isDraft}
+        <!-- Read each time the tab opens. -->
+        <div class="p-6 overflow-y-auto h-full">
+          <HistoryList stack={stack.name} reload={historyBump} />
         </div>
       {:else if activeTab === 'settings' && !isDraft}
         <!-- Each one applies when it changes, as before; no Save. -->

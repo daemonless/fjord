@@ -63,7 +63,7 @@
   let following: Record<string, boolean> = {};
   let execMessage: Record<string, string> = {};
   let selectedStack: Stack | null = null;
-  let activeTab: 'compose' | 'makejail' | 'env' | 'net' | 'settings' = 'compose';
+  let activeTab: 'compose' | 'makejail' | 'env' | 'net' | 'history' | 'settings' = 'compose';
   let originalCompose = '';
   let originalEnv = '';
   let originalDirector = '';
@@ -416,14 +416,14 @@
       // on that tab at once instead of flashing Services first.
       const shown = snap ?? stack;
       activeTab =
-        initialTab === 'compose' || initialTab === 'env' || (initialTab === 'makejail' && shown.director) || (initialTab === 'settings' && shown.dir)
+        initialTab === 'compose' || initialTab === 'env' || (initialTab === 'makejail' && shown.director) || ((initialTab === 'settings' || initialTab === 'history') && shown.dir)
           ? initialTab
           : shown.dir
             ? 'net'
             : 'compose';
     } else if (initialTab !== undefined) {
       activeTab =
-        initialTab === 'compose' || initialTab === 'env' || (initialTab === 'makejail' && selectedStack?.director) || (initialTab === 'settings' && selectedStack?.dir)
+        initialTab === 'compose' || initialTab === 'env' || (initialTab === 'makejail' && selectedStack?.director) || ((initialTab === 'settings' || initialTab === 'history') && selectedStack?.dir)
           ? initialTab
           : 'net';
     }

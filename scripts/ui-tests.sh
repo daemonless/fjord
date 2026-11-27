@@ -100,6 +100,7 @@ shell-light
 folders
 host-caps
 outcome
+history
 tag-picker
 arch
 retag-var

@@ -3,6 +3,7 @@
   import { onMount } from 'svelte';
   import Icon from './Icon.svelte';
   import Spinner from './Spinner.svelte';
+  import HistoryList from './HistoryList.svelte';
   import EmptyState from './EmptyState.svelte';
   import InstallCheckButton from './InstallCheckButton.svelte';
   import FixSnippet from './FixSnippet.svelte';
@@ -493,5 +494,12 @@
         {/if}
       {/if}
     {/if}
+
+    <!-- History: every stack, deleted ones too -->
+    <h3 class="text-lg font-bold text-fjord-fg mt-8 mb-1">History</h3>
+    <p class="text-sm text-fjord-fg-dim mb-3 max-w-2xl">
+      What happened to your stacks, newest first. Each stack's own History tab has the rest.
+    </p>
+    <div class="max-w-3xl" data-host-history><HistoryList limit={50} /></div>
   </div>
 </div>
