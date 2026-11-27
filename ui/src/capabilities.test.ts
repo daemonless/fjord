@@ -228,6 +228,17 @@ services:
     ]);
   });
 
+  it('does not ask for network_mode: host for a service moved onto a network', () => {
+    const compose = `
+services:
+  actual:
+    image: ghcr.io/daemonless/actual:latest
+    network_mode: host
+`;
+    expect(detectHostCapabilities({ compose, appDataLocations: ['/srv/fjord/apps'] })).toEqual(['network_mode: host']);
+    expect(detectHostCapabilities({ compose, appDataLocations: ['/srv/fjord/apps'], offHost: ['actual'] })).toEqual([]);
+  });
+
   it('flags privileged: yes, privileged: "on", and quoted/uppercase pid: host', () => {
     const composeYes = `
 services:

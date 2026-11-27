@@ -16,7 +16,7 @@
   import { addressProblem, usableRange, randomMAC } from './network';
   import ServiceResources from './ServiceResources.svelte';
   import { appjailMissing, askValue, chosenServices, choiceVars, isToggle, pickedPhrase } from './choices';
-  import { resolveDefault, seedInterfaces, splitPlan, joinable, keepAttachable, addressesNeeded, type Iface } from './planSeed';
+  import { resolveDefault, seedInterfaces, splitPlan, offHostServices, joinable, keepAttachable, addressesNeeded, type Iface } from './planSeed';
   import RestartChoice from './RestartChoice.svelte';
   import { sizeWords, sizeNote, type SizeAnswer } from './installSize';
   import { DEFAULT_RETRIES } from './restartPolicy';
@@ -518,6 +518,9 @@
     ...askedNow.filter((a) => !String(formData[a.name] ?? '').trim()).map((a) => ({ name: a.label || a.name })),
   ];
   $: badTyped = listedVars.filter((v) => typedVarProblem(v, formData[v.name] ?? '') !== '');
+  // A service moved off the host's network in Networking does not get the
+  // compose's network_mode: host (the daemon drops it), so it is not asked.
+  $: offHost = perService ? offHostServices(planEdits) : [];
   $: requestedCapabilities = detectHostCapabilities({
     compose: manifestText,
     choices,
@@ -528,6 +531,7 @@
     appDataLocations,
     storageBase: appDataChoice || appDataLocations[0] || '',
     folderSets,
+    offHost,
   });
   let allowCapabilities = false;
   let lastCapKey = '';
