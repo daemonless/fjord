@@ -82,48 +82,52 @@
   onDestroy(() => poll && clearInterval(poll));
 </script>
 
-{#if st && (st.backend || st.note)}
-  <section data-network-backend>
-    <h3 class="text-lg font-bold text-fjord-fg mt-8 mb-1">Network backend</h3>
-    <p class="text-sm text-fjord-fg-dim mb-3 max-w-prose">
-      {#if st.backend}podman connects containers with its <b class="text-fjord-fg-body">{label(st.backend)}</b> network backend.{/if}
-      {#if st.note}{st.note}{/if}
-    </p>
+{#if st && (st.canSwitch || st.canBack || busy || output)}
+  <section data-network-backend class="mt-6 max-w-3xl rounded-xl border border-fjord-border bg-fjord-card px-4 py-3">
+    <div class="flex flex-wrap items-center justify-between gap-3">
+      <div class="min-w-0">
+        <h3 class="text-sm font-semibold text-fjord-fg">Network backend</h3>
+        <p class="text-xs text-fjord-fg-muted mt-0.5 max-w-prose">
+          {#if st.backend}podman connects containers with its <b class="text-fjord-fg-body">{label(st.backend)}</b> network backend.{/if}
+          {#if st.note} {st.note}{/if}
+        </p>
+      </div>
 
-    {#if (st.canSwitch || st.canBack) && !busy}
-      {#if !confirming}
+      {#if (st.canSwitch || st.canBack) && !busy && !confirming}
         <button
           on:click={() => (confirming = true)}
           data-switch-backend
-          class="px-3 py-1.5 rounded-lg text-sm font-medium bg-fjord-border hover:bg-fjord-border/70 text-fjord-fg-body transition-colors"
+          class="shrink-0 px-3 py-1.5 rounded-lg text-xs font-medium bg-fjord-border hover:bg-fjord-border/70 text-fjord-fg-body transition-colors"
           >{st.canSwitch ? 'Switch to netavark…' : 'Switch back to CNI…'}</button
         >
-      {:else}
-        <div class="max-w-2xl rounded-lg border border-fjord-warning/30 bg-fjord-warning/10 px-4 py-3 text-sm text-fjord-fg-body" data-switch-confirm>
-          <p class="font-medium mb-1">Switch podman to {target}?</p>
-          <p class="mb-1">
-            {#if stacks.length}
-              These stop while podman moves and start again after: <span class="font-mono text-xs">{stacks.join(', ')}</span>.
-            {:else}
-              No stack on podman is running, so nothing stops.
-            {/if}
-          </p>
-          {#if networks.length}
-            <p class="mb-1">These networks are made again on {target}, with the same names and addresses: <span class="font-mono text-xs">{networks.join(', ')}</span>.</p>
-          {/if}
-          <p class="text-fjord-fg-dim mb-3">AppJail is not touched. {st.canSwitch ? 'You can switch back to CNI from here later.' : ''}</p>
-          <div class="flex gap-2">
-            <button on:click={() => (confirming = false)} class="px-3 py-1.5 rounded-lg text-sm font-medium text-fjord-fg-muted hover:text-fjord-fg">Cancel</button>
-            <button on:click={run} data-switch-go class="px-3 py-1.5 rounded-lg text-sm font-medium bg-fjord-accent hover:bg-fjord-accent-hover text-white"
-              >Switch to {target}</button
-            >
-          </div>
-        </div>
       {/if}
+    </div>
+
+    {#if (st.canSwitch || st.canBack) && !busy && confirming}
+      <div class="mt-3 rounded-lg border border-fjord-warning/30 bg-fjord-warning/10 px-4 py-3 text-sm text-fjord-fg-body" data-switch-confirm>
+        <p class="font-medium mb-1">Switch podman to {target}?</p>
+        <p class="mb-1">
+          {#if stacks.length}
+            These stop while podman moves and start again after: <span class="font-mono text-xs">{stacks.join(', ')}</span>.
+          {:else}
+            No stack on podman is running, so nothing stops.
+          {/if}
+        </p>
+        {#if networks.length}
+          <p class="mb-1">These networks are made again on {target}, with the same names and addresses: <span class="font-mono text-xs">{networks.join(', ')}</span>.</p>
+        {/if}
+        <p class="text-fjord-fg-dim mb-3">AppJail is not touched. {st.canSwitch ? 'You can switch back to CNI from here later.' : ''}</p>
+        <div class="flex gap-2">
+          <button on:click={() => (confirming = false)} class="px-3 py-1.5 rounded-lg text-sm font-medium text-fjord-fg-muted hover:text-fjord-fg">Cancel</button>
+          <button on:click={run} data-switch-go class="px-3 py-1.5 rounded-lg text-sm font-medium bg-fjord-accent hover:bg-fjord-accent-hover text-white"
+            >Switch to {target}</button
+          >
+        </div>
+      </div>
     {/if}
 
     {#if busy || output}
-      <div class="mt-3 max-w-3xl">
+      <div class="mt-3">
         <div class="text-xs text-fjord-fg-dim mb-1">
           {#if busy}Switching to {label(st.to || (st.canSwitch ? 'netavark' : 'cni'))}… it carries on if you leave this page.
           {:else if st.result === 'ok'}Done.

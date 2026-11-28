@@ -81,7 +81,7 @@ const settle = async (page, want) => {
     note('a start shows on the open tab', await topIs(/Started/), await page.locator('[data-history-entry]').first().innerText());
 
     // The System page, every stack.
-    await openPage(page, BASE + '/?t=' + Date.now() + '#/system');
+    await openPage(page, BASE + '/?t=' + Date.now() + '#/system/history');
     const host = page.locator('[data-host-history]');
     await host.locator('[data-history-entry]').first().waitFor();
     const first = await host.locator('[data-history-entry]').first().innerText();
