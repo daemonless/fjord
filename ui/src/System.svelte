@@ -1,7 +1,7 @@
 <script lang="ts">
   import { isoDate, isoDateTime } from './when';
   import { installAgain, type Leftover } from './keptData';
-  import { onMount } from 'svelte';
+  import { createEventDispatcher, onMount } from 'svelte';
   import NetworkBackend from './NetworkBackend.svelte';
   import Icon from './Icon.svelte';
   import Spinner from './Spinner.svelte';
@@ -30,9 +30,18 @@
     muted?: string[];
   };
 
+  export let tab: 'checks' | 'cleanup' | 'history' = 'checks';
+  const dispatch = createEventDispatcher<{ tab: 'checks' | 'cleanup' | 'history' }>();
+  let activeTab: 'checks' | 'cleanup' | 'history' = tab;
+  $: activeTab = tab;
+  function selectTab(t: 'checks' | 'cleanup' | 'history') {
+    activeTab = t;
+    dispatch('tab', t);
+  }
+
   let report: Report | null = null;
   let engineName = '';
-  let daemonVersion = '';
+  let netBackend: { backend?: string; note?: string } | null = null;
   let loading = true;
   let error = '';
 
@@ -53,15 +62,13 @@
     loading = true;
     error = '';
     try {
-      const [setupRes, engineRes, aboutRes] = await Promise.all([
+      const [setupRes, netRes] = await Promise.all([
         fetch(`/api/setup?tz=${encodeURIComponent(browserZone())}`),
-        fetch('/api/engine'),
-        fetch('/api/about'),
+        fetch('/api/system/netavark').catch(() => null),
       ]);
       if (!setupRes.ok) throw new Error(await setupRes.text());
       report = await setupRes.json();
-      if (engineRes.ok) engineName = (await engineRes.json()).default || '';
-      if (aboutRes.ok) daemonVersion = (await aboutRes.json()).version || '';
+      netBackend = netRes?.ok ? await netRes.json() : null;
     } catch (e: any) {
       error = e.message || 'Failed to load system report';
     } finally {
@@ -98,7 +105,11 @@
   async function loadPruneEngines() {
     try {
       const r = await fetch('/api/engine');
-      if (r.ok) pruneEngines = ((await r.json()).engines || []).filter((e: any) => e.enabled).map((e: any) => e.name);
+      if (r.ok) {
+        const d = await r.json();
+        engineName = d.default || '';
+        pruneEngines = (d.engines || []).filter((e: any) => e.enabled).map((e: any) => e.name);
+      }
     } catch {}
   }
   async function pickPruneEngine(name: string) {
@@ -229,13 +240,24 @@
   <div class="flex items-center justify-between mb-4 shrink-0">
     <div>
       <h2 class="text-2xl font-bold text-fjord-fg">System</h2>
-      <p class="text-sm text-fjord-fg-dim">Host readiness — platform, deployment mode, and engine requirements.</p>
+      <p class="text-sm text-fjord-fg-dim">Host readiness, disk cleanup, and activity across all apps.</p>
     </div>
-    <button
-      on:click={load}
-      class="flex items-center gap-2 bg-fjord-card hover:bg-fjord-border border border-fjord-border text-fjord-fg-secondary font-medium py-2 px-4 rounded-lg text-sm"
-      ><Icon name="refresh" size={14} /> Re-check</button
-    >
+    {#if activeTab === 'checks'}
+      <button
+        on:click={load}
+        class="flex items-center gap-2 bg-fjord-card hover:bg-fjord-border border border-fjord-border text-fjord-fg-secondary font-medium py-2 px-4 rounded-lg text-sm"
+        ><Icon name="refresh" size={14} /> Re-check</button
+      >
+    {:else if activeTab === 'cleanup'}
+      <button
+        on:click={() => {
+          loadDf();
+          loadLeftovers();
+        }}
+        class="flex items-center gap-2 bg-fjord-card hover:bg-fjord-border border border-fjord-border text-fjord-fg-secondary font-medium py-2 px-4 rounded-lg text-sm"
+        ><Icon name="refresh" size={14} /> Refresh</button
+      >
+    {/if}
   </div>
 
   <div class="flex-1 overflow-y-auto">
@@ -259,35 +281,58 @@
         </ul>
       </div>
     {/each}
+    <div role="tablist" aria-label="System sections" class="flex gap-1 mb-5 border-b border-fjord-border max-w-3xl">
+      <button
+        type="button"
+        role="tab"
+        aria-selected={activeTab === 'checks'}
+        on:click={() => selectTab('checks')}
+        class="px-4 py-2 text-sm font-medium -mb-px border-b-2 transition-colors flex items-center gap-1.5 {activeTab === 'checks'
+          ? 'border-fjord-accent text-fjord-fg'
+          : 'border-transparent text-fjord-fg-muted hover:text-fjord-fg-body'}"
+      >
+        Checks
+        {#if attention.length > 0}
+          <span class="rounded-full bg-fjord-warning/20 text-fjord-warning px-1.5 py-0.25 text-[11px] font-semibold">{attention.length}</span>
+        {/if}
+      </button>
+      <button
+        type="button"
+        role="tab"
+        aria-selected={activeTab === 'cleanup'}
+        on:click={() => selectTab('cleanup')}
+        class="px-4 py-2 text-sm font-medium -mb-px border-b-2 transition-colors flex items-center gap-1.5 {activeTab === 'cleanup'
+          ? 'border-fjord-accent text-fjord-fg'
+          : 'border-transparent text-fjord-fg-muted hover:text-fjord-fg-body'}"
+      >
+        Cleanup
+        {#if (leftovers?.folders?.length ?? 0) > 0}
+          <span class="rounded-full border border-fjord-border bg-fjord-inset text-fjord-fg-muted px-1.5 py-0.25 text-[11px] font-medium">{leftovers?.folders?.length}</span>
+        {/if}
+      </button>
+      <button
+        type="button"
+        role="tab"
+        aria-selected={activeTab === 'history'}
+        on:click={() => selectTab('history')}
+        class="px-4 py-2 text-sm font-medium -mb-px border-b-2 transition-colors {activeTab === 'history'
+          ? 'border-fjord-accent text-fjord-fg'
+          : 'border-transparent text-fjord-fg-muted hover:text-fjord-fg-body'}">History</button
+      >
+    </div>
+
+    {#if activeTab === 'checks'}
     {#if loading}
       <div class="flex items-center gap-3 text-fjord-fg-dim text-sm"><Spinner size={18} /> Running checks…</div>
     {:else if error}
       <EmptyState icon="alert" title="System Report Unavailable" description={error} />
     {:else if report}
-      <div class="flex items-center gap-2 mb-4 flex-wrap">
-        {#if daemonVersion}
-          <span class="text-[11px] font-semibold px-2.5 py-1 rounded-full bg-fjord-accent/15 text-fjord-accent border border-fjord-accent/40" title="fjordd daemon version">fjord {daemonVersion}</span>
-        {/if}
-        <span class="text-[11px] font-semibold uppercase tracking-wide px-2.5 py-1 rounded-full bg-fjord-card border border-fjord-border text-fjord-fg-secondary">{report.os}</span>
-        <span
-          class="text-[11px] font-semibold uppercase tracking-wide px-2.5 py-1 rounded-full border {report.mode === 'host'
-            ? 'bg-fjord-accent/15 text-fjord-accent border-fjord-accent/40'
-            : 'bg-fjord-card text-fjord-fg-muted border-fjord-border'}"
-          title={report.mode === 'host'
-            ? 'fjordd can see and repair the host directly'
-            : 'fjordd cannot see or repair the host from here — fixes are commands for the operator'}
-          >{report.mode === 'host'
-            ? 'running directly on the host'
-            : report.mode === 'container'
-              ? 'running in a container'
-              : 'deployment mode unknown'}</span
-        >
-        {#if engineName}
-          <span class="text-[11px] font-semibold uppercase tracking-wide px-2.5 py-1 rounded-full bg-fjord-card border border-fjord-border text-fjord-fg-secondary">default engine: {engineName}</span>
-        {/if}
-      </div>
-
-      <div class="border border-fjord-border rounded-xl overflow-hidden divide-y divide-fjord-border">
+      {#if report.mode === 'container'}
+        <p class="text-xs text-fjord-fg-muted mb-3 max-w-3xl">
+          Running in a container. Fixes below are commands to run on the host.
+        </p>
+      {/if}
+      <div class="border border-fjord-border rounded-xl overflow-hidden divide-y divide-fjord-border max-w-3xl">
         {#each attention as c (c.id)}
           <div class="px-4 py-3" data-check={c.id}>
             <div class="flex items-center gap-3">
@@ -354,15 +399,35 @@
                 {/if}
               </div>
             {/each}
+            {#if netBackend?.backend}
+              <div data-check="network-backend">
+                <button
+                  type="button"
+                  disabled={!netBackend.note}
+                  aria-expanded={netBackend.note ? openWhy === 'network-backend' : undefined}
+                  on:click={() => (openWhy = openWhy === 'network-backend' ? '' : 'network-backend')}
+                  class="w-full flex flex-col sm:flex-row sm:items-baseline gap-x-3 px-4 py-2 pl-[46px] text-left enabled:hover:bg-fjord-card"
+                >
+                  <span class="sm:shrink-0 text-sm text-fjord-fg-secondary">Network backend</span>
+                  <span class="min-w-0 sm:flex-1 sm:text-right text-xs text-fjord-fg-dim font-mono truncate">detected {netBackend.backend === 'cni' ? 'CNI' : netBackend.backend}</span>
+                </button>
+                {#if netBackend.note && openWhy === 'network-backend'}
+                  <p class="px-4 pb-3 pl-[46px] text-xs text-fjord-fg-dim max-w-prose" data-check-why>{netBackend.note}</p>
+                {/if}
+              </div>
+            {/if}
           {/if}
         {/if}
       </div>
 
       <NetworkBackend />
+    {/if}
+    {/if}
 
+    {#if activeTab === 'cleanup'}
       <!-- Storage cleanup (prune) -->
-      <h3 class="text-lg font-bold text-fjord-fg mt-8 mb-1">Storage cleanup</h3>
-      <p class="text-sm text-fjord-fg-dim mb-3">
+      <h3 class="text-sm font-semibold text-fjord-fg-secondary uppercase tracking-wide mb-1">Storage cleanup</h3>
+      <p class="text-xs text-fjord-fg-dim mb-3 max-w-2xl">
         Reclaim disk held by resources no stack uses. What can be cleaned depends on the engine.
       </p>
       {#if pruneEngines.length > 1}
@@ -456,10 +521,13 @@
       {/if}
 
       <!-- Left-over app data -->
-      <h3 class="text-lg font-bold text-fjord-fg mt-8 mb-1">Left-over app data</h3>
-      <p class="text-sm text-fjord-fg-dim mb-3 max-w-2xl">
-        Folders in your app-data locations that no stack and no container uses — usually what a deleted stack left
-        behind.
+      <h3 class="text-sm font-semibold text-fjord-fg-secondary uppercase tracking-wide mt-8 mb-1">Left-over app data</h3>
+      <p class="text-xs text-fjord-fg-dim mb-3 max-w-2xl">
+        {#if report?.checks?.some((c) => c.id === 'zfs' && c.status === 'ok') || leftovers?.folders?.some((f) => f.dataset)}
+          Folders and ZFS datasets in your app-data locations that no stack and no container uses.
+        {:else}
+          Folders in your app-data locations that no stack and no container uses.
+        {/if}
       </p>
       {#if leftoversError}
         <p class="text-sm text-fjord-danger max-w-2xl">Could not check: {leftoversError}</p>
@@ -487,7 +555,13 @@
                 {/if}
                 {#if confirmLeftover === f.path && f.dataset && (f.restorePoints || f.keptCopies)}
                   <div class="text-xs text-fjord-danger mt-0.5">
-                    Its restore points ({f.restorePoints ?? 0}) and kept copies ({f.keptCopies ?? 0}) are removed with it.
+                    {#if f.restorePoints && f.keptCopies}
+                      Its {f.restorePoints} restore {f.restorePoints === 1 ? 'point' : 'points'} and {f.keptCopies} kept {f.keptCopies === 1 ? 'copy' : 'copies'} are removed with it.
+                    {:else if f.restorePoints}
+                      Its {f.restorePoints} restore {f.restorePoints === 1 ? 'point' : 'points'} {f.restorePoints === 1 ? 'is' : 'are'} removed with it.
+                    {:else}
+                      Its {f.keptCopies} kept {f.keptCopies === 1 ? 'copy' : 'copies'} {f.keptCopies === 1 ? 'is' : 'are'} removed with it.
+                    {/if}
                   </div>
                 {/if}
               </div>
@@ -528,13 +602,14 @@
           </p>
         {/if}
       {/if}
-    {/if}
+      {/if}
 
-    <!-- History: every stack, deleted ones too -->
-    <h3 class="text-lg font-bold text-fjord-fg mt-8 mb-1">History</h3>
-    <p class="text-sm text-fjord-fg-dim mb-3 max-w-2xl">
-      What happened to your stacks, newest first. Each stack's own History tab has the rest.
-    </p>
-    <div class="max-w-3xl" data-host-history><HistoryList limit={50} /></div>
+      {#if activeTab === 'history'}
+      <!-- History: every stack, deleted ones too -->
+      <p class="text-xs text-fjord-fg-dim mb-3 max-w-2xl">
+        What happened across all apps, newest first. Each app's own History tab has the rest.
+      </p>
+      <div class="max-w-3xl" data-host-history><HistoryList limit={50} /></div>
+      {/if}
   </div>
 </div>

@@ -821,10 +821,8 @@ msgstr "Système : cet hôte et fjord"
 
 #. 0: version
 #. 0: daemonVersion
-#. 0: daemonVersion
 #: src/Shortcuts.svelte
 #: src/Sidebar.svelte
-#: src/System.svelte
 msgid "fjord {0}"
 msgstr "fjord {0}"
 
@@ -3348,9 +3346,8 @@ msgstr "Commande copiée"
 msgid "System"
 msgstr "Système"
 
-#: src/System.svelte
-msgid "Host readiness — platform, deployment mode, and engine requirements."
-msgstr "État de l'hôte — plateforme, mode de déploiement et prérequis des moteurs."
+#~ msgid "Host readiness — platform, deployment mode, and engine requirements."
+#~ msgstr "État de l'hôte — plateforme, mode de déploiement et prérequis des moteurs."
 
 #: src/System.svelte
 msgid "<0/> Re-check"
@@ -3364,10 +3361,8 @@ msgstr "<0/> Vérifications en cours…"
 msgid "System Report Unavailable"
 msgstr "Rapport système indisponible"
 
-#. 0: engineName
-#: src/System.svelte
-msgid "default engine: {0}"
-msgstr "moteur par défaut : {0}"
+#~ msgid "default engine: {0}"
+#~ msgstr "moteur par défaut : {0}"
 
 #~ msgid "{0} check{1} failing"
 #~ msgstr "{0} vérification{1} en échec"
@@ -3496,9 +3491,8 @@ msgstr "Récupérer le disque tenu par des ressources qu'aucune pile n'utilise. 
 msgid "Left-over app data"
 msgstr "Données d'application laissées derrière"
 
-#: src/System.svelte
-msgid "Folders in your app-data locations that no stack and no container uses — usually what a deleted stack left behind."
-msgstr "Les dossiers de vos emplacements de données qu'aucune pile et aucun conteneur n'utilise — en général ce qu'une pile supprimée a laissé."
+#~ msgid "Folders in your app-data locations that no stack and no container uses — usually what a deleted stack left behind."
+#~ msgstr "Les dossiers de vos emplacements de données qu'aucune pile et aucun conteneur n'utilise — en général ce qu'une pile supprimée a laissé."
 
 #: src/Terminal.svelte
 msgid "Executing…"
@@ -3831,17 +3825,14 @@ msgstr "pas encore installé"
 msgid "one thing"
 msgstr "une chose"
 
-#: src/System.svelte
-msgid "running directly on the host"
-msgstr "tourne directement sur l'hôte"
+#~ msgid "running directly on the host"
+#~ msgstr "tourne directement sur l'hôte"
 
-#: src/System.svelte
-msgid "running in a container"
-msgstr "tourne dans un conteneur"
+#~ msgid "running in a container"
+#~ msgstr "tourne dans un conteneur"
 
-#: src/System.svelte
-msgid "deployment mode unknown"
-msgstr "mode de déploiement inconnu"
+#~ msgid "deployment mode unknown"
+#~ msgstr "mode de déploiement inconnu"
 
 #: src/VarsPanel.svelte
 msgid "all set"
@@ -5360,9 +5351,8 @@ msgstr "Rien ne s'est encore passé ici."
 msgid "History"
 msgstr "Historique"
 
-#: src/System.svelte
-msgid "What happened to your stacks, newest first. Each stack's own History tab has the rest."
-msgstr "Ce qui est arrivé à vos piles, du plus récent au plus ancien. L'onglet Historique de chaque pile contient le reste."
+#~ msgid "What happened to your stacks, newest first. Each stack's own History tab has the rest."
+#~ msgstr "Ce qui est arrivé à vos piles, du plus récent au plus ancien. L'onglet Historique de chaque pile contient le reste."
 
 #. 0: $names.provider; 1: appName
 #: src/InstallWizard.svelte
@@ -5463,6 +5453,7 @@ msgid "Not everything came back: the lines below say what."
 msgstr "Tout n'est pas revenu : les lignes ci-dessous disent quoi."
 
 #: src/NetworkBackend.svelte
+#: src/System.svelte
 msgid "Network backend"
 msgstr "Backend réseau"
 
@@ -6874,10 +6865,8 @@ msgstr ""
 msgid "Deleted {0}{1}"
 msgstr ""
 
-#. 0: f.restorePoints ?? 0; 1: f.keptCopies ?? 0
-#: src/System.svelte
-msgid "Its restore points ({0}) and kept copies ({1}) are removed with it."
-msgstr ""
+#~ msgid "Its restore points ({0}) and kept copies ({1}) are removed with it."
+#~ msgstr ""
 
 #. 0: f.appId
 #: src/System.svelte
@@ -6886,4 +6875,60 @@ msgstr ""
 
 #: src/System.svelte
 msgid "Install again"
+msgstr ""
+
+#: src/System.svelte
+msgid "Host readiness, disk cleanup, and activity across all apps."
+msgstr ""
+
+#: src/System.svelte
+msgid "<0/> Refresh"
+msgstr ""
+
+#: src/System.svelte
+msgid "System sections"
+msgstr ""
+
+#: src/System.svelte
+msgid "Checks <0/>"
+msgstr ""
+
+#: src/System.svelte
+msgid "Cleanup <0/>"
+msgstr ""
+
+#: src/System.svelte
+msgid "Running in a container. Fixes below are commands to run on the host."
+msgstr ""
+
+#. 0: netBackend.backend === 'cni' ? 'CNI' \\: netBackend.backend
+#: src/System.svelte
+msgid "detected {0}"
+msgstr ""
+
+#: src/System.svelte
+msgid "Folders and ZFS datasets in your app-data locations that no stack and no container uses."
+msgstr ""
+
+#: src/System.svelte
+msgid "Folders in your app-data locations that no stack and no container uses."
+msgstr ""
+
+#. 0: f.restorePoints; 1: f.restorePoints === 1 ? 'point' \\: 'points'; 2: f.keptCopies; 3: f.keptCopies === 1 ? 'copy' \\: 'copies'
+#: src/System.svelte
+msgid "Its {0} restore {1} and {2} kept {3} are removed with it."
+msgstr ""
+
+#. 0: f.restorePoints; 1: f.restorePoints === 1 ? 'point' \\: 'points'; 2: f.restorePoints === 1 ? 'is' \\: 'are'
+#: src/System.svelte
+msgid "Its {0} restore {1} {2} removed with it."
+msgstr ""
+
+#. 0: f.keptCopies; 1: f.keptCopies === 1 ? 'copy' \\: 'copies'; 2: f.keptCopies === 1 ? 'is' \\: 'are'
+#: src/System.svelte
+msgid "Its {0} kept {1} {2} removed with it."
+msgstr ""
+
+#: src/System.svelte
+msgid "What happened across all apps, newest first. Each app's own History tab has the rest."
 msgstr ""

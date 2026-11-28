@@ -70,8 +70,9 @@
   let originalDirector = '';
   let originalMakejail = '';
   let currentView: 'stacks' | 'store' | 'volumes' | 'networks' | 'system' | 'settings' | 'adopt' = 'stacks';
-  // Settings sub-tab, mirrored into the URL (#/settings/<tab>) like the views.
+  // Settings and System sub-tabs, mirrored into the URL like the views.
   let settingsTab: 'storage' | 'extensions' | 'catalogs' | 'maintenance' | 'names' | 'advanced' | 'account' = 'storage';
+  let systemTab: 'checks' | 'cleanup' | 'history' = 'checks';
 
   // Draft for the "+" button: an image that comes Up as-is, so a blank stack
   // is immediately a box you can open a shell in -- FreeBSD's base image, or
@@ -216,7 +217,7 @@
           : currentView === 'adopt'
             ? '#/adopt'
           : currentView === 'system'
-            ? '#/system'
+            ? '#/system/' + systemTab
             : currentView === 'settings'
               ? '#/settings/' + settingsTab
               : '#/stacks';
@@ -643,6 +644,7 @@
       await selectStack(null);
     } else if (section === 'system') {
       currentView = 'system';
+      systemTab = name === 'cleanup' || name === 'history' ? name : 'checks';
       await selectStack(null);
     } else if (section === 'settings') {
       currentView = 'settings';
@@ -1538,7 +1540,7 @@
       </div>
     {:else if currentView === 'system'}
       <div class="p-6 h-full overflow-hidden">
-        {#key viewEpoch}<System />{/key}
+        {#key viewEpoch}<System tab={systemTab} on:tab={(e) => (systemTab = e.detail)} />{/key}
       </div>
     {:else if currentView === 'settings'}
       <div class="p-6 h-full overflow-hidden">
