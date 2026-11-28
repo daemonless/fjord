@@ -210,6 +210,15 @@ type autoAction struct {
 	Reason   string
 }
 
+func formatSoakUntil(until, now time.Time) string {
+	u := until.Local()
+	n := now.Local()
+	if u.Year() == n.Year() && u.YearDay() == n.YearDay() {
+		return u.Format("15:04")
+	}
+	return u.Format("Jan 2 15:04")
+}
+
 // planAuto decides one stack. A stack none of whose services take
 // automatic updates gets Result "" and no services: not listed.
 func planAuto(st autoStack, now time.Time) autoAction {
@@ -235,14 +244,24 @@ func planAuto(st autoStack, now time.Time) autoAction {
 		return act
 	}
 	var waiting, from, to []string
+	prefix := func(svc, msg string) string {
+		if svc == "" || svc == st.Name {
+			return msg
+		}
+		return svc + ": " + msg
+	}
 	for _, sv := range st.Services {
 		if sv.Held != "" {
-			waiting = append(waiting, sv.Name+": its update failed on "+sv.Held+" and was rolled back; waiting for a newer one")
+			waiting = append(waiting, prefix(sv.Name, "its update failed on "+sv.Held+" and was rolled back; waiting for a newer one"))
 			continue
 		}
 		v := updates.Decide(sv.Policy, sv.Cand, now)
 		if !v.Act {
-			waiting = append(waiting, sv.Name+": "+v.Reason)
+			reason := v.Reason
+			if !v.SoakUntil.IsZero() {
+				reason = "soaking until " + formatSoakUntil(v.SoakUntil, now)
+			}
+			waiting = append(waiting, prefix(sv.Name, reason))
 			continue
 		}
 		act.Services = append(act.Services, sv.Name)
@@ -332,6 +351,7 @@ func (s *server) autoUpdate(trigger string, window time.Time, end string) bool {
 		log.Printf("auto-update: paused, nothing done")
 		return true
 	}
+	jobID := s.jobs.start("auto-update", "Automatic updates", false, "Checking for updates", nil)
 	s.freshFleet()
 	s.fleet.mu.Lock()
 	cached := s.fleet.current(s.manager)
@@ -341,41 +361,72 @@ func (s *server) autoUpdate(trigger string, window time.Time, end string) bool {
 		names = append(names, n)
 	}
 	sort.Strings(names)
+	var planned []autoAction
 	for _, name := range names {
-		if trigger == history.ByAutomatic && end != "" {
-			if inside, _ := windowAt(time.Now(), window.Format("15:04"), end); !inside {
-				run.Results = append(run.Results, autoResult{Stack: name, Result: "waiting", Reason: "the window closed"})
-				continue
-			}
-		}
 		act, ok := s.planStack(name, cached[name], decideAt)
 		if !ok || (act.Result == "" && len(act.Services) == 0) {
 			continue
 		}
+		planned = append(planned, act)
+	}
+	if len(planned) > 0 {
+		items := make([]bgJobItem, len(planned))
+		for i, act := range planned {
+			items[i] = bgJobItem{Name: act.Stack, Status: "queued"}
+		}
+		s.jobs.setItems(jobID, items)
+	}
+	hadFailure := false
+	for _, act := range planned {
+		name := act.Stack
+		if trigger == history.ByAutomatic && end != "" {
+			if inside, _ := windowAt(time.Now(), window.Format("15:04"), end); !inside {
+				run.Results = append(run.Results, autoResult{Stack: name, Result: "waiting", Reason: "the window closed"})
+				s.jobs.recordItem(jobID, name, "skipped", "The update window closed")
+				continue
+			}
+		}
 		if act.Result != "" {
 			run.Results = append(run.Results, autoResult{Stack: name, Result: act.Result, Reason: act.Reason})
+			s.jobs.recordItem(jobID, name, "skipped", act.Reason)
 			continue
 		}
 		if run.Paused {
 			run.Results = append(run.Results, autoResult{Stack: name, Result: "waiting", Reason: "automatic updates are paused"})
+			s.jobs.recordItem(jobID, name, "skipped", "Automatic updates are paused")
 			continue
 		}
+		s.jobs.setPhase(jobID, name, "Updating", 0, 0)
 		r := s.autoUpdateStack(act)
 		run.Results = append(run.Results, r)
 		if r.Result == "failed" || r.Result == "rolled back" {
+			hadFailure = true
+			s.jobs.recordItem(jobID, name, "failed", r.Reason)
 			s.auto.mu.Lock()
 			if s.auto.failed(time.Now()) {
 				run.Paused = true
 				log.Printf("auto-update: %d failed within a day, paused", autoBreaker)
 			}
 			s.auto.mu.Unlock()
+		} else if r.Result == "updated" {
+			s.jobs.recordItem(jobID, name, "done", "Updated")
+		} else {
+			s.jobs.recordItem(jobID, name, "skipped", r.Reason)
 		}
 	}
 	s.auto.mu.Lock()
 	s.auto.f.Last = run
 	s.auto.save()
 	s.auto.mu.Unlock()
-	log.Printf("auto-update: %s", autoSummary(run.Results))
+	summary := autoSummary(run.Results)
+	log.Printf("auto-update: %s", summary)
+	if trigger == history.ByAutomatic && len(run.Results) == 0 {
+		s.jobs.remove(jobID)
+	} else if hadFailure {
+		s.jobs.finish(jobID, "failed", "Automatic updates: "+summary)
+	} else {
+		s.jobs.finish(jobID, "done", "Automatic updates: "+summary)
+	}
 	return true
 }
 

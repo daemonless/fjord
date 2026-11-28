@@ -13,6 +13,7 @@ describe('automatic updates', () => {
     expect(resultLine({ stack: 'a', services: ['web'], result: 'updated' })).toBe('Updated (web)');
     expect(resultLine({ stack: 'a', services: ['web'], result: 'failed', reason: 'web exited' })).toBe('Update failed (web): web exited');
     expect(resultLine({ stack: 'a', result: 'waiting', reason: 'web: soaking: 3h left' })).toBe('Waiting: web: soaking: 3h left');
+    expect(resultLine({ stack: 'prowlarr', result: 'waiting', reason: 'prowlarr: soaking until 20:00' })).toBe('Waiting: soaking until 20:00');
     expect(resultLine({ stack: 'a', result: 'skipped', reason: 'stopped' })).toBe('Skipped: stopped');
     expect(resultLine({ stack: 'a', services: ['web'], result: 'rolled back', reason: 'web exited' })).toBe(
       'Update failed (web) and was rolled back: web exited',

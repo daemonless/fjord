@@ -12,6 +12,8 @@
   import SetupWizard from './SetupWizard.svelte';
   import Dashboard from './Dashboard.svelte';
   import ConditionsBanner from './ConditionsBanner.svelte';
+  import JobsBanner from './JobsBanner.svelte';
+  import { applyJobsEvent, loadJobs } from './jobs';
   import AutoUpdateOffer from './AutoUpdateOffer.svelte';
   import { type Condition } from './conditions';
   import Spinner from './Spinner.svelte';
@@ -227,7 +229,10 @@
       // page before, not through every tab clicked on the way.
       const stackOf = (x: string) => x.split('/').slice(0, 3).join('/');
       const sameStack = selectedStack && stackOf(location.hash) === stackOf(h);
-      history[rename || sameStack ? 'replaceState' : 'pushState'](null, '', h);
+      const canonSubtab =
+        (location.hash === '#/system' && h.startsWith('#/system/')) ||
+        (location.hash === '#/settings' && h.startsWith('#/settings/'));
+      history[rename || sameStack || canonSubtab ? 'replaceState' : 'pushState'](null, '', h);
     }
   }
 
@@ -415,11 +420,15 @@
     const snap = switching && !full ? listSnapshot(stack, stacks) : null;
     if (switching) {
       // The list's copy carries the director file, so a makejail link opens
-      // on that tab at once instead of flashing Services first.
+      // on that tab at once instead of flashing Services first. When moving
+      // between two installed stacks without an explicit tab (e.g. clicking
+      // another app in the sidebar), keep the active tab if the target stack
+      // supports it so browsing History or Settings across apps stays put.
       const shown = snap ?? stack;
+      const wantTab = initialTab !== undefined ? initialTab : (selectedStack?.dir && shown.dir ? activeTab : undefined);
       activeTab =
-        initialTab === 'compose' || initialTab === 'env' || (initialTab === 'makejail' && shown.director) || ((initialTab === 'settings' || initialTab === 'history') && shown.dir)
-          ? initialTab
+        wantTab === 'compose' || wantTab === 'env' || (wantTab === 'makejail' && shown.director) || ((wantTab === 'settings' || wantTab === 'history') && shown.dir)
+          ? wantTab
           : shown.dir
             ? 'net'
             : 'compose';
@@ -1019,6 +1028,7 @@
       const hadFailed = sseRetryDelay > 1500;
       eventSource.onopen = () => {
         sseRetryDelay = 1500;
+        loadJobs();
         if (hadFailed) resync();
         else loadConditions();
       };
@@ -1069,6 +1079,10 @@
     });
   }
   function applyStackEvent(ev: any) {
+    if (ev?.type === 'jobs') {
+      applyJobsEvent(ev.jobs);
+      return;
+    }
     if (ev?.type === 'conditions') {
       conditions = ev.conditions || [];
       return;
@@ -1455,6 +1469,7 @@
       ><Icon name={theme === 'dark' ? 'sun' : 'moon'} size={16} /></button
     >
     <ConditionsBanner {conditions} on:changed={loadConditions} />
+    <JobsBanner />
     {#if !selectedStack && currentView === 'stacks'}<AutoUpdateOffer />{/if}
     {#if selectedStack}
       <StackDetail

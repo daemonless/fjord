@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"slices"
@@ -230,12 +231,25 @@ func (s *server) handleUpdateAll(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if len(queued) > 0 {
+		items := make([]bgJobItem, len(queued))
+		for i, q := range queued {
+			items[i] = bgJobItem{Name: q.name, Status: "queued"}
+		}
+		jobID := s.jobs.start("update-all", "Updating apps", true, "Updating", items)
 		go func() {
-			for _, q := range queued {
-				if stopping.Load() {
-					q.unlock()
-					continue
+			updated, failed := 0, 0
+			stoppedEarly := false
+			for i, q := range queued {
+				if stopping.Load() || s.jobs.isStopping(jobID) {
+					stoppedEarly = true
+					for _, rem := range queued[i:] {
+						s.jobs.recordItem(jobID, rem.name, "skipped", "Stopped")
+						rem.unlock()
+					}
+					break
 				}
+				s.jobs.setPhase(jobID, q.name, "Updating", 0, 0)
+				started := time.Now()
 				var retagErr error
 				for _, rt := range q.retags {
 					if err := s.retagForUpdate(q.name, rt.service, rt.tag); err != nil {
@@ -248,10 +262,27 @@ func (s *server) handleUpdateAll(w http.ResponseWriter, r *http.Request) {
 					io.Copy(io.Discard, s.recordOutcome(q.name, "update", newNote(history.Update, trigger, q.services...), stream))
 					stream.Close()
 					q.unlock()
+					failed++
+					s.jobs.recordItem(jobID, q.name, "failed", history.FirstLine(retagErr.Error()))
 					continue
 				}
 				s.runDetachedUpdate(q.name, q.services, trigger)
 				q.unlock()
+				if state, _ := s.manager.LoadState(q.name); state != nil && state.LastFailure != nil && !state.LastFailure.At.Before(started) {
+					failed++
+					s.jobs.recordItem(jobID, q.name, "failed", history.FirstLine(state.LastFailure.Message))
+				} else {
+					updated++
+					s.jobs.recordItem(jobID, q.name, "done", "Updated")
+				}
+			}
+			switch {
+			case stoppedEarly:
+				s.jobs.finish(jobID, "stopped", fmt.Sprintf("Stopped after updating %d of %d apps", updated, len(queued)))
+			case failed > 0:
+				s.jobs.finish(jobID, "failed", fmt.Sprintf("Updated %d of %d apps; %d failed", updated, len(queued), failed))
+			default:
+				s.jobs.finish(jobID, "done", fmt.Sprintf("Updated %d of %d apps", updated, len(queued)))
 			}
 		}()
 	}

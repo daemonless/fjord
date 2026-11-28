@@ -84,6 +84,8 @@ msgstr "Monter dans <0/> — modifie le compose, <1>Enregistrer</1> pour appliqu
 #: src/ServiceResources.svelte
 #: src/ServiceResources.svelte
 #: src/Settings.svelte
+#: src/Settings.svelte
+#: src/Settings.svelte
 #: src/SetupWizard.svelte
 #: src/StackDetail.svelte
 #: src/StackDetail.svelte
@@ -237,6 +239,7 @@ msgstr "Rien à adopter — chaque conteneur de cet hôte appartient déjà à u
 
 #: src/Adopt.svelte
 #: src/Dashboard.svelte
+#: src/JobsBanner.svelte
 #: src/LoginButton.svelte
 #: src/Networks.svelte
 #: src/Settings.svelte
@@ -622,6 +625,7 @@ msgstr "Échec — voir la Sortie"
 
 #: src/App.svelte
 #: src/App.svelte
+#: src/JobsBanner.svelte
 #: src/StackDetail.svelte
 #: src/System.svelte
 msgid "Failed"
@@ -743,6 +747,7 @@ msgstr "Rechercher une pile…"
 #~ msgstr "Nouvelle pile"
 
 #: src/Dashboard.svelte
+#: src/JobsBanner.svelte
 #: src/Sidebar.svelte
 msgid "Running"
 msgstr "En marche"
@@ -1140,6 +1145,7 @@ msgstr "Mettre à jour"
 msgid "<0>Not saved.</0> The compose changed on the server after you opened it — a rollback, version change or unpin, or another tab. Reload to see it; copy your edits first, reloading replaces them."
 msgstr "<0>Non enregistré.</0> Le compose a changé sur le serveur depuis son ouverture — un retour en arrière, un changement de version ou un désépinglage, ou un autre onglet. Rechargez pour le voir ; copiez d'abord vos modifications, le rechargement les remplace."
 
+#: src/JobsBanner.svelte
 #: src/StackDetail.svelte
 #: src/StackDetail.svelte
 #: src/StackDetail.svelte
@@ -1577,8 +1583,10 @@ msgid "Could not copy — select the text instead"
 msgstr "Impossible de copier — sélectionnez le texte à la place"
 
 #: src/FixSnippet.svelte
+#: src/HistoryList.svelte
 #: src/LoginButton.svelte
 #: src/LoginButton.svelte
+#: src/Settings.svelte
 #: src/Terminal.svelte
 msgid "Copy"
 msgstr "Copier"
@@ -3504,6 +3512,7 @@ msgid "Error"
 msgstr "Erreur"
 
 #: src/InstallCheckButton.svelte
+#: src/JobsBanner.svelte
 #: src/Terminal.svelte
 msgid "Done"
 msgstr "Terminé"
@@ -6253,6 +6262,7 @@ msgstr ""
 msgid "Turn off for all"
 msgstr ""
 
+#: src/JobsBanner.svelte
 #: src/Settings.svelte
 msgid "Details"
 msgstr ""
@@ -6327,10 +6337,8 @@ msgstr ""
 msgid "This host already has a ZFS App data location (<0/>). New apps installed there get restore points automatically."
 msgstr ""
 
-#: src/HistoryList.svelte
-#: src/Settings.svelte
-msgid "Create a dedicated ZFS dataset on the host: <0/>"
-msgstr ""
+#~ msgid "Create a dedicated ZFS dataset on the host: <0/>"
+#~ msgstr ""
 
 #~ msgid "Add <0>/apps</0> in <1>Settings → Storage</1> and move it to the top so new apps get their own dataset automatically."
 #~ msgstr ""
@@ -6639,6 +6647,7 @@ msgid "<0/> sits on the OS root dataset, so apps stored there cannot use restore
 msgstr ""
 
 #: src/Settings.svelte
+#: src/Settings.svelte
 msgid "Moving…"
 msgstr ""
 
@@ -6647,15 +6656,11 @@ msgstr ""
 msgid "Move {0} to its own ZFS dataset?"
 msgstr ""
 
-#. 0: confirmMigrateStack.displayName || confirmMigrateStack.name; 1: confirmMigrateStack.plainFolder; 2: confirmMigrateStack.targetDir; 3: confirmMigrateStack.targetDataset
-#: src/Settings.svelte
-msgid "Stops {0}, copies {1} to {2} ({3}), updates its volume paths, and restarts it automatically. Keeps the original folder as a backup copy and reverts untouched if anything fails."
-msgstr ""
+#~ msgid "Stops {0}, copies {1} to {2} ({3}), updates its volume paths, and restarts it automatically. Keeps the original folder as a backup copy and reverts untouched if anything fails."
+#~ msgstr ""
 
-#. 0: confirmMigrateStack.displayName || confirmMigrateStack.name; 1: confirmMigrateStack.plainFolder; 2: confirmMigrateStack.targetDataset
-#: src/Settings.svelte
-msgid "Stops {0}, moves {1} into {2}, and restarts it automatically. Keeps the original folder as a backup copy and reverts untouched if anything fails."
-msgstr ""
+#~ msgid "Stops {0}, moves {1} into {2}, and restarts it automatically. Keeps the original folder as a backup copy and reverts untouched if anything fails."
+#~ msgstr ""
 
 #: src/SetupWizard.svelte
 msgid "Apps on ZFS save a restore point before updates automatically. Turn on daily restore points per app or in Settings → Maintenance."
@@ -6931,4 +6936,89 @@ msgstr ""
 
 #: src/System.svelte
 msgid "What happened across all apps, newest first. Each app's own History tab has the rest."
+msgstr ""
+
+#: src/HistoryList.svelte
+#: src/Settings.svelte
+msgid "Create a dedicated ZFS dataset on the host:"
+msgstr ""
+
+#: src/JobsBanner.svelte
+msgid "Skipped"
+msgstr ""
+
+#: src/JobsBanner.svelte
+msgid "Queued"
+msgstr ""
+
+#. 0: Math.min(job.done + 1, job.total); 1: job.total
+#. 0: job.done; 1: job.total
+#: src/JobsBanner.svelte
+#: src/JobsBanner.svelte
+msgid "{0} of {1}"
+msgstr ""
+
+#: src/JobsBanner.svelte
+msgid "Stopping after current…"
+msgstr ""
+
+#: src/JobsBanner.svelte
+msgid "Stop after current"
+msgstr ""
+
+#: src/Settings.svelte
+msgid "Could not start bulk migration"
+msgstr ""
+
+#: src/Settings.svelte
+msgid "Previous run"
+msgstr ""
+
+#. 0: fmtBytes(totalMoveBytes)
+#. 0: fmtBytes(totalNow)
+#: src/Settings.svelte
+#: src/Settings.svelte
+msgid "({0} total)"
+msgstr ""
+
+#. 0: eligibleStacks.length
+#: src/Settings.svelte
+msgid "Move all ({0})…"
+msgstr ""
+
+#. 0: eligibleStacks.length
+#: src/Settings.svelte
+msgid "{0} apps ready to move<0/>"
+msgstr ""
+
+#. 0: confirmMigrateStack.displayName || confirmMigrateStack.name
+#: src/Settings.svelte
+msgid "Stops {0}, copies <0/> to <1/> (<2/>), updates its volume paths, and restarts it automatically. Reverts untouched if anything fails."
+msgstr ""
+
+#. 0: confirmMigrateStack.displayName || confirmMigrateStack.name
+#: src/Settings.svelte
+msgid "Stops {0}, moves <0/> into <1/>, and restarts it automatically. Reverts untouched if anything fails."
+msgstr ""
+
+#: src/Settings.svelte
+msgid "Keep the original folder as a backup copy <0>Renamed beside the dataset (<0/>); uncheck to remove the old folder after the move succeeds.</0>"
+msgstr ""
+
+#: src/Settings.svelte
+msgid "Keep original folders as backup copies <0>Renamed beside each dataset (<0/>); uncheck to remove each old folder after its move succeeds.</0>"
+msgstr ""
+
+#. 0: eligibleNow.length
+#: src/Settings.svelte
+msgid "Move all ({0})"
+msgstr ""
+
+#. 0: eligibleNow.length
+#: src/Settings.svelte
+msgid "Move all {0} apps to ZFS datasets?"
+msgstr ""
+
+#: src/Settings.svelte
+msgid "Moves apps one at a time<0/>: stops each app, copies its data to its own dataset, and restarts it before starting the next. If one fails, it reverts untouched and continues with the rest. Keeps running if you leave this page."
 msgstr ""

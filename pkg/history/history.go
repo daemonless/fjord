@@ -268,6 +268,7 @@ type ExcerptWriter struct {
 	tail    []string
 	total   int
 	partial bytes.Buffer
+	lastCR  bool
 }
 
 // NewExcerptWriter returns a streaming writer that builds a failed-entry excerpt.
@@ -277,11 +278,22 @@ func NewExcerptWriter() *ExcerptWriter {
 
 func (w *ExcerptWriter) Write(p []byte) (int, error) {
 	for _, b := range p {
-		if b == '\r' || b == '\n' {
+		if b == '\n' {
+			if w.lastCR {
+				w.lastCR = false
+				continue
+			}
 			w.pushLine(w.partial.String())
 			w.partial.Reset()
 			continue
 		}
+		if b == '\r' {
+			w.lastCR = true
+			w.pushLine(w.partial.String())
+			w.partial.Reset()
+			continue
+		}
+		w.lastCR = false
 		if w.partial.Len() < excerptLineCap+64 {
 			w.partial.WriteByte(b)
 		}

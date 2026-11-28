@@ -3,6 +3,7 @@
   import { isoDateTime } from './when';
   import { zfsHintMountpoint } from './restorePoints';
   import { groupNoticesByKind, type FleetNotice } from './failureNotices';
+  import { jobsStore, runningJobOf } from './jobs';
   import { onMount, onDestroy, createEventDispatcher, tick } from 'svelte';
   import { resultLine, runSummary, type AutoUpdate } from './autoupdate';
   import Icon from './Icon.svelte';
@@ -223,6 +224,7 @@
   }
   async function runNow() {
     auStarting = true;
+    auLastRunOpen = false;
     const r = await fetch('/api/autoupdate/run', { method: 'POST' }).catch(() => null);
     auStarting = false;
     if (!r?.ok) toast(`Run now: ${(await r?.text())?.trim() || 'did not start'}`, { kind: 'error' });
@@ -347,17 +349,47 @@
     crossLocation?: boolean;
     sizeBytes: number;
   }
+  interface MigrateAllStatus {
+    running: boolean;
+    stopping?: boolean;
+    total?: number;
+    done?: number;
+    current?: string;
+    moved?: string[];
+    failed?: Record<string, string>;
+    keepOld?: boolean;
+  }
   interface StorageDatasetsData {
     hasZfs: boolean;
     zfsCreateHint?: string;
     locations: StorageLocationInfo[];
     stacks: StorageStackInfo[];
+    migrateAll?: MigrateAllStatus;
   }
   let storageDatasets: StorageDatasetsData | null = null;
   let migratingStack = '';
   let confirmMigrateStack: StorageStackInfo | null = null;
+  let migrateKeepOld = true;
+  let confirmMigrateAll = false;
+  let migrateAllKeepOld = true;
+  let migrateAllStarting = false;
+  let lastSeenMigrateJobKey = '';
   let datasetsExpanded = false;
   let datasetsTouched = false;
+  $: activeMigrateJob = runningJobOf($jobsStore, 'migrate-all') || runningJobOf($jobsStore, 'migrate-dataset');
+  $: {
+    const doneJobs = $jobsStore.filter((j) => (j.kind === 'migrate-all' || j.kind === 'migrate-dataset') && j.status !== 'running');
+    const key = doneJobs.map((j) => `${j.id}:${j.status}`).join(',');
+    if (key && key !== lastSeenMigrateJobKey) {
+      lastSeenMigrateJobKey = key;
+      if (activeTab === 'maintenance') {
+        loadStorageDatasets();
+        loadRestorePointSettings();
+      }
+    }
+  }
+  const fmtBytes = (n: number) =>
+    n < 1024 ? `${n} B` : n < 1024 ** 2 ? `${(n / 1024).toFixed(0)} KB` : n < 1024 ** 3 ? `${(n / 1024 ** 2).toFixed(1)} MB` : `${(n / 1024 ** 3).toFixed(1)} GB`;
 
   interface RestorePointSettings {
     hasZfs: boolean;
@@ -453,10 +485,27 @@
           const locs = storageDatasets?.locations || [];
           const hasDatasetLoc = locs.some((l) => l.isDataset);
           const nonDs = locs.filter((l) => !l.isDataset);
-          datasetsExpanded = !!(!hasDatasetLoc && nonDs.length > 0 && storageDatasets?.zfsCreateHint);
+          datasetsExpanded = !!((!hasDatasetLoc && nonDs.length > 0 && storageDatasets?.zfsCreateHint) || activeMigrateJob);
         }
       }
     } catch {}
+  }
+
+  async function startMigrateAll() {
+    if (migrateAllStarting) return;
+    migrateAllStarting = true;
+    try {
+      const r = await fetch('/api/settings/storage/datasets/migrate-all', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ keepOld: migrateAllKeepOld }),
+      });
+      if (!r.ok) throw new Error((await r.text()).trim() || `HTTP ${r.status}`);
+    } catch (e: any) {
+      toast(e.message || 'Could not start bulk migration', { kind: 'error' });
+    } finally {
+      migrateAllStarting = false;
+    }
   }
 
   let fleetNotices: FleetNotice[] = [];
@@ -474,14 +523,14 @@
     loadNotices();
   }
 
-  async function moveStackToDataset(name: string) {
+  async function moveStackToDataset(name: string, keepOld = true) {
     if (migratingStack) return;
     migratingStack = name;
     try {
       const r = await fetch(`/api/stacks/${encodeURIComponent(name)}/migrate-dataset`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ keepOld: true }),
+        body: JSON.stringify({ keepOld }),
       });
       if (!r.ok) throw new Error((await r.text()).trim() || `HTTP ${r.status}`);
       toast(`${name} moved to its own dataset`, { kind: 'success' });
@@ -1545,7 +1594,7 @@
               </div>
             {/if}
 
-            <div>
+            <div class={au?.running ? 'opacity-60' : ''}>
               <button
                 type="button"
                 on:click={() => (auLastRunOpen = !auLastRunOpen)}
@@ -1553,8 +1602,8 @@
                 class="w-full flex items-center justify-between gap-3 px-4 py-3 text-left transition-colors {au?.last?.results?.length ? 'hover:bg-fjord-border/20 cursor-pointer' : 'cursor-default'}"
               >
                 <div class="min-w-0">
-                  <div class="text-sm font-medium text-fjord-fg">Last run</div>
-                  {#if au?.last?.at}
+                  <div class="text-sm font-medium text-fjord-fg">{au?.running ? 'Previous run' : 'Last run'}</div>
+                  {#if au?.last?.at && !au.last.at.startsWith('0001-')}
                     <div class="text-xs text-fjord-fg-muted mt-0.5" data-au-last>
                       {isoDateTime(au.last.at)}{au.last.trigger === 'automatic' ? '' : ', started by hand'}: {runSummary(au.last)}.
                     </div>
@@ -1750,7 +1799,7 @@
                         </div>
                         <ol class="list-decimal list-inside space-y-1 text-fjord-fg-muted">
                           <li>
-                            Create a dedicated ZFS dataset on the host:
+                            <span>Create a dedicated ZFS dataset on the host:</span>
                             <span class="mt-1 flex flex-wrap items-center gap-2">
                               <code class="rounded border border-fjord-border bg-fjord-bg px-2 py-0.5 font-mono text-fjord-fg">{storageDatasets.zfsCreateHint}</code>
                               <button
@@ -1775,8 +1824,28 @@
                     {/if}
 
                     {#if dsStacks.length > 0}
+                      {@const eligibleStacks = dsStacks.filter((st) => !st.dataset && st.eligible)}
+                      {@const totalMoveBytes = eligibleStacks.reduce((sum, st) => sum + (st.sizeBytes || 0), 0)}
+                      {#if eligibleStacks.length > 1}
+                        <div class="flex flex-wrap items-center justify-between gap-2 pb-1">
+                          <span class="text-xs text-fjord-fg-muted">
+                            {eligibleStacks.length} apps ready to move{#if totalMoveBytes > 0} ({fmtBytes(totalMoveBytes)} total){/if}
+                          </span>
+                          <button
+                            type="button"
+                            data-migrate-all
+                            disabled={migratingStack !== '' || migrateAllStarting || !!activeMigrateJob}
+                            on:click={() => {
+                              migrateAllKeepOld = true;
+                              confirmMigrateAll = true;
+                            }}
+                            class="rounded-md border border-fjord-border bg-fjord-card px-2.5 py-1 text-xs font-medium text-fjord-fg hover:bg-fjord-border disabled:opacity-50"
+                          >{activeMigrateJob ? 'Moving…' : `Move all (${eligibleStacks.length})…`}</button>
+                        </div>
+                      {/if}
                       <ul class="divide-y divide-fjord-border/60 text-xs">
                         {#each dsStacks as st (st.name)}
+                          {@const isMoving = migratingStack === st.name || activeMigrateJob?.current === st.name}
                           <li class="py-2 flex flex-wrap items-center justify-between gap-2">
                             <div class="min-w-0">
                               <span class="font-medium text-fjord-fg">{st.displayName || st.name}</span>
@@ -1798,10 +1867,13 @@
                               {:else if st.eligible}
                                 <button
                                   type="button"
-                                  disabled={migratingStack !== ''}
-                                  on:click={() => (confirmMigrateStack = st)}
+                                  disabled={migratingStack !== '' || !!activeMigrateJob}
+                                  on:click={() => {
+                                    migrateKeepOld = true;
+                                    confirmMigrateStack = st;
+                                  }}
                                   class="rounded-md border border-fjord-border bg-fjord-card px-2.5 py-1 text-xs font-medium text-fjord-fg hover:bg-fjord-border disabled:opacity-50"
-                                >{migratingStack === st.name ? 'Moving…' : 'Move to dataset…'}</button>
+                                >{isMoving ? 'Moving…' : 'Move to dataset…'}</button>
                               {:else if st.plainFolder}
                                 <span class="rounded-full border border-fjord-border px-2 py-0.5 text-[11px] text-fjord-fg-dim">Plain folder</span>
                               {:else}
@@ -1964,19 +2036,91 @@
 {/if}
 
 {#if confirmMigrateStack}
-  <ConfirmDialog
-    title="Move {confirmMigrateStack.displayName || confirmMigrateStack.name} to its own ZFS dataset?"
-    message={confirmMigrateStack.crossLocation
-      ? `Stops ${confirmMigrateStack.displayName || confirmMigrateStack.name}, copies ${confirmMigrateStack.plainFolder} to ${confirmMigrateStack.targetDir} (${confirmMigrateStack.targetDataset}), updates its volume paths, and restarts it automatically. Keeps the original folder as a backup copy and reverts untouched if anything fails.`
-      : `Stops ${confirmMigrateStack.displayName || confirmMigrateStack.name}, moves ${confirmMigrateStack.plainFolder} into ${confirmMigrateStack.targetDataset}, and restarts it automatically. Keeps the original folder as a backup copy and reverts untouched if anything fails.`}
-    confirmLabel="Move to dataset"
-    on:cancel={() => (confirmMigrateStack = null)}
-    on:confirm={() => {
-      const target = confirmMigrateStack;
-      confirmMigrateStack = null;
-      if (target) moveStackToDataset(target.name);
-    }}
-  />
+  <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+  <div
+    class="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center-safe justify-center overflow-y-auto z-50 p-4"
+    on:click|self={() => (confirmMigrateStack = null)}
+    role="dialog"
+    aria-modal="true"
+    tabindex="-1"
+  >
+    <div class="bg-fjord-card border border-fjord-border rounded-xl shadow-2xl w-full max-w-md p-6 flex flex-col gap-4">
+      <h3 class="text-lg font-bold text-fjord-fg">Move {confirmMigrateStack.displayName || confirmMigrateStack.name} to its own ZFS dataset?</h3>
+      <p class="text-fjord-fg-muted text-sm leading-relaxed">
+        {#if confirmMigrateStack.crossLocation}
+          Stops {confirmMigrateStack.displayName || confirmMigrateStack.name}, copies <span class="font-mono text-xs text-fjord-fg-body">{confirmMigrateStack.plainFolder}</span> to <span class="font-mono text-xs text-fjord-fg-body">{confirmMigrateStack.targetDir}</span> (<span class="font-mono text-xs text-fjord-fg-body">{confirmMigrateStack.targetDataset}</span>), updates its volume paths, and restarts it automatically. Reverts untouched if anything fails.
+        {:else}
+          Stops {confirmMigrateStack.displayName || confirmMigrateStack.name}, moves <span class="font-mono text-xs text-fjord-fg-body">{confirmMigrateStack.plainFolder}</span> into <span class="font-mono text-xs text-fjord-fg-body">{confirmMigrateStack.targetDataset}</span>, and restarts it automatically. Reverts untouched if anything fails.
+        {/if}
+      </p>
+      <label class="flex items-start gap-2 text-xs text-fjord-fg-body cursor-pointer">
+        <input type="checkbox" bind:checked={migrateKeepOld} class="mt-0.5 accent-fjord-accent" />
+        <span>
+          Keep the original folder as a backup copy
+          <span class="block text-fjord-fg-muted mt-0.5">Renamed beside the dataset (<code class="font-mono">.pre-dataset-…</code>); uncheck to remove the old folder after the move succeeds.</span>
+        </span>
+      </label>
+      <div class="flex justify-end gap-3 pt-1">
+        <button
+          type="button"
+          on:click={() => (confirmMigrateStack = null)}
+          class="px-4 py-2 rounded-md text-sm font-medium text-fjord-fg-secondary hover:bg-fjord-border transition-colors"
+        >Cancel</button>
+        <button
+          type="button"
+          on:click={() => {
+            const target = confirmMigrateStack;
+            const keep = migrateKeepOld;
+            confirmMigrateStack = null;
+            if (target) moveStackToDataset(target.name, keep);
+          }}
+          class="px-4 py-2 rounded-md text-sm font-medium text-white bg-fjord-accent hover:bg-fjord-accent-hover transition-colors"
+        >Move to dataset</button>
+      </div>
+    </div>
+  </div>
+{/if}
+
+{#if confirmMigrateAll}
+  {@const eligibleNow = (storageDatasets?.stacks || []).filter((st) => !st.dataset && st.eligible)}
+  {@const totalNow = eligibleNow.reduce((sum, st) => sum + (st.sizeBytes || 0), 0)}
+  <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+  <div
+    class="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center-safe justify-center overflow-y-auto z-50 p-4"
+    on:click|self={() => (confirmMigrateAll = false)}
+    role="dialog"
+    aria-modal="true"
+    tabindex="-1"
+  >
+    <div class="bg-fjord-card border border-fjord-border rounded-xl shadow-2xl w-full max-w-md p-6 flex flex-col gap-4">
+      <h3 class="text-lg font-bold text-fjord-fg">Move all {eligibleNow.length} apps to ZFS datasets?</h3>
+      <p class="text-fjord-fg-muted text-sm leading-relaxed">
+        Moves apps one at a time{#if totalNow > 0} ({fmtBytes(totalNow)} total){/if}: stops each app, copies its data to its own dataset, and restarts it before starting the next. If one fails, it reverts untouched and continues with the rest. Keeps running if you leave this page.
+      </p>
+      <label class="flex items-start gap-2 text-xs text-fjord-fg-body cursor-pointer">
+        <input type="checkbox" bind:checked={migrateAllKeepOld} class="mt-0.5 accent-fjord-accent" />
+        <span>
+          Keep original folders as backup copies
+          <span class="block text-fjord-fg-muted mt-0.5">Renamed beside each dataset (<code class="font-mono">.pre-dataset-…</code>); uncheck to remove each old folder after its move succeeds.</span>
+        </span>
+      </label>
+      <div class="flex justify-end gap-3 pt-1">
+        <button
+          type="button"
+          on:click={() => (confirmMigrateAll = false)}
+          class="px-4 py-2 rounded-md text-sm font-medium text-fjord-fg-secondary hover:bg-fjord-border transition-colors"
+        >Cancel</button>
+        <button
+          type="button"
+          on:click={() => {
+            confirmMigrateAll = false;
+            startMigrateAll();
+          }}
+          class="px-4 py-2 rounded-md text-sm font-medium text-white bg-fjord-accent hover:bg-fjord-accent-hover transition-colors"
+        >Move all ({eligibleNow.length})</button>
+      </div>
+    </div>
+  </div>
 {/if}
 
 {#if auConfirmAll !== null}

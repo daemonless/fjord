@@ -10,20 +10,28 @@ export function keepsUpToDate(policy: string | undefined): boolean {
   return !!policy && policy !== 'off' && policy !== 'notify';
 }
 
+/** Strip a redundant "<stack>: " prefix when the service shares the stack's name. */
+function cleanReason(stack: string, reason?: string): string {
+  if (!reason) return '';
+  const prefix = `${stack}: `;
+  return reason.startsWith(prefix) ? reason.slice(prefix.length) : reason;
+}
+
 /** One line for what happened to a stack in a run. */
 export function resultLine(r: AutoResult): string {
   const what = r.services?.length ? ` (${r.services.join(', ')})` : '';
+  const reason = cleanReason(r.stack, r.reason);
   switch (r.result) {
     case 'updated':
       return `Updated${what}`;
     case 'rolled back':
-      return r.reason ? `Update failed${what} and was rolled back: ${r.reason}` : `Update failed${what} and was rolled back`;
+      return reason ? `Update failed${what} and was rolled back: ${reason}` : `Update failed${what} and was rolled back`;
     case 'failed':
-      return r.reason ? `Update failed${what}: ${r.reason}` : `Update failed${what}`;
+      return reason ? `Update failed${what}: ${reason}` : `Update failed${what}`;
     case 'waiting':
-      return r.reason ? `Waiting: ${r.reason}` : 'Waiting';
+      return reason ? `Waiting: ${reason}` : 'Waiting';
     default:
-      return r.reason ? `Skipped: ${r.reason}` : 'Skipped';
+      return reason ? `Skipped: ${reason}` : 'Skipped';
   }
 }
 
