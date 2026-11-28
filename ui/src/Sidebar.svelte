@@ -37,7 +37,7 @@
     select: Stack;
     navigate: {
       view: 'stacks' | 'store' | 'volumes' | 'networks' | 'system' | 'settings' | 'adopt';
-      settingsTab?: 'storage' | 'extensions' | 'catalogs' | 'updates' | 'advanced' | 'account';
+      settingsTab?: 'storage' | 'extensions' | 'catalogs' | 'maintenance' | 'names' | 'advanced' | 'account';
     };
     new: void;
     'update-all': void;

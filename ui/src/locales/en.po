@@ -97,8 +97,6 @@ msgid "Cancel"
 msgstr "Cancel"
 
 #: src/AddMount.svelte
-#: src/HistoryList.svelte
-#: src/HistoryList.svelte
 msgid "Host path"
 msgstr "Host path"
 
@@ -239,9 +237,9 @@ msgstr "Nothing to adopt — every container on this host already belongs to a s
 
 #: src/Adopt.svelte
 #: src/Dashboard.svelte
-#: src/HistoryList.svelte
 #: src/LoginButton.svelte
 #: src/Networks.svelte
+#: src/Settings.svelte
 #: src/Settings.svelte
 msgid "Hide"
 msgstr "Hide"
@@ -762,7 +760,6 @@ msgstr "Problems"
 
 #: src/ChangeVersionModal.svelte
 #: src/InstallWizard.svelte
-#: src/Settings.svelte
 #: src/Sidebar.svelte
 msgid "Updates"
 msgstr "Updates"
@@ -992,8 +989,6 @@ msgstr "<0>Stop {0}?</0> Stops and removes the containers. Your data is preserve
 msgid "Delete stack and data"
 msgstr "Delete stack and data"
 
-#: src/HistoryList.svelte
-#: src/HistoryList.svelte
 #: src/Networks.svelte
 #: src/Networks.svelte
 #: src/Networks.svelte
@@ -1206,6 +1201,7 @@ msgstr "Checking…"
 #~ msgid "A newer version is published — switch to it via Change Version"
 #~ msgstr "A newer version is published — switch to it via Change Version"
 
+#: src/HistoryList.svelte
 #: src/StackDetail.svelte
 msgid "Check again"
 msgstr "Check again"
@@ -1584,10 +1580,8 @@ msgid "Could not copy — select the text instead"
 msgstr "Could not copy — select the text instead"
 
 #: src/FixSnippet.svelte
-#: src/HistoryList.svelte
 #: src/LoginButton.svelte
 #: src/LoginButton.svelte
-#: src/Settings.svelte
 #: src/Terminal.svelte
 msgid "Copy"
 msgstr "Copy"
@@ -2612,6 +2606,7 @@ msgstr "App data locations saved"
 #: src/Settings.svelte
 #: src/Settings.svelte
 #: src/Settings.svelte
+#: src/Settings.svelte
 msgid "Save failed"
 msgstr "Save failed"
 
@@ -2636,6 +2631,8 @@ msgstr "Folder sets saved"
 #~ msgid "{0}d ago"
 #~ msgstr "{0}d ago"
 
+#: src/RestorePointPolicy.svelte
+#: src/Settings.svelte
 #: src/Settings.svelte
 msgid "Off"
 msgstr "Off"
@@ -2648,6 +2645,9 @@ msgstr "Hourly"
 msgid "Every 6 hours"
 msgstr "Every 6 hours"
 
+#: src/HistoryList.svelte
+#: src/RestorePointPolicy.svelte
+#: src/Settings.svelte
 #: src/Settings.svelte
 msgid "Daily"
 msgstr "Daily"
@@ -2737,7 +2737,6 @@ msgstr "About the App data folder"
 
 #: src/Settings.svelte
 #: src/Settings.svelte
-#: src/Settings.svelte
 #: src/System.svelte
 #: src/VarsPanel.svelte
 #: src/Volumes.svelte
@@ -2760,14 +2759,11 @@ msgstr "Remove location"
 msgid "<0/> Add location"
 msgstr "<0/> Add location"
 
-#. 0.0: (appData[0] || '').trim().replace(/\\\\/+$/, '') || '…'
-#: src/Settings.svelte
-msgid "Each app gets its own folder in the location chosen at install, like <0>{0}/radarr</0> — created at install; an existing folder is kept as-is."
-msgstr "Each app gets its own folder in the location chosen at install, like <0>{0}/radarr</0> — created at install; an existing folder is kept as-is."
+#~ msgid "Each app gets its own folder in the location chosen at install, like <0>{0}/radarr</0> — created at install; an existing folder is kept as-is."
+#~ msgstr "Each app gets its own folder in the location chosen at install, like <0>{0}/radarr</0> — created at install; an existing folder is kept as-is."
 
-#: src/Settings.svelte
-msgid "fjord keeps its own files (compose files, settings, catalog cache) in <0/>. Nothing of yours lives there."
-msgstr "fjord keeps its own files (compose files, settings, catalog cache) in <0/>. Nothing of yours lives there."
+#~ msgid "fjord keeps its own files (compose files, settings, catalog cache) in <0/>. Nothing of yours lives there."
+#~ msgstr "fjord keeps its own files (compose files, settings, catalog cache) in <0/>. Nothing of yours lives there."
 
 #: src/Settings.svelte
 msgid "About folder sets"
@@ -4234,7 +4230,6 @@ msgstr "With"
 msgid "Download"
 msgstr "Download"
 
-#: src/HistoryList.svelte
 #: src/InstallWizard.svelte
 msgid "Data"
 msgstr "Data"
@@ -5634,6 +5629,7 @@ msgstr "<0/> Updating now…"
 #~ msgstr "Next: {0}"
 
 #: src/Settings.svelte
+#: src/Settings.svelte
 msgid "Run now"
 msgstr "Run now"
 
@@ -5739,21 +5735,18 @@ msgstr "Loading..."
 msgid "Resume updates"
 msgstr "Resume updates"
 
-#: src/HistoryList.svelte
-msgid "Data restore points are off because <0/> uses a plain folder instead of its own dataset."
-msgstr "Data restore points are off because <0/> uses a plain folder instead of its own dataset."
+#~ msgid "Data restore points are off because <0/> uses a plain folder instead of its own dataset."
+#~ msgstr "Data restore points are off because <0/> uses a plain folder instead of its own dataset."
 
 #~ msgid "Removed after {0}"
 #~ msgstr "Removed after {0}"
 
-#~ msgid "Kept forever"
-#~ msgstr "Kept forever"
+#: src/HistoryList.svelte
+msgid "Kept forever"
+msgstr "Kept forever"
 
-#: src/HistoryList.svelte
-#: src/HistoryList.svelte
-#: src/HistoryList.svelte
-msgid "Hide path"
-msgstr "Hide path"
+#~ msgid "Hide path"
+#~ msgstr "Hide path"
 
 #~ msgid "Saved copy from {0}{1}"
 #~ msgstr "Saved copy from {0}{1}"
@@ -5775,25 +5768,21 @@ msgstr "Keep forever"
 
 #: src/HistoryList.svelte
 #: src/HistoryList.svelte
-#: src/HistoryList.svelte
-#: src/HistoryList.svelte
 msgid "Copy path"
 msgstr "Copy path"
 
-#. 0: totalPointCount; 1: totalPointBytes ? ` · ${fmtBytes(totalPointBytes)}` \\: ''
+#. 0: rp.dataset ? totalPointCount \\: 0; 1: rp.dataset && totalPointBytes ? ` · ${fmtBytes(totalPointBytes)}` \\: ''
 #: src/HistoryList.svelte
 msgid "Restore points ({0}{1})"
 msgstr "Restore points ({0}{1})"
 
-#: src/HistoryList.svelte
-msgid "Running now: <0/>"
-msgstr "Running now: <0/>"
+#~ msgid "Running now: <0/>"
+#~ msgstr "Running now: <0/>"
 
 #: src/HistoryList.svelte
 msgid "No saved restore points yet."
 msgstr "No saved restore points yet."
 
-#: src/HistoryList.svelte
 #: src/HistoryList.svelte
 msgid "Saved restore point"
 msgstr "Saved restore point"
@@ -5804,10 +5793,8 @@ msgstr "Saved restore point"
 #~ msgid "Data saved · {0}"
 #~ msgstr "Data saved · {0}"
 
-#. 0: fmtBytes(s.usedBytes)
-#: src/HistoryList.svelte
-msgid "Data saved before update · {0}"
-msgstr "Data saved before update · {0}"
+#~ msgid "Data saved before update · {0}"
+#~ msgstr "Data saved before update · {0}"
 
 #: src/HistoryList.svelte
 msgid "App only"
@@ -5821,9 +5808,8 @@ msgstr "Restore the previous app version. Keep all current data untouched."
 msgid "Restored:"
 msgstr "Restored:"
 
-#: src/HistoryList.svelte
-msgid "Not restored:"
-msgstr "Not restored:"
+#~ msgid "Not restored:"
+#~ msgstr "Not restored:"
 
 #~ msgid "{0} newer restore point(s) stay with the kept copy and expire with it."
 #~ msgstr "{0} newer restore point(s) stay with the kept copy and expire with it."
@@ -5925,13 +5911,11 @@ msgstr "Snapshot failed"
 msgid "Restore point deleted."
 msgstr "Restore point deleted."
 
-#: src/HistoryList.svelte
-msgid "Needs its own dataset"
-msgstr "Needs its own dataset"
+#~ msgid "Needs its own dataset"
+#~ msgstr "Needs its own dataset"
 
-#: src/HistoryList.svelte
-msgid "Data snapshots need ZFS"
-msgstr "Data snapshots need ZFS"
+#~ msgid "Data snapshots need ZFS"
+#~ msgstr "Data snapshots need ZFS"
 
 #: src/HistoryList.svelte
 msgid "+ Save restore point"
@@ -5964,10 +5948,8 @@ msgstr "Saves a snapshot of {0}'s data right now. The app keeps running with no 
 msgid "Delete restore point?"
 msgstr "Delete restore point?"
 
-#. 0: whenLabel(deleteSnapTarget.createdAt); 1: fmtBytes(deleteSnapTarget.usedBytes)
-#: src/HistoryList.svelte
-msgid "Permanently removes the manual restore point from {0} ({1}). Running data is not affected."
-msgstr "Permanently removes the manual restore point from {0} ({1}). Running data is not affected."
+#~ msgid "Permanently removes the manual restore point from {0} ({1}). Running data is not affected."
+#~ msgstr "Permanently removes the manual restore point from {0} ({1}). Running data is not affected."
 
 #: src/HistoryList.svelte
 msgid "Restore completed. Automatic updates stay paused."
@@ -5978,13 +5960,10 @@ msgid "Automatic updates resumed (skipping the version you rolled back from)."
 msgstr "Automatic updates resumed (skipping the version you rolled back from)."
 
 #. 0: isoDate(latestKept.until)
-#. 0: isoDate(c.until)
-#: src/HistoryList.svelte
 #: src/HistoryList.svelte
 msgid "kept until {0}"
 msgstr "kept until {0}"
 
-#: src/HistoryList.svelte
 #: src/HistoryList.svelte
 #: src/HistoryList.svelte
 msgid "kept forever"
@@ -6000,20 +5979,16 @@ msgstr "Your {0}data is {1}."
 msgid "Pinned{0}. Automatic updates are paused.<0/>"
 msgstr "Pinned{0}. Automatic updates are paused.<0/>"
 
-#. 0: c.version
-#: src/HistoryList.svelte
-msgid "{0} data"
-msgstr "{0} data"
+#~ msgid "{0} data"
+#~ msgstr "{0} data"
 
-#. 0: c.version ? `${c.version} data` \\: 'Data'; 1: fmtBytes(c.usedBytes); 2: c.until ? `kept until ${isoDate(c.until)}` \\: 'kept forever'
-#: src/HistoryList.svelte
-msgid "{0} saved before restore · {1} · {2}"
-msgstr "{0} saved before restore · {1} · {2}"
+#~ msgid "{0} saved before restore · {1} · {2}"
+#~ msgstr "{0} saved before restore · {1} · {2}"
+
+#~ msgid "Restored"
+#~ msgstr "Restored"
 
 #: src/HistoryList.svelte
-msgid "Restored"
-msgstr "Restored"
-
 #: src/HistoryList.svelte
 #: src/HistoryList.svelte
 msgid "More options"
@@ -6027,20 +6002,19 @@ msgid "Expire on {0}"
 msgstr "Expire on {0}"
 
 #. 0: fmtBytes(c.usedBytes)
+#. 0: fmtBytes(s.usedBytes)
 #. 0: fmtBytes(matchedCopy.usedBytes)
+#: src/HistoryList.svelte
 #: src/HistoryList.svelte
 #: src/HistoryList.svelte
 msgid "Delete ({0})"
 msgstr "Delete ({0})"
 
-#: src/HistoryList.svelte
-msgid "Updated"
-msgstr "Updated"
+#~ msgid "Updated"
+#~ msgstr "Updated"
 
-#. 0: fmtBytes(s.usedBytes)
-#: src/HistoryList.svelte
-msgid "Data saved · {0} · kept forever"
-msgstr "Data saved · {0} · kept forever"
+#~ msgid "Data saved · {0} · kept forever"
+#~ msgstr "Data saved · {0} · kept forever"
 
 #: src/HistoryList.svelte
 #: src/HistoryList.svelte
@@ -6106,16 +6080,15 @@ msgstr "Permanently removes the data saved before restore on {0} ({1}). Running 
 msgid "Migration failed ({0})"
 msgstr "Migration failed ({0})"
 
-#: src/HistoryList.svelte
-msgid "Moved to its own ZFS dataset. Data restore points are now on."
-msgstr "Moved to its own ZFS dataset. Data restore points are now on."
+#~ msgid "Moved to its own ZFS dataset. Data restore points are now on."
+#~ msgstr "Moved to its own ZFS dataset. Data restore points are now on."
 
 #: src/HistoryList.svelte
 msgid "Migration failed"
 msgstr "Migration failed"
 
 #: src/HistoryList.svelte
-#: src/HistoryList.svelte
+#: src/RestorePointPolicy.svelte
 #: src/Settings.svelte
 msgid "Move to dataset"
 msgstr "Move to dataset"
@@ -6124,10 +6097,8 @@ msgstr "Move to dataset"
 msgid "Estimated downtime"
 msgstr "Estimated downtime"
 
-#. 0: migratePlan.estSeconds; 1: fmtBytes(migratePlan.sizeBytes)
-#: src/HistoryList.svelte
-msgid "~{0}s ({1} at ~100 MB/s)"
-msgstr "~{0}s ({1} at ~100 MB/s)"
+#~ msgid "~{0}s ({1} at ~100 MB/s)"
+#~ msgstr "~{0}s ({1} at ~100 MB/s)"
 
 #: src/HistoryList.svelte
 msgid "Space needed"
@@ -6138,13 +6109,10 @@ msgstr "Space needed"
 msgid "{0} ({1} free)"
 msgstr "{0} ({1} free)"
 
-#. 0: fmtBytes(migratePlan.sizeBytes * 2)
-#: src/HistoryList.svelte
-msgid "Keep the old folder as a safety copy (uses ~{0} total until removed)"
-msgstr "Keep the old folder as a safety copy (uses ~{0} total until removed)"
+#~ msgid "Keep the old folder as a safety copy (uses ~{0} total until removed)"
+#~ msgstr "Keep the old folder as a safety copy (uses ~{0} total until removed)"
 
 #: src/HistoryList.svelte
-#: src/Settings.svelte
 msgid "Moving..."
 msgstr "Moving..."
 
@@ -6153,15 +6121,11 @@ msgstr "Moving..."
 msgid "Move {0} to its own dataset?"
 msgstr "Move {0} to its own dataset?"
 
-#. 0: fmtBytes(migratePlan.sizeBytes)
-#: src/HistoryList.svelte
-msgid "Creates <0/> and copies {0} from <1/> so fjord can take instant data restore points before updates."
-msgstr "Creates <0/> and copies {0} from <1/> so fjord can take instant data restore points before updates."
+#~ msgid "Creates <0/> and copies {0} from <1/> so fjord can take instant data restore points before updates."
+#~ msgstr "Creates <0/> and copies {0} from <1/> so fjord can take instant data restore points before updates."
 
-#. 0: stack
-#: src/HistoryList.svelte
-msgid "{0} stops while files are copied, then starts again automatically. If anything fails, the original folder is restored untouched."
-msgstr "{0} stops while files are copied, then starts again automatically. If anything fails, the original folder is restored untouched."
+#~ msgid "{0} stops while files are copied, then starts again automatically. If anything fails, the original folder is restored untouched."
+#~ msgstr "{0} stops while files are copied, then starts again automatically. If anything fails, the original folder is restored untouched."
 
 #. 0: name
 #: src/Settings.svelte
@@ -6173,14 +6137,14 @@ msgstr "{0} moved to its own dataset"
 msgid "Could not move {0}"
 msgstr "Could not move {0}"
 
-#: src/Settings.svelte
-msgid "<0/> sits on the OS root filesystem instead of its own ZFS dataset. Create a dedicated dataset on a new mountpoint and add it above so new or moved apps get instant data restore points:"
-msgstr "<0/> sits on the OS root filesystem instead of its own ZFS dataset. Create a dedicated dataset on a new mountpoint and add it above so new or moved apps get instant data restore points:"
+#~ msgid "<0/> sits on the OS root filesystem instead of its own ZFS dataset. Create a dedicated dataset on a new mountpoint and add it above so new or moved apps get instant data restore points:"
+#~ msgstr "<0/> sits on the OS root filesystem instead of its own ZFS dataset. Create a dedicated dataset on a new mountpoint and add it above so new or moved apps get instant data restore points:"
 
 #: src/Settings.svelte
 msgid "Own dataset"
 msgstr "Own dataset"
 
+#: src/Settings.svelte
 #: src/Settings.svelte
 msgid "Plain folder"
 msgstr "Plain folder"
@@ -6189,24 +6153,19 @@ msgstr "Plain folder"
 msgid "App datasets"
 msgstr "App datasets"
 
-#. 0: matchedCopy.version
-#: src/HistoryList.svelte
-msgid "{0} data saved"
-msgstr "{0} data saved"
+#~ msgid "{0} data saved"
+#~ msgstr "{0} data saved"
 
-#: src/HistoryList.svelte
-msgid "Data saved"
-msgstr "Data saved"
+#~ msgid "Data saved"
+#~ msgstr "Data saved"
 
 #. 0: isoDate(matchedCopy.until)
 #: src/HistoryList.svelte
 msgid "until {0}"
 msgstr "until {0}"
 
-#: src/HistoryList.svelte
-#: src/HistoryList.svelte
-msgid "Path"
-msgstr "Path"
+#~ msgid "Path"
+#~ msgstr "Path"
 
 #: src/Settings.svelte
 msgid "Time format"
@@ -6271,12 +6230,12 @@ msgid "to"
 msgstr "to"
 
 #: src/Settings.svelte
+#: src/Settings.svelte
 msgid "Next: <0/>"
 msgstr "Next: <0/>"
 
-#: src/Settings.svelte
-msgid "One stack at a time, checked to stay up."
-msgstr "One stack at a time, checked to stay up."
+#~ msgid "One stack at a time, checked to stay up."
+#~ msgstr "One stack at a time, checked to stay up."
 
 #: src/Settings.svelte
 msgid "Check for updates now"
@@ -6334,3 +6293,419 @@ msgstr "Turns automatic updates off for all {0} existing apps, overriding your p
 #: src/SetupWizard.svelte
 msgid "Installs rebuilds and minor updates overnight, with automatic rollback if one fails."
 msgstr "Installs rebuilds and minor updates overnight, with automatic rollback if one fails."
+
+#. 0: label
+#: src/HistoryList.svelte
+msgid "Restore {0}"
+msgstr "Restore {0}"
+
+#: src/HistoryList.svelte
+msgid "Restore prior"
+msgstr "Restore prior"
+
+#: src/HistoryList.svelte
+msgid "Manual restore point"
+msgstr "Manual restore point"
+
+#: src/HistoryList.svelte
+msgid "Daily restore point"
+msgstr "Daily restore point"
+
+#: src/HistoryList.svelte
+#: src/HistoryList.svelte
+msgid "Before update"
+msgstr "Before update"
+
+#. 0: ds; 1: data.backupDir
+#: src/HistoryList.svelte
+msgid "Moved to {0}. Restore points are now on. Original folder kept at {1}."
+msgstr "Moved to {0}. Restore points are now on. Original folder kept at {1}."
+
+#. 0: ds
+#: src/HistoryList.svelte
+msgid "Moved to {0}. Restore points are now on."
+msgstr "Moved to {0}. Restore points are now on."
+
+#: src/HistoryList.svelte
+msgid "Its data is in <0/> on the OS root filesystem. Move it to a dedicated ZFS dataset at <1/> (<2/>) to enable restore points with zero data loss."
+msgstr "Its data is in <0/> on the OS root filesystem. Move it to a dedicated ZFS dataset at <1/> (<2/>) to enable restore points with zero data loss."
+
+#: src/HistoryList.svelte
+msgid "Its data is in a plain folder<0/> instead of its own ZFS dataset. Move it into <1/> to enable restore points."
+msgstr "Its data is in a plain folder<0/> instead of its own ZFS dataset. Move it into <1/> to enable restore points."
+
+#: src/HistoryList.svelte
+msgid "a plain folder"
+msgstr "a plain folder"
+
+#: src/HistoryList.svelte
+msgid "This host already has a ZFS App data location (<0/>). New apps installed there get restore points automatically."
+msgstr "This host already has a ZFS App data location (<0/>). New apps installed there get restore points automatically."
+
+#: src/HistoryList.svelte
+#: src/Settings.svelte
+msgid "Create a dedicated ZFS dataset on the host: <0/>"
+msgstr "Create a dedicated ZFS dataset on the host: <0/>"
+
+#~ msgid "Add <0>/apps</0> in <1>Settings → Storage</1> and move it to the top so new apps get their own dataset automatically."
+#~ msgstr "Add <0>/apps</0> in <1>Settings → Storage</1> and move it to the top so new apps get their own dataset automatically."
+
+#: src/HistoryList.svelte
+msgid "Once added, click Check again and fjord will walk you through moving <0/> with zero data loss."
+msgstr "Once added, click Check again and fjord will walk you through moving <0/> with zero data loss."
+
+#: src/HistoryList.svelte
+msgid "Its data is in <0/>, which sits on the OS root filesystem. fjord only snapshots dedicated app datasets so a restore never touches the OS."
+msgstr "Its data is in <0/>, which sits on the OS root filesystem. fjord only snapshots dedicated app datasets so a restore never touches the OS."
+
+#: src/HistoryList.svelte
+msgid "Uses a plain folder instead of its own ZFS dataset. Check <0>Settings → Storage</0> to configure a ZFS App data location."
+msgstr "Uses a plain folder instead of its own ZFS dataset. Check <0>Settings → Storage</0> to configure a ZFS App data location."
+
+#: src/HistoryList.svelte
+msgid "Restore points are off for <0/>"
+msgstr "Restore points are off for <0/>"
+
+#: src/HistoryList.svelte
+#: src/Settings.svelte
+msgid "Move to dataset…"
+msgstr "Move to dataset…"
+
+#. 0: c.version
+#. 0: matchedCopy.version
+#: src/HistoryList.svelte
+#: src/HistoryList.svelte
+msgid "{0} saved before restore"
+msgstr "{0} saved before restore"
+
+#: src/HistoryList.svelte
+#: src/HistoryList.svelte
+msgid "Saved before restore"
+msgstr "Saved before restore"
+
+#: src/HistoryList.svelte
+msgid "Before restore"
+msgstr "Before restore"
+
+#. 0: isoDate(c.until)
+#: src/HistoryList.svelte
+msgid "Kept until {0}"
+msgstr "Kept until {0}"
+
+#: src/HistoryList.svelte
+#: src/HistoryList.svelte
+msgid "Copy host path"
+msgstr "Copy host path"
+
+#: src/HistoryList.svelte
+msgid " · Kept forever"
+msgstr " · Kept forever"
+
+#. 0: rp.retentionDays ?? 30
+#: src/HistoryList.svelte
+msgid "Automatic restore points are kept for {0} days. Manual points stay until deleted. <0>Change in Settings</0>"
+msgstr "Automatic restore points are kept for {0} days. Manual points stay until deleted. <0>Change in Settings</0>"
+
+#: src/HistoryList.svelte
+msgid "From"
+msgstr "From"
+
+#: src/HistoryList.svelte
+msgid "To"
+msgstr "To"
+
+#. 0: migratePlan.estSeconds; 1: fmtBytes(migratePlan.sizeBytes)
+#: src/HistoryList.svelte
+msgid "~{0}s ({1})"
+msgstr "~{0}s ({1})"
+
+#: src/HistoryList.svelte
+msgid ", updates volume paths to <0/>,"
+msgstr ", updates volume paths to <0/>,"
+
+#: src/HistoryList.svelte
+msgid "Stops <0/> cleanly so no files change during the copy."
+msgstr "Stops <0/> cleanly so no files change during the copy."
+
+#. 0: fmtBytes(migratePlan.sizeBytes)
+#: src/HistoryList.svelte
+msgid "Creates <0/>, copies {0} with permissions preserved<1/> and saves an initial restore point."
+msgstr "Creates <0/>, copies {0} with permissions preserved<1/> and saves an initial restore point."
+
+#: src/HistoryList.svelte
+msgid "Starts <0/> automatically. If anything fails, fjord reverts to <1/> untouched."
+msgstr "Starts <0/> automatically. If anything fails, fjord reverts to <1/> untouched."
+
+#: src/HistoryList.svelte
+msgid "How fjord keeps your data safe"
+msgstr "How fjord keeps your data safe"
+
+#. 0.0: fmtBytes(migratePlan.sizeBytes * 2)
+#: src/HistoryList.svelte
+msgid "Keep the original folder as a backup copy <0>Renamed beside the original (<0/>); uses ~{0} total until you remove it.</0>"
+msgstr "Keep the original folder as a backup copy <0>Renamed beside the original (<0/>); uses ~{0} total until you remove it.</0>"
+
+#. 0: whenLabel(deleteSnapTarget.createdAt); 1: fmtBytes(deleteSnapTarget.usedBytes)
+#: src/HistoryList.svelte
+msgid "Permanently removes this restore point from {0} ({1}). Running data is not affected."
+msgstr "Permanently removes this restore point from {0} ({1}). Running data is not affected."
+
+#. 0: e.message
+#: src/RestorePointPolicy.svelte
+msgid "Restore points: {0}"
+msgstr "Restore points: {0}"
+
+#: src/RestorePointPolicy.svelte
+#: src/Settings.svelte
+msgid "Before updates"
+msgstr "Before updates"
+
+#: src/RestorePointPolicy.svelte
+msgid "No automatic restore points. You can still save one by hand in History."
+msgstr "No automatic restore points. You can still save one by hand in History."
+
+#. 0: formatHM(dailyTime)
+#: src/RestorePointPolicy.svelte
+msgid "Saved automatically before updates and daily at {0}."
+msgstr "Saved automatically before updates and daily at {0}."
+
+#: src/RestorePointPolicy.svelte
+msgid "Saved automatically before each update."
+msgstr "Saved automatically before each update."
+
+#: src/RestorePointPolicy.svelte
+msgid "Set up ZFS"
+msgstr "Set up ZFS"
+
+#: src/RestorePointPolicy.svelte
+msgid "Off — uses a plain folder instead of its own ZFS dataset."
+msgstr "Off — uses a plain folder instead of its own ZFS dataset."
+
+#: src/RestorePointPolicy.svelte
+#: src/Settings.svelte
+#: src/SetupWizard.svelte
+msgid "Restore points"
+msgstr "Restore points"
+
+#. 0: saved; 1: saved === 1 ? 'point' \\: 'points'; 2: failed
+#: src/Settings.svelte
+msgid "Saved {0} restore {1}; {2} failed"
+msgstr "Saved {0} restore {1}; {2} failed"
+
+#. 0: failed; 1: failed === 1 ? 'app' \\: 'apps'
+#: src/Settings.svelte
+msgid "Restore point run failed for {0} {1}"
+msgstr "Restore point run failed for {0} {1}"
+
+#: src/Settings.svelte
+msgid "Saved restore point for 1 app"
+msgstr "Saved restore point for 1 app"
+
+#. 0: saved
+#: src/Settings.svelte
+msgid "Saved restore points for {0} apps"
+msgstr "Saved restore points for {0} apps"
+
+#: src/Settings.svelte
+msgid "Restore point settings saved"
+msgstr "Restore point settings saved"
+
+#: src/Settings.svelte
+msgid "Failed to save restore points"
+msgstr "Failed to save restore points"
+
+#: src/Settings.svelte
+msgid "Maintenance"
+msgstr "Maintenance"
+
+#: src/Settings.svelte
+msgid "Default"
+msgstr "Default"
+
+#: src/Settings.svelte
+msgid "ZFS dataset"
+msgstr "ZFS dataset"
+
+#. 0.0: (appData[0] || '').trim().replace(/\\\\/+$/, '') || '…'
+#: src/Settings.svelte
+msgid "Each app gets its own folder in the location chosen at install, like <0>{0}/radarr</0>."
+msgstr "Each app gets its own folder in the location chosen at install, like <0>{0}/radarr</0>."
+
+#: src/Settings.svelte
+msgid "fjord keeps its own files in <0/>."
+msgstr "fjord keeps its own files in <0/>."
+
+#. 0: rpSettings?.last?.failed; 1: rpSettings?.last?.failed === 1 ? 'app' \\: 'apps'
+#: src/Settings.svelte
+msgid "Last daily run failed for {0} {1} <0/>"
+msgstr "Last daily run failed for {0} {1} <0/>"
+
+#: src/Settings.svelte
+msgid "New apps do not save automatic restore points unless turned on per app."
+msgstr "New apps do not save automatic restore points unless turned on per app."
+
+#. 0: formatHM(rpDailyTime, timeFormat)
+#: src/Settings.svelte
+msgid "Saved before updates and daily at {0}. Change per app in its Settings tab."
+msgstr "Saved before updates and daily at {0}. Change per app in its Settings tab."
+
+#: src/Settings.svelte
+msgid "Saved automatically before updates. Change per app in its Settings tab."
+msgstr "Saved automatically before updates. Change per app in its Settings tab."
+
+#: src/Settings.svelte
+msgid "New apps"
+msgstr "New apps"
+
+#: src/Settings.svelte
+msgid "Keep automatic restore points for"
+msgstr "Keep automatic restore points for"
+
+#: src/Settings.svelte
+msgid "Manual restore points stay until you delete them."
+msgstr "Manual restore points stay until you delete them."
+
+#. 0: d
+#: src/Settings.svelte
+msgid "{0} days"
+msgstr "{0} days"
+
+#: src/Settings.svelte
+msgid "No apps on a ZFS dataset yet."
+msgstr "No apps on a ZFS dataset yet."
+
+#~ msgid "Applies to apps set to Daily ({0} of {1} ready {2})."
+#~ msgstr "Applies to apps set to Daily ({0} of {1} ready {2})."
+
+#: src/Settings.svelte
+msgid "Daily schedule time"
+msgstr "Daily schedule time"
+
+#: src/Settings.svelte
+msgid "Daily restore point time"
+msgstr "Daily restore point time"
+
+#: src/Settings.svelte
+msgid "Saving restore points…"
+msgstr "Saving restore points…"
+
+#: src/Settings.svelte
+msgid "No apps are set to Daily yet."
+msgstr "No apps are set to Daily yet."
+
+#: src/Settings.svelte
+msgid "Saves a restore point for every app set to Daily."
+msgstr "Saves a restore point for every app set to Daily."
+
+#: src/Settings.svelte
+msgid "Run daily restore points now"
+msgstr "Run daily restore points now"
+
+#~ msgid "Save now"
+#~ msgstr "Save now"
+
+#: src/Settings.svelte
+msgid "app ready"
+msgstr "app ready"
+
+#: src/Settings.svelte
+msgid "apps ready"
+msgstr "apps ready"
+
+#. 0: nonDatasetLocs.map((l) => l.path).join(', ')
+#: src/Settings.svelte
+msgid "{0} sits on the OS root dataset."
+msgstr "{0} sits on the OS root dataset."
+
+#: src/Settings.svelte
+msgid "Each app needs its own ZFS dataset."
+msgstr "Each app needs its own ZFS dataset."
+
+#: src/Settings.svelte
+msgid "Every app on this host has its own ZFS dataset."
+msgstr "Every app on this host has its own ZFS dataset."
+
+#. 0: readyCount; 1: dsStacks.length; 2: dsStacks.length === 1 ? 'app ready' \\: 'apps ready'
+#: src/Settings.svelte
+msgid "{0} of {1} {2} for restore points"
+msgstr "{0} of {1} {2} for restore points"
+
+#: src/Settings.svelte
+msgid "Setup needed"
+msgstr "Setup needed"
+
+#. 0: plainCount; 1: plainCount === 1 ? 'folder' \\: 'folders'
+#: src/Settings.svelte
+msgid "{0} plain {1}"
+msgstr "{0} plain {1}"
+
+#: src/Settings.svelte
+msgid "All ready"
+msgstr "All ready"
+
+#: src/Settings.svelte
+msgid "Manage"
+msgstr "Manage"
+
+#: src/Settings.svelte
+msgid "<0/> sits on the OS root dataset. fjord only snapshots dedicated app datasets so a restore never touches the OS."
+msgstr "<0/> sits on the OS root dataset. fjord only snapshots dedicated app datasets so a restore never touches the OS."
+
+#: src/Settings.svelte
+msgid "<0/> sits on the OS root dataset, so apps stored there cannot use restore points. New apps installed in <1/> get their own ZFS dataset automatically."
+msgstr "<0/> sits on the OS root dataset, so apps stored there cannot use restore points. New apps installed in <1/> get their own ZFS dataset automatically."
+
+#: src/Settings.svelte
+msgid "Moving…"
+msgstr "Moving…"
+
+#. 0: confirmMigrateStack.displayName || confirmMigrateStack.name
+#: src/Settings.svelte
+msgid "Move {0} to its own ZFS dataset?"
+msgstr "Move {0} to its own ZFS dataset?"
+
+#. 0: confirmMigrateStack.displayName || confirmMigrateStack.name; 1: confirmMigrateStack.plainFolder; 2: confirmMigrateStack.targetDir; 3: confirmMigrateStack.targetDataset
+#: src/Settings.svelte
+msgid "Stops {0}, copies {1} to {2} ({3}), updates its volume paths, and restarts it automatically. Keeps the original folder as a backup copy and reverts untouched if anything fails."
+msgstr "Stops {0}, copies {1} to {2} ({3}), updates its volume paths, and restarts it automatically. Keeps the original folder as a backup copy and reverts untouched if anything fails."
+
+#. 0: confirmMigrateStack.displayName || confirmMigrateStack.name; 1: confirmMigrateStack.plainFolder; 2: confirmMigrateStack.targetDataset
+#: src/Settings.svelte
+msgid "Stops {0}, moves {1} into {2}, and restarts it automatically. Keeps the original folder as a backup copy and reverts untouched if anything fails."
+msgstr "Stops {0}, moves {1} into {2}, and restarts it automatically. Keeps the original folder as a backup copy and reverts untouched if anything fails."
+
+#: src/SetupWizard.svelte
+msgid "Apps on ZFS save a restore point before updates automatically. Turn on daily restore points per app or in Settings → Maintenance."
+msgstr "Apps on ZFS save a restore point before updates automatically. Turn on daily restore points per app or in Settings → Maintenance."
+
+#: src/HistoryList.svelte
+#: src/Settings.svelte
+msgid "Add <0/> in <1>Settings → Storage</1> and move it to the top so new apps get their own dataset automatically."
+msgstr "Add <0/> in <1>Settings → Storage</1> and move it to the top so new apps get their own dataset automatically."
+
+#: src/Settings.svelte
+msgid "One app at a time, checked to stay up."
+msgstr "One app at a time, checked to stay up."
+
+#. 0: dailyCount; 1: readyCount; 2: readyCount === 1 ? 'app' \\: 'apps'
+#: src/Settings.svelte
+msgid "Applies to apps set to Daily ({0} of {1} {2} with a dataset)."
+msgstr "Applies to apps set to Daily ({0} of {1} {2} with a dataset)."
+
+#. 0: notCovered.shown; 1: notCovered.extra
+#: src/HistoryList.svelte
+msgid "Not included: {0} and {1} more. These folders stay as they are."
+msgstr "Not included: {0} and {1} more. These folders stay as they are."
+
+#. 0: notCovered.shown
+#: src/HistoryList.svelte
+msgid "Not included: {0}. These folders stay as they are."
+msgstr "Not included: {0}. These folders stay as they are."
+
+#: src/HistoryList.svelte
+msgid "Insert today's date"
+msgstr "Insert today's date"
+
+#: src/HistoryList.svelte
+msgid "+ Date"
+msgstr "+ Date"

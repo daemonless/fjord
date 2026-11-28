@@ -1,6 +1,7 @@
 <script lang="ts">
   import Account from './Account.svelte';
   import { isoDateTime } from './when';
+  import { zfsHintMountpoint } from './restorePoints';
   import { onMount, onDestroy, createEventDispatcher, tick } from 'svelte';
   import { resultLine, runSummary, type AutoUpdate } from './autoupdate';
   import Icon from './Icon.svelte';
@@ -109,7 +110,7 @@
 
   // Settings is organized into tabs; the active one lives in the URL
   // (#/settings/<tab>), owned by App: it arrives as a prop, changes go up.
-  export let tab: 'storage' | 'extensions' | 'catalogs' | 'updates' | 'names' | 'advanced' | 'account' = 'storage';
+  export let tab: 'storage' | 'extensions' | 'catalogs' | 'maintenance' | 'names' | 'advanced' | 'account' = 'storage';
   // A linked proxy has no page here: the apps it has not named yet are
   // offered on this tab instead.
   let nameStacks: any[] = [];
@@ -122,12 +123,17 @@
   $: chosenFormat = formatById(dateFormat);
   let timeFormat: TimeFormat = currentTimeFormat();
   const sampleTime = new Date(2026, 10, 27, 14, 5, 0);
+  const formatHM = (hm: string, fmt: TimeFormat) => {
+    const [h, m] = hm.split(':').map(Number);
+    if (Number.isNaN(h) || Number.isNaN(m)) return hm;
+    return formatTime(new Date(2000, 0, 1, h, m, 0), fmt);
+  };
   const now = new Date();
   const isoCount = FORMATS.filter((f) => f.iso).length;
   const todayIn = (format: string) => formatDate(now.getFullYear(), now.getMonth() + 1, now.getDate(), format, locale);
-  let activeTab: 'storage' | 'extensions' | 'catalogs' | 'updates' | 'names' | 'advanced' | 'account' = tab;
+  let activeTab: 'storage' | 'extensions' | 'catalogs' | 'maintenance' | 'names' | 'advanced' | 'account' = tab;
   $: activeTab = tab;
-  function selectTab(t: 'storage' | 'extensions' | 'catalogs' | 'updates' | 'names' | 'advanced' | 'account') {
+  function selectTab(t: 'storage' | 'extensions' | 'catalogs' | 'maintenance' | 'names' | 'advanced' | 'account') {
     activeTab = t;
     dispatch('tab', t);
   }
@@ -164,7 +170,7 @@
       // shown as it was; the next visit asks again
     }
   }
-  $: if (activeTab === 'updates') loadAuto();
+  $: if (activeTab === 'maintenance') loadAuto();
   onDestroy(() => clearTimeout(auPoll));
   async function saveDefaultForNew(next: boolean) {
     auSavingDefault = true;
@@ -335,7 +341,9 @@
     plainFolder?: string;
     eligible: boolean;
     reason?: string;
+    targetDir?: string;
     targetDataset?: string;
+    crossLocation?: boolean;
     sizeBytes: number;
   }
   interface StorageDatasetsData {
@@ -346,12 +354,113 @@
   }
   let storageDatasets: StorageDatasetsData | null = null;
   let migratingStack = '';
+  let confirmMigrateStack: StorageStackInfo | null = null;
+  let datasetsExpanded = false;
+  let datasetsTouched = false;
+
+  interface RestorePointSettings {
+    hasZfs: boolean;
+    defaultPolicy: 'off' | 'updates' | 'daily';
+    retentionDays: number;
+    dailyTime: string;
+    readyCount: number;
+    dailyCount: number;
+    totalCount: number;
+    running: boolean;
+    next?: string;
+    last?: { at?: string; saved?: number; failed?: number; errors?: string[] };
+  }
+  let rpSettings: RestorePointSettings | null = null;
+  let rpDefaultPolicy: 'off' | 'updates' | 'daily' = 'updates';
+  let rpRetentionDays = 30;
+  let rpDailyTime = '02:00';
+  let rpSaving = false;
+  let rpStarting = false;
+  let rpNotifyDone = false;
+  let rpPoll: ReturnType<typeof setTimeout> | undefined;
+
+  async function loadRestorePointSettings() {
+    clearTimeout(rpPoll);
+    try {
+      const r = await fetch('/api/settings/restore-points');
+      if (!r.ok) return;
+      const d: RestorePointSettings = await r.json();
+      rpSettings = d;
+      rpDefaultPolicy = d.defaultPolicy || 'updates';
+      rpRetentionDays = d.retentionDays || 30;
+      rpDailyTime = d.dailyTime || '02:00';
+      if (d.running) {
+        rpPoll = setTimeout(loadRestorePointSettings, 1500);
+      } else if (rpNotifyDone) {
+        rpNotifyDone = false;
+        const saved = d.last?.saved ?? 0;
+        const failed = d.last?.failed ?? 0;
+        if (failed > 0) {
+          toast(
+            saved > 0
+              ? `Saved ${saved} restore ${saved === 1 ? 'point' : 'points'}; ${failed} failed`
+              : `Restore point run failed for ${failed} ${failed === 1 ? 'app' : 'apps'}`,
+            { kind: 'error' },
+          );
+        } else {
+          toast(saved === 1 ? 'Saved restore point for 1 app' : `Saved restore points for ${saved} apps`, { kind: 'success' });
+        }
+      }
+    } catch {}
+  }
+  onDestroy(() => clearTimeout(rpPoll));
+
+  async function saveRestorePointSettings(patch: { defaultPolicy?: string; retentionDays?: number; dailyTime?: string }) {
+    rpSaving = true;
+    try {
+      const r = await fetch('/api/settings/restore-points', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(patch),
+      });
+      if (!r.ok) throw new Error((await r.text()).trim() || `HTTP ${r.status}`);
+      await loadRestorePointSettings();
+      toast('Restore point settings saved', { kind: 'success' });
+    } catch (e: any) {
+      toast(e.message || 'Save failed', { kind: 'error' });
+      await loadRestorePointSettings();
+    } finally {
+      rpSaving = false;
+    }
+  }
+
+  async function runDailyRestorePointsNow() {
+    rpStarting = true;
+    try {
+      const r = await fetch('/api/settings/restore-points/run', { method: 'POST' });
+      if (!r.ok) throw new Error((await r.text()).trim() || `HTTP ${r.status}`);
+      rpNotifyDone = true;
+      await loadRestorePointSettings();
+    } catch (e: any) {
+      toast(e.message || 'Failed to save restore points', { kind: 'error' });
+    } finally {
+      rpStarting = false;
+    }
+  }
 
   async function loadStorageDatasets() {
     try {
       const r = await fetch('/api/settings/storage/datasets');
-      if (r.ok) storageDatasets = await r.json();
+      if (r.ok) {
+        storageDatasets = await r.json();
+        if (!datasetsTouched) {
+          const locs = storageDatasets?.locations || [];
+          const hasDatasetLoc = locs.some((l) => l.isDataset);
+          const nonDs = locs.filter((l) => !l.isDataset);
+          datasetsExpanded = !!(!hasDatasetLoc && nonDs.length > 0 && storageDatasets?.zfsCreateHint);
+        }
+      }
     } catch {}
+  }
+
+  $: if (activeTab === 'maintenance') {
+    loadRestorePointSettings();
+    loadStorageDatasets();
   }
 
   async function moveStackToDataset(name: string) {
@@ -365,7 +474,7 @@
       });
       if (!r.ok) throw new Error((await r.text()).trim() || `HTTP ${r.status}`);
       toast(`${name} moved to its own dataset`, { kind: 'success' });
-      await loadStorageDatasets();
+      await Promise.all([loadStorageDatasets(), loadRestorePointSettings()]);
     } catch (e: any) {
       toast(e.message || `Could not move ${name}`, { kind: 'error' });
     } finally {
@@ -894,10 +1003,10 @@
             : 'border-transparent text-fjord-fg-muted hover:text-fjord-fg-body'}">Catalogs</button
         >
         <button
-          on:click={() => selectTab('updates')}
-          class="px-4 py-2 text-sm font-medium -mb-px border-b-2 transition-colors {activeTab === 'updates'
+          on:click={() => selectTab('maintenance')}
+          class="px-4 py-2 text-sm font-medium -mb-px border-b-2 transition-colors {activeTab === 'maintenance'
             ? 'border-fjord-accent text-fjord-fg'
-            : 'border-transparent text-fjord-fg-muted hover:text-fjord-fg-body'}">Updates</button
+            : 'border-transparent text-fjord-fg-muted hover:text-fjord-fg-body'}">Maintenance</button
         >
         <button
           on:click={() => selectTab('names')}
@@ -937,7 +1046,8 @@
           <div class="text-xs text-fjord-fg-muted bg-fjord-inset border border-fjord-border rounded-md px-3 py-2 mb-2 whitespace-pre-line leading-relaxed">{storageHelp}</div>
         {/if}
         <div class="space-y-1.5">
-          {#each appData as _, i (i)}
+          {#each appData as loc, i (i)}
+            {@const locInfo = storageDatasets?.locations?.find((l) => l.path === loc.trim().replace(/\/+$/, ''))}
             <div class="flex items-center gap-2">
               <input
                 bind:value={appData[i]}
@@ -946,7 +1056,12 @@
                 class="flex-1 min-w-0 bg-fjord-inset border border-fjord-border rounded-md px-3 py-2 text-sm text-fjord-fg-body font-mono focus:outline-none focus:border-fjord-accent"
               />
               {#if i === 0}
-                <span class="shrink-0 text-[10px] font-semibold uppercase tracking-wide text-fjord-fg-dim border border-fjord-border rounded px-1.5 py-0.5">default</span>
+                <span class="shrink-0 text-[10px] font-semibold uppercase tracking-wide text-fjord-accent border border-fjord-accent/40 bg-fjord-accent/10 rounded px-1.5 py-0.5">Default</span>
+              {/if}
+              {#if storageDatasets?.hasZfs && locInfo}
+                <span class="shrink-0 text-[10px] font-medium rounded px-1.5 py-0.5 border {locInfo.isDataset ? 'border-fjord-success/40 bg-fjord-success/10 text-fjord-success' : 'border-fjord-border text-fjord-fg-dim'}">
+                  {locInfo.isDataset ? 'ZFS dataset' : 'Plain folder'}
+                </span>
               {/if}
               <button on:click={() => (pickAppData = i)} title="Browse" class="shrink-0 px-2 py-1.5 rounded-md text-xs bg-fjord-inset border border-fjord-border text-fjord-fg-secondary hover:text-fjord-fg">Browse…</button>
               {#if appData.length > 1}
@@ -968,72 +1083,11 @@
         </div>
         <p class="text-xs text-fjord-fg-dim mt-1.5">
           Each app gets its own folder in the location chosen at install, like
-          <span class="font-mono text-fjord-fg-muted">{(appData[0] || '').trim().replace(/\/+$/, '') || '…'}/radarr</span>
-          — created at install; an existing folder is kept as-is.
+          <span class="font-mono text-fjord-fg-muted">{(appData[0] || '').trim().replace(/\/+$/, '') || '…'}/radarr</span>.
         </p>
-        <p class="text-xs text-fjord-fg-faint mt-3">
-          fjord keeps its own files (compose files, settings, catalog cache) in
-          <span class="font-mono">{about.fjordRoot}</span>. Nothing of yours lives there.
+        <p class="text-xs text-fjord-fg-faint mt-2">
+          fjord keeps its own files in <span class="font-mono">{about.fjordRoot}</span>.
         </p>
-
-        {#if storageDatasets?.hasZfs}
-          {@const nonDatasetLocs = storageDatasets.locations.filter((l) => !l.isDataset)}
-          {#if nonDatasetLocs.length > 0 && storageDatasets.zfsCreateHint}
-            <div class="mt-4 rounded-lg border border-fjord-accent/40 bg-fjord-accent/10 px-3.5 py-2.5 text-xs text-fjord-fg-body">
-              <div>
-                <span class="font-mono">{nonDatasetLocs.map((l) => l.path).join(', ')}</span> sits on the OS root filesystem instead of its own ZFS dataset. Create a dedicated dataset on a new mountpoint and add it above so new or moved apps get instant data restore points:
-              </div>
-              <div class="mt-1.5 flex flex-wrap items-center gap-2">
-                <code class="rounded border border-fjord-border bg-fjord-bg px-2 py-0.5 font-mono text-fjord-fg">{storageDatasets.zfsCreateHint}</code>
-                <button
-                  type="button"
-                  class="text-fjord-accent hover:underline"
-                  on:click={() => {
-                    if (navigator.clipboard) navigator.clipboard.writeText(storageDatasets?.zfsCreateHint || '').catch(() => {});
-                    toast('Command copied', { kind: 'success' });
-                  }}
-                >Copy</button>
-              </div>
-            </div>
-          {/if}
-
-          {#if storageDatasets.stacks.length > 0}
-            <div class="mt-6">
-              <h4 class="text-xs font-semibold uppercase tracking-wide text-fjord-fg-muted mb-2">App datasets</h4>
-              <ul class="divide-y divide-fjord-border rounded-lg border border-fjord-border bg-fjord-inset text-xs">
-                {#each storageDatasets.stacks as st (st.name)}
-                  <li class="flex flex-wrap items-center justify-between gap-2 px-3 py-2">
-                    <div class="min-w-0">
-                      <span class="font-medium text-fjord-fg">{st.displayName || st.name}</span>
-                      {#if st.dataset}
-                        <span class="ml-2 font-mono text-fjord-fg-dim">{st.dataset}</span>
-                      {:else if st.plainFolder}
-                        <span class="ml-2 font-mono text-fjord-fg-dim">{st.plainFolder}</span>
-                      {/if}
-                      {#if !st.dataset && !st.eligible && st.reason}
-                        <div class="text-fjord-fg-dim mt-0.5">{st.reason}</div>
-                      {/if}
-                    </div>
-                    <div class="shrink-0">
-                      {#if st.dataset}
-                        <span class="rounded border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 text-[11px] font-medium text-emerald-400">Own dataset</span>
-                      {:else if st.eligible}
-                        <button
-                          type="button"
-                          disabled={migratingStack !== ''}
-                          on:click={() => moveStackToDataset(st.name)}
-                          class="rounded-md border border-fjord-border bg-fjord-surface px-2.5 py-1 text-xs font-medium text-fjord-fg hover:bg-fjord-border disabled:opacity-50"
-                        >{migratingStack === st.name ? 'Moving...' : 'Move to dataset'}</button>
-                      {:else}
-                        <span class="rounded border border-fjord-border px-2 py-0.5 text-[11px] text-fjord-fg-dim">Plain folder</span>
-                      {/if}
-                    </div>
-                  </li>
-                {/each}
-              </ul>
-            </div>
-          {/if}
-        {/if}
       </div>
 
         <!-- Folder sets (homelab provider plugin) -->
@@ -1362,7 +1416,8 @@
       {/if}
     {/if}
 
-    {#if activeTab === 'updates'}
+    {#if activeTab === 'maintenance'}
+      {#key `${dateFormat}:${timeFormat}`}
       <div class="max-w-2xl flex flex-col gap-6" data-updates-settings>
         {#if au?.paused}
           <div data-au-paused class="flex items-center gap-3 px-4 py-2.5 rounded-xl bg-fjord-danger/10 border border-fjord-danger/25 text-sm text-fjord-fg-body">
@@ -1395,6 +1450,11 @@
             <div class="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
               <div class="min-w-0">
                 <div class="text-sm font-medium text-fjord-fg">Update window</div>
+                {#if au?.next && !au?.running}
+                  <div class="text-xs text-fjord-fg-muted mt-0.5" data-au-next>
+                    Next: <span class="font-mono">{isoDateTime(au.next)}</span>
+                  </div>
+                {/if}
               </div>
               <div class="flex items-center gap-2 text-sm">
                 <input id="au-start" aria-label="Update window start" type="time" step="900" bind:value={auStart} on:change={saveWindow}
@@ -1411,10 +1471,8 @@
                 <div class="text-xs text-fjord-fg-muted mt-0.5">
                   {#if au?.running}
                     <span class="inline-flex items-center gap-1.5" data-au-running><Spinner size={12} /> Updating now…</span>
-                  {:else if au?.next}
-                    <span data-au-next>Next: <span class="font-mono">{isoDateTime(au.next)}</span></span>
                   {:else}
-                    One stack at a time, checked to stay up.
+                    One app at a time, checked to stay up.
                   {/if}
                 </div>
               </div>
@@ -1484,7 +1542,249 @@
             </div>
           </div>
         </div>
+
+        {#if storageDatasets?.hasZfs}
+          {@const dsStacks = storageDatasets.stacks || []}
+          {@const readyCount = dsStacks.filter((st) => !!st.dataset).length}
+          {@const plainCount = dsStacks.length - readyCount}
+          {@const datasetLocs = storageDatasets.locations.filter((l) => l.isDataset)}
+          {@const nonDatasetLocs = storageDatasets.locations.filter((l) => !l.isDataset)}
+          {@const needsZfsDatasetLoc = datasetLocs.length === 0 && nonDatasetLocs.length > 0 && !!storageDatasets.zfsCreateHint}
+          {@const dailyCount = rpSettings?.dailyCount ?? 0}
+          {@const rpCardDisabled = readyCount === 0 && (dsStacks.length > 0 || needsZfsDatasetLoc)}
+          {@const showDailyRows = rpDefaultPolicy === 'daily' || dailyCount > 0}
+          <div class="flex flex-col gap-6" data-restore-points-settings>
+            {#if (rpSettings?.last?.failed ?? 0) > 0}
+              <div class="rounded-xl border border-fjord-danger/30 bg-fjord-danger/10 px-4 py-3 text-xs text-fjord-fg-body">
+                <div class="font-semibold text-fjord-danger">
+                  Last daily run failed for {rpSettings?.last?.failed} {rpSettings?.last?.failed === 1 ? 'app' : 'apps'}
+                  {#if rpSettings?.last?.at}({isoDateTime(rpSettings.last.at)}){/if}
+                </div>
+                {#if rpSettings?.last?.errors?.length}
+                  <ul class="mt-1 space-y-0.5 font-mono text-fjord-fg-muted">
+                    {#each rpSettings.last.errors as errLine}
+                      <li>{errLine}</li>
+                    {/each}
+                  </ul>
+                {/if}
+              </div>
+            {/if}
+
+            <div>
+              <h3 class="text-xs font-semibold text-fjord-fg-secondary uppercase tracking-wide mb-2 px-0.5">Restore points</h3>
+              <div class="rounded-xl border border-fjord-border bg-fjord-card divide-y divide-fjord-border overflow-hidden {rpCardDisabled ? 'opacity-65' : ''}">
+                <div class="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
+                  <div class="min-w-0 max-w-prose">
+                    <div class="text-sm font-medium text-fjord-fg">New apps</div>
+                    <p class="text-xs text-fjord-fg-muted mt-0.5">
+                      {#if rpDefaultPolicy === 'off'}
+                        New apps do not save automatic restore points unless turned on per app.
+                      {:else if rpDefaultPolicy === 'daily'}
+                        Saved before updates and daily at {formatHM(rpDailyTime, timeFormat)}. Change per app in its Settings tab.
+                      {:else}
+                        Saved automatically before updates. Change per app in its Settings tab.
+                      {/if}
+                    </p>
+                  </div>
+                  <div class="inline-flex rounded-lg border border-fjord-border bg-fjord-inset p-0.5 text-xs shrink-0">
+                    {#each [
+                      { id: 'off', label: 'Off' },
+                      { id: 'updates', label: 'Before updates' },
+                      { id: 'daily', label: 'Daily' },
+                    ] as opt (opt.id)}
+                      <button
+                        type="button"
+                        disabled={rpSaving || rpCardDisabled}
+                        on:click={() => saveRestorePointSettings({ defaultPolicy: opt.id })}
+                        class="rounded-md px-2.5 py-1 transition-colors disabled:pointer-events-none {rpDefaultPolicy === opt.id
+                          ? 'bg-fjord-card font-semibold text-fjord-fg'
+                          : 'text-fjord-fg-muted hover:text-fjord-fg'}"
+                      >{opt.label}</button>
+                    {/each}
+                  </div>
+                </div>
+
+                <div class="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
+                  <div class="min-w-0 max-w-prose">
+                    <div class="text-sm font-medium text-fjord-fg">Keep automatic restore points for</div>
+                    <p class="text-xs text-fjord-fg-muted mt-0.5">Manual restore points stay until you delete them.</p>
+                  </div>
+                  <div class="inline-flex rounded-lg border border-fjord-border bg-fjord-inset p-0.5 text-xs shrink-0">
+                    {#each [7, 14, 30, 90] as d (d)}
+                      <button
+                        type="button"
+                        disabled={rpSaving || rpCardDisabled}
+                        on:click={() => saveRestorePointSettings({ retentionDays: d })}
+                        class="rounded-md px-2.5 py-1 transition-colors disabled:pointer-events-none {rpRetentionDays === d
+                          ? 'bg-fjord-card font-semibold text-fjord-fg'
+                          : 'text-fjord-fg-muted hover:text-fjord-fg'}"
+                      >{d} days</button>
+                    {/each}
+                  </div>
+                </div>
+
+                {#if showDailyRows}
+                  <div class="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
+                    <div class="min-w-0">
+                      <div class="text-sm font-medium text-fjord-fg">Daily schedule time</div>
+                      <p class="text-xs text-fjord-fg-muted mt-0.5">
+                        {#if readyCount === 0}
+                          No apps on a ZFS dataset yet.
+                        {:else}
+                          Applies to apps set to Daily ({dailyCount} of {readyCount} {readyCount === 1 ? 'app' : 'apps'} with a dataset).
+                        {/if}
+                      </p>
+                    </div>
+                    <input
+                      type="time"
+                      aria-label="Daily restore point time"
+                      disabled={rpSaving || rpCardDisabled}
+                      bind:value={rpDailyTime}
+                      on:change={() => saveRestorePointSettings({ dailyTime: rpDailyTime })}
+                      class="bg-fjord-inset border border-fjord-border rounded-md px-2 py-1 font-mono text-sm text-fjord-fg-body focus:outline-none focus:border-fjord-accent disabled:opacity-50"
+                    />
+                  </div>
+
+                  <div class="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
+                    <div class="min-w-0">
+                      <div class="text-sm font-medium text-fjord-fg">Run daily restore points now</div>
+                      <p class="text-xs text-fjord-fg-muted mt-0.5">
+                        {#if rpSettings?.running || rpStarting}
+                          Saving restore points…
+                        {:else if dailyCount === 0}
+                          No apps are set to Daily yet.
+                        {:else if rpSettings?.next}
+                          Next: <span class="font-mono">{isoDateTime(rpSettings.next)}</span>
+                        {:else}
+                          Saves a restore point for every app set to Daily.
+                        {/if}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      disabled={rpStarting || !!rpSettings?.running || dailyCount === 0 || rpCardDisabled}
+                      on:click={runDailyRestorePointsNow}
+                      class="shrink-0 text-xs font-medium text-fjord-fg-secondary hover:text-fjord-fg py-1.5 px-3 rounded-lg border border-fjord-border hover:bg-fjord-border/40 transition-colors disabled:opacity-40"
+                    >Run now</button>
+                  </div>
+                {/if}
+              </div>
+            </div>
+
+            <div>
+              <h3 class="text-xs font-semibold text-fjord-fg-secondary uppercase tracking-wide mb-2 px-0.5">App datasets</h3>
+              <div class="rounded-xl border border-fjord-border bg-fjord-card overflow-hidden">
+                <button
+                  type="button"
+                  on:click={() => {
+                    datasetsTouched = true;
+                    datasetsExpanded = !datasetsExpanded;
+                  }}
+                  class="w-full flex flex-wrap items-center justify-between gap-3 px-4 py-3 text-left hover:bg-fjord-border/20 transition-colors"
+                >
+                  <div class="min-w-0">
+                    <div class="text-sm font-medium text-fjord-fg">
+                      {readyCount} of {dsStacks.length} {dsStacks.length === 1 ? 'app ready' : 'apps ready'} for restore points
+                    </div>
+                    <div class="text-xs text-fjord-fg-muted mt-0.5">
+                      {#if needsZfsDatasetLoc}
+                        {nonDatasetLocs.map((l) => l.path).join(', ')} sits on the OS root dataset.
+                      {:else if plainCount > 0}
+                        Each app needs its own ZFS dataset.
+                      {:else}
+                        Every app on this host has its own ZFS dataset.
+                      {/if}
+                    </div>
+                  </div>
+                  <div class="flex items-center gap-2 shrink-0">
+                    {#if needsZfsDatasetLoc}
+                      <span class="rounded-full border border-fjord-accent/40 bg-fjord-accent/10 px-2 py-0.5 text-[11px] font-medium text-fjord-accent">Setup needed</span>
+                    {:else if plainCount > 0}
+                      <span class="rounded-full border border-fjord-accent/40 bg-fjord-accent/10 px-2 py-0.5 text-[11px] font-medium text-fjord-accent">{plainCount} plain {plainCount === 1 ? 'folder' : 'folders'}</span>
+                    {:else if dsStacks.length > 0}
+                      <span class="rounded-full border border-fjord-success/40 bg-fjord-success/10 px-2 py-0.5 text-[11px] font-medium text-fjord-success">All ready</span>
+                    {/if}
+                    <span class="text-xs text-fjord-fg-muted">{datasetsExpanded ? 'Hide' : 'Manage'}</span>
+                  </div>
+                </button>
+
+                {#if datasetsExpanded}
+                  <div class="bg-fjord-inset border-t border-fjord-border px-4 py-3 space-y-3">
+                    {#if needsZfsDatasetLoc}
+                      <div class="rounded-lg border border-fjord-warning/35 bg-fjord-warning/10 px-3 py-2.5 text-xs text-fjord-fg-body space-y-1.5">
+                        <div>
+                          <span class="font-mono">{nonDatasetLocs.map((l) => l.path).join(', ')}</span> sits on the OS root dataset. fjord only snapshots dedicated app datasets so a restore never touches the OS.
+                        </div>
+                        <ol class="list-decimal list-inside space-y-1 text-fjord-fg-muted">
+                          <li>
+                            Create a dedicated ZFS dataset on the host:
+                            <span class="mt-1 flex flex-wrap items-center gap-2">
+                              <code class="rounded border border-fjord-border bg-fjord-bg px-2 py-0.5 font-mono text-fjord-fg">{storageDatasets.zfsCreateHint}</code>
+                              <button
+                                type="button"
+                                class="text-fjord-accent hover:underline"
+                                on:click={() => {
+                                  if (navigator.clipboard) navigator.clipboard.writeText(storageDatasets?.zfsCreateHint || '').catch(() => {});
+                                  toast('Command copied', { kind: 'success' });
+                                }}
+                              >Copy</button>
+                            </span>
+                          </li>
+                          <li>
+                            Add <span class="font-mono">{zfsHintMountpoint(storageDatasets.zfsCreateHint)}</span> in <button type="button" class="text-fjord-accent hover:underline" on:click={() => selectTab('storage')}>Settings → Storage</button> and move it to the top so new apps get their own dataset automatically.
+                          </li>
+                        </ol>
+                      </div>
+                    {:else if nonDatasetLocs.length > 0 && datasetLocs.length > 0}
+                      <div class="rounded-lg border border-fjord-border bg-fjord-card px-3 py-2 text-xs text-fjord-fg-muted">
+                        <span class="font-mono">{nonDatasetLocs.map((l) => l.path).join(', ')}</span> sits on the OS root dataset, so apps stored there cannot use restore points. New apps installed in <span class="font-mono">{datasetLocs[0].path}</span> get their own ZFS dataset automatically.
+                      </div>
+                    {/if}
+
+                    {#if dsStacks.length > 0}
+                      <ul class="divide-y divide-fjord-border/60 text-xs">
+                        {#each dsStacks as st (st.name)}
+                          <li class="py-2 flex flex-wrap items-center justify-between gap-2">
+                            <div class="min-w-0">
+                              <span class="font-medium text-fjord-fg">{st.displayName || st.name}</span>
+                              {#if st.dataset}
+                                <span class="ml-2 font-mono text-fjord-fg-dim">{st.dataset}</span>
+                              {:else if st.plainFolder}
+                                <span class="ml-2 font-mono text-fjord-fg-dim">{st.plainFolder}</span>
+                                {#if st.eligible && st.targetDataset}
+                                  <div class="text-fjord-fg-dim mt-0.5">→ <span class="font-mono">{st.targetDataset}</span></div>
+                                {/if}
+                              {/if}
+                              {#if !st.dataset && !st.eligible && st.reason}
+                                <div class="text-fjord-fg-dim mt-0.5">{st.reason}</div>
+                              {/if}
+                            </div>
+                            <div class="shrink-0">
+                              {#if st.dataset}
+                                <span class="rounded-full border border-fjord-success/40 bg-fjord-success/10 px-2 py-0.5 text-[11px] font-medium text-fjord-success">Own dataset</span>
+                              {:else if st.eligible}
+                                <button
+                                  type="button"
+                                  disabled={migratingStack !== ''}
+                                  on:click={() => (confirmMigrateStack = st)}
+                                  class="rounded-md border border-fjord-border bg-fjord-card px-2.5 py-1 text-xs font-medium text-fjord-fg hover:bg-fjord-border disabled:opacity-50"
+                                >{migratingStack === st.name ? 'Moving…' : 'Move to dataset…'}</button>
+                              {:else}
+                                <span class="rounded-full border border-fjord-border px-2 py-0.5 text-[11px] text-fjord-fg-dim">Plain folder</span>
+                              {/if}
+                            </div>
+                          </li>
+                        {/each}
+                      </ul>
+                    {/if}
+                  </div>
+                {/if}
+              </div>
+            </div>
+          </div>
+        {/if}
       </div>
+      {/key}
     {/if}
 
     {#if activeTab === 'names'}
@@ -1625,6 +1925,22 @@
       pickAppData = null;
     }}
     on:close={() => (pickAppData = null)}
+  />
+{/if}
+
+{#if confirmMigrateStack}
+  <ConfirmDialog
+    title="Move {confirmMigrateStack.displayName || confirmMigrateStack.name} to its own ZFS dataset?"
+    message={confirmMigrateStack.crossLocation
+      ? `Stops ${confirmMigrateStack.displayName || confirmMigrateStack.name}, copies ${confirmMigrateStack.plainFolder} to ${confirmMigrateStack.targetDir} (${confirmMigrateStack.targetDataset}), updates its volume paths, and restarts it automatically. Keeps the original folder as a backup copy and reverts untouched if anything fails.`
+      : `Stops ${confirmMigrateStack.displayName || confirmMigrateStack.name}, moves ${confirmMigrateStack.plainFolder} into ${confirmMigrateStack.targetDataset}, and restarts it automatically. Keeps the original folder as a backup copy and reverts untouched if anything fails.`}
+    confirmLabel="Move to dataset"
+    on:cancel={() => (confirmMigrateStack = null)}
+    on:confirm={() => {
+      const target = confirmMigrateStack;
+      confirmMigrateStack = null;
+      if (target) moveStackToDataset(target.name);
+    }}
   />
 {/if}
 
