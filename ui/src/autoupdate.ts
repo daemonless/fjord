@@ -3,7 +3,7 @@
 
 export type AutoResult = { stack: string; services?: string[]; result: 'updated' | 'rolled back' | 'failed' | 'waiting' | 'skipped'; reason?: string };
 export type AutoRun = { at?: string; trigger?: string; window?: string; results?: AutoResult[]; paused?: boolean };
-export type AutoUpdate = { start: string; end: string; running: boolean; next: string; last: AutoRun; paused?: string };
+export type AutoUpdate = { start: string; end: string; defaultForNew?: boolean; stacksOn?: number; stacksTotal?: number; running: boolean; next: string; last: AutoRun; paused?: string };
 
 /** On is any policy that applies updates by itself. */
 export function keepsUpToDate(policy: string | undefined): boolean {

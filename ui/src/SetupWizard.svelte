@@ -11,6 +11,7 @@
   import DirPicker from './DirPicker.svelte';
   import FolderRows from './FolderRows.svelte';
   import SetupReady from './SetupReady.svelte';
+  import Switch from './Switch.svelte';
   import {
     buildSavedFolderSets,
     mergeAppDataLocations,
@@ -324,10 +325,38 @@
     dispatch('done');
   }
 
+  // ---- 5. automatic updates default ----
+  let autoUpdateDefault = false;
+  let savingAutoUpdate = false;
+  async function loadAutoUpdate() {
+    try {
+      const r = await fetch('/api/autoupdate');
+      if (r.ok) autoUpdateDefault = !!(await r.json()).defaultForNew;
+    } catch {}
+  }
+  async function setAutoUpdateDefault(next: boolean) {
+    savingAutoUpdate = true;
+    try {
+      const r = await fetch('/api/autoupdate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ defaultForNew: next }),
+      });
+      if (!r.ok) throw new Error((await r.text()).trim() || `HTTP ${r.status}`);
+      autoUpdateDefault = next;
+    } catch (e: any) {
+      autoUpdateDefault = !next;
+      toast(`Keep new apps up to date: ${e.message || 'not saved'}`, { kind: 'error' });
+    } finally {
+      savingAutoUpdate = false;
+    }
+  }
+
   onMount(() => {
     loadEngine();
     loadStorage();
     loadCatalog();
+    loadAutoUpdate();
     // Up front, not on the way into the step: the indicator has to know from
     // the first screen whether there is an "Already running" step at all.
     lookForCandidates();
@@ -507,6 +536,15 @@
               </div>
             </div>
           {/each}
+        </div>
+        <div class="mt-5 border border-fjord-border rounded-xl px-4 py-3 flex items-center gap-3" data-setup-keep-up-to-date>
+          <div class="min-w-0 flex-1">
+            <div class="text-sm font-medium text-fjord-fg">Keep new apps up to date</div>
+            <div class="text-xs text-fjord-fg-dim mt-0.5">
+              Installs rebuilds and minor updates overnight, with automatic rollback if one fails.
+            </div>
+          </div>
+          <Switch checked={autoUpdateDefault} disabled={savingAutoUpdate} label="Keep new apps up to date" on:change={(e) => setAutoUpdateDefault(e.detail)} />
         </div>
       {/if}
 

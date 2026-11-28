@@ -16,20 +16,24 @@ import (
 
 const updateSnapshotsKept = 3
 
+// snapshotBeforeUpdateFn is the hook snapshotBeforeUpdate calls; tests replace it.
+var snapshotBeforeUpdateFn = dataset.Snapshot
+
 // snapshotBeforeUpdate takes an automatic pre-update ZFS snapshot of a
 // stack's own dataset and records it in state.json. Plain-folder stacks are
-// skipped (strict per-app datasets only).
-func (s *server) snapshotBeforeUpdate(ctx context.Context, st *stack.Stack) string {
+// skipped (strict per-app datasets only). Returns an error when snapshotting
+// a dataset-backed stack fails so automatic updates can abort safely.
+func (s *server) snapshotBeforeUpdate(ctx context.Context, st *stack.Stack) (string, error) {
 	if st == nil || st.State == nil || st.State.Dataset == "" {
-		return ""
+		return "", nil
 	}
 	snapCtx, cancel := context.WithTimeout(ctx, time.Minute)
 	defer cancel()
 	_, imagesJSON := currentStackVersionImage(snapCtx, s, st)
-	snap, err := dataset.Snapshot(snapCtx, st.State.Dataset, time.Now(), updateSnapshotsKept, imagesJSON)
+	snap, err := snapshotBeforeUpdateFn(snapCtx, st.State.Dataset, time.Now(), updateSnapshotsKept, imagesJSON)
 	if err != nil {
 		log.Printf("update %s: snapshot %s: %v", st.Name, st.State.Dataset, err)
-		return "[fjord] no snapshot of its data before this update: " + err.Error() + "\n"
+		return "[fjord] no snapshot of its data before this update: " + err.Error() + "\n", err
 	}
 	if err := s.manager.UpdateState(st.Name, func(state *stack.State) *stack.State {
 		if state == nil {
@@ -40,7 +44,7 @@ func (s *server) snapshotBeforeUpdate(ctx context.Context, st *stack.Stack) stri
 	}); err != nil {
 		log.Printf("update %s: record snapshot: %v", st.Name, err)
 	}
-	return "[fjord] data snapshot saved: " + snap + "\n"
+	return "[fjord] data snapshot saved: " + snap + "\n", nil
 }
 
 // reconcilePendingDatasetOp recovers a stack whose ZFS rename/clone/promote

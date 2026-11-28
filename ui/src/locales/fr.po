@@ -242,6 +242,7 @@ msgstr "Rien à adopter — chaque conteneur de cet hôte appartient déjà à u
 #: src/HistoryList.svelte
 #: src/LoginButton.svelte
 #: src/Networks.svelte
+#: src/Settings.svelte
 msgid "Hide"
 msgstr "Masquer"
 
@@ -5601,31 +5602,25 @@ msgstr "Reprendre : {0}"
 msgid "Run now: {0}"
 msgstr "Lancer maintenant : {0}"
 
-#. 0: isoDateTime(au.paused)
-#: src/Settings.svelte
-msgid "<0>Paused</0> since {0}: two automatic updates failed within a day. Each was rolled back; see the stacks named below. Nothing updates by itself until you resume."
-msgstr "<0>En pause</0> depuis {0} : deux mises à jour automatiques ont échoué en une journée. Chacune a été annulée ; voir les stacks nommées ci-dessous. Rien ne se met à jour tout seul tant que vous ne reprenez pas."
+#~ msgid "<0>Paused</0> since {0}: two automatic updates failed within a day. Each was rolled back; see the stacks named below. Nothing updates by itself until you resume."
+#~ msgstr "<0>En pause</0> depuis {0} : deux mises à jour automatiques ont échoué en une journée. Chacune a été annulée ; voir les stacks nommées ci-dessous. Rien ne se met à jour tout seul tant que vous ne reprenez pas."
 
 #: src/Settings.svelte
 msgid "Resume"
 msgstr "Reprendre"
 
-#: src/Settings.svelte
-msgid "Between"
-msgstr "Entre"
+#~ msgid "Between"
+#~ msgstr "Entre"
 
-#: src/Settings.svelte
-msgid "and"
-msgstr "et"
+#~ msgid "and"
+#~ msgstr "et"
 
 #: src/Settings.svelte
 msgid "<0/> Updating now…"
 msgstr "<0/> Mise à jour en cours…"
 
-#. 0: isoDateTime(au.next)
-#: src/Settings.svelte
-msgid "Next: {0}"
-msgstr "Prochaine : {0}"
+#~ msgid "Next: {0}"
+#~ msgstr "Prochaine : {0}"
 
 #: src/Settings.svelte
 msgid "Run now"
@@ -5635,9 +5630,8 @@ msgstr "Lancer maintenant"
 msgid "Automatic updates"
 msgstr "Mises à jour automatiques"
 
-#: src/Settings.svelte
-msgid "Stacks with <0>Keep up to date</0> on (in each stack's Settings tab) get their rebuilds and new minor versions in this window, one stack at a time. Each is checked to stay up and recorded in History."
-msgstr "Les stacks avec <0>Garder à jour</0> activé (dans l'onglet Réglages de chaque stack) reçoivent leurs reconstructions et nouvelles versions mineures dans cette plage, une stack à la fois. Chacune est vérifiée pour rester en marche et notée dans l'Historique."
+#~ msgid "Stacks with <0>Keep up to date</0> on (in each stack's Settings tab) get their rebuilds and new minor versions in this window, one stack at a time. Each is checked to stay up and recorded in History."
+#~ msgstr "Les stacks avec <0>Garder à jour</0> activé (dans l'onglet Réglages de chaque stack) reçoivent leurs reconstructions et nouvelles versions mineures dans cette plage, une stack à la fois. Chacune est vérifiée pour rester en marche et notée dans l'Historique."
 
 #: src/Settings.svelte
 msgid ", started by hand"
@@ -6205,4 +6199,127 @@ msgstr ""
 
 #: src/Settings.svelte
 msgid "Time format"
+msgstr ""
+
+#. 0: (await r?.text())?.trim() || 'not saved'
+#. 0: e.message || 'not saved'
+#: src/Settings.svelte
+#: src/SetupWizard.svelte
+msgid "Keep new apps up to date: {0}"
+msgstr ""
+
+#. 0: (await r?.text())?.trim() || 'not saved'
+#: src/Settings.svelte
+msgid "Existing apps: {0}"
+msgstr ""
+
+#. 0: n
+#: src/Settings.svelte
+msgid "Keep up to date turned on for all {0} apps."
+msgstr ""
+
+#. 0: n
+#: src/Settings.svelte
+msgid "Keep up to date turned off for all {0} apps."
+msgstr ""
+
+#. 0: isoDateTime(au.paused)
+#: src/Settings.svelte
+msgid "<0>Paused</0> since {0}: two automatic updates failed within a day. See Last run below for details. Nothing updates by itself until you resume."
+msgstr ""
+
+#: src/Settings.svelte
+msgid "Rebuilds and minor versions; majors wait"
+msgstr ""
+
+#: src/Settings.svelte
+#: src/Settings.svelte
+#: src/SetupWizard.svelte
+#: src/SetupWizard.svelte
+msgid "Keep new apps up to date"
+msgstr ""
+
+#: src/Settings.svelte
+msgid "Change per app in the install wizard or its Settings tab."
+msgstr ""
+
+#: src/Settings.svelte
+msgid "Update window"
+msgstr ""
+
+#: src/Settings.svelte
+msgid "Update window start"
+msgstr ""
+
+#: src/Settings.svelte
+msgid "Update window end"
+msgstr ""
+
+#: src/Settings.svelte
+msgid "to"
+msgstr ""
+
+#: src/Settings.svelte
+msgid "Next: <0/>"
+msgstr ""
+
+#: src/Settings.svelte
+msgid "One stack at a time, checked to stay up."
+msgstr ""
+
+#: src/Settings.svelte
+msgid "Check for updates now"
+msgstr ""
+
+#: src/Settings.svelte
+msgid "app has"
+msgstr ""
+
+#: src/Settings.svelte
+msgid "apps have"
+msgstr ""
+
+#: src/Settings.svelte
+msgid "Existing apps"
+msgstr ""
+
+#. 0: au?.stacksOn ?? 0; 1: au?.stacksTotal ?? 0; 2: (au?.stacksTotal ?? 0) === 1 ? 'app has' \\: 'apps have'
+#: src/Settings.svelte
+msgid "{0} of {1} {2} Keep up to date on."
+msgstr ""
+
+#: src/Settings.svelte
+#: src/Settings.svelte
+msgid "Turn on for all"
+msgstr ""
+
+#: src/Settings.svelte
+#: src/Settings.svelte
+msgid "Turn off for all"
+msgstr ""
+
+#: src/Settings.svelte
+msgid "Details"
+msgstr ""
+
+#: src/Settings.svelte
+msgid "Turn Keep up to date on for all apps?"
+msgstr ""
+
+#: src/Settings.svelte
+msgid "Turn Keep up to date off for all apps?"
+msgstr ""
+
+#. 0: au?.stacksTotal ?? 0
+#: src/Settings.svelte
+msgid "Turns automatic updates on for all {0} existing apps, overriding any turned off by hand."
+msgstr ""
+
+#. 0: au?.stacksTotal ?? 0
+#: src/Settings.svelte
+msgid "Turns automatic updates off for all {0} existing apps, overriding your per-app switches."
+msgstr ""
+
+#: src/SetupWizard.svelte
+msgid "Installs rebuilds and minor updates overnight, with automatic rollback if one fails."
 msgstr ""

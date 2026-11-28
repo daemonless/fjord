@@ -11,6 +11,8 @@
   import EmptyState from './EmptyState.svelte';
   import DirPicker from './DirPicker.svelte';
   import FolderRows from './FolderRows.svelte';
+  import Switch from './Switch.svelte';
+  import ConfirmDialog from './ConfirmDialog.svelte';
   import { toast } from './toast';
   import { names, linkProvider, unlinkProvider, renameSelf } from './names';
   import NamesPrompt from './NamesPrompt.svelte';
@@ -134,6 +136,11 @@
   let au: AutoUpdate | null = null;
   let auStart = '03:00';
   let auEnd = '05:00';
+  let auDefaultForNew = false;
+  let auSavingDefault = false;
+  let auSavingAll = false;
+  let auConfirmAll: boolean | null = null;
+  let auLastRunOpen = true;
   let auStarting = false;
   let auLoaded = false;
   let auPoll: ReturnType<typeof setTimeout> | undefined;
@@ -147,7 +154,10 @@
       // while a run is watched) must not undo what is being typed.
       if (au && !auLoaded) {
         ({ start: auStart, end: auEnd } = au);
+        auDefaultForNew = !!au.defaultForNew;
         auLoaded = true;
+      } else if (au && !auSavingDefault) {
+        auDefaultForNew = !!au.defaultForNew;
       }
       if (au?.running) auPoll = setTimeout(loadAuto, 3000);
     } catch {
@@ -156,6 +166,39 @@
   }
   $: if (activeTab === 'updates') loadAuto();
   onDestroy(() => clearTimeout(auPoll));
+  async function saveDefaultForNew(next: boolean) {
+    auSavingDefault = true;
+    const r = await fetch('/api/autoupdate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ defaultForNew: next }),
+    }).catch(() => null);
+    auSavingDefault = false;
+    if (!r?.ok) {
+      auDefaultForNew = !next;
+      toast(`Keep new apps up to date: ${(await r?.text())?.trim() || 'not saved'}`, { kind: 'error' });
+    } else {
+      auDefaultForNew = next;
+    }
+    await loadAuto();
+  }
+  async function setAllStacks(on: boolean) {
+    auSavingAll = true;
+    const r = await fetch('/api/autoupdate/all', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ on }),
+    }).catch(() => null);
+    auSavingAll = false;
+    if (!r?.ok) {
+      toast(`Existing apps: ${(await r?.text())?.trim() || 'not saved'}`, { kind: 'error' });
+    } else {
+      const d = await r.json().catch(() => null);
+      const n = d?.stacksTotal ?? au?.stacksTotal ?? 0;
+      toast(on ? `Keep up to date turned on for all ${n} apps.` : `Keep up to date turned off for all ${n} apps.`, { kind: 'success' });
+    }
+    await loadAuto();
+  }
   async function saveWindow() {
     if (!auStart || !auEnd || auStart === auEnd) return;
     const r = await fetch('/api/autoupdate', {
@@ -1321,61 +1364,125 @@
 
     {#if activeTab === 'updates'}
       <div class="max-w-2xl flex flex-col gap-6" data-updates-settings>
+        {#if au?.paused}
+          <div data-au-paused class="flex items-center gap-3 px-4 py-2.5 rounded-xl bg-fjord-danger/10 border border-fjord-danger/25 text-sm text-fjord-fg-body">
+            <span class="flex-1">
+              <b>Paused</b> since {isoDateTime(au.paused)}: two automatic updates failed within a day. See Last run
+              below for details. Nothing updates by itself until you resume.
+            </span>
+            <button on:click={resumeAuto}
+              class="shrink-0 px-3 py-1.5 rounded-lg text-sm font-medium bg-fjord-accent text-white hover:bg-fjord-accent-hover transition-colors"
+              >Resume</button>
+          </div>
+        {/if}
+
         <div>
-          <h3 class="text-sm font-semibold text-fjord-fg-secondary mb-1">Automatic updates</h3>
-          <p class="text-xs text-fjord-fg-dim mb-3">
-            Stacks with <b>Keep up to date</b> on (in each stack's Settings tab) get their rebuilds and new minor
-            versions in this window, one stack at a time. Each is checked to stay up and recorded in History.
-          </p>
-          {#if au?.paused}
-            <div data-au-paused class="flex items-center gap-3 mb-3 px-4 py-2.5 rounded-lg bg-fjord-danger/10 border border-fjord-danger/25 text-sm text-fjord-fg-body">
-              <span class="flex-1">
-                <b>Paused</b> since {isoDateTime(au.paused)}: two automatic updates failed within a day. Each was
-                rolled back; see the stacks named below. Nothing updates by itself until you resume.
-              </span>
-              <button on:click={resumeAuto}
-                class="shrink-0 px-3 py-1.5 rounded-lg text-sm font-medium bg-fjord-accent text-white hover:bg-fjord-accent-hover transition-colors"
-                >Resume</button>
+          <div class="flex flex-wrap items-baseline justify-between gap-2 mb-2 px-0.5">
+            <h3 class="text-xs font-semibold text-fjord-fg-secondary uppercase tracking-wide">Automatic updates</h3>
+            <span class="text-xs text-fjord-fg-dim">Rebuilds and minor versions; majors wait</span>
+          </div>
+          <div class="rounded-xl border border-fjord-border bg-fjord-card divide-y divide-fjord-border overflow-hidden">
+            <div class="flex items-center justify-between gap-4 px-4 py-3" data-au-default-for-new>
+              <div class="min-w-0 max-w-prose">
+                <div class="text-sm font-medium text-fjord-fg">Keep new apps up to date</div>
+                <p class="text-xs text-fjord-fg-muted mt-0.5">
+                  Change per app in the install wizard or its Settings tab.
+                </p>
+              </div>
+              <Switch checked={auDefaultForNew} disabled={auSavingDefault} label="Keep new apps up to date" on:change={(e) => saveDefaultForNew(e.detail)} />
             </div>
-          {/if}
-          <div class="flex flex-wrap items-center gap-2 text-sm">
-            <label for="au-start" class="text-fjord-fg-muted">Between</label>
-            <input id="au-start" type="time" step="900" bind:value={auStart} on:change={saveWindow}
-              class="bg-fjord-inset border border-fjord-border rounded-md px-2 py-1 font-mono text-fjord-fg-body focus:outline-none focus:border-fjord-accent" />
-            <label for="au-end" class="text-fjord-fg-muted">and</label>
-            <input id="au-end" type="time" step="900" bind:value={auEnd} on:change={saveWindow}
-              class="bg-fjord-inset border border-fjord-border rounded-md px-2 py-1 font-mono text-fjord-fg-body focus:outline-none focus:border-fjord-accent" />
-          </div>
-          <div class="flex items-center gap-3 mt-3 text-sm">
-            {#if au?.running}
-              <span class="flex items-center gap-2 text-fjord-fg-muted" data-au-running><Spinner size={13} /> Updating now…</span>
-            {:else if au?.next}
-              <span class="text-fjord-fg-muted" data-au-next>Next: {isoDateTime(au.next)}</span>
+
+            <div class="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
+              <div class="min-w-0">
+                <div class="text-sm font-medium text-fjord-fg">Update window</div>
+              </div>
+              <div class="flex items-center gap-2 text-sm">
+                <input id="au-start" aria-label="Update window start" type="time" step="900" bind:value={auStart} on:change={saveWindow}
+                  class="bg-fjord-inset border border-fjord-border rounded-md px-2 py-1 font-mono text-fjord-fg-body focus:outline-none focus:border-fjord-accent" />
+                <span class="text-xs text-fjord-fg-dim">to</span>
+                <input id="au-end" aria-label="Update window end" type="time" step="900" bind:value={auEnd} on:change={saveWindow}
+                  class="bg-fjord-inset border border-fjord-border rounded-md px-2 py-1 font-mono text-fjord-fg-body focus:outline-none focus:border-fjord-accent" />
+              </div>
+            </div>
+
+            <div class="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
+              <div class="min-w-0">
+                <div class="text-sm font-medium text-fjord-fg">Check for updates now</div>
+                <div class="text-xs text-fjord-fg-muted mt-0.5">
+                  {#if au?.running}
+                    <span class="inline-flex items-center gap-1.5" data-au-running><Spinner size={12} /> Updating now…</span>
+                  {:else if au?.next}
+                    <span data-au-next>Next: <span class="font-mono">{isoDateTime(au.next)}</span></span>
+                  {:else}
+                    One stack at a time, checked to stay up.
+                  {/if}
+                </div>
+              </div>
+              <button on:click={runNow} disabled={!!au?.running || auStarting}
+                class="shrink-0 text-xs font-medium text-fjord-fg-secondary hover:text-fjord-fg py-1.5 px-3 rounded-lg border border-fjord-border hover:bg-fjord-border/40 transition-colors disabled:opacity-40"
+                >Run now</button>
+            </div>
+
+            {#if (au?.stacksTotal ?? 0) > 0}
+              <div class="flex flex-wrap items-center justify-between gap-3 px-4 py-3" data-au-all-stacks>
+                <div class="min-w-0 max-w-prose">
+                  <div class="text-sm font-medium text-fjord-fg">Existing apps</div>
+                  <p class="text-xs text-fjord-fg-muted mt-0.5">
+                    {au?.stacksOn ?? 0} of {au?.stacksTotal ?? 0} {(au?.stacksTotal ?? 0) === 1 ? 'app has' : 'apps have'} Keep up to date on.
+                  </p>
+                </div>
+                <div class="flex items-center gap-2 shrink-0">
+                  <button
+                    type="button"
+                    on:click={() => (auConfirmAll = true)}
+                    disabled={auSavingAll || (au?.stacksOn ?? 0) >= (au?.stacksTotal ?? 0)}
+                    class="text-xs font-medium text-fjord-fg-secondary hover:text-fjord-fg py-1.5 px-3 rounded-lg border border-fjord-border hover:bg-fjord-border/40 transition-colors disabled:opacity-40"
+                  >Turn on for all</button>
+                  <button
+                    type="button"
+                    on:click={() => (auConfirmAll = false)}
+                    disabled={auSavingAll || (au?.stacksOn ?? 0) === 0}
+                    class="text-xs font-medium text-fjord-fg-secondary hover:text-fjord-fg py-1.5 px-3 rounded-lg border border-fjord-border hover:bg-fjord-border/40 transition-colors disabled:opacity-40"
+                  >Turn off for all</button>
+                </div>
+              </div>
             {/if}
-            <button on:click={runNow} disabled={!!au?.running || auStarting}
-              class="text-xs font-medium text-fjord-fg-muted hover:text-fjord-fg py-1 px-2.5 rounded-md border border-fjord-border hover:border-fjord-accent/40 transition-colors disabled:opacity-40"
-              >Run now</button>
+
+            <div>
+              <button
+                type="button"
+                on:click={() => (auLastRunOpen = !auLastRunOpen)}
+                disabled={!au?.last?.results?.length}
+                class="w-full flex items-center justify-between gap-3 px-4 py-3 text-left transition-colors {au?.last?.results?.length ? 'hover:bg-fjord-border/20 cursor-pointer' : 'cursor-default'}"
+              >
+                <div class="min-w-0">
+                  <div class="text-sm font-medium text-fjord-fg">Last run</div>
+                  {#if au?.last?.at}
+                    <div class="text-xs text-fjord-fg-muted mt-0.5" data-au-last>
+                      {isoDateTime(au.last.at)}{au.last.trigger === 'automatic' ? '' : ', started by hand'}: {runSummary(au.last)}.
+                    </div>
+                  {:else}
+                    <div class="text-xs text-fjord-fg-muted mt-0.5">Not run yet.</div>
+                  {/if}
+                </div>
+                {#if au?.last?.results?.length}
+                  <span class="text-xs text-fjord-fg-muted shrink-0">{auLastRunOpen ? 'Hide' : 'Details'}</span>
+                {/if}
+              </button>
+              {#if auLastRunOpen && au?.last?.results?.length}
+                <div class="bg-fjord-inset border-t border-fjord-border px-4 py-2.5">
+                  <ul class="divide-y divide-fjord-border/60 text-xs" data-au-results>
+                    {#each au.last.results as r}
+                      <li class="py-1.5 flex items-center justify-between gap-3">
+                        <span class="font-medium text-fjord-fg-body">{r.stack}</span>
+                        <span class={r.result === 'failed' || r.result === 'rolled back' ? 'text-fjord-danger' : r.result === 'updated' ? 'text-fjord-fg-body' : 'text-fjord-fg-muted'}>{resultLine(r)}</span>
+                      </li>
+                    {/each}
+                  </ul>
+                </div>
+              {/if}
+            </div>
           </div>
-        </div>
-        <div>
-          <h3 class="text-sm font-semibold text-fjord-fg-secondary mb-1">Last run</h3>
-          {#if au?.last?.at}
-            <p class="text-xs text-fjord-fg-dim mb-2" data-au-last>
-              {isoDateTime(au.last.at)}{au.last.trigger === 'automatic' ? '' : ', started by hand'}: {runSummary(au.last)}.
-            </p>
-            {#if au.last.results?.length}
-              <ul class="flex flex-col gap-1 text-sm" data-au-results>
-                {#each au.last.results as r}
-                  <li class="flex gap-2">
-                    <span class="font-semibold text-fjord-fg-body">{r.stack}</span>
-                    <span class={r.result === 'failed' || r.result === 'rolled back' ? 'text-fjord-danger' : r.result === 'updated' ? 'text-fjord-fg-body' : 'text-fjord-fg-muted'}>{resultLine(r)}</span>
-                  </li>
-                {/each}
-              </ul>
-            {/if}
-          {:else}
-            <p class="text-xs text-fjord-fg-dim">Not run yet.</p>
-          {/if}
         </div>
       </div>
     {/if}
@@ -1518,5 +1625,22 @@
       pickAppData = null;
     }}
     on:close={() => (pickAppData = null)}
+  />
+{/if}
+
+{#if auConfirmAll !== null}
+  <ConfirmDialog
+    title={auConfirmAll ? 'Turn Keep up to date on for all apps?' : 'Turn Keep up to date off for all apps?'}
+    message={auConfirmAll
+      ? `Turns automatic updates on for all ${au?.stacksTotal ?? 0} existing apps, overriding any turned off by hand.`
+      : `Turns automatic updates off for all ${au?.stacksTotal ?? 0} existing apps, overriding your per-app switches.`}
+    confirmLabel={auConfirmAll ? 'Turn on for all' : 'Turn off for all'}
+    danger={!auConfirmAll}
+    on:cancel={() => (auConfirmAll = null)}
+    on:confirm={() => {
+      const next = auConfirmAll;
+      auConfirmAll = null;
+      if (next !== null) setAllStacks(next);
+    }}
   />
 {/if}
