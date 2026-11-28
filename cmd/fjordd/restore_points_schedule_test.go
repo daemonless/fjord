@@ -604,3 +604,65 @@ func TestHandleRestorePointRunDetached(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 }
+
+func TestStackSnapshotsKeepForeverHandler(t *testing.T) {
+	root := t.TempDir()
+	s := &server{
+		manager:   stack.NewManager(root + "/stacks"),
+		fjordRoot: root,
+		rpSched:   newRPScheduleState(root),
+	}
+	if err := s.manager.Save(&stack.Stack{Name: "app", Compose: "services:\n  web:\n    image: x\n"}); err != nil {
+		t.Fatal(err)
+	}
+	_ = s.manager.UpdateState("app", func(*stack.State) *stack.State {
+		return &stack.State{SchemaVersion: 1, DesiredState: "running", Dataset: "zroot/apps/app"}
+	})
+
+	var calls []string
+	oldKeep := setSnapshotKeepFn
+	setSnapshotKeepFn = func(_ context.Context, ds, snap, stackName string, keep bool) error {
+		calls = append(calls, fmt.Sprintf("%s|%s|%s|%v", ds, snap, stackName, keep))
+		return nil
+	}
+	t.Cleanup(func() { setSnapshotKeepFn = oldKeep })
+
+	// Missing snapshot -> 400.
+	rec := httptest.NewRecorder()
+	s.stackSnapshots(rec, httptest.NewRequest(http.MethodPatch, "/api/stacks/app/snapshots", strings.NewReader(`{"forever":true}`)), "app")
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("missing snapshot: got %d, want 400", rec.Code)
+	}
+
+	// Non-fjord snapshot -> 400.
+	rec = httptest.NewRecorder()
+	s.stackSnapshots(rec, httptest.NewRequest(http.MethodPatch, "/api/stacks/app/snapshots",
+		strings.NewReader(`{"snapshot":"zroot/apps/app@user-snap","forever":true}`)), "app")
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("non-fjord snapshot: got %d, want 400", rec.Code)
+	}
+
+	// Keep forever -> 204.
+	rec = httptest.NewRecorder()
+	s.stackSnapshots(rec, httptest.NewRequest(http.MethodPatch, "/api/stacks/app/snapshots",
+		strings.NewReader(`{"snapshot":"zroot/apps/app@fjord-update-1","forever":true}`)), "app")
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("keep true: got %d %s", rec.Code, rec.Body)
+	}
+
+	// Stop keeping -> 204.
+	rec = httptest.NewRecorder()
+	s.stackSnapshots(rec, httptest.NewRequest(http.MethodPatch, "/api/stacks/app/snapshots",
+		strings.NewReader(`{"snapshot":"zroot/apps/app@fjord-update-1","forever":false}`)), "app")
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("keep false: got %d %s", rec.Code, rec.Body)
+	}
+
+	want := []string{
+		"zroot/apps/app|zroot/apps/app@fjord-update-1|app|true",
+		"zroot/apps/app|zroot/apps/app@fjord-update-1|app|false",
+	}
+	if !slices.Equal(calls, want) {
+		t.Fatalf("calls = %v, want %v", calls, want)
+	}
+}

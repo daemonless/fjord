@@ -1,7 +1,13 @@
 <script lang="ts">
   import { createEventDispatcher, onMount } from 'svelte';
   import { isoDate, isoDateTime } from './when';
-  import { notCoveredParts, zfsHintMountpoint } from './restorePoints';
+  import {
+    canToggleRestorePointKeep,
+    isRestorePointKeptForever,
+    notCoveredParts,
+    zfsHintMountpoint,
+  } from './restorePoints';
+  import { toast } from './toast';
   import { changeLines, historyTitle, imageLabel, whenLabel, type HistoryEntry } from './history';
 
   export let stack = '';
@@ -18,6 +24,7 @@
     hostPath?: string;
     createdAt: string;
     usedBytes: number;
+    keepForever?: boolean;
     clones?: string[];
   }
 
@@ -433,6 +440,30 @@
     }
   }
 
+  async function toggleSnapForever(snap: RestoreSnapshot) {
+    if (!stack || busy) return;
+    openMenuFor = '';
+    busy = true;
+    try {
+      const forever = !snap.keepForever;
+      const r = await fetch(`/api/stacks/${encodeURIComponent(stack)}/snapshots`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ snapshot: snap.name, forever }),
+      });
+      if (!r.ok) {
+        toast((await r.text()).trim() || `Could not update restore point (${r.status})`, { kind: 'error' });
+        return;
+      }
+      statusNote = forever ? 'Restore point kept forever.' : 'No longer kept; it expires as usual.';
+      await load(stack, reload + 1);
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'Could not update restore point', { kind: 'error' });
+    } finally {
+      busy = false;
+    }
+  }
+
   async function toggleForever(copy: KeptCopy) {
     if (!stack || busy) return;
     openMenuFor = '';
@@ -706,7 +737,7 @@
                 </div>
                 <div class="text-xs text-fjord-fg-muted mt-0.5 tabular-nums">
                   <span title={isoDateTime(s.createdAt, true)}>{whenLabel(s.createdAt)}</span>
-                  · {fmtBytes(s.usedBytes)}{s.kind === 'manual' ? ' · Kept forever' : ''}
+                  · {fmtBytes(s.usedBytes)}{isRestorePointKeptForever(s) ? ' · Kept forever' : ''}
                 </div>
                 {#if expandedPaths[s.name] && s.hostPath}
                   <div class="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-md border border-fjord-border bg-fjord-bg px-2.5 py-1.5 text-xs">
@@ -729,6 +760,11 @@
                 >⋯</button>
                 {#if openMenuFor === item.id}
                   <div class="absolute right-0 top-full mt-1 z-20 min-w-44 rounded-lg border border-fjord-border bg-fjord-card p-1 shadow-xl flex flex-col text-xs">
+                    {#if canToggleRestorePointKeep(s)}
+                      <button class="rounded px-2.5 py-1.5 text-left hover:bg-fjord-border" on:click={() => toggleSnapForever(s)}>
+                        {s.keepForever ? 'Stop keeping' : 'Keep forever'}
+                      </button>
+                    {/if}
                     {#if s.hostPath}
                       <button
                         class="rounded px-2.5 py-1.5 text-left hover:bg-fjord-border"

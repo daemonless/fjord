@@ -21,14 +21,18 @@ import (
 
 const keptCopyTTL = 30 * 24 * time.Hour
 
+// setSnapshotKeepFn is the dataset hook used by PATCH /api/stacks/<name>/snapshots; tests replace it.
+var setSnapshotKeepFn = dataset.SetSnapshotKeep
+
 type restorePointView struct {
-	Name      string    `json:"name"`
-	Kind      string    `json:"kind"`
-	Note      string    `json:"note,omitempty"`
-	HostPath  string    `json:"hostPath,omitempty"`
-	CreatedAt time.Time `json:"createdAt"`
-	UsedBytes int64     `json:"usedBytes"`
-	Clones    []string  `json:"clones,omitempty"`
+	Name        string    `json:"name"`
+	Kind        string    `json:"kind"`
+	Note        string    `json:"note,omitempty"`
+	HostPath    string    `json:"hostPath,omitempty"`
+	CreatedAt   time.Time `json:"createdAt"`
+	UsedBytes   int64     `json:"usedBytes"`
+	KeepForever bool      `json:"keepForever,omitempty"`
+	Clones      []string  `json:"clones,omitempty"`
 }
 
 type restorePointsResponse struct {
@@ -200,13 +204,14 @@ func (s *server) stackRestorePoints(w http.ResponseWriter, r *http.Request, name
 					}
 				}
 				resp.Snapshots = append(resp.Snapshots, restorePointView{
-					Name:      sn.Name,
-					Kind:      sn.Kind,
-					Note:      sn.Note,
-					HostPath:  hostPath,
-					CreatedAt: sn.Created,
-					UsedBytes: sn.UsedBytes,
-					Clones:    sn.Clones,
+					Name:        sn.Name,
+					Kind:        sn.Kind,
+					Note:        sn.Note,
+					HostPath:    hostPath,
+					CreatedAt:   sn.Created,
+					UsedBytes:   sn.UsedBytes,
+					KeepForever: sn.KeepForever,
+					Clones:      sn.Clones,
 				})
 			}
 		}
@@ -642,6 +647,24 @@ func (s *server) stackSnapshots(w http.ResponseWriter, r *http.Request, name str
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
 		json.NewEncoder(w).Encode(map[string]any{"snapshot": snap})
+	case http.MethodPatch:
+		var req struct {
+			Snapshot string `json:"snapshot"`
+			Forever  bool   `json:"forever"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Snapshot == "" {
+			http.Error(w, `send {"snapshot": "...", "forever": true|false}`, http.StatusBadRequest)
+			return
+		}
+		if !dataset.IsFjordSnap(dsName, req.Snapshot) {
+			http.Error(w, "not a fjord restore point for "+name, http.StatusBadRequest)
+			return
+		}
+		if err := setSnapshotKeepFn(ctx, dsName, req.Snapshot, name, req.Forever); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
 	case http.MethodDelete:
 		snap := r.URL.Query().Get("snapshot")
 		if snap == "" {

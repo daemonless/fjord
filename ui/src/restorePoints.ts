@@ -14,3 +14,11 @@ export function zfsHintMountpoint(hint?: string): string {
   const m = hint.match(/mountpoint=(\S+)/);
   return m?.[1] || '/apps';
 }
+
+export function isRestorePointKeptForever(snap: { kind: string; keepForever?: boolean }): boolean {
+  return snap.kind === 'manual' || !!snap.keepForever;
+}
+
+export function canToggleRestorePointKeep(snap: { kind: string }): boolean {
+  return snap.kind !== 'manual';
+}

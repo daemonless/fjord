@@ -5749,6 +5749,7 @@ msgstr ""
 
 #: src/HistoryList.svelte
 #: src/HistoryList.svelte
+#: src/HistoryList.svelte
 msgid "Keep forever"
 msgstr ""
 
@@ -6715,3 +6716,24 @@ msgstr "Aucune de ces applications n'utilise de dossier de données dédié."
 #: src/Settings.svelte
 msgid "No app data"
 msgstr "Aucune donnée"
+
+#. 0: r.status
+#: src/HistoryList.svelte
+msgid "Could not update restore point ({0})"
+msgstr ""
+
+#: src/HistoryList.svelte
+msgid "Restore point kept forever."
+msgstr ""
+
+#: src/HistoryList.svelte
+msgid "No longer kept; it expires as usual."
+msgstr ""
+
+#: src/HistoryList.svelte
+msgid "Could not update restore point"
+msgstr ""
+
+#: src/HistoryList.svelte
+msgid "Stop keeping"
+msgstr ""

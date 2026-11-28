@@ -238,7 +238,7 @@ func (s *server) handleStackRoutes(w http.ResponseWriter, r *http.Request) {
 		s.stackKeptManage(w, r, parts[0])
 		return
 	}
-	if len(parts) == 2 && parts[1] == "snapshots" && (r.Method == http.MethodPost || r.Method == http.MethodDelete) {
+	if len(parts) == 2 && parts[1] == "snapshots" && (r.Method == http.MethodPost || r.Method == http.MethodPatch || r.Method == http.MethodDelete) {
 		s.stackSnapshots(w, r, parts[0])
 		return
 	}
