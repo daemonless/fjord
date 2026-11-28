@@ -23,13 +23,15 @@ func (s *server) handleSetup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.registerNewEngines()
-	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
 	engines := s.doctorEngines()
 	// ?engine=podman,appjail asks about those engines, installed or not: the
 	// setup page shows what the engines you pick would need before they are
 	// on the host.
+	customEngines := false
 	if q := r.URL.Query().Get("engine"); q != "" {
+		customEngines = true
 		engines = nil
 		for _, name := range strings.Split(q, ",") {
 			if _, ok := descriptor(name); !ok {
@@ -41,6 +43,18 @@ func (s *server) handleSetup(w http.ResponseWriter, r *http.Request) {
 	}
 	// ?tz= is the browser's zone, for the timezone check to offer.
 	report := doctor.Run(ctx, doctor.Config{Engines: engines, FjordRoot: s.fjordRoot, TimeZone: r.URL.Query().Get("tz")})
+	complete := ctx.Err() == nil
+	if complete {
+		for _, c := range report.Checks {
+			if c.Status == doctor.Unknown {
+				complete = false
+				break
+			}
+		}
+	}
+	if !customEngines && complete {
+		s.applyConditionsReport(engines, report)
+	}
 	w.Header().Set("Content-Type", "application/json")
 	// muted: the checks whose banner the operator turned off, so the System
 	// page can offer it back.

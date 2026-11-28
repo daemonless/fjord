@@ -152,15 +152,30 @@ func Mode() string {
 }
 
 // Run executes every check applicable to this platform and the engines named.
+// Checks run with bounded concurrency so heavy host load does not starve later
+// checks behind a single sequential deadline, while preserving check order.
 func Run(ctx context.Context, cfg Config) Report {
 	p := platform(cfg)
-	results := make([]Result, 0, len(p.checks))
+	var todo []Check
 	for _, c := range p.checks {
 		if !cfg.forEngine(c.Engine) {
 			continue
 		}
-		results = append(results, p.run(ctx, c))
+		todo = append(todo, c)
 	}
+	results := make([]Result, len(todo))
+	sem := make(chan struct{}, 6)
+	var wg sync.WaitGroup
+	for i, c := range todo {
+		wg.Add(1)
+		go func(idx int, chk Check) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			results[idx] = p.run(ctx, chk)
+		}(i, c)
+	}
+	wg.Wait()
 	return Report{
 		OS:         p.os,
 		Mode:       p.mode,
@@ -188,8 +203,15 @@ func (p platformInfo) run(ctx context.Context, c Check) Result {
 	if c.HostOnly && p.mode != "host" {
 		st = Unknown
 		detail = "fjordd is not running directly on the host and cannot verify this -- check manually"
+	} else if ctx.Err() != nil {
+		st = Unknown
+		detail = "check timed out while host was busy"
 	} else {
 		st, detail = c.Probe(ctx)
+		if st != OK && ctx.Err() != nil {
+			st = Unknown
+			detail = "check timed out while host was busy"
+		}
 	}
 	r := Result{ID: c.ID, Name: c.Name, Engine: c.Engine, Group: c.Group, Optional: c.Optional, OnHost: c.OnHost, Status: st, Detail: detail, Why: c.Why}
 	// What fjord would run, reported even when there is nothing to do:
