@@ -14,6 +14,7 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -58,11 +59,115 @@ type storageStackInfo struct {
 	SizeBytes     int64  `json:"sizeBytes"`
 }
 
+type migrateResult struct {
+	Dataset   string `json:"dataset"`
+	TargetDir string `json:"targetDir"`
+	BackupDir string `json:"backupDir,omitempty"`
+}
+
+type migrateAllStatus struct {
+	Running  bool              `json:"running"`
+	Stopping bool              `json:"stopping,omitempty"`
+	Total    int               `json:"total,omitempty"`
+	Done     int               `json:"done,omitempty"`
+	Current  string            `json:"current,omitempty"`
+	Moved    []string          `json:"moved,omitempty"`
+	Failed   map[string]string `json:"failed,omitempty"`
+	KeepOld  bool              `json:"keepOld,omitempty"`
+}
+
+type migrateAllTracker struct {
+	mu     sync.Mutex
+	status migrateAllStatus
+}
+
+func (m *migrateAllTracker) snapshot() *migrateAllStatus {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if !m.status.Running && m.status.Total == 0 {
+		return nil
+	}
+	cp := m.status
+	if len(m.status.Moved) > 0 {
+		cp.Moved = append([]string(nil), m.status.Moved...)
+	}
+	if len(m.status.Failed) > 0 {
+		cp.Failed = make(map[string]string, len(m.status.Failed))
+		for k, v := range m.status.Failed {
+			cp.Failed[k] = v
+		}
+	}
+	return &cp
+}
+
+func (m *migrateAllTracker) begin(total int, keepOld bool) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.status.Running {
+		return false
+	}
+	m.status = migrateAllStatus{
+		Running: true,
+		Total:   total,
+		KeepOld: keepOld,
+	}
+	return true
+}
+
+func (m *migrateAllTracker) setTotal(total int) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.status.Total = total
+}
+
+func (m *migrateAllTracker) setCurrent(name string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.status.Stopping {
+		return false
+	}
+	m.status.Current = name
+	return true
+}
+
+func (m *migrateAllTracker) record(name string, err error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.status.Done++
+	if err != nil {
+		if m.status.Failed == nil {
+			m.status.Failed = map[string]string{}
+		}
+		m.status.Failed[name] = err.Error()
+	} else {
+		m.status.Moved = append(m.status.Moved, name)
+	}
+}
+
+func (m *migrateAllTracker) finish() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.status.Running = false
+	m.status.Stopping = false
+	m.status.Current = ""
+}
+
+func (m *migrateAllTracker) cancel() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if !m.status.Running {
+		return false
+	}
+	m.status.Stopping = true
+	return true
+}
+
 type storageDatasetsResponse struct {
 	HasZFS        bool                  `json:"hasZfs"`
 	ZFSCreateHint string                `json:"zfsCreateHint,omitempty"`
 	Locations     []storageLocationInfo `json:"locations"`
 	Stacks        []storageStackInfo    `json:"stacks"`
+	MigrateAll    *migrateAllStatus     `json:"migrateAll,omitempty"`
 }
 
 func zfsCreateHintForHost(ctx context.Context) string {
@@ -270,9 +375,30 @@ func (s *server) stackMigrateDatasetPreview(w http.ResponseWriter, r *http.Reque
 	json.NewEncoder(w).Encode(s.planMigrateDataset(ctx, st))
 }
 
+type progressWriter struct {
+	w       io.Writer
+	total   int64
+	onBytes func(int64)
+}
+
+func (p *progressWriter) Write(b []byte) (int, error) {
+	n, err := p.w.Write(b)
+	if n > 0 {
+		p.total += int64(n)
+		if p.onBytes != nil {
+			p.onBytes(p.total)
+		}
+	}
+	return n, err
+}
+
 // copyTreePreserving copies all files from srcDir into dstDir using tar with
 // --numeric-owner and sparse/xattr/ACL flags appropriate to the host OS.
 func copyTreePreserving(ctx context.Context, srcDir, dstDir string) error {
+	return copyTreePreservingWithProgress(ctx, srcDir, dstDir, nil)
+}
+
+func copyTreePreservingWithProgress(ctx context.Context, srcDir, dstDir string, onBytes func(int64)) error {
 	var packArgs, unpackArgs []string
 	if runtime.GOOS == "linux" {
 		packArgs = []string{"--numeric-owner", "--sparse", "--xattrs", "--acls", "-cf", "-", "-C", srcDir, "."}
@@ -289,7 +415,11 @@ func copyTreePreserving(ctx context.Context, srcDir, dstDir string) error {
 	unpack.Stderr = &unpackErr
 
 	pr, pw := io.Pipe()
-	pack.Stdout = pw
+	if onBytes != nil {
+		pack.Stdout = &progressWriter{w: pw, onBytes: onBytes}
+	} else {
+		pack.Stdout = pw
+	}
 	unpack.Stdin = pr
 
 	if err := unpack.Start(); err != nil {
@@ -379,36 +509,78 @@ func (s *server) stackMigrateDataset(w http.ResponseWriter, r *http.Request, nam
 		http.Error(w, "Stack not found", http.StatusNotFound)
 		return
 	}
-
-	unlock, ok := lockStackAs(name, "migrate")
-	if !ok {
-		http.Error(w, anotherOperation(name), http.StatusConflict)
-		return
-	}
-	defer unlock()
-
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 30*time.Minute)
-	defer cancel()
-
-	plan := s.planMigrateDataset(ctx, st)
+	checkCtx, checkCancel := context.WithTimeout(r.Context(), 15*time.Second)
+	plan := s.planMigrateDataset(checkCtx, st)
+	checkCancel()
 	if !plan.Eligible {
 		http.Error(w, plan.Reason, http.StatusConflict)
 		return
 	}
 
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 30*time.Minute)
+	defer cancel()
+
+	jobID := s.jobs.start("migrate-dataset", "Moving "+name+" to ZFS dataset", false, "Stopping", []bgJobItem{
+		{Name: name, Status: "running"},
+	})
+	res, status, err := s.migrateStackToDataset(ctx, name, keepOld, triggerOf(r), func(phase string, bytesDone, bytesTotal int64) {
+		s.jobs.setPhase(jobID, name, phase, bytesDone, bytesTotal)
+	})
+	if err != nil {
+		s.jobs.recordItem(jobID, name, "failed", history.FirstLine(err.Error()))
+		s.jobs.finish(jobID, "failed", fmt.Sprintf("Moving %s failed: %s", name, history.FirstLine(err.Error())))
+		http.Error(w, err.Error(), status)
+		return
+	}
+	s.jobs.recordItem(jobID, name, "done", res.Dataset)
+	s.jobs.finish(jobID, "done", fmt.Sprintf("Moved %s to %s", name, res.Dataset))
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{
+		"ok":        true,
+		"dataset":   res.Dataset,
+		"targetDir": res.TargetDir,
+		"backupDir": res.BackupDir,
+	})
+}
+
+// migrateStackToDataset moves one plain-folder stack onto its own ZFS dataset,
+// stopping it, copying with permissions preserved, saving an initial restore
+// point, and restarting it. On any failure it reverts cleanly and writes a
+// failed History entry with a log excerpt.
+func (s *server) migrateStackToDataset(ctx context.Context, name string, keepOld bool, trigger string, onProgress func(phase string, bytesDone, bytesTotal int64)) (migrateResult, int, error) {
+	report := func(phase string, bytesDone, bytesTotal int64) {
+		if onProgress != nil {
+			onProgress(phase, bytesDone, bytesTotal)
+		}
+	}
+	st, err := s.manager.Get(name)
+	if err != nil {
+		return migrateResult{}, http.StatusNotFound, fmt.Errorf("Stack not found")
+	}
+
+	unlock, ok := lockStackAs(name, "migrate")
+	if !ok {
+		return migrateResult{}, http.StatusConflict, fmt.Errorf("%s", anotherOperation(name))
+	}
+	defer unlock()
+
+	plan := s.planMigrateDataset(ctx, st)
+	if !plan.Eligible {
+		return migrateResult{}, http.StatusConflict, fmt.Errorf("%s", plan.Reason)
+	}
+
 	parentDS, ok := dataset.At(ctx, plan.TargetLocation)
 	if !ok || dataset.IsBootEnv(parentDS) {
-		http.Error(w, plan.TargetLocation+" is not a ZFS dataset", http.StatusConflict)
-		return
+		return migrateResult{}, http.StatusConflict, fmt.Errorf("%s is not a ZFS dataset", plan.TargetLocation)
 	}
 
 	_, imagesJSON := currentStackVersionImage(ctx, s, st)
 	uid, gid, mode, hasOwner := statOwnerMode(plan.SourceDir)
 
+	report("Stopping", 0, plan.SizeBytes)
 	be := s.backendFor(st)
 	if err := stopStackForZFS(ctx, be, st); err != nil {
-		http.Error(w, err.Error(), http.StatusConflict)
-		return
+		return migrateResult{}, http.StatusConflict, err
 	}
 
 	wasRunning := st.State != nil && st.State.DesiredState == "running"
@@ -449,7 +621,12 @@ func (s *server) stackMigrateDataset(w http.ResponseWriter, r *http.Request, nam
 	})
 
 	configRewritten := false
-	rollbackMigration := func(dsCreated bool, reason error) {
+	rollbackMigration := func(dsCreated bool, reason error) (migrateResult, int, error) {
+		// Use a fresh context so rollback still destroys any partial dataset
+		// and restarts the app even if the migration context timed out or was
+		// cancelled.
+		rbCtx, rbCancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer rbCancel()
 		var opLog strings.Builder
 		fmt.Fprintf(&opLog, "Moving %s (%s -> %s)\n", name, plan.SourceDir, plan.TargetDataset)
 		fmt.Fprintf(&opLog, "Error: %v\n", reason)
@@ -464,7 +641,7 @@ func (s *server) stackMigrateDataset(w http.ResponseWriter, r *http.Request, nam
 			_ = os.WriteFile(directorPath, origDirector, 0o644)
 		}
 		if dsCreated {
-			_ = dataset.Destroy(ctx, plan.TargetDataset, name)
+			_ = dataset.Destroy(rbCtx, plan.TargetDataset, name)
 		}
 		if !plan.CrossLocation {
 			_ = os.Rename(backupDir, plan.SourceDir)
@@ -480,37 +657,34 @@ func (s *server) stackMigrateDataset(w http.ResponseWriter, r *http.Request, nam
 			st = fresh
 		}
 		if wasRunning {
-			if stream, uerr := be.Up(ctx, st); uerr == nil {
+			if stream, uerr := be.Up(rbCtx, st); uerr == nil {
 				if out, _ := io.ReadAll(stream); len(out) > 0 {
 					opLog.Write(out)
 				}
 				stream.Close()
 			}
 		}
-		n := newNote(history.Snapshot, triggerOf(r))
+		n := newNote(history.Snapshot, trigger)
 		n.excerpt = history.Excerpt(opLog.String())
 		s.writeHistory(name, n, true, "Move to dataset failed: "+history.FirstLine(reason.Error()))
-		http.Error(w, reason.Error(), http.StatusConflict)
+		return migrateResult{}, http.StatusConflict, reason
 	}
 
 	copySrc := plan.SourceDir
 	if !plan.CrossLocation {
 		if err := os.Rename(plan.SourceDir, backupDir); err != nil {
-			rollbackMigration(false, fmt.Errorf("rename %s: %w", plan.SourceDir, err))
-			return
+			return rollbackMigration(false, fmt.Errorf("rename %s: %w", plan.SourceDir, err))
 		}
 		copySrc = backupDir
 	}
 
 	createdDS, err := dataset.Create(ctx, parentDS, name)
 	if err != nil {
-		rollbackMigration(false, err)
-		return
+		return rollbackMigration(false, err)
 	}
 
 	if fi, serr := os.Stat(dstDir); serr != nil || !fi.IsDir() {
-		rollbackMigration(true, fmt.Errorf("target dataset mount %s not available", dstDir))
-		return
+		return rollbackMigration(true, fmt.Errorf("target dataset mount %s not available", dstDir))
 	}
 
 	if hasOwner {
@@ -522,9 +696,11 @@ func (s *server) stackMigrateDataset(w http.ResponseWriter, r *http.Request, nam
 		}
 	}
 
-	if err := copyTreePreserving(ctx, copySrc, dstDir); err != nil {
-		rollbackMigration(true, err)
-		return
+	report("Copying", 0, plan.SizeBytes)
+	if err := copyTreePreservingWithProgress(ctx, copySrc, dstDir, func(copied int64) {
+		report("Copying", copied, plan.SizeBytes)
+	}); err != nil {
+		return rollbackMigration(true, err)
 	}
 
 	if plan.CrossLocation {
@@ -536,8 +712,7 @@ func (s *server) stackMigrateDataset(w http.ResponseWriter, r *http.Request, nam
 			newDirector, dChanged = rewritePathPrefix(string(origDirector), plan.SourceDir, dstDir)
 		}
 		if !cChanged && !eChanged && !dChanged {
-			rollbackMigration(true, fmt.Errorf("could not rewrite %s in stack configuration", plan.SourceDir))
-			return
+			return rollbackMigration(true, fmt.Errorf("could not rewrite %s in stack configuration", plan.SourceDir))
 		}
 		if cChanged || eChanged {
 			if _, err := s.manager.Update(name, func(cur *stack.Stack) error {
@@ -545,20 +720,19 @@ func (s *server) stackMigrateDataset(w http.ResponseWriter, r *http.Request, nam
 				cur.Env = newEnv
 				return nil
 			}); err != nil {
-				rollbackMigration(true, fmt.Errorf("update stack config: %w", err))
-				return
+				return rollbackMigration(true, fmt.Errorf("update stack config: %w", err))
 			}
 			configRewritten = true
 		}
 		if dChanged && directorPath != "" {
 			if err := stack.WriteFileAtomic(directorPath, []byte(newDirector), 0o644); err != nil {
-				rollbackMigration(true, fmt.Errorf("update appjail-director.yml: %w", err))
-				return
+				return rollbackMigration(true, fmt.Errorf("update appjail-director.yml: %w", err))
 			}
 			directorRewritten = true
 		}
 	}
 
+	report("Saving restore point", plan.SizeBytes, plan.SizeBytes)
 	_, _ = dataset.SnapshotManual(ctx, createdDS, name, "Moved to dataset", now, imagesJSON)
 
 	rpDef, _, _ := restorePointSettingsOf(loadSettings(s.fjordRoot))
@@ -577,10 +751,10 @@ func (s *server) stackMigrateDataset(w http.ResponseWriter, r *http.Request, nam
 		st = fresh
 	}
 	if wasRunning {
+		report("Starting", plan.SizeBytes, plan.SizeBytes)
 		stream, uerr := be.Up(ctx, st)
 		if uerr != nil {
-			rollbackMigration(true, fmt.Errorf("restart after migration: %w", uerr))
-			return
+			return rollbackMigration(true, fmt.Errorf("restart after migration: %w", uerr))
 		}
 		io.Copy(io.Discard, stream)
 		stream.Close()
@@ -601,18 +775,144 @@ func (s *server) stackMigrateDataset(w http.ResponseWriter, r *http.Request, nam
 		backupDir = ""
 	}
 
-	n := newNote(history.Snapshot, triggerOf(r))
+	n := newNote(history.Snapshot, trigger)
 	n.detail = "Moved to dataset " + createdDS
 	s.writeHistory(name, n, false, "")
 	s.fleet.forget(name)
 
+	return migrateResult{Dataset: createdDS, TargetDir: dstDir, BackupDir: backupDir}, http.StatusOK, nil
+}
+
+// handleMigrateAll starts a daemon-owned background job that moves every
+// eligible plain-folder stack onto its own ZFS dataset, one app at a time.
+func (s *server) handleMigrateAll(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		KeepOld *bool `json:"keepOld"`
+	}
+	if r.Body != nil {
+		_ = json.NewDecoder(r.Body).Decode(&req)
+	}
+	keepOld := true
+	if req.KeepOld != nil {
+		keepOld = *req.KeepOld
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+	if !dataset.HasZFS(ctx) {
+		http.Error(w, "ZFS is not available on this host", http.StatusConflict)
+		return
+	}
+	if !s.migrateAll.begin(0, keepOld) {
+		http.Error(w, "A bulk dataset migration is already running", http.StatusConflict)
+		return
+	}
+
+	jobID := s.jobs.start("migrate-all", "Moving apps to ZFS datasets", true, "Scanning eligible apps", nil)
+	trigger := triggerOf(r)
+	go func() {
+		defer s.migrateAll.finish()
+		scanCtx, scanCancel := context.WithTimeout(daemonCtx, 2*time.Minute)
+		stacks, err := s.manager.List()
+		type candidate struct {
+			name string
+			size int64
+		}
+		var cands []candidate
+		if err == nil {
+			for _, st := range stacks {
+				full, gerr := s.manager.Get(st.Name)
+				if gerr != nil {
+					continue
+				}
+				plan := s.planMigrateDataset(scanCtx, full)
+				if plan.Eligible {
+					cands = append(cands, candidate{name: full.Name, size: plan.SizeBytes})
+				}
+			}
+		}
+		scanCancel()
+
+		if err != nil {
+			s.jobs.finish(jobID, "failed", "Could not list apps: "+history.FirstLine(err.Error()))
+			return
+		}
+		sort.Slice(cands, func(i, j int) bool { return cands[i].name < cands[j].name })
+		if len(cands) == 0 {
+			s.jobs.finish(jobID, "done", "No apps need moving")
+			return
+		}
+		s.migrateAll.setTotal(len(cands))
+		items := make([]bgJobItem, len(cands))
+		for i, c := range cands {
+			detail := ""
+			if c.size > 0 {
+				detail = formatBytes(c.size)
+			}
+			items[i] = bgJobItem{Name: c.name, Status: "queued", Detail: detail}
+		}
+		s.jobs.setItems(jobID, items)
+
+		moved, failed := 0, 0
+		stoppedEarly := false
+		for i, c := range cands {
+			if s.jobs.isStopping(jobID) || !s.migrateAll.setCurrent(c.name) {
+				stoppedEarly = true
+				for _, rem := range cands[i:] {
+					s.jobs.recordItem(jobID, rem.name, "skipped", "Stopped")
+				}
+				log.Printf("migrate-all: stopped by request after %d of %d", moved+failed, len(cands))
+				break
+			}
+			s.jobs.setPhase(jobID, c.name, "Stopping", 0, c.size)
+			mctx, mcancel := context.WithTimeout(daemonCtx, 30*time.Minute)
+			res, _, merr := s.migrateStackToDataset(mctx, c.name, keepOld, trigger, func(phase string, bytesDone, bytesTotal int64) {
+				s.jobs.setPhase(jobID, c.name, phase, bytesDone, bytesTotal)
+			})
+			mcancel()
+			s.migrateAll.record(c.name, merr)
+			if merr != nil {
+				failed++
+				log.Printf("migrate-all %s: %v", c.name, merr)
+				s.jobs.recordItem(jobID, c.name, "failed", history.FirstLine(merr.Error()))
+			} else {
+				moved++
+				detail := res.Dataset
+				if c.size > 0 {
+					detail = formatBytes(c.size)
+				}
+				s.jobs.recordItem(jobID, c.name, "done", detail)
+			}
+		}
+
+		switch {
+		case stoppedEarly:
+			s.jobs.finish(jobID, "stopped", fmt.Sprintf("Stopped after moving %d of %d apps", moved, len(cands)))
+		case failed > 0:
+			s.jobs.finish(jobID, "failed", fmt.Sprintf("Moved %d of %d apps; %d failed", moved, len(cands), failed))
+		default:
+			s.jobs.finish(jobID, "done", fmt.Sprintf("Moved %d of %d apps to ZFS datasets", moved, len(cands)))
+		}
+	}()
+
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{
-		"ok":        true,
-		"dataset":   createdDS,
-		"targetDir": dstDir,
-		"backupDir": backupDir,
-	})
+	w.WriteHeader(http.StatusAccepted)
+	json.NewEncoder(w).Encode(s.migrateAll.snapshot())
+}
+
+// handleMigrateAllCancel asks a running migrate-all batch to stop cleanly
+// after the currently moving stack finishes.
+func (s *server) handleMigrateAllCancel(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	s.migrateAll.cancel()
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *server) handleStorageDatasets(w http.ResponseWriter, r *http.Request) {
@@ -625,9 +925,10 @@ func (s *server) handleStorageDatasets(w http.ResponseWriter, r *http.Request) {
 
 	hasZFS := dataset.HasZFS(ctx)
 	resp := storageDatasetsResponse{
-		HasZFS:    hasZFS,
-		Locations: []storageLocationInfo{},
-		Stacks:    []storageStackInfo{},
+		HasZFS:     hasZFS,
+		Locations:  []storageLocationInfo{},
+		Stacks:     []storageStackInfo{},
+		MigrateAll: s.migrateAll.snapshot(),
 	}
 	if hasZFS {
 		resp.ZFSCreateHint = zfsCreateHintForHost(ctx)

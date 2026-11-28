@@ -1538,13 +1538,16 @@
           </div>
         </div>
       {:else if activeTab === 'history' && !isDraft}
-        <!-- Read each time the tab opens. -->
+        <!-- Read each time the tab opens; key on stack name so switching stacks resets modal/fetch state. -->
         <div class="pt-4 overflow-y-auto h-full">
-          <HistoryList stack={stack.name} reload={historyBump} />
+          {#key stack.name}
+            <HistoryList stack={stack.name} reload={historyBump} />
+          {/key}
         </div>
       {:else if activeTab === 'settings' && !isDraft}
-        <!-- Each one applies when it changes, as before; no Save. -->
+        <!-- Each one applies when it changes, as before; no Save. Key on stack name so keep-tab resets controls. -->
         <div class="pt-4 overflow-y-auto h-full">
+          {#key stack.name}
           {#if settingsLocked}
             <p id="settings-locked" data-settings-locked class="flex items-center gap-2 mb-4 max-w-prose text-sm text-fjord-fg-muted">
               <Icon name="alert" size={14} />{settingsLocked}
@@ -1621,6 +1624,7 @@
               </datalist>
             </div>
           </div>
+          {/key}
         </div>
       {:else}
         <div class="pt-4 overflow-y-auto h-full">

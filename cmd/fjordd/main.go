@@ -367,6 +367,7 @@ func main() {
 		health:     newHealthMonitor(),
 	}
 	busyEvents = srv.events
+	srv.jobs = newJobHub(srv.events)
 	srv.segs.load(filepath.Join(fjordRoot, "segments.json"))
 	go srv.runWireChecks()
 	go srv.runConditionsLoop()

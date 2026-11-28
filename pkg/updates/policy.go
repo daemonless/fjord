@@ -47,8 +47,9 @@ type Candidate struct {
 
 // Verdict is what auto-update would do with a Candidate, and why.
 type Verdict struct {
-	Act    bool   `json:"act"`
-	Reason string `json:"reason"`
+	Act       bool      `json:"act"`
+	Reason    string    `json:"reason"`
+	SoakUntil time.Time `json:"soakUntil,omitempty"`
 }
 
 // Soak is how long a version bump must have been seen before it is applied.
@@ -61,30 +62,31 @@ const Soak = 24 * time.Hour
 func Decide(p Policy, c Candidate, now time.Time) Verdict {
 	switch {
 	case p == Off || p == "":
-		return Verdict{false, "auto-update is off for this stack"}
+		return Verdict{Act: false, Reason: "auto-update is off for this stack"}
 	case p == Notify:
-		return Verdict{false, "notify only"}
+		return Verdict{Act: false, Reason: "notify only"}
 	case c.Pinned:
-		return Verdict{false, "pinned to an exact image"}
+		return Verdict{Act: false, Reason: "pinned to an exact image"}
 	}
 	if c.DataMajor && (c.Class == Major || c.Class == Unknown) {
-		return Verdict{false, "a new major of this database needs its data upgraded by hand"}
+		return Verdict{Act: false, Reason: "a new major of this database needs its data upgraded by hand"}
 	}
 	if c.Dependency && c.Class != Rebuild {
-		return Verdict{false, fmt.Sprintf("other services depend on this one, so it only takes rebuilds (this is %s)", article(c.Class))}
+		return Verdict{Act: false, Reason: fmt.Sprintf("other services depend on this one, so it only takes rebuilds (this is %s)", article(c.Class))}
 	}
 	if rank[p] < needs[c.Class] {
-		return Verdict{false, fmt.Sprintf("policy %s does not take %s", p, article(c.Class))}
+		return Verdict{Act: false, Reason: fmt.Sprintf("policy %s does not take %s", p, article(c.Class))}
 	}
 	if c.Class != Rebuild {
 		if c.FirstSeen.IsZero() {
-			return Verdict{false, "soaking: just seen"}
+			return Verdict{Act: false, Reason: "soaking: just seen"}
 		}
-		if left := c.FirstSeen.Add(Soak).Sub(now); left > 0 {
-			return Verdict{false, fmt.Sprintf("soaking: %s left", roundUp(left))}
+		until := c.FirstSeen.Add(Soak)
+		if left := until.Sub(now); left > 0 {
+			return Verdict{Act: false, Reason: fmt.Sprintf("soaking: %s left", roundUp(left)), SoakUntil: until}
 		}
 	}
-	return Verdict{true, fmt.Sprintf("would apply this %s", c.Class)}
+	return Verdict{Act: true, Reason: fmt.Sprintf("would apply this %s", c.Class)}
 }
 
 func article(c Class) string {

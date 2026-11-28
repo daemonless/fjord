@@ -276,6 +276,9 @@ func (s *server) stackRestorePointPolicy(w http.ResponseWriter, r *http.Request,
 		http.Error(w, "persist: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
+	if req.Policy != rpPolicyDaily {
+		s.clearFailureNotice(name, stack.NoticeDailyRestorePoint)
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -372,6 +375,11 @@ func (s *server) runDailyRestorePointsPass(trigger string, now time.Time) rpRunR
 		log.Printf("daily restore points: list stacks: %v", err)
 		return rec
 	}
+	type rpTarget struct {
+		st    *stack.Stack
+		state *stack.State
+	}
+	var targets []rpTarget
 	for _, st := range stacks {
 		if isRetry && doneSet[st.Name] {
 			continue
@@ -383,10 +391,27 @@ func (s *server) runDailyRestorePointsPass(trigger string, now time.Time) rpRunR
 		if effectiveRestorePointPolicy(state) != rpPolicyDaily {
 			continue
 		}
+		targets = append(targets, rpTarget{st: st, state: state})
+	}
+
+	var jobID string
+	if len(targets) > 0 || trigger != history.ByAutomatic {
+		items := make([]bgJobItem, len(targets))
+		for i, t := range targets {
+			items[i] = bgJobItem{Name: t.st.Name, Status: "queued"}
+		}
+		jobID = s.jobs.start("restore-points", "Saving daily restore points", false, "Checking apps", items)
+	}
+
+	passFailed := 0
+	for _, tgt := range targets {
+		st, state := tgt.st, tgt.state
+		s.jobs.setPhase(jobID, st.Name, "Checking changes", 0, 0)
 		unlock, ok := lockStackAs(st.Name, "snapshot")
 		if !ok {
 			log.Printf("daily restore point %s: skipped (busy)", st.Name)
 			rec.Busy = append(rec.Busy, st.Name)
+			s.jobs.recordItem(jobID, st.Name, "skipped", "Busy")
 			continue
 		}
 
@@ -410,6 +435,7 @@ func (s *server) runDailyRestorePointsPass(trigger string, now time.Time) rpRunR
 		}
 
 		if !alreadyExists && !skipped {
+			s.jobs.setPhase(jobID, st.Name, "Saving restore point", 0, 0)
 			_, imagesJSON := currentStackVersionImage(ctx, s, st)
 			_, snapErr = snapshotScheduledFn(ctx, state.Dataset, snapAt, imagesJSON)
 		}
@@ -423,8 +449,10 @@ func (s *server) runDailyRestorePointsPass(trigger string, now time.Time) rpRunR
 		}
 		if snapErr != nil {
 			rec.Failed++
+			passFailed++
 			rec.Errors = append(rec.Errors, st.Name+": "+snapErr.Error())
 			log.Printf("daily restore point %s: %v", st.Name, snapErr)
+			s.jobs.recordItem(jobID, st.Name, "failed", history.FirstLine(snapErr.Error()))
 			writeHist := true
 			if trigger == history.ByAutomatic {
 				writeHist = s.recordFailureNotice(st.Name, stack.NoticeDailyRestorePoint, snapErr.Error(), now)
@@ -443,8 +471,10 @@ func (s *server) runDailyRestorePointsPass(trigger string, now time.Time) rpRunR
 		}
 		if skipped {
 			rec.Skipped++
+			s.jobs.recordItem(jobID, st.Name, "skipped", "No changes")
 		} else {
 			rec.Saved++
+			s.jobs.recordItem(jobID, st.Name, "done", "Saved")
 		}
 	}
 
@@ -467,6 +497,34 @@ func (s *server) runDailyRestorePointsPass(trigger string, now time.Time) rpRunR
 	if rec.Saved > 0 || rec.Skipped > 0 || rec.Failed > 0 || len(rec.Busy) > 0 {
 		log.Printf("daily restore points (%s): %d saved, %d skipped, %d failed, %d busy",
 			trigger, rec.Saved, rec.Skipped, rec.Failed, len(rec.Busy))
+	}
+	if jobID != "" {
+		if trigger == history.ByAutomatic && passFailed == 0 {
+			s.jobs.remove(jobID)
+		} else {
+			var parts []string
+			if rec.Saved > 0 {
+				parts = append(parts, fmt.Sprintf("%d saved", rec.Saved))
+			}
+			if rec.Skipped > 0 {
+				parts = append(parts, fmt.Sprintf("%d unchanged", rec.Skipped))
+			}
+			if len(rec.Busy) > 0 {
+				parts = append(parts, fmt.Sprintf("%d busy", len(rec.Busy)))
+			}
+			if rec.Failed > 0 {
+				parts = append(parts, fmt.Sprintf("%d failed", rec.Failed))
+			}
+			summary := "No apps set to Daily"
+			if len(parts) > 0 {
+				summary = "Restore points: " + strings.Join(parts, ", ")
+			}
+			if rec.Failed > 0 {
+				s.jobs.finish(jobID, "failed", summary)
+			} else {
+				s.jobs.finish(jobID, "done", summary)
+			}
+		}
 	}
 	return rec
 }

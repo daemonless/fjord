@@ -132,6 +132,10 @@
     return isoDate(new Date(Date.now() + 30 * 24 * 60 * 60 * 1000));
   }
 
+  function excerptKey(e: HistoryEntry): string {
+    return `${e.at}:${e.action}:${e.stack ?? ''}`;
+  }
+
   function entryKey(e: HistoryEntry, idx: number): string {
     return `${idx}:${e.at}:${e.action}`;
   }
@@ -594,7 +598,7 @@
               {:else}
                 <ol class="list-decimal list-inside space-y-1.5 text-xs text-fjord-fg-muted pt-0.5">
                   <li>
-                    Create a dedicated ZFS dataset on the host:
+                    <span>Create a dedicated ZFS dataset on the host:</span>
                     <span class="mt-1 flex flex-wrap items-center gap-2">
                       <code class="rounded border border-fjord-border bg-fjord-bg px-2 py-0.5 font-mono text-fjord-fg">{migratePlan.zfsCreateHint}</code>
                       <button type="button" class="text-fjord-accent hover:underline" on:click={() => copyPath(migratePlan?.zfsCreateHint || '')}>Copy</button>
@@ -819,16 +823,17 @@
                   <span class="text-xs text-fjord-fg-muted break-words">{e.message}</span>
                 {/if}
                 {#if hasLogExcerpt(e)}
-                  {@const exKey = entryKey(e, idx)}
+                  {@const exKey = excerptKey(e)}
                   <button
                     type="button"
                     data-excerpt-toggle
+                    aria-expanded={!!expandedExcerpts[exKey]}
                     class="text-xs text-fjord-accent hover:underline"
                     on:click={() => (expandedExcerpts = { ...expandedExcerpts, [exKey]: !expandedExcerpts[exKey] })}
                   >{expandedExcerpts[exKey] ? 'Hide output' : 'Show output'}</button>
                 {/if}
               </div>
-              {#if hasLogExcerpt(e) && expandedExcerpts[entryKey(e, idx)]}
+              {#if hasLogExcerpt(e) && expandedExcerpts[excerptKey(e)]}
                 <pre
                   data-history-excerpt
                   class="mt-2 rounded-md border border-fjord-border bg-fjord-inset px-3 py-2 text-xs font-mono text-fjord-fg-body whitespace-pre-wrap break-all overflow-x-auto"

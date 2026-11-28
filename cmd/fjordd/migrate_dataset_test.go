@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -90,5 +91,49 @@ func TestRewritePathPrefix(t *testing.T) {
 	wantC := "services:\n  app:\n    volumes:\n      - \"/apps/zensical/config:/config\"\n      - /apps/zensical:/data:ro\n"
 	if gotC != wantC {
 		t.Fatalf("compose got:\n%s\nwant:\n%s", gotC, wantC)
+	}
+}
+
+func TestMigrateAllTrackerLifecycleAndCancel(t *testing.T) {
+	var tr migrateAllTracker
+	if tr.snapshot() != nil {
+		t.Fatal("expected nil snapshot before any run")
+	}
+	if !tr.begin(3, false) {
+		t.Fatal("expected first begin to succeed")
+	}
+	if tr.begin(2, true) {
+		t.Fatal("expected second begin while running to be rejected")
+	}
+	if !tr.setCurrent("radarr") {
+		t.Fatal("expected setCurrent before cancel to succeed")
+	}
+	tr.record("radarr", nil)
+	if !tr.setCurrent("sonarr") {
+		t.Fatal("expected setCurrent for second app to succeed")
+	}
+	tr.record("sonarr", errors.New("busy"))
+	if !tr.cancel() {
+		t.Fatal("expected cancel while running to return true")
+	}
+	if tr.setCurrent("prowlarr") {
+		t.Fatal("expected setCurrent after cancel to return false")
+	}
+	tr.finish()
+	snap := tr.snapshot()
+	if snap == nil {
+		t.Fatal("expected finished snapshot to remain visible")
+	}
+	if snap.Running || snap.Stopping || snap.Current != "" {
+		t.Fatalf("unexpected finished state: %+v", snap)
+	}
+	if snap.Total != 3 || snap.Done != 2 || len(snap.Moved) != 1 || snap.Moved[0] != "radarr" {
+		t.Fatalf("unexpected counts/moved: %+v", snap)
+	}
+	if snap.Failed["sonarr"] != "busy" {
+		t.Fatalf("unexpected failed map: %+v", snap.Failed)
+	}
+	if tr.cancel() {
+		t.Fatal("expected cancel when idle to return false")
 	}
 }
