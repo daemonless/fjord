@@ -1540,7 +1540,14 @@
       </div>
     {:else if currentView === 'settings'}
       <div class="p-6 h-full overflow-hidden">
-        {#key viewEpoch}<Settings tab={settingsTab} on:tab={(e) => (settingsTab = e.detail)} />{/key}
+        {#key viewEpoch}<Settings
+          tab={settingsTab}
+          on:tab={(e) => (settingsTab = e.detail)}
+          on:select-stack={(e) => {
+            const f = stacks.find((s) => s.name === e.detail) ?? { name: e.detail, dir: '', compose: '', env: '' };
+            selectStack(f);
+          }}
+        />{/key}
       </div>
     {:else}
       <!-- Default landing: dashboard overview of all stacks -->

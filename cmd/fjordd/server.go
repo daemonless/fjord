@@ -238,6 +238,7 @@ func (s *server) routes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/settings/storage/datasets", s.handleStorageDatasets)
 	mux.HandleFunc("/api/settings/restore-points", s.handleRestorePointSettings)
 	mux.HandleFunc("/api/settings/restore-points/run", s.handleRestorePointSettings)
+	mux.HandleFunc("/api/notices", s.handleNotices)
 	mux.HandleFunc("/api/settings/wizard", s.handleWizardSettings)
 	mux.HandleFunc("/api/settings/restart", s.handleRestartSettings)
 	mux.HandleFunc("/api/settings/network", s.handleDefaultNetwork)

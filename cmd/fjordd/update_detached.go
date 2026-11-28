@@ -103,6 +103,13 @@ func (s *server) runDetachedUpdate(name string, services []string, trigger strin
 	} else {
 		stream = s.keepAfter(ctx, st, stream)
 	}
+	if trigger == history.ByAutomatic {
+		if errors.Is(startErr, errSnapshotAborted) {
+			note.skipFailedHistory = s.hasFailureNotice(name, stack.NoticeAutoUpdateNoSnapshot)
+		} else {
+			note.skipFailedHistory = s.hasFailureNotice(name, stack.NoticeAutoUpdate)
+		}
+	}
 	io.Copy(io.Discard, s.recordOutcome(name, "update", note, stream))
 	stream.Close()
 	s.fleet.forget(name)

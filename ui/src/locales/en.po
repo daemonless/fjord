@@ -1147,6 +1147,7 @@ msgstr "<0>Not saved.</0> The compose changed on the server after you opened it 
 #: src/StackDetail.svelte
 #: src/StackDetail.svelte
 #: src/StackDetail.svelte
+#: src/StackDetail.svelte
 #: src/System.svelte
 #: src/Toasts.svelte
 msgid "Dismiss"
@@ -6536,10 +6537,8 @@ msgstr "Each app gets its own folder in the location chosen at install, like <0>
 msgid "fjord keeps its own files in <0/>."
 msgstr "fjord keeps its own files in <0/>."
 
-#. 0: rpSettings?.last?.failed; 1: rpSettings?.last?.failed === 1 ? 'app' \\: 'apps'
-#: src/Settings.svelte
-msgid "Last daily run failed for {0} {1} <0/>"
-msgstr "Last daily run failed for {0} {1} <0/>"
+#~ msgid "Last daily run failed for {0} {1} <0/>"
+#~ msgstr "Last daily run failed for {0} {1} <0/>"
 
 #: src/Settings.svelte
 msgid "New apps do not save automatic restore points unless turned on per app."
@@ -6748,3 +6747,81 @@ msgstr "Could not update restore point"
 #: src/HistoryList.svelte
 msgid "Stop keeping"
 msgstr "Stop keeping"
+
+#: src/Settings.svelte
+msgid "1 app has failing restore points"
+msgstr "1 app has failing restore points"
+
+#. 0: g.items.length
+#: src/Settings.svelte
+msgid "{0} apps have failing restore points"
+msgstr "{0} apps have failing restore points"
+
+#: src/Settings.svelte
+msgid "1 app skipped automatic updates (no restore point)"
+msgstr "1 app skipped automatic updates (no restore point)"
+
+#. 0: g.items.length
+#: src/Settings.svelte
+msgid "{0} apps skipped automatic updates (no restore point)"
+msgstr "{0} apps skipped automatic updates (no restore point)"
+
+#: src/Settings.svelte
+msgid "1 app has failing automatic updates"
+msgstr "1 app has failing automatic updates"
+
+#. 0: g.items.length
+#: src/Settings.svelte
+msgid "{0} apps have failing automatic updates"
+msgstr "{0} apps have failing automatic updates"
+
+#: src/Settings.svelte
+msgid "(dismissed)"
+msgstr "(dismissed)"
+
+#: src/Sidebar.svelte
+msgid "Ongoing background failure"
+msgstr "Ongoing background failure"
+
+#. 0: r.status
+#: src/StackDetail.svelte
+msgid "Could not dismiss notice ({0})"
+msgstr "Could not dismiss notice ({0})"
+
+#: src/StackDetail.svelte
+msgid "Could not dismiss notice"
+msgstr "Could not dismiss notice"
+
+#. 0: notice.count; 1: isoDate(notice.firstAt)
+#: src/StackDetail.svelte
+msgid "Daily restore point failed {0} nights in a row, since {1}"
+msgstr "Daily restore point failed {0} nights in a row, since {1}"
+
+#. 0: isoDate(notice.firstAt)
+#: src/StackDetail.svelte
+msgid "Daily restore point failed on {0}"
+msgstr "Daily restore point failed on {0}"
+
+#. 0: notice.count; 1: isoDate(notice.firstAt)
+#: src/StackDetail.svelte
+msgid "Automatic update skipped {0} times in a row (could not take a restore point), since {1}"
+msgstr "Automatic update skipped {0} times in a row (could not take a restore point), since {1}"
+
+#. 0: isoDate(notice.firstAt)
+#: src/StackDetail.svelte
+msgid "Automatic update skipped on {0}: could not take a restore point"
+msgstr "Automatic update skipped on {0}: could not take a restore point"
+
+#. 0: notice.count; 1: isoDate(notice.firstAt)
+#: src/StackDetail.svelte
+msgid "Automatic update failed {0} times in a row, since {1}"
+msgstr "Automatic update failed {0} times in a row, since {1}"
+
+#. 0: isoDate(notice.firstAt)
+#: src/StackDetail.svelte
+msgid "Automatic update failed on {0}"
+msgstr "Automatic update failed on {0}"
+
+#: src/StackDetail.svelte
+msgid "Hide this while the same failure continues"
+msgstr "Hide this while the same failure continues"

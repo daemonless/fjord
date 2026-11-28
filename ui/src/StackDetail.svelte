@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { isoDateTime } from './when';
+  import { isoDate, isoDateTime } from './when';
+  import { activeNotices, type NoticeKind } from './failureNotices';
   import HistoryList from './HistoryList.svelte';
   import { onMount, tick } from 'svelte';
   import { staleNote } from './staleNote';
@@ -171,6 +172,38 @@
   // service set: that service alone (the Services tab); unset: the whole
   // single-image stack (the ⋮ menu).
   let changeVersion: { name: string; image: string; suggest?: string; service?: string } | null = null;
+
+  $: visibleNotices = activeNotices(stack?.state?.failure_notices);
+  let dismissingNotice = '';
+  async function dismissNotice(kind: NoticeKind) {
+    if (!stack || dismissingNotice) return;
+    dismissingNotice = kind;
+    try {
+      const r = await fetch(`/api/stacks/${encodeURIComponent(stack.name)}/notices/dismiss`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ kind }),
+      });
+      if (!r.ok) {
+        toast((await r.text()).trim() || `Could not dismiss notice (${r.status})`, { kind: 'error' });
+        return;
+      }
+      if (stack.state?.failure_notices) {
+        stack = {
+          ...stack,
+          state: {
+            ...stack.state,
+            failure_notices: stack.state.failure_notices.map((n) => (n.kind === kind ? { ...n, dismissed: true } : n)),
+          },
+        };
+      }
+      await onLoadStacks();
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'Could not dismiss notice', { kind: 'error' });
+    } finally {
+      dismissingNotice = '';
+    }
+  }
 
   // Multi-image stacks (e.g. app+db+redis) have no single version to change --
   // the Change Version modal would retag every service. Hidden for those.
@@ -1240,7 +1273,49 @@
     </div>
   {/if}
 
-  {#if stack.state?.last_failure && !stack.state?.auto_rollback && !failureDismissed[stack.name] && !busyNow}
+  {#each visibleNotices as notice (notice.kind)}
+    <div
+      data-failure-notice={notice.kind}
+      class="flex items-start gap-3 mb-4 shrink-0 px-4 py-2.5 rounded-lg bg-fjord-danger/10 border border-fjord-danger/25 text-sm text-fjord-fg-body"
+    >
+      <div class="flex-1 min-w-0">
+        <div class="font-medium text-fjord-fg">
+          {#if notice.kind === 'daily-restore-point'}
+            {#if notice.count > 1}
+              Daily restore point failed {notice.count} nights in a row, since {isoDate(notice.firstAt)}
+            {:else}
+              Daily restore point failed on {isoDate(notice.firstAt)}
+            {/if}
+          {:else if notice.kind === 'auto-update-no-snapshot'}
+            {#if notice.count > 1}
+              Automatic update skipped {notice.count} times in a row (could not take a restore point), since {isoDate(notice.firstAt)}
+            {:else}
+              Automatic update skipped on {isoDate(notice.firstAt)}: could not take a restore point
+            {/if}
+          {:else}
+            {#if notice.count > 1}
+              Automatic update failed {notice.count} times in a row, since {isoDate(notice.firstAt)}
+            {:else}
+              Automatic update failed on {isoDate(notice.firstAt)}
+            {/if}
+          {/if}
+        </div>
+        {#if notice.message}
+          <div class="text-xs text-fjord-fg-muted mt-0.5 break-words">{notice.message}</div>
+        {/if}
+      </div>
+      <button
+        type="button"
+        disabled={dismissingNotice === notice.kind}
+        on:click={() => dismissNotice(notice.kind)}
+        title="Hide this while the same failure continues"
+        class="shrink-0 px-3 py-1.5 rounded-lg text-sm font-medium text-fjord-fg-muted hover:text-fjord-fg transition-colors disabled:opacity-40"
+        >Dismiss</button
+      >
+    </div>
+  {/each}
+
+  {#if stack.state?.last_failure && !stack.state?.auto_rollback && !visibleNotices.some((n) => n.kind === 'auto-update' || n.kind === 'auto-update-no-snapshot') && !failureDismissed[stack.name] && !busyNow}
     {@const f = stack.state.last_failure}
     <div class="flex items-center gap-3 mb-4 shrink-0 px-4 py-2.5 rounded-lg bg-fjord-danger/10 border border-fjord-danger/25 text-sm text-fjord-fg-body">
       <span class="flex-1 min-w-0"

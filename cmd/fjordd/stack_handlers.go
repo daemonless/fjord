@@ -230,6 +230,10 @@ func (s *server) handleStackRoutes(w http.ResponseWriter, r *http.Request) {
 		s.stackRestorePointPolicy(w, r, parts[0])
 		return
 	}
+	if len(parts) == 3 && parts[1] == "notices" && parts[2] == "dismiss" && r.Method == http.MethodPost {
+		s.stackDismissNotice(w, r, parts[0])
+		return
+	}
 	if len(parts) == 3 && parts[1] == "kept" && parts[2] == "restore" && r.Method == http.MethodPost {
 		s.stackKeptRestore(w, r, parts[0])
 		return

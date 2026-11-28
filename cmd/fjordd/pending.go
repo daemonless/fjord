@@ -230,13 +230,29 @@ func (s *server) settleOutcome(name, action string, note *histNote, failed bool,
 		log.Printf("%s %s failed: %s", action, name, msg)
 	}
 	err := s.manager.UpdateState(name, func(st *stack.State) *stack.State {
-		if st == nil || (!failed && st.LastFailure == nil) {
+		if st == nil {
 			return nil
 		}
+		changed := false
 		if failed {
 			st.LastFailure = &stack.Failure{Action: action, At: time.Now(), Message: msg}
+			changed = true
 		} else {
-			st.LastFailure = nil
+			if st.LastFailure != nil {
+				st.LastFailure = nil
+				changed = true
+			}
+			if action == "update" {
+				if st.ClearFailureNotice(stack.NoticeAutoUpdate) != nil {
+					changed = true
+				}
+				if st.ClearFailureNotice(stack.NoticeAutoUpdateNoSnapshot) != nil {
+					changed = true
+				}
+			}
+		}
+		if !changed {
+			return nil
 		}
 		return st
 	})

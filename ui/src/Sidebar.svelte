@@ -6,6 +6,7 @@
   import EngineMark from './EngineMark.svelte';
   import { fitMenu } from './fitMenu';
   import { appIcons, iconFor, tile, initial } from './appIcons';
+  import { hasActiveNotices } from './failureNotices';
   import {
     behind,
     computeFilterCounts,
@@ -395,16 +396,21 @@
                 <span class="w-4 h-4 rounded shrink-0 flex items-center justify-center text-[9px] font-bold text-fjord-fg" style="background:{tile(label(stack))}">{initial(label(stack))}</span>
               {/if}
               <span class="truncate">{label(stack)}</span>
-              {#if stack.busy === 'update'}
-                <span class="ml-auto shrink-0 text-fjord-accent" title="Updating…"><Spinner size={11} /></span>
-              {:else if behind(fleet[stack.name])}
-                <span
-                  class="ml-auto shrink-0 text-fjord-warning"
-                  title={fleet[stack.name].state === 'upgrade'
-                    ? `${fleet[stack.name].fromVersion ? `v${fleet[stack.name].fromVersion} → ` : ''}v${fleet[stack.name].toVersion} available`
-                    : 'Update available'}><Icon name="arrow-up" size={12} /></span
-                >
-              {/if}
+              <span class="ml-auto flex items-center gap-1.5 shrink-0">
+                {#if hasActiveNotices(stack.state?.failure_notices)}
+                  <span class="text-fjord-danger" data-stack-notice-mark title="Ongoing background failure"><Icon name="alert" size={12} /></span>
+                {/if}
+                {#if stack.busy === 'update'}
+                  <span class="text-fjord-accent" title="Updating…"><Spinner size={11} /></span>
+                {:else if behind(fleet[stack.name])}
+                  <span
+                    class="text-fjord-warning"
+                    title={fleet[stack.name].state === 'upgrade'
+                      ? `${fleet[stack.name].fromVersion ? `v${fleet[stack.name].fromVersion} → ` : ''}v${fleet[stack.name].toVersion} available`
+                      : 'Update available'}><Icon name="arrow-up" size={12} /></span
+                  >
+                {/if}
+              </span>
             </div>
           {/each}
         </div>

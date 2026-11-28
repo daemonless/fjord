@@ -301,9 +301,11 @@ func (s *server) finalizeExpiredBusy(now time.Time) {
 
 	for _, name := range expired {
 		log.Printf("daily restore point %s: busy all day", name)
-		n := newNote(history.Snapshot, history.ByAutomatic)
-		n.detail = "Daily restore point failed: busy all day"
-		s.writeHistory(name, n, true, n.detail)
+		if s.recordFailureNotice(name, stack.NoticeDailyRestorePoint, "busy all day", now) {
+			n := newNote(history.Snapshot, history.ByAutomatic)
+			n.detail = "Daily restore point failed: busy all day"
+			s.writeHistory(name, n, true, n.detail)
+		}
 	}
 }
 
@@ -423,10 +425,21 @@ func (s *server) runDailyRestorePointsPass(trigger string, now time.Time) rpRunR
 			rec.Failed++
 			rec.Errors = append(rec.Errors, st.Name+": "+snapErr.Error())
 			log.Printf("daily restore point %s: %v", st.Name, snapErr)
-			n := newNote(history.Snapshot, trigger)
-			n.detail = fmt.Sprintf("Daily restore point failed: %v", snapErr)
-			s.writeHistory(st.Name, n, true, n.detail)
+			writeHist := true
+			if trigger == history.ByAutomatic {
+				writeHist = s.recordFailureNotice(st.Name, stack.NoticeDailyRestorePoint, snapErr.Error(), now)
+			}
+			if writeHist {
+				n := newNote(history.Snapshot, trigger)
+				n.detail = fmt.Sprintf("Daily restore point failed: %v", snapErr)
+				s.writeHistory(st.Name, n, true, n.detail)
+			}
 			continue
+		}
+		if cleared := s.clearFailureNotice(st.Name, stack.NoticeDailyRestorePoint); cleared != nil {
+			n := newNote(history.Snapshot, trigger)
+			n.detail = "Daily restore point succeeded again"
+			s.writeHistory(st.Name, n, false, "")
 		}
 		if skipped {
 			rec.Skipped++

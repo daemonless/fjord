@@ -15,11 +15,12 @@ import (
 // histNote is what an action's History entry needs that its outcome does
 // not tell: what it was, who or what started it, and when.
 type histNote struct {
-	action   string
-	trigger  string
-	services []string
-	start    time.Time
-	detail   string // said even when it went fine (why recovery acted)
+	action            string
+	trigger           string
+	services          []string
+	start             time.Time
+	detail            string // said even when it went fine (why recovery acted)
+	skipFailedHistory bool   // repeated unattended failure updates its notice instead of spamming History
 }
 
 func newNote(action, trigger string, services ...string) *histNote {
@@ -51,6 +52,9 @@ func noteForAction(r *http.Request, action string) *histNote {
 // the action it describes.
 func (s *server) writeHistory(name string, n *histNote, failed bool, msg string) {
 	if s.hist == nil || n == nil {
+		return
+	}
+	if failed && n.skipFailedHistory {
 		return
 	}
 	e := history.Entry{Stack: name, Action: n.action, Trigger: n.trigger, Result: history.OK, Services: n.services}
