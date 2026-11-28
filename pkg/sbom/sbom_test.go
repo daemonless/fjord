@@ -289,3 +289,37 @@ func TestUnannotatedBundlesPickCycloneDX(t *testing.T) {
 		t.Errorf("doc = %+v, packages %v", d, d.Packages)
 	}
 }
+
+// BuildKit SPDX for Debian images (such as postgres:17) emits synthetic Debian
+// source-package entries like postgresql-19 (source of libpq5) alongside real
+// installed packages. Source-only entries must be skipped while real installed
+// packages that also serve as a source package (like postgresql-17) are kept.
+func TestParseSPDXSkipsSourceOnlyPackages(t *testing.T) {
+	raw, _ := json.Marshal(map[string]any{
+		"packages": []map[string]any{
+			{"SPDXID": "SPDXRef-libpq5", "name": "libpq5", "versionInfo": "19.0-2.pgdg13+1"},
+			{"SPDXID": "SPDXRef-pg19-src", "name": "postgresql-19", "versionInfo": "19.0-2.pgdg13+1"},
+			{"SPDXID": "SPDXRef-pg17", "name": "postgresql-17", "versionInfo": "17.12-1.pgdg13+1"},
+			{"SPDXID": "SPDXRef-pgclient17", "name": "postgresql-client-17", "versionInfo": "17.12-1.pgdg13+1"},
+			{"SPDXID": "SPDXRef-explicit-src", "name": "zlib", "versionInfo": "1.3.1", "primaryPackagePurpose": "SOURCE"},
+		},
+		"relationships": []map[string]string{
+			{"spdxElementId": "SPDXRef-libpq5", "relationshipType": "GENERATED_FROM", "relatedSpdxElement": "SPDXRef-pg19-src"},
+			{"spdxElementId": "SPDXRef-libpq5", "relationshipType": "CONTAINS", "relatedSpdxElement": "SPDXRef-File-libpq"},
+			{"spdxElementId": "SPDXRef-pg19-src", "relationshipType": "CONTAINS", "relatedSpdxElement": "SPDXRef-File-libpq"},
+			{"spdxElementId": "SPDXRef-pgclient17", "relationshipType": "GENERATED_FROM", "relatedSpdxElement": "SPDXRef-pg17"},
+			{"spdxElementId": "SPDXRef-pgclient17", "relationshipType": "CONTAINS", "relatedSpdxElement": "SPDXRef-File-psql"},
+			{"spdxElementId": "SPDXRef-pg17", "relationshipType": "CONTAINS", "relatedSpdxElement": "SPDXRef-File-psql"},
+			{"spdxElementId": "SPDXRef-pg17", "relationshipType": "CONTAINS", "relatedSpdxElement": "SPDXRef-File-postgres-bin"},
+		},
+	})
+	got := parseSPDX(raw)
+	want := map[string]string{
+		"libpq5":               "19.0-2.pgdg13+1",
+		"postgresql-17":        "17.12-1.pgdg13+1",
+		"postgresql-client-17": "17.12-1.pgdg13+1",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("parseSPDX = %v, want %v", got, want)
+	}
+}

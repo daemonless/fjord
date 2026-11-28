@@ -446,15 +446,77 @@ func parseCycloneDX(raw []byte) map[string]string {
 func parseSPDX(raw []byte) map[string]string {
 	var doc struct {
 		Packages []struct {
-			Name        string `json:"name"`
-			VersionInfo string `json:"versionInfo"`
+			SPDXID                string `json:"SPDXID"`
+			Name                  string `json:"name"`
+			VersionInfo           string `json:"versionInfo"`
+			PrimaryPackagePurpose string `json:"primaryPackagePurpose"`
 		} `json:"packages"`
+		Relationships []struct {
+			Element string `json:"spdxElementId"`
+			Type    string `json:"relationshipType"`
+			Related string `json:"relatedSpdxElement"`
+		} `json:"relationships"`
 	}
 	if json.Unmarshal(raw, &doc) != nil {
 		return nil
 	}
+	// BuildKit/Syft SPDX documents for Debian/Ubuntu images emit synthetic
+	// source-package nodes (such as postgresql-19 for libpq5 inside a
+	// postgres:17 image) linked by "bin GENERATED_FROM src". A real binary
+	// package that also happens to be a source package (like postgresql-17
+	// or openssl) owns files outside its generated binaries; a synthetic
+	// source-only node contains only files already owned by those binaries.
+	genFrom := map[string][]string{}
+	contains := map[string]map[string]struct{}{}
+	for _, r := range doc.Relationships {
+		switch r.Type {
+		case "GENERATED_FROM":
+			if r.Element != "" && r.Related != "" {
+				genFrom[r.Related] = append(genFrom[r.Related], r.Element)
+			}
+		case "CONTAINS":
+			if r.Element != "" && r.Related != "" {
+				m := contains[r.Element]
+				if m == nil {
+					m = map[string]struct{}{}
+					contains[r.Element] = m
+				}
+				m[r.Related] = struct{}{}
+			}
+		}
+	}
+	isSourceOnly := func(spdxID, purpose string) bool {
+		if strings.EqualFold(purpose, "SOURCE") {
+			return true
+		}
+		bins := genFrom[spdxID]
+		if len(bins) == 0 {
+			return false
+		}
+		srcFiles := contains[spdxID]
+		if len(srcFiles) == 0 {
+			return true
+		}
+		for f := range srcFiles {
+			inBin := false
+			for _, b := range bins {
+				if _, ok := contains[b][f]; ok {
+					inBin = true
+					break
+				}
+			}
+			if !inBin {
+				return false
+			}
+		}
+		return true
+	}
+
 	out := map[string]string{}
 	for _, p := range doc.Packages {
+		if isSourceOnly(p.SPDXID, p.PrimaryPackagePurpose) {
+			continue
+		}
 		add(out, p.Name, p.VersionInfo)
 	}
 	return out
