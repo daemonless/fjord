@@ -257,3 +257,40 @@ func TestSnapshotManualAndDestroy(t *testing.T) {
 		t.Fatalf("ran %q, want destroy -d %s", f.ran[len(f.ran)-1], wantSnap)
 	}
 }
+
+func TestSnapshotManualSanitizesTabAndControls(t *testing.T) {
+	ds := "zroot/containers/app"
+	now := time.Unix(1795774500, 0).UTC()
+	f := &fake{answers: map[string]string{
+		"list -H -r -o name,fjord:stack": ds + "\tapp\n",
+	}}
+	f.install(t)
+
+	if _, err := SnapshotManual(context.Background(), ds, "app", "before\t{\"app\":\"evil/img\"}\t1\nline2", now); err != nil {
+		t.Fatal(err)
+	}
+	lastCmd := f.ran[len(f.ran)-1]
+	if strings.Contains(lastCmd, "\t") || strings.Contains(lastCmd, "\n") {
+		t.Fatalf("control or tab character leaked into zfs property: %q", lastCmd)
+	}
+}
+
+func TestOwnedRejectsFlagInjection(t *testing.T) {
+	f := &fake{}
+	f.install(t)
+
+	for _, bad := range []string{"", "-p", "--help", "zroot/a@snap", "zroot/a b", "/leading"} {
+		if err := Owned(context.Background(), bad, "app"); err == nil {
+			t.Errorf("Owned(%q) succeeded, want error", bad)
+		}
+		if Exists(context.Background(), bad) {
+			t.Errorf("Exists(%q) returned true, want false", bad)
+		}
+		if mp := Mountpoint(context.Background(), bad); mp != "" {
+			t.Errorf("Mountpoint(%q) = %q, want empty", bad, mp)
+		}
+	}
+	if len(f.ran) != 0 {
+		t.Fatalf("zfs should not have been invoked for invalid dataset names, ran=%v", f.ran)
+	}
+}

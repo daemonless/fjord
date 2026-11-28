@@ -31,7 +31,7 @@ type LocalProps struct {
 
 // Exists reports whether a ZFS filesystem dataset currently exists.
 func Exists(ctx context.Context, name string) bool {
-	if name == "" {
+	if !validDatasetName(name) {
 		return false
 	}
 	_, err := run(ctx, "list", "-H", "-o", "name", "-t", "filesystem", name)
@@ -40,7 +40,7 @@ func Exists(ctx context.Context, name string) bool {
 
 // Mountpoint returns the current mountpoint of dataset name, or "" if none.
 func Mountpoint(ctx context.Context, name string) string {
-	if name == "" {
+	if !validDatasetName(name) {
 		return ""
 	}
 	out, err := run(ctx, "list", "-H", "-o", "mountpoint", "-t", "filesystem", name)
@@ -462,9 +462,16 @@ func SnapshotManual(ctx context.Context, name, stack, note string, at time.Time,
 		return "", err
 	}
 	snap := fmt.Sprintf("%s@%s%d", name, ManualSnapPrefix, at.Unix())
-	note = strings.TrimSpace(strings.ReplaceAll(strings.ReplaceAll(note, "\r", " "), "\n", " "))
-	if len(note) > 120 {
-		note = note[:120]
+	// Strip tabs and all ASCII control characters so fjord:note can never
+	// split tab-delimited `zfs list -H` fields when parsed back.
+	note = strings.TrimSpace(strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f {
+			return ' '
+		}
+		return r
+	}, note))
+	if runes := []rune(note); len(runes) > 120 {
+		note = string(runes[:120])
 	}
 	args := []string{"snapshot"}
 	if note != "" {
