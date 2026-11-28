@@ -367,3 +367,82 @@ func TestWrittenSinceAndSnapshotExists(t *testing.T) {
 		t.Fatal("expected error from failing zfs get written@snap")
 	}
 }
+
+func TestSnapshotKeepForeverPruneAndDelete(t *testing.T) {
+	ds := "zroot/containers/app"
+	keptOld := ds + "@fjord-update-1700000100"
+	unkeptOld := ds + "@fjord-scheduled-1700000200"
+	unkeptNewest := ds + "@fjord-scheduled-1700000300"
+	keptNewest := ds + "@fjord-update-1700000400"
+
+	// 1. SetSnapshotKeep toggles fjord:keep=1 and inherit fjord:keep.
+	fToggle := &fake{answers: map[string]string{
+		"list -H -r -o name,fjord:stack": ds + "\tapp\n",
+	}}
+	fToggle.install(t)
+	if err := SetSnapshotKeep(context.Background(), ds, keptOld, "app", true); err != nil {
+		t.Fatalf("SetSnapshotKeep true: %v", err)
+	}
+	if err := SetSnapshotKeep(context.Background(), ds, keptOld, "app", false); err != nil {
+		t.Fatalf("SetSnapshotKeep false: %v", err)
+	}
+	if !strings.Contains(strings.Join(fToggle.ran, "|"), "set fjord:keep=1 "+keptOld) {
+		t.Fatalf("missing set fjord:keep=1: %v", fToggle.ran)
+	}
+	if !strings.Contains(strings.Join(fToggle.ran, "|"), "inherit fjord:keep "+keptOld) {
+		t.Fatalf("missing inherit fjord:keep: %v", fToggle.ran)
+	}
+
+	// 2. Prune skips kept snapshots AND keeps the newest unkept automatic snapshot
+	// even when a kept snapshot is newer than it.
+	now := time.Unix(1700000000+60*86400, 0)
+	snapList := strings.Join([]string{
+		keptOld + "\t1700000100\t1000\toff\t-\t-\t-\t1",
+		unkeptOld + "\t1700000200\t1000\toff\t-\t-\t-\t-",
+		unkeptNewest + "\t1700000300\t1000\toff\t-\t-\t-\t-",
+		keptNewest + "\t1700000400\t1000\toff\t-\t-\t-\t1",
+	}, "\n") + "\n"
+	fPrune := &fake{answers: map[string]string{"list -H -p -t snapshot": snapList}}
+	fPrune.install(t)
+
+	listed, err := ListSnapshots(context.Background(), ds, false)
+	if err != nil || len(listed) != 4 || !listed[0].KeepForever || listed[1].KeepForever || !listed[3].KeepForever {
+		t.Fatalf("ListSnapshots keepForever flags = %+v, err=%v", listed, err)
+	}
+
+	pruned, err := PruneAutomaticSnapshots(context.Background(), ds, 30*24*time.Hour, now)
+	if err != nil || pruned != 1 {
+		t.Fatalf("pruned=%d err=%v, want 1", pruned, err)
+	}
+	var destroyed []string
+	for _, c := range fPrune.ran {
+		if strings.HasPrefix(c, "destroy ") {
+			destroyed = append(destroyed, c)
+		}
+	}
+	if strings.Join(destroyed, "|") != "destroy -d "+unkeptOld {
+		t.Fatalf("destroyed = %v, want only %s", destroyed, unkeptOld)
+	}
+
+	// 3. After "Stop keeping" on keptOld (fjord:keep cleared), keptOld becomes prunable.
+	afterStopList := strings.Join([]string{
+		keptOld + "\t1700000100\t1000\toff\t-\t-\t-\t-",
+		unkeptNewest + "\t1700000300\t1000\toff\t-\t-\t-\t-",
+	}, "\n") + "\n"
+	fStop := &fake{answers: map[string]string{"list -H -p -t snapshot": afterStopList}}
+	fStop.install(t)
+	pruned2, err := PruneAutomaticSnapshots(context.Background(), ds, 30*24*time.Hour, now)
+	if err != nil || pruned2 != 1 {
+		t.Fatalf("after stop keeping: pruned=%d err=%v, want 1", pruned2, err)
+	}
+
+	// 4. Delete still works on a kept snapshot.
+	fDel := &fake{answers: map[string]string{
+		"list -H -r -o name,fjord:stack": ds + "\tapp\n",
+		"list -H -p -o used":             "8192\n",
+	}}
+	fDel.install(t)
+	if used, err := DestroySnapshot(context.Background(), ds, keptNewest, "app"); err != nil || used != 8192 {
+		t.Fatalf("DestroySnapshot kept = %d, %v", used, err)
+	}
+}

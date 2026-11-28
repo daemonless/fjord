@@ -492,6 +492,28 @@ func DestroyManualSnapshot(ctx context.Context, name, snap, stack string) (int64
 	return destroyOwnedSnapshot(ctx, snap)
 }
 
+// SetSnapshotKeep toggles fjord:keep on any fjord-managed snapshot of name so
+// automatic age pruning skips it (keep=true) or resumes normal retention
+// (keep=false).
+func SetSnapshotKeep(ctx context.Context, name, snap, stack string, keep bool) error {
+	if err := Owned(ctx, name, stack); err != nil {
+		return err
+	}
+	if !IsFjordSnap(name, snap) {
+		return fmt.Errorf("%s is not one of fjord's snapshots of %s", snap, name)
+	}
+	if keep {
+		if _, err := run(ctx, "set", PropKeep+"=1", snap); err != nil {
+			return fmt.Errorf("zfs set %s %s: %w", PropKeep, snap, err)
+		}
+		return nil
+	}
+	if _, err := run(ctx, "inherit", PropKeep, snap); err != nil {
+		return fmt.Errorf("zfs inherit %s %s: %w", PropKeep, snap, err)
+	}
+	return nil
+}
+
 // DestroySnapshot removes any fjord-managed restore point (manual, pre-update,
 // or scheduled) on name using deferred destroy (-d) so clone-held snapshots
 // stay safe.

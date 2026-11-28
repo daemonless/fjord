@@ -40,6 +40,7 @@ const (
 	PropKeptImage   = "fjord:kept-image"
 	PropNote        = "fjord:note"
 	PropImages      = "fjord:images"
+	PropKeep        = "fjord:keep"
 )
 
 // SnapInfo describes one fjord-managed ZFS snapshot.
@@ -51,6 +52,7 @@ type SnapInfo struct {
 	Created      time.Time
 	UsedBytes    int64
 	DeferDestroy bool
+	KeepForever  bool
 	Clones       []string
 }
 
@@ -234,7 +236,7 @@ func allDigits(s string) bool {
 // are omitted so UI lists do not show deleted-but-clone-held snapshots.
 func ListSnapshots(ctx context.Context, name string, includeDeferred bool) ([]SnapInfo, error) {
 	out, err := run(ctx, "list", "-H", "-p", "-t", "snapshot",
-		"-o", "name,creation,used,defer_destroy,clones,"+PropNote+","+PropImages,
+		"-o", "name,creation,used,defer_destroy,clones,"+PropNote+","+PropImages+","+PropKeep,
 		"-s", "creation", "-d", "1", name)
 	if err != nil {
 		return nil, fmt.Errorf("zfs list snapshots %s: %w", name, err)
@@ -281,6 +283,7 @@ func ListSnapshots(ctx context.Context, name string, includeDeferred bool) ([]Sn
 		if len(f) >= 7 && f[6] != "-" {
 			images = f[6]
 		}
+		keepForever := len(f) >= 8 && (f[7] == "1" || f[7] == "true" || f[7] == "on")
 		snaps = append(snaps, SnapInfo{
 			Name:         f[0],
 			Kind:         kind,
@@ -289,6 +292,7 @@ func ListSnapshots(ctx context.Context, name string, includeDeferred bool) ([]Sn
 			Created:      time.Unix(sec, 0).UTC(),
 			UsedBytes:    used,
 			DeferDestroy: deferred,
+			KeepForever:  keepForever,
 			Clones:       clones,
 		})
 	}
@@ -336,7 +340,7 @@ func Snapshot(ctx context.Context, name string, at time.Time, keep int, imagesJS
 	}
 	var countable []SnapInfo
 	for _, s := range all {
-		if s.Kind != "update" || s.DeferDestroy || len(s.Clones) > 0 {
+		if s.Kind != "update" || s.DeferDestroy || len(s.Clones) > 0 || s.KeepForever {
 			continue
 		}
 		countable = append(countable, s)
@@ -366,9 +370,10 @@ func SnapshotScheduled(ctx context.Context, name string, at time.Time, imagesJSO
 
 // PruneAutomaticSnapshots removes automatic restore points (pre-update and
 // scheduled) older than maxAge using deferred destroy (-d), while always
-// keeping the newest countable automatic restore point whatever its age so an
-// app that updates infrequently never loses its last safety net. Manual
-// restore points and clone-held or already-deferred snapshots are never touched.
+// keeping the newest unkept countable automatic restore point whatever its age
+// so an app that updates infrequently never loses its last safety net. Manual
+// restore points, snapshots marked KeepForever (fjord:keep), and clone-held or
+// already-deferred snapshots are never touched.
 func PruneAutomaticSnapshots(ctx context.Context, name string, maxAge time.Duration, now time.Time) (int, error) {
 	if maxAge <= 0 {
 		return 0, nil
@@ -379,7 +384,7 @@ func PruneAutomaticSnapshots(ctx context.Context, name string, maxAge time.Durat
 	}
 	var countable []SnapInfo
 	for _, s := range all {
-		if (s.Kind != "update" && s.Kind != "scheduled") || s.DeferDestroy || len(s.Clones) > 0 {
+		if (s.Kind != "update" && s.Kind != "scheduled") || s.DeferDestroy || len(s.Clones) > 0 || s.KeepForever {
 			continue
 		}
 		countable = append(countable, s)
