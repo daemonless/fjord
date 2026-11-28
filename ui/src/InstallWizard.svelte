@@ -102,23 +102,26 @@
   };
   // Suggested host directory for a path variable:
   // <app data>/<app folder>/<var-lowercased-sans-suffix>.
-  const pathHint = (v: any) =>
-    `${storageBase}/${folderOf(stackName, appId || 'app')}/${String(v.name).toLowerCase().replace(/[._]?path$/, '').replace(/[^a-z0-9]+/g, '-') || 'data'}`;
-  const seedPath = (v: any, slug: string) =>
-    defaultPath(v.default || '', { appId, locations: appDataLocations, base: storageBase, slug, hint: pathHint(v) });
-  // The folders follow the name while it is being typed: a default seeded
-  // for "librenms" is wrong the moment the name becomes "t-lnms". Only
-  // fields nobody has edited or filled from a folder set.
+  const pathHint = (v: any, base = storageBase) =>
+    `${base}/${folderOf(stackName, appId || 'app')}/${String(v.name).toLowerCase().replace(/[._]?path$/, '').replace(/[^a-z0-9]+/g, '-') || 'data'}`;
+  const seedPath = (v: any, slug: string, base = storageBase) =>
+    defaultPath(v.default || '', { appId, locations: appDataLocations, base, slug, hint: pathHint(v, base) });
+  // The folders follow both the name and the chosen App data location: a
+  // default seeded for "librenms" or "/fjord-snaptest" is wrong the moment the
+  // user types another name or picks another App data location. Only fields
+  // nobody has edited or filled from a folder set.
   let seededSlug = '';
-  $: reseedPaths(folderOf(stackName, appId || 'app'));
-  function reseedPaths(slug: string) {
-    if (!variables.length || !seededSlug || slug === seededSlug) return;
+  let seededBase = '';
+  $: reseedPaths(folderOf(stackName, appId || 'app'), storageBase);
+  function reseedPaths(slug: string, base: string) {
+    if (!variables.length || !seededSlug || (slug === seededSlug && base === seededBase)) return;
     for (const v of variables) {
       if (v.type !== 'path' || touched.has(v.name) || defaultedFrom[v.name]) continue;
-      paths[v.name] = [seedPath(v, slug)];
+      paths[v.name] = [seedPath(v, slug, base)];
       formData[v.name] = paths[v.name][0];
     }
     seededSlug = slug;
+    seededBase = base;
     paths = paths;
     formData = formData;
   }
@@ -1047,6 +1050,7 @@
             if (v.type === 'public_url' && formData[v.name]) suggestedUrl[v.name] = formData[v.name];
           }
           seededSlug = folderOf(stackName, appId || 'app');
+          seededBase = appDataChoice || appDataLocations[0] || '/containers';
         } else {
           variables.forEach((v) => {
             // Path vars get this stack's own <App data>/<stack>/... folder: a
@@ -1063,6 +1067,7 @@
             if (v.type === 'path') paths[v.name] = [formData[v.name]];
           });
           seededSlug = folderOf(stackName, appId || 'app');
+          seededBase = appDataChoice || appDataLocations[0] || '/containers';
           formData = formData; // seeding above mutates in place; reassign so missingRequired recomputes
           paths = paths;
           defaultedFrom = {};
