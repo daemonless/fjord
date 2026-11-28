@@ -4,7 +4,7 @@
 // a tag is pulled, judged and not applied -- the running container stays.
 // needs: freebsd
 const { chromium } = require('playwright-core');
-const { signedIn, openPage, streamed } = require('./session');
+const { signedIn, openPage, streamed, customTag } = require('./session');
 const BASE = 'http://127.0.0.1:3567';
 const NAME = 't-arch';
 const BAD = 'latest-aarch64'; // an arm64-only manifest; netlab is amd64
@@ -71,7 +71,7 @@ const detail = async (page) => (await page.request.get(BASE + '/api/stacks/' + N
     await page.getByRole('button', { name: 'More Actions' }).click();
     await page.getByRole('button', { name: /Change Version/ }).click();
     await page.getByText(/Loading published versions/).waitFor({ state: 'hidden', timeout: 30000 }).catch(() => {});
-    await page.getByPlaceholder(/Custom tag/).fill(BAD);
+    await (await customTag(page)).fill(BAD);
     const cvWarn = page.getByText(/has no build for this host/).first();
     await cvWarn.waitFor({ timeout: 30000 }).catch(() => {});
     const cvText = await cvWarn.innerText().catch(() => '');

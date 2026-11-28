@@ -15,8 +15,10 @@ const note = (id, ok, msg) => console.log(`${ok ? 'PASS' : 'FAIL'} ${id}: ${msg}
     // Someone else's stack: saved, never started, so it costs nothing.
     const own = await page.request.post(BASE + '/api/stacks/t-own/save', { headers: { Origin: BASE, 'Content-Type': 'application/json' }, data: { compose: 'services:\n  web:\n    image: ghcr.io/daemonless/openspeedtest:latest\n', env: '' } });
     if (!own.ok()) throw new Error(`saving t-own: ${own.status()}`);
-    // The default App data folder: /containers on one host, /var/db/fjord/containers on another.
-    const R = (await (await page.request.get(BASE + '/api/settings/storage')).json()).default;
+    // The default App data folder is the first configured location (`base`):
+    // /containers on one host, /var/db/fjord/containers on another. `default`
+    // is only the built-in fallback when none is configured.
+    const R = (await (await page.request.get(BASE + '/api/settings/storage')).json()).base;
     const esc = (v) => v.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&');
     await openPage(page, BASE + '/#/store');
     await page.getByPlaceholder(/Search apps/).fill('librenms');

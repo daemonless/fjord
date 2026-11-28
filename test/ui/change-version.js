@@ -8,7 +8,7 @@
 // new version.
 // needs: freebsd
 const { chromium } = require('playwright-core');
-const { signedIn, openPage } = require('./session');
+const { signedIn, openPage, customTag } = require('./session');
 const BASE = 'http://127.0.0.1:3567';
 const NAME = 't-cv';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -38,7 +38,7 @@ const changeTo = async (page, tag) => {
   await page.getByRole('button', { name: 'More Actions' }).click();
   await page.getByRole('button', { name: /Change Version/ }).click();
   await page.getByText(/Loading published versions/).waitFor({ state: 'hidden', timeout: 30000 }).catch(() => {});
-  await page.getByPlaceholder(/Custom tag/).fill(tag);
+  await (await customTag(page)).fill(tag);
   await sleep(1500);
   const answered = page.waitForResponse((r) => r.url().includes('/set-tag'));
   await page.getByRole('button', { name: /Change & Redeploy/ }).click();

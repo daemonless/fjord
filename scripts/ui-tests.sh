@@ -129,6 +129,12 @@ store-off
 names-linked
 names-again
 shortcuts
+system-tabs
+keep-tab
+jobs-banner
+failure-notices
+excerpt
+busy-clear
 linux
 "
 # Opt-in: image-specific, or needing something the default host lacks.
