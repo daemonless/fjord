@@ -80,6 +80,7 @@
               "default": { "type": "string" },
               "optional": { "type": "boolean" },
               "generate": { "type": "boolean" },
+              "format": { "type": "string", "enum": ["hex", "base64"] },
               "image": { "type": "string" },
               "on": { "type": "string" },
               "off": { "type": "string" },
