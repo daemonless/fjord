@@ -14,27 +14,35 @@ import (
 	"github.com/daemonless/fjord/pkg/stack"
 )
 
-const updateSnapshotsKept = 3
+// snapshotBeforeUpdateFn and pruneAutomaticSnapshotsFn are the dataset hooks
+// snapshotBeforeUpdate calls; tests replace them.
+var (
+	snapshotBeforeUpdateFn    = dataset.Snapshot
+	pruneAutomaticSnapshotsFn = dataset.PruneAutomaticSnapshots
+)
 
-// snapshotBeforeUpdateFn is the hook snapshotBeforeUpdate calls; tests replace it.
-var snapshotBeforeUpdateFn = dataset.Snapshot
-
-// snapshotBeforeUpdate takes an automatic pre-update ZFS snapshot of a
-// stack's own dataset and records it in state.json. Plain-folder stacks are
-// skipped (strict per-app datasets only). Returns an error when snapshotting
-// a dataset-backed stack fails so automatic updates can abort safely.
+// snapshotBeforeUpdate takes an automatic pre-update ZFS restore point of a
+// stack's own dataset and records it in state.json. Plain-folder stacks and
+// stacks whose restore point policy is "off" are skipped. Returns an error
+// when snapshotting an eligible stack fails so automatic updates abort safely.
 func (s *server) snapshotBeforeUpdate(ctx context.Context, st *stack.Stack) (string, error) {
 	if st == nil || st.State == nil || st.State.Dataset == "" {
 		return "", nil
 	}
+	if effectiveRestorePointPolicy(st.State) == rpPolicyOff {
+		return "", nil
+	}
 	snapCtx, cancel := context.WithTimeout(ctx, time.Minute)
 	defer cancel()
+	_, retDays, _ := restorePointSettingsOf(loadSettings(s.fjordRoot))
+	now := time.Now()
 	_, imagesJSON := currentStackVersionImage(snapCtx, s, st)
-	snap, err := snapshotBeforeUpdateFn(snapCtx, st.State.Dataset, time.Now(), updateSnapshotsKept, imagesJSON)
+	snap, err := snapshotBeforeUpdateFn(snapCtx, st.State.Dataset, now, -1, imagesJSON)
 	if err != nil {
 		log.Printf("update %s: snapshot %s: %v", st.Name, st.State.Dataset, err)
 		return "[fjord] no snapshot of its data before this update: " + err.Error() + "\n", err
 	}
+	_, _ = pruneAutomaticSnapshotsFn(snapCtx, st.State.Dataset, time.Duration(retDays)*24*time.Hour, now.UTC())
 	if err := s.manager.UpdateState(st.Name, func(state *stack.State) *stack.State {
 		if state == nil {
 			return nil

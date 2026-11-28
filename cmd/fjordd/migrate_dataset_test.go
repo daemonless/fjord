@@ -69,3 +69,25 @@ func TestIsBootEnv(t *testing.T) {
 		t.Fatal("normal dataset flagged as boot env")
 	}
 }
+
+func TestRewritePathPrefix(t *testing.T) {
+	in := "CONFIG_DATA=/containers/zensical/config\nROOT=/containers/zensical\nOTHER=/containers/zensical2/config\nPREFIX=/mnt/containers/zensical/config\n"
+	got, changed := rewritePathPrefix(in, "/containers/zensical", "/apps/zensical")
+	if !changed {
+		t.Fatal("expected rewritePathPrefix to report changed")
+	}
+	want := "CONFIG_DATA=/apps/zensical/config\nROOT=/apps/zensical\nOTHER=/containers/zensical2/config\nPREFIX=/mnt/containers/zensical/config\n"
+	if got != want {
+		t.Fatalf("got:\n%s\nwant:\n%s", got, want)
+	}
+
+	compose := "services:\n  app:\n    volumes:\n      - \"/containers/zensical/config:/config\"\n      - /containers/zensical:/data:ro\n"
+	gotC, changedC := rewritePathPrefix(compose, "/containers/zensical", "/apps/zensical")
+	if !changedC {
+		t.Fatal("expected compose rewrite")
+	}
+	wantC := "services:\n  app:\n    volumes:\n      - \"/apps/zensical/config:/config\"\n      - /apps/zensical:/data:ro\n"
+	if gotC != wantC {
+		t.Fatalf("compose got:\n%s\nwant:\n%s", gotC, wantC)
+	}
+}

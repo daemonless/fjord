@@ -489,6 +489,23 @@ func DestroyManualSnapshot(ctx context.Context, name, snap, stack string) (int64
 	if !IsManualSnap(name, snap) {
 		return 0, fmt.Errorf("%s is not a manual restore point of %s", snap, name)
 	}
+	return destroyOwnedSnapshot(ctx, snap)
+}
+
+// DestroySnapshot removes any fjord-managed restore point (manual, pre-update,
+// or scheduled) on name using deferred destroy (-d) so clone-held snapshots
+// stay safe.
+func DestroySnapshot(ctx context.Context, name, snap, stack string) (int64, error) {
+	if err := Owned(ctx, name, stack); err != nil {
+		return 0, err
+	}
+	if !IsFjordSnap(name, snap) {
+		return 0, fmt.Errorf("%s is not one of fjord's snapshots of %s", snap, name)
+	}
+	return destroyOwnedSnapshot(ctx, snap)
+}
+
+func destroyOwnedSnapshot(ctx context.Context, snap string) (int64, error) {
 	var used int64
 	if out, err := run(ctx, "list", "-H", "-p", "-o", "used", snap); err == nil {
 		used, _ = strconv.ParseInt(strings.TrimSpace(string(out)), 10, 64)

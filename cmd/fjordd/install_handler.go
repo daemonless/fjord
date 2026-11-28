@@ -726,17 +726,22 @@ func (s *server) handleInstall(w http.ResponseWriter, r *http.Request) {
 	// One state.json write with everything install knows, instead of four
 	// load-modify-save round-trips leaving intermediate files behind.
 	now := time.Now().UTC().Format(time.RFC3339)
+	rpPolicy := ""
+	if ownDataset != "" {
+		rpPolicy, _, _ = restorePointSettingsOf(loadSettings(s.fjordRoot))
+	}
 	st.State = &stack.State{
-		Origin:       stack.OriginInfo{Type: "catalog", AppID: req.AppID, Catalog: strings.TrimSpace(req.Catalog)},
-		DesiredState: "running",
-		Engine:       eng,
-		Restart:      restartState,
-		DisplayName:  strings.TrimSpace(req.Name),
-		Choices:      answers,
-		SecretSums:   installSecretSums(m, res.Env),
-		Dataset:      ownDataset,
-		InstalledAt:  now,
-		UpdatedAt:    now,
+		Origin:             stack.OriginInfo{Type: "catalog", AppID: req.AppID, Catalog: strings.TrimSpace(req.Catalog)},
+		DesiredState:       "running",
+		Engine:             eng,
+		Restart:            restartState,
+		DisplayName:        strings.TrimSpace(req.Name),
+		Choices:            answers,
+		SecretSums:         installSecretSums(m, res.Env),
+		Dataset:            ownDataset,
+		RestorePointPolicy: rpPolicy,
+		InstalledAt:        now,
+		UpdatedAt:          now,
 	}
 	copyStackIcon(st.Dir, s.cat.AppIconPath(req.AppID)) // keep the icon with the stack
 	if err := s.manager.SaveState(id, st.State); err != nil {
