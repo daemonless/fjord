@@ -377,6 +377,7 @@ func (s *server) removeStack(name string, data bool, trigger string) (int, strin
 
 func (s *server) removeStackNow(name string, data bool) (int, string) {
 	var be engine.Backend
+	var left []keptRecord // the data this delete leaves on disk
 	if st, err := s.manager.Get(name); err == nil {
 		if err := s.manager.SetDesiredState(name, desiredDeleting); err != nil {
 			log.Printf("delete %s: record deleting: %v", name, err)
@@ -390,6 +391,10 @@ func (s *server) removeStackNow(name string, data bool) (int, string) {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
 		be = s.backendFor(st)
+		if !data {
+			// Before the teardown: the version is read from the image it runs.
+			left = s.keptDataOf(ctx, st)
+		}
 		if stream, err := be.Down(ctx, st); err == nil {
 			io.Copy(io.Discard, stream) // block until teardown finishes
 			stream.Close()
@@ -464,6 +469,7 @@ func (s *server) removeStackNow(name string, data bool) (int, string) {
 		return 500, err.Error()
 	}
 	log.Printf("delete %s", name)
+	s.rememberKeptData(left)
 	if be != nil {
 		s.dropPrivateNetwork(be, name)
 	}

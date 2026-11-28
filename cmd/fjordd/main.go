@@ -401,6 +401,7 @@ func main() {
 	// Keep the app store's versions current (interval in Settings → Catalogs).
 	go runCatalogScheduler(srv)
 	go runFleetScheduler(srv)
+	go runKeptDataSweep(srv)
 	go runAutoUpdateScheduler(srv)
 	go runKeptCopySweep(srv)
 	go runDailyRestorePoints(srv)

@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { isoDateTime } from './when';
+  import { isoDate, isoDateTime } from './when';
+  import { installAgain, type Leftover } from './keptData';
   import { onMount } from 'svelte';
   import NetworkBackend from './NetworkBackend.svelte';
   import Icon from './Icon.svelte';
@@ -134,7 +135,7 @@
   // ---- left-over app data ----
   // Folders in the app-data locations that no stack and no container uses:
   // what deleting a stack left behind. Removed one at a time, two clicks each.
-  type Leftovers = { folders: { path: string; bytes: number; more?: boolean }[]; unchecked?: string[] };
+  type Leftovers = { folders: Leftover[]; unchecked?: string[] };
   let leftovers: Leftovers | null = null;
   let leftoversError = '';
   let confirmLeftover = '';
@@ -166,6 +167,13 @@
       removingLeftover = '';
       loadLeftovers();
     }
+  }
+  // The App Store opens its install wizard for the app, under the name the
+  // data is filed under, and the wizard finds the data there.
+  function installOnKept(f: Leftover) {
+    if (!f.appId) return;
+    installAgain.set({ appId: f.appId, name: f.name || f.appId, catalog: f.catalog });
+    location.hash = '#/store';
   }
   const fmtBytes = (n: number) =>
     n < 1024 ? `${n} B` : n < 1024 ** 2 ? `${(n / 1024).toFixed(0)} KB` : n < 1024 ** 3 ? `${(n / 1024 ** 2).toFixed(1)} MB` : `${(n / 1024 ** 3).toFixed(1)} GB`;
@@ -465,8 +473,24 @@
         </div>
         <div class="border border-fjord-border rounded-xl overflow-hidden divide-y divide-fjord-border mb-2 max-w-2xl">
           {#each leftovers.folders as f (f.path)}
-            <div class="flex items-center gap-3 px-4 py-2.5 text-sm">
-              <span class="flex-1 font-mono text-fjord-fg-body truncate" title={f.path}>{f.path}</span>
+            <div class="flex items-center gap-3 px-4 py-2.5 text-sm" data-leftover={f.path}>
+              <div class="flex-1 min-w-0">
+                <div class="font-mono text-fjord-fg-body truncate" title={f.path}>{f.path}</div>
+                {#if f.setAside}
+                  <div class="text-xs text-fjord-fg-dim mt-0.5">
+                    Set aside when {f.name} was installed fresh{f.until ? `; fjord removes it on ${isoDate(f.until)}` : ''}.
+                  </div>
+                {:else if f.deletedAt}
+                  <div class="text-xs text-fjord-fg-dim mt-0.5">
+                    Deleted {isoDate(f.deletedAt)}{f.version ? `, last used by ${f.version}` : ''}
+                  </div>
+                {/if}
+                {#if confirmLeftover === f.path && f.dataset && (f.restorePoints || f.keptCopies)}
+                  <div class="text-xs text-fjord-danger mt-0.5">
+                    Its restore points ({f.restorePoints ?? 0}) and kept copies ({f.keptCopies ?? 0}) are removed with it.
+                  </div>
+                {/if}
+              </div>
               <span class="shrink-0 text-xs text-fjord-fg-dim">{f.more ? 'more than ' : ''}{fmtBytes(f.bytes)}</span>
               {#if confirmLeftover === f.path}
                 <button
@@ -478,6 +502,14 @@
                   >Cancel</button
                 >
               {:else}
+                {#if f.installable && !f.setAside}
+                  <button
+                    on:click={() => installOnKept(f)}
+                    title="Install {f.appId} again on this data"
+                    class="shrink-0 px-3 py-1 rounded-lg text-xs font-medium border border-fjord-border text-fjord-fg-secondary hover:bg-fjord-border/40 hover:text-fjord-fg transition-colors"
+                    >Install again</button
+                  >
+                {/if}
                 <button
                   on:click={() => (confirmLeftover = f.path)}
                   disabled={removingLeftover === f.path}

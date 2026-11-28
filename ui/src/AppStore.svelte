@@ -1,6 +1,7 @@
 <script lang="ts">
   import { variantChoices, flatChoices } from './variants';
   import { forwardDeploy } from './installForward';
+  import { installAgain } from './keptData';
   import { safeHttpUrl } from './appUrl';
   import { matchesSearch, partLabels, type AppPart } from './storeParts';
   import { isAppInstalled, readStoreView, writeStoreView, type StoreView } from './storeView';
@@ -64,6 +65,21 @@
   let error: string | null = null;
   export let stackIds: string[] = [];
   let installingApp: CatalogApp | null = null;
+  // "Install again" from the System page: the wizard opens for that app,
+  // under the name its kept data is filed under.
+  let installName = '';
+  $: if (!installingApp) installName = '';
+  $: if ($installAgain && catalog) {
+    const want = $installAgain;
+    installAgain.set(null);
+    const app = catalog.apps.find((a) => a.id === want.appId);
+    if (app) {
+      installName = want.name;
+      installingApp = app;
+    } else {
+      toast(`${want.appId} is not in the catalog any more`, { kind: 'error' });
+    }
+  }
   // The wizard stays mounted while the daemon decides. A refusal it can do
   // something about -- a bad address, a name in use -- has to land back in the
   // form that produced it, not after it has been thrown away.
@@ -562,6 +578,7 @@
       appName={installingApp.name}
       appId={installingApp.id}
       appClass={installingApp.class}
+      initialName={installName}
       busy={installBusy}
       submitError={installError}
       {stackIds}

@@ -3695,6 +3695,7 @@ msgstr "— deleted with it:"
 msgid "— kept on disk unless you tick below:"
 msgstr "— kept on disk unless you tick below:"
 
+#: src/InstallWizard.svelte
 #: src/StackDetail.svelte
 #: src/System.svelte
 msgid "more than "
@@ -6825,3 +6826,73 @@ msgstr "Automatic update failed on {0}"
 #: src/StackDetail.svelte
 msgid "Hide this while the same failure continues"
 msgstr "Hide this while the same failure continues"
+
+#. 0: keptData.version
+#: src/InstallWizard.svelte
+msgid "by {0}"
+msgstr "by {0}"
+
+#. 0: isoDate(keptData.deletedAt)
+#: src/InstallWizard.svelte
+msgid ", last used {0}<0/>"
+msgstr ", last used {0}<0/>"
+
+#: src/InstallWizard.svelte
+msgid "It will be set aside."
+msgstr "It will be set aside."
+
+#: src/InstallWizard.svelte
+msgid "It will be used."
+msgstr "It will be used."
+
+#: src/InstallWizard.svelte
+msgid "It was last used by a newer version than the one being installed, which may not be able to read it."
+msgstr "It was last used by a newer version than the one being installed, which may not be able to read it."
+
+#: src/InstallWizard.svelte
+msgid "Set aside, not deleted: fjord removes it after 30 days."
+msgstr "Set aside, not deleted: fjord removes it after 30 days."
+
+#. 0: keptData.more ? 'more than ' \\: ''; 1: humanBytes(keptData.bytes)
+#: src/InstallWizard.svelte
+msgid "Data from an earlier install was found ({0}{1}<0/>). <1/>"
+msgstr "Data from an earlier install was found ({0}{1}<0/>). <1/>"
+
+#: src/InstallWizard.svelte
+#: src/InstallWizard.svelte
+msgid "Start fresh instead"
+msgstr "Start fresh instead"
+
+#. 0: isoDate(f.until)
+#: src/System.svelte
+msgid "; fjord removes it on {0}"
+msgstr "; fjord removes it on {0}"
+
+#. 0: f.name; 1: f.until ? `\; fjord removes it on ${isoDate(f.until)}` \\: ''
+#: src/System.svelte
+msgid "Set aside when {0} was installed fresh{1}."
+msgstr "Set aside when {0} was installed fresh{1}."
+
+#. 0: f.version
+#: src/System.svelte
+msgid ", last used by {0}"
+msgstr ", last used by {0}"
+
+#. 0: isoDate(f.deletedAt); 1: f.version ? `, last used by ${f.version}` \\: ''
+#: src/System.svelte
+msgid "Deleted {0}{1}"
+msgstr "Deleted {0}{1}"
+
+#. 0: f.restorePoints ?? 0; 1: f.keptCopies ?? 0
+#: src/System.svelte
+msgid "Its restore points ({0}) and kept copies ({1}) are removed with it."
+msgstr "Its restore points ({0}) and kept copies ({1}) are removed with it."
+
+#. 0: f.appId
+#: src/System.svelte
+msgid "Install {0} again on this data"
+msgstr "Install {0} again on this data"
+
+#: src/System.svelte
+msgid "Install again"
+msgstr "Install again"
