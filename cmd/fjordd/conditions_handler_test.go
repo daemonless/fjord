@@ -113,3 +113,28 @@ func TestMutedConditionIsNotShown(t *testing.T) {
 		t.Errorf("no id: HTTP %d", code)
 	}
 }
+
+func TestApplyConditionsReportSyncsAndIgnoresUnknown(t *testing.T) {
+	root := t.TempDir()
+	s := &server{
+		fjordRoot: root,
+		conds:     newConditionsState(),
+	}
+	s.applyConditionsReport([]string{"podman"}, doctor.Report{
+		Checks: []doctor.Result{
+			{ID: "socket", Name: "podman API socket", Engine: "podman", Status: doctor.Fail, Detail: "connection refused"},
+		},
+	})
+	if len(s.conds.active) != 1 {
+		t.Fatalf("expected 1 active condition, got %+v", s.conds.active)
+	}
+	s.applyConditionsReport([]string{"podman"}, doctor.Report{
+		Checks: []doctor.Result{
+			{ID: "socket", Name: "podman API socket", Engine: "podman", Status: doctor.OK, Detail: "/var/run/podman/podman.sock"},
+			{ID: "pf", Name: "pf firewall", Engine: "podman", Status: doctor.Unknown, Detail: "check timed out while host was busy"},
+		},
+	})
+	if len(s.conds.active) != 0 {
+		t.Fatalf("expected stale condition cleared, got %+v", s.conds.active)
+	}
+}

@@ -2,6 +2,7 @@ package doctor
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -28,21 +29,30 @@ func binProbe(bin string) func(context.Context) (Status, string) {
 	}
 }
 
+// podmanPing and podmanSocketPath are hooks for socketProbe tests.
+var (
+	podmanPing       = podman.Ping
+	podmanSocketPath = podman.SocketPath
+)
+
 // socketProbe verifies the podman API socket exists AND answers. The split
 // matters: an existing-but-dead socket is the classic stale-service failure
 // (podman upgraded under a running API service) and needs a restart, not an
-// install.
+// install. A timeout under heavy load is inconclusive (Unknown), never Fail.
 func socketProbe(ctx context.Context) (Status, string) {
-	path := podman.SocketPath()
+	path := podmanSocketPath()
 	if _, err := os.Stat(path); err != nil {
 		if os.IsNotExist(err) {
 			return Fail, fmt.Sprintf("socket %s does not exist -- is the podman API service running?", path)
 		}
 		return Fail, fmt.Sprintf("socket %s is not accessible: %v", path, err)
 	}
-	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	pctx, cancel := context.WithTimeout(ctx, 8*time.Second)
 	defer cancel()
-	if err := podman.Ping(ctx); err != nil {
+	if err := podmanPing(pctx); err != nil {
+		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) || pctx.Err() != nil {
+			return Unknown, fmt.Sprintf("socket %s did not answer in time (host busy?)", path)
+		}
 		return Fail, fmt.Sprintf("socket %s exists but is not answering (stale service from before a podman upgrade?): %v", path, err)
 	}
 	return answeringSocket(path, podmanInstalled())

@@ -211,9 +211,20 @@ func (s *server) refreshConditions(ctx context.Context) []Condition {
 	if len(engines) == 0 {
 		engines = s.doctorEngines()
 	}
-	cctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	cctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	report := doctor.Run(cctx, doctor.Config{Engines: engines, FjordRoot: s.fjordRoot})
+	return s.applyConditionsReport(engines, report)
+}
+
+// applyConditionsReport updates the cached condition list from a completed
+// doctor report and publishes an SSE update when the list changed. Called both
+// by the background loop and by GET /api/setup so System -> Re-check clears
+// stale banners immediately instead of waiting for the next 5-minute poll.
+func (s *server) applyConditionsReport(engines []string, report doctor.Report) []Condition {
+	if s.conds == nil {
+		return nil
+	}
 	// Filter out an un-scoped engine check when that engine is not one of the
 	// active engines on this host, so a single-engine host does not get a
 	// banner about an optional engine.

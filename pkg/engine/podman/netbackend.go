@@ -142,23 +142,60 @@ type hostInfo struct {
 // server it starts for a network ("" when it has none), for diagnostics
 // (pkg/doctor). Asked of the API, and of the CLI when the service is down:
 // which backend it is decides what a host check should look for. Both are ""
-// when podman cannot say.
+// when podman cannot say. While podman does not answer (e.g. heavy load), the
+// last known answer for the current epoch stands so doctor never flips to the
+// wrong backend's checks mid-load.
+var netBackendInfoCache struct {
+	mu      sync.Mutex
+	backend string
+	dnsPath string
+	asked   time.Time
+	epoch   int64
+}
+
 func NetworkBackendInfo(ctx context.Context) (backend, dnsPath string) {
+	epoch := backendEpoch.Load()
+	netBackendInfoCache.mu.Lock()
+	if netBackendInfoCache.backend != "" && netBackendInfoCache.epoch == epoch && time.Since(netBackendInfoCache.asked) < backendMaxAge {
+		b, d := netBackendInfoCache.backend, netBackendInfoCache.dnsPath
+		netBackendInfoCache.mu.Unlock()
+		return b, d
+	}
+	netBackendInfoCache.mu.Unlock()
+
 	var info hostInfo
 	if req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://d/v4.0.0/libpod/info", nil); err == nil {
 		if resp, err := newSocketClient().Do(req); err == nil {
 			ok := resp.StatusCode == http.StatusOK && json.NewDecoder(resp.Body).Decode(&info) == nil
 			resp.Body.Close()
 			if ok && info.Host.NetworkBackend != "" {
+				netBackendInfoCache.mu.Lock()
+				netBackendInfoCache.backend = info.Host.NetworkBackend
+				netBackendInfoCache.dnsPath = info.Host.NetworkBackendInfo.DNS.Path
+				netBackendInfoCache.asked = time.Now()
+				netBackendInfoCache.epoch = epoch
+				netBackendInfoCache.mu.Unlock()
 				return info.Host.NetworkBackend, info.Host.NetworkBackendInfo.DNS.Path
 			}
 		}
 	}
 	out, err := exec.CommandContext(ctx, "podman", "info", "--format", "json").Output()
-	if err != nil || json.Unmarshal(out, &info) != nil {
-		return "", ""
+	if err == nil && json.Unmarshal(out, &info) == nil && info.Host.NetworkBackend != "" {
+		netBackendInfoCache.mu.Lock()
+		netBackendInfoCache.backend = info.Host.NetworkBackend
+		netBackendInfoCache.dnsPath = info.Host.NetworkBackendInfo.DNS.Path
+		netBackendInfoCache.asked = time.Now()
+		netBackendInfoCache.epoch = epoch
+		netBackendInfoCache.mu.Unlock()
+		return info.Host.NetworkBackend, info.Host.NetworkBackendInfo.DNS.Path
 	}
-	return info.Host.NetworkBackend, info.Host.NetworkBackendInfo.DNS.Path
+
+	netBackendInfoCache.mu.Lock()
+	defer netBackendInfoCache.mu.Unlock()
+	if netBackendInfoCache.backend != "" && netBackendInfoCache.epoch == epoch {
+		return netBackendInfoCache.backend, netBackendInfoCache.dnsPath
+	}
+	return "", ""
 }
 
 // NetworkBackends is podman's network backend as its API service runs with
