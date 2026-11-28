@@ -48,6 +48,9 @@ func platform(cfg Config) platformInfo {
 			Fix:   "pkg install -y podman",
 			Pkg:   map[string]string{"freebsd": "podman"},
 		},
+		// Before the socket: podman's service cannot start on storage it
+		// cannot use, so Setup fixes this first.
+		storageDriverCheck(),
 		{
 			ID: "socket", Name: "podman API socket", Engine: "podman",
 			Probe:    socketProbe,
