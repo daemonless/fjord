@@ -1256,6 +1256,8 @@
     givenName?: string;
     restart?: { policy: string; retries?: number };
     keepUpToDate?: boolean;
+    /** Set aside the data an earlier install left, instead of using it. */
+    freshData?: boolean;
     accepted?: () => void;
     refused?: (msg: string) => void;
   }>) {
@@ -1274,7 +1276,7 @@
       const res = await fetch('/api/apps/install', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, manifest, values, ...(paths ? { paths } : {}), ...(appData ? { appData } : {}), ...(appId ? { app_id: appId } : {}), ...(e.detail.catalog ? { catalog: e.detail.catalog } : {}), ...(engine ? { engine } : {}), ...(tag ? { tag } : {}), ...(network ? { network, ip, ...(mac ? { mac } : {}) } : {}), ...(networkPlan ? { networkPlan } : {}), ...(netList?.length ? { networks: netList } : {}), ...(networkModes ? { networkModes } : {}), ...(choices ? { choices } : {}), ...(e.detail.givenName ? { givenName: e.detail.givenName } : {}), ...(restart ? { restart } : {}), ...(typeof e.detail.keepUpToDate === 'boolean' ? { keepUpToDate: e.detail.keepUpToDate } : {}) }),
+        body: JSON.stringify({ name, manifest, values, ...(paths ? { paths } : {}), ...(appData ? { appData } : {}), ...(appId ? { app_id: appId } : {}), ...(e.detail.catalog ? { catalog: e.detail.catalog } : {}), ...(engine ? { engine } : {}), ...(tag ? { tag } : {}), ...(network ? { network, ip, ...(mac ? { mac } : {}) } : {}), ...(networkPlan ? { networkPlan } : {}), ...(netList?.length ? { networks: netList } : {}), ...(networkModes ? { networkModes } : {}), ...(choices ? { choices } : {}), ...(e.detail.givenName ? { givenName: e.detail.givenName } : {}), ...(restart ? { restart } : {}), ...(typeof e.detail.keepUpToDate === 'boolean' ? { keepUpToDate: e.detail.keepUpToDate } : {}), ...(e.detail.freshData ? { freshData: true } : {}) }),
       });
       // The server sends the id as soon as the stack exists on disk -- also
       // when it then refuses to start it. So the header, not the status, says

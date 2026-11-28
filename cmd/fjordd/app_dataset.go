@@ -105,11 +105,14 @@ func (s *server) appDataset(ctx context.Context, base, slug string, dirs []manif
 	if first == nil {
 		return ""
 	}
-	if _, err := os.Lstat(own); err == nil {
-		return "" // already there (data being adopted): left as it is
-	}
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
+	if _, err := os.Lstat(own); err == nil {
+		// Already there (data being adopted): left as it is. A dataset fjord
+		// made for an earlier install under this name is the app's own
+		// again, restore points and all.
+		return keptDatasetAt(ctx, own, slug)
+	}
 	parent, ok := dataset.At(ctx, base)
 	if !ok {
 		return ""

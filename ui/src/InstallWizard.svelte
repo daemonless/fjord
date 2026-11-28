@@ -3,7 +3,7 @@
   import { detectHostCapabilities } from './capabilities';
   import { insidePort, ownAddress } from './ownPort';
   import { publicUrlProblem, suggestedPublicUrl } from './publicUrl';
-  import { onMount, createEventDispatcher } from 'svelte';
+  import { onMount, createEventDispatcher, tick } from 'svelte';
   import { variantChoices, flatChoices } from './variants';
   import * as yaml from 'js-yaml';
   import Icon from './Icon.svelte';
@@ -18,7 +18,9 @@
   import { appjailMissing, askValue, chosenServices, choiceVars, isToggle, pickedPhrase } from './choices';
   import { resolveDefault, seedInterfaces, splitPlan, offHostServices, joinable, keepAttachable, addressesNeeded, type Iface } from './planSeed';
   import RestartChoice from './RestartChoice.svelte';
-  import { sizeWords, sizeNote, type SizeAnswer } from './installSize';
+  import { sizeWords, sizeNote, humanBytes, type SizeAnswer } from './installSize';
+  import { keptFor, isOlderVersion, type Leftover } from './keptData';
+  import { isoDate } from './when';
   import { DEFAULT_RETRIES } from './restartPolicy';
   import {
     boolChecked,
@@ -51,6 +53,7 @@
   export let busy = false;
   export let submitError = '';
   export let stackIds: string[] = []; // existing stacks: the new one's folder is its id
+  export let initialName = ''; // "Install again": the name its kept data is under
 
   // App data locations (Settings): the first is the default; with more than one
   // the wizard shows a picker. The choice drives path hints + {{appdata}}.
@@ -209,7 +212,7 @@
   // Editable install name. Defaults to the app id, or to the id the server
   // would give a second copy (zensical-2): two stacks both called zensical,
   // with the folder and the name saying -2, read as a mistake.
-  let stackName = folderOf(appId, appId || 'app');
+  let stackName = initialName || folderOf(appId, appId || 'app');
   // A name (radarr.apps.lan): on by default once something installed gives
   // names, for an app with a page to open. The label follows the install
   // name until it is edited.
@@ -460,6 +463,25 @@
     return rollingVersion ? `v${rollingVersion}` : train ? `:${train}` : 'latest';
   })();
   $: summaryTrain = trainList.length > 1 ? trainList.find((t) => t.id === train)?.label || '' : '';
+
+  // Data an earlier install left where this one puts its own: found among
+  // the left-over folders by the folder this name gets. The daemon uses it
+  // (and the passwords it was set up with) unless told to start fresh.
+  let keptFolders: Leftover[] = [];
+  const keptReady = fetch('/api/maintenance/leftovers')
+    .then((r) => (r.ok ? r.json() : null))
+    .then((d) => {
+      keptFolders = d?.folders ?? [];
+    })
+    .catch(() => {});
+  $: keptData = keptFor(keptFolders, storageBase, folderOf(stackName, appId || 'app'));
+  // An older version opening a newer version's data is the risky direction:
+  // then starting fresh is the default. Said only of plain version numbers.
+  $: installingVersion = customTag.trim() || versionTag || rollingVersion || newestOf(train);
+  $: keptOlder = !!keptData?.version && isOlderVersion(installingVersion, keptData.version);
+  let freshData = false;
+  let freshChosen = false; // a choice made by hand stays
+  $: if (!freshChosen) freshData = keptOlder;
 
   // A field is required unless the manifest marks it optional; the server
   // rejects a required var whose value resolves empty. Track the unfilled ones
@@ -1059,7 +1081,11 @@
   // Send the raw manifest + values to the server-side install pipeline, which
   // resolves variables, provisions host dirs, renders the stack, and brings it
   // up. No client-side compose rendering.
-  function deploy() {
+  async function deploy() {
+    // Whether there is kept data, and so whether to start fresh, is known
+    // before the request goes: an Install pressed early waits for it.
+    await keptReady;
+    await tick();
     // Host-path vars: the first folder is the variable's value, the whole
     // (non-empty) list rides along for multi-folder expansion.
     // What the operator left in the per-service editor, split into the two
@@ -1100,6 +1126,7 @@
       givenName: offerName && wantName && givenName ? givenName : undefined,
       restart: restartPolicies.includes(restartPolicy) ? { policy: restartPolicy, retries: restartPolicy === 'on-failure' ? restartRetries : 0 } : undefined,
       keepUpToDate: canKeepUpToDate ? keepUpToDate : undefined,
+      freshData: keptData && freshData ? true : undefined,
     });
   }
 
@@ -1148,6 +1175,42 @@
               {/if}
             {/if}
           </div>
+
+          {#if keptData}
+            <div
+              data-wizard-kept-data
+              class="flex items-start justify-between gap-3 rounded-lg border px-3 py-2.5 {keptOlder
+                ? 'border-fjord-warning/40 bg-fjord-warning/10'
+                : 'border-fjord-border bg-fjord-inset'}"
+            >
+              <div class="flex flex-col gap-0.5 min-w-0">
+                <span class="text-sm text-fjord-fg-body">
+                  Data from an earlier install was found ({keptData.more ? 'more than ' : ''}{humanBytes(keptData.bytes)}{#if keptData.deletedAt}, last used {isoDate(keptData.deletedAt)}{#if keptData.version} by {keptData.version}{/if}{/if}).
+                  {#if freshData}It will be set aside.{:else}It will be used.{/if}
+                </span>
+                {#if keptOlder}
+                  <span class="text-xs text-fjord-warning">
+                    It was last used by a newer version than the one being installed, which may not be able to read it.
+                  </span>
+                {/if}
+                {#if freshData}
+                  <span class="text-xs text-fjord-fg-dim">Set aside, not deleted: fjord removes it after 30 days.</span>
+                {/if}
+                <span class="text-xs text-fjord-fg-dim font-mono break-all">{keptData.path}</span>
+              </div>
+              <div class="flex items-center gap-2 shrink-0">
+                <span class="text-xs text-fjord-fg-muted">Start fresh instead</span>
+                <Switch
+                  checked={freshData}
+                  label="Start fresh instead"
+                  on:change={(e) => {
+                    freshChosen = true;
+                    freshData = e.detail;
+                  }}
+                />
+              </div>
+            </div>
+          {/if}
 
           {#if offerName}
             <div class="flex flex-col gap-1">

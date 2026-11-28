@@ -210,6 +210,9 @@ type installRequest struct {
 	// rebuilds and new minor versions by itself (policy minor), false is
 	// off, said; nil (an older client, a script) leaves it unset.
 	KeepUpToDate *bool `json:"keepUpToDate,omitempty"`
+	// FreshData starts over when an earlier install left data where this
+	// one puts its own: that data is set aside, not used and not deleted.
+	FreshData bool `json:"freshData,omitempty"`
 }
 
 // handleInstall installs a catalog app end-to-end: resolve wizard input,
@@ -270,7 +273,10 @@ func (s *server) handleInstall(w http.ResponseWriter, r *http.Request) {
 	// Data kept from an earlier install under this name was set up with that
 	// install's secrets; new made-up ones lock the app out of its database.
 	dataDir := filepath.Join(base, slug)
-	reused := reuseSecrets(s.fjordRoot, dataDir, m, req.Values)
+	var reused []string
+	if !req.FreshData {
+		reused = reuseSecrets(s.fjordRoot, dataDir, m, req.Values)
+	}
 	answers, err := m.ApplyChoices(req.Choices, req.Values)
 	if err != nil {
 		http.Error(w, err.Error(), 400)
@@ -658,6 +664,16 @@ func (s *server) handleInstall(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "not installed: "+why, http.StatusConflict)
 		return
 	}
+	// Only now, as the folders are made: a refusal above moves nothing.
+	asideNote := ""
+	if req.FreshData {
+		note, err := s.setAsideKeptData(r.Context(), dataDir, slug)
+		if err != nil {
+			http.Error(w, "not installed: could not start fresh: "+err.Error(), http.StatusConflict)
+			return
+		}
+		asideNote = note
+	}
 	// Made only now, so a refusal above leaves no empty folders behind.
 	ownDataset := s.appDataset(r.Context(), base, slug, res.Dirs)
 	if err := manifest.Provision(res.Dirs); err != nil {
@@ -751,6 +767,8 @@ func (s *server) handleInstall(w http.ResponseWriter, r *http.Request) {
 		log.Printf("install %s: keep secrets with the data: %v", id, err)
 	}
 	installed = true
+	// Data kept from an earlier install is this stack's again.
+	forgetKept(s.fjordRoot, dataDir)
 	// Held for the whole bring-up, pull included: a Start pressed meanwhile is
 	// refused instead of running a second up that races this one (jellyfin on
 	// army got two, one of which died on "name already in use").
@@ -802,7 +820,7 @@ func (s *server) handleInstall(w http.ResponseWriter, r *http.Request) {
 			io.Closer
 		}{io.MultiReader(strings.NewReader(chose), stream), stream}
 	}
-	if note := secretsNote(m, dataDir, reused, madeUp); note != "" {
+	if note := asideNote + secretsNote(m, dataDir, reused, madeUp); note != "" {
 		stream = struct {
 			io.Reader
 			io.Closer
