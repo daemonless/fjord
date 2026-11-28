@@ -1,6 +1,7 @@
 package manifest
 
 import (
+	"encoding/base64"
 	"regexp"
 	"strings"
 	"testing"
@@ -108,5 +109,60 @@ x-fjord:
 	}
 	if k := values["KEY"]; len(k) != 64 {
 		t.Errorf("other secret %q", k)
+	}
+}
+
+// `format: base64` makes 32 random bytes encoded as standard base64 (44 chars)
+// for apps that decode a 32-byte key directly, while leaving hex and login
+// passwords unchanged.
+func TestMakeUpSecretsBase64(t *testing.T) {
+	m, err := Parse(`services:
+  app:
+    image: x
+x-fjord:
+  info:
+    id: app
+  login:
+    user: admin
+    password: ${PASSWORD}
+  variables:
+    - name: ENCRYPTION_KEY
+      type: secret
+      format: base64
+    - name: HEX_KEY
+      type: secret
+    - name: PASSWORD
+      type: secret
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.Variables[0].Format != "base64" {
+		t.Fatalf("parsed Format = %q, want base64", m.Variables[0].Format)
+	}
+
+	first := map[string]string{}
+	made := m.MakeUpSecrets(first)
+	if strings.Join(made, ",") != "ENCRYPTION_KEY,HEX_KEY,PASSWORD" {
+		t.Fatalf("made = %v", made)
+	}
+	raw, err := base64.StdEncoding.DecodeString(first["ENCRYPTION_KEY"])
+	if err != nil {
+		t.Fatalf("ENCRYPTION_KEY %q is not valid base64: %v", first["ENCRYPTION_KEY"], err)
+	}
+	if len(first["ENCRYPTION_KEY"]) != 44 || len(raw) != 32 {
+		t.Errorf("ENCRYPTION_KEY len=%d decoded=%d, want 44 chars / 32 bytes", len(first["ENCRYPTION_KEY"]), len(raw))
+	}
+	if !regexp.MustCompile(`^[0-9a-f]{64}$`).MatchString(first["HEX_KEY"]) {
+		t.Errorf("HEX_KEY = %q, want 64 hex characters", first["HEX_KEY"])
+	}
+	if p := first["PASSWORD"]; len(p) != 20 || strings.Trim(p, loginChars) != "" {
+		t.Errorf("PASSWORD = %q, want 20-char login secret", p)
+	}
+
+	second := map[string]string{}
+	m.MakeUpSecrets(second)
+	if second["ENCRYPTION_KEY"] == first["ENCRYPTION_KEY"] {
+		t.Error("two calls generated the same base64 secret")
 	}
 }

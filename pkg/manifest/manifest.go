@@ -25,6 +25,8 @@ type Var struct {
 	// Given marks a secret only its owner has (a tunnel token, a WireGuard
 	// key): typed, never made up. Manifest `generate: false`.
 	Given bool
+	// Format chooses how fjord encodes a made-up secret (""/"hex" or "base64").
+	Format string `yaml:"format,omitempty" json:"format,omitempty"`
 	// On and Off are the strings a "bool" variable writes when switched on
 	// or off; default to "true" and "false".
 	On, Off string
@@ -325,6 +327,7 @@ type xfVar struct {
 	Image           string      `yaml:"image"`
 	Optional        bool        `yaml:"optional"`
 	Generate        *bool       `yaml:"generate"`
+	Format          string      `yaml:"format"`
 	On              string      `yaml:"on"`
 	Off             string      `yaml:"off"`
 	Min             *int        `yaml:"min"`
@@ -434,6 +437,7 @@ func Parse(manifestYAML string) (*Manifest, error) {
 	for _, v := range xf.Variables {
 		nv := Var{Name: v.Name, Type: v.Type, Default: v.Default, Label: v.Label, Image: v.Image, Optional: v.Optional,
 			Given:   v.Generate != nil && !*v.Generate,
+			Format:  v.Format,
 			On:      v.On,
 			Off:     v.Off,
 			Min:     v.Min,

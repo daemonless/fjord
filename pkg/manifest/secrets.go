@@ -2,6 +2,7 @@ package manifest
 
 import (
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/hex"
 	"sort"
 	"strings"
@@ -18,9 +19,12 @@ func (m *Manifest) MakeUpSecrets(values map[string]string) []string {
 	var out []string
 	for _, v := range m.Variables {
 		if v.MadeUp() && values[v.Name] == "" {
-			if v.Name == login {
+			switch {
+			case v.Name == login:
 				values[v.Name] = loginSecret()
-			} else {
+			case v.Format == "base64":
+				values[v.Name] = base64Secret()
+			default:
 				values[v.Name] = hexSecret()
 			}
 			out = append(out, v.Name)
@@ -39,6 +43,16 @@ func hexSecret() string {
 		panic(err) // the system's randomness is gone; nothing sane to do
 	}
 	return hex.EncodeToString(b)
+}
+
+// base64Secret is 32 random bytes as 44 standard base64 characters
+// (`openssl rand -base64 32`), for apps that base64-decode a 32-byte key.
+func base64Secret() string {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		panic(err)
+	}
+	return base64.StdEncoding.EncodeToString(b)
 }
 
 // loginChars: letters and digits a person reads back without a doubt (no
