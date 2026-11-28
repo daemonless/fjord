@@ -52,6 +52,21 @@ func (s *server) hasFailureNotice(name, kind string) bool {
 	return err == nil && st.HasFailureNotice(kind)
 }
 
+// failureNoticeMessage is the reason the active (name, kind) notice carries,
+// or "" when there is none: an empty reason never matches a failure's.
+func (s *server) failureNoticeMessage(name, kind string) string {
+	st, err := s.manager.LoadState(name)
+	if err != nil || st == nil {
+		return ""
+	}
+	for _, n := range st.FailureNotices {
+		if n.Kind == kind {
+			return n.Message
+		}
+	}
+	return ""
+}
+
 type fleetNotice struct {
 	Stack       string    `json:"stack"`
 	DisplayName string    `json:"displayName,omitempty"`

@@ -454,10 +454,7 @@ func (s *server) stackRestore(w http.ResponseWriter, r *http.Request, name strin
 	if fresh, gerr := s.manager.Get(name); gerr == nil {
 		st = fresh
 	}
-	if stream, uerr := be.Up(ctx, st); uerr == nil {
-		io.Copy(io.Discard, stream)
-		stream.Close()
-	}
+	startWhy, startOut := restartAfterRestore(ctx, be, st)
 
 	msg := "Data restored"
 	if targetSnap != nil && !targetSnap.Created.IsZero() {
@@ -465,7 +462,12 @@ func (s *server) stackRestore(w http.ResponseWriter, r *http.Request, name strin
 	}
 	n := newNote(history.Rollback, triggerOf(r))
 	n.detail = msg
-	s.writeHistory(name, n, false, "")
+	if startWhy != "" {
+		n.excerpt = startOut
+		s.writeHistory(name, n, true, msg+", but the app did not start: "+startWhy)
+	} else {
+		s.writeHistory(name, n, false, "")
+	}
 	s.fleet.forget(name)
 
 	w.Header().Set("Content-Type", "application/json")
@@ -608,14 +610,16 @@ func (s *server) stackKeptRestore(w http.ResponseWriter, r *http.Request, name s
 	if fresh, gerr := s.manager.Get(name); gerr == nil {
 		st = fresh
 	}
-	if stream, uerr := be.Up(ctx, st); uerr == nil {
-		io.Copy(io.Discard, stream)
-		stream.Close()
-	}
+	startWhy, startOut := restartAfterRestore(ctx, be, st)
 
 	n := newNote(history.Rollback, triggerOf(r))
 	n.detail = "Used saved copy from " + target.CreatedAt.Format("2006-01-02 15:04")
-	s.writeHistory(name, n, false, "")
+	if startWhy != "" {
+		n.excerpt = startOut
+		s.writeHistory(name, n, true, n.detail+", but the app did not start: "+startWhy)
+	} else {
+		s.writeHistory(name, n, false, "")
+	}
 	s.fleet.forget(name)
 
 	w.Header().Set("Content-Type", "application/json")
@@ -855,4 +859,23 @@ func runKeptCopySweep(srv *server) {
 	for range t.C {
 		sweep()
 	}
+}
+
+// restartAfterRestore starts st again once its data is back, and says how
+// that went: "" when it started, else the reason with a short excerpt of the
+// output. The data is restored either way; History must not read as if the
+// app were up when it is not.
+func restartAfterRestore(ctx context.Context, be engine.Backend, st *stack.Stack) (why, excerpt string) {
+	stream, err := be.Up(ctx, st)
+	if err != nil {
+		return history.FirstLine(err.Error()), ""
+	}
+	defer stream.Close()
+	out := history.NewExcerptWriter()
+	var watch errorWatch
+	io.Copy(io.MultiWriter(out, &watch), stream)
+	if msg := watch.Message(); msg != "" {
+		return msg, out.String()
+	}
+	return "", ""
 }

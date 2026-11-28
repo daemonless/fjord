@@ -1124,8 +1124,13 @@
     const r = await fetch(`/api/stacks/${encodeURIComponent(name)}`).catch(() => null);
     if (!r?.ok) return null;
     const d: Stack = await r.json();
-    stacks = stacks.map((s) => (s.name === name ? { ...s, state: d.state } : s));
-    if (selectedStack?.name === name) selectedStack = { ...selectedStack, state: d.state };
+    // The status too: busy clears when an install or up reaches its stay-up
+    // check, before the status loop's next event, and with the status from
+    // before the action the stack read "stopped" -- a problem -- until then.
+    // Unless it is busy again already: then the status is the next action's.
+    const fresh = d.busy ? { state: d.state } : { state: d.state, status: d.status, linkHost: d.linkHost };
+    stacks = stacks.map((s) => (s.name === name ? { ...s, ...fresh } : s));
+    if (selectedStack?.name === name) selectedStack = { ...selectedStack, ...fresh };
     return d;
   }
   // "Not now" on the banner, for this session.

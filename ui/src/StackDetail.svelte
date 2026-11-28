@@ -1,6 +1,6 @@
 <script lang="ts">
   import { isoDate, isoDateTime } from './when';
-  import { activeNotices, type NoticeKind } from './failureNotices';
+  import { activeNotices, toldByNotice, type NoticeKind } from './failureNotices';
   import HistoryList from './HistoryList.svelte';
   import { onMount, tick } from 'svelte';
   import { staleNote } from './staleNote';
@@ -1315,7 +1315,7 @@
     </div>
   {/each}
 
-  {#if stack.state?.last_failure && !stack.state?.auto_rollback && !visibleNotices.some((n) => n.kind === 'auto-update' || n.kind === 'auto-update-no-snapshot') && !failureDismissed[stack.name] && !busyNow}
+  {#if stack.state?.last_failure && !stack.state?.auto_rollback && !visibleNotices.some((n) => n.kind === 'auto-update' || n.kind === 'auto-update-no-snapshot') && !toldByNotice(stack.state.last_failure, stack.state?.failure_notices) && !failureDismissed[stack.name] && !busyNow}
     {@const f = stack.state.last_failure}
     <div class="flex items-center gap-3 mb-4 shrink-0 px-4 py-2.5 rounded-lg bg-fjord-danger/10 border border-fjord-danger/25 text-sm text-fjord-fg-body">
       <span class="flex-1 min-w-0"
