@@ -361,6 +361,7 @@ func main() {
 		events:     newEventHub(),
 		seen:       newFirstSeen(fjordRoot),
 		auto:       newAutoState(fjordRoot),
+		rpSched:    newRPScheduleState(fjordRoot),
 		live:       newLiveStatus(),
 		conds:      newConditionsState(),
 		health:     newHealthMonitor(),
@@ -402,6 +403,7 @@ func main() {
 	go runFleetScheduler(srv)
 	go runAutoUpdateScheduler(srv)
 	go runKeptCopySweep(srv)
+	go runDailyRestorePoints(srv)
 
 	// Default binds all interfaces so container port publishing reaches it; a
 	// host daemon can narrow it to loopback via FJORD_LISTEN.

@@ -37,10 +37,70 @@ type restorePointsResponse struct {
 	Pinned             bool               `json:"pinned"`
 	PinnedServices     []string           `json:"pinnedServices,omitempty"`
 	CurrentVersion     string             `json:"currentVersion,omitempty"`
+	Policy             string             `json:"policy"`
+	RetentionDays      int                `json:"retentionDays"`
+	DailyTime          string             `json:"dailyTime"`
 	RestoredFolders    []string           `json:"restoredFolders"`
 	NotRestoredFolders []string           `json:"notRestoredFolders"`
+	NotCovered         []string           `json:"notCovered"`
 	Snapshots          []restorePointView `json:"snapshots"`
 	KeptCopies         []dataset.KeptCopy `json:"keptCopies"`
+}
+
+// isHostSystemMount reports whether a bind mount source is a host system file,
+// device, or socket (like /etc/localtime or /var/run/docker.sock) rather than
+// user data that belongs in a "Not included" restore list.
+func isHostSystemMount(p string) bool {
+	switch p {
+	case "/etc/localtime", "/etc/timezone", "/etc/resolv.conf", "/etc/hosts", "/dev", "/proc", "/sys", "/run", "/var/run":
+		return true
+	}
+	for _, prefix := range []string{"/dev/", "/proc/", "/sys/", "/run/", "/var/run/"} {
+		if strings.HasPrefix(p, prefix) {
+			return true
+		}
+	}
+	return strings.HasSuffix(p, ".sock")
+}
+
+// notCoveredPaths returns sorted unique user-data paths and named volumes on st
+// that live outside dsMount (and therefore are not rolled back when restoring
+// the stack's dataset). Host system files/sockets like /etc/localtime are
+// omitted.
+func notCoveredPaths(st *stack.Stack, dsMount string) []string {
+	out := []string{}
+	if st == nil {
+		return out
+	}
+	if dsMount != "" {
+		dsMount = filepath.Clean(dsMount)
+	}
+	seen := map[string]bool{}
+	for _, m := range stackMounts(st) {
+		if m.Kind == "volume" && m.Source != "" {
+			if !seen[m.Source] {
+				seen[m.Source] = true
+				out = append(out, m.Source)
+			}
+			continue
+		}
+		if m.Kind != "bind" || !filepath.IsAbs(m.Source) {
+			continue
+		}
+		src := filepath.Clean(m.Source)
+		if isHostSystemMount(src) {
+			continue
+		}
+		if dsMount != "" && (src == dsMount || strings.HasPrefix(src, dsMount+string(filepath.Separator))) {
+			continue
+		}
+		if !seen[src] {
+			seen[src] = true
+			out = append(out, src)
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 func (s *server) stackRestorePoints(w http.ResponseWriter, r *http.Request, name string) {
@@ -52,10 +112,15 @@ func (s *server) stackRestorePoints(w http.ResponseWriter, r *http.Request, name
 	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
 	defer cancel()
 
+	_, retDays, dailyTime := restorePointSettingsOf(loadSettings(s.fjordRoot))
 	resp := restorePointsResponse{
 		HasZFS:             dataset.HasZFS(ctx),
+		Policy:             effectiveRestorePointPolicy(st.State),
+		RetentionDays:      retDays,
+		DailyTime:          dailyTime,
 		RestoredFolders:    []string{},
 		NotRestoredFolders: []string{},
+		NotCovered:         []string{},
 		Snapshots:          []restorePointView{},
 		KeptCopies:         []dataset.KeptCopy{},
 	}
@@ -122,6 +187,7 @@ func (s *server) stackRestorePoints(w http.ResponseWriter, r *http.Request, name
 	}
 	sort.Strings(resp.RestoredFolders)
 	sort.Strings(resp.NotRestoredFolders)
+	resp.NotCovered = notCoveredPaths(st, dsMount)
 
 	if resp.Dataset != "" {
 		if snaps, err := dataset.ListSnapshots(ctx, resp.Dataset, false); err == nil {
@@ -582,7 +648,7 @@ func (s *server) stackSnapshots(w http.ResponseWriter, r *http.Request, name str
 			http.Error(w, "snapshot query param required", http.StatusBadRequest)
 			return
 		}
-		if _, err := dataset.DestroyManualSnapshot(ctx, dsName, snap, name); err != nil {
+		if _, err := dataset.DestroySnapshot(ctx, dsName, snap, name); err != nil {
 			http.Error(w, err.Error(), http.StatusConflict)
 			return
 		}
@@ -714,6 +780,25 @@ func runKeptCopySweep(srv *server) {
 			n := newNote(history.Delete, history.ByAutomatic)
 			n.detail = fmt.Sprintf("Removed a kept copy (%s freed)", formatBytes(freed))
 			srv.writeHistory(c.Stack, n, false, "")
+		}
+		_, retDays, _ := restorePointSettingsOf(loadSettings(srv.fjordRoot))
+		maxAge := time.Duration(retDays) * 24 * time.Hour
+		if stacks, err := srv.manager.List(); err == nil {
+			for _, st := range stacks {
+				state, _ := srv.manager.LoadState(st.Name)
+				if state == nil || state.Dataset == "" || state.DesiredState == "deleting" {
+					continue
+				}
+				unlock, ok := lockStackAs(st.Name, "sweep")
+				if !ok {
+					continue
+				}
+				_, err := dataset.PruneAutomaticSnapshots(ctx, state.Dataset, maxAge, now)
+				unlock()
+				if err != nil {
+					log.Printf("restore-point sweep %s: %v", st.Name, err)
+				}
+			}
 		}
 	}
 	time.Sleep(30 * time.Second)

@@ -226,6 +226,10 @@ func (s *server) handleStackRoutes(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if len(parts) == 3 && parts[1] == "restore-points" && parts[2] == "policy" && r.Method == http.MethodPost {
+		s.stackRestorePointPolicy(w, r, parts[0])
+		return
+	}
 	if len(parts) == 3 && parts[1] == "kept" && parts[2] == "restore" && r.Method == http.MethodPost {
 		s.stackKeptRestore(w, r, parts[0])
 		return

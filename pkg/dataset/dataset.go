@@ -19,12 +19,14 @@ import (
 const Tag = "fjord:stack"
 
 // Snapshot name prefixes. Automatic update snapshots use UpdateSnapPrefix
-// (and legacy LegacySnapPrefix followed strictly by digits). Manual restore
-// points use ManualSnapPrefix so the auto-pruner never touches them.
+// (and legacy LegacySnapPrefix followed strictly by digits). Scheduled daily
+// restore points use ScheduledSnapPrefix. Manual restore points use
+// ManualSnapPrefix so automatic retention never touches them.
 const (
-	UpdateSnapPrefix = "fjord-update-"
-	LegacySnapPrefix = "fjord-"
-	ManualSnapPrefix = "fjord-manual-"
+	UpdateSnapPrefix    = "fjord-update-"
+	LegacySnapPrefix    = "fjord-"
+	ScheduledSnapPrefix = "fjord-scheduled-"
+	ManualSnapPrefix    = "fjord-manual-"
 )
 
 // User properties stored on kept-copy datasets created during restore or
@@ -43,7 +45,7 @@ const (
 // SnapInfo describes one fjord-managed ZFS snapshot.
 type SnapInfo struct {
 	Name         string
-	Kind         string // "update" or "manual"
+	Kind         string // "update", "scheduled", or "manual"
 	Note         string
 	Images       string // JSON map of service -> ref@digest captured when taken
 	Created      time.Time
@@ -196,10 +198,23 @@ func IsManualSnap(datasetName, fullSnap string) bool {
 	return ok && allDigits(tail)
 }
 
+// IsScheduledSnap reports whether fullSnap is one of fjord's scheduled daily
+// restore points of datasetName (<name>@fjord-scheduled-<digits>).
+func IsScheduledSnap(datasetName, fullSnap string) bool {
+	rest, ok := strings.CutPrefix(fullSnap, datasetName+"@")
+	if !ok {
+		return false
+	}
+	tail, ok := strings.CutPrefix(rest, ScheduledSnapPrefix)
+	return ok && allDigits(tail)
+}
+
 // IsFjordSnap reports whether fullSnap is any fjord-managed snapshot of
 // datasetName.
 func IsFjordSnap(datasetName, fullSnap string) bool {
-	return IsUpdateSnap(datasetName, fullSnap) || IsManualSnap(datasetName, fullSnap)
+	return IsUpdateSnap(datasetName, fullSnap) ||
+		IsScheduledSnap(datasetName, fullSnap) ||
+		IsManualSnap(datasetName, fullSnap)
 }
 
 func allDigits(s string) bool {
@@ -237,6 +252,8 @@ func ListSnapshots(ctx context.Context, name string, includeDeferred bool) ([]Sn
 		switch {
 		case IsUpdateSnap(name, f[0]):
 			kind = "update"
+		case IsScheduledSnap(name, f[0]):
+			kind = "scheduled"
 		case IsManualSnap(name, f[0]):
 			kind = "manual"
 		default:
@@ -294,8 +311,10 @@ func NewerSnapshots(ctx context.Context, name, snap string) ([]SnapInfo, error) 
 	return nil, fmt.Errorf("%s not found on %s", snap, name)
 }
 
-// Snapshot takes <name>@fjord-update-<unix> and keeps the newest keep usable
-// automatic update snapshots. Optional imagesJSON records the running service
+// Snapshot takes <name>@fjord-update-<unix>. When keep >= 0 it keeps the
+// newest keep usable automatic update snapshots; when keep < 0 it skips
+// count-based pruning so callers can enforce age-based retention via
+// PruneAutomaticSnapshots. Optional imagesJSON records the running service
 // images (service -> ref@digest) in fjord:images so restoring this snapshot
 // pins the exact version that wrote its data.
 func Snapshot(ctx context.Context, name string, at time.Time, keep int, imagesJSON ...string) (string, error) {
@@ -308,6 +327,9 @@ func Snapshot(ctx context.Context, name string, at time.Time, keep int, imagesJS
 	if _, err := run(ctx, args...); err != nil {
 		return "", fmt.Errorf("zfs snapshot %s: %w", snap, err)
 	}
+	if keep < 0 {
+		return snap, nil
+	}
 	all, err := ListSnapshots(ctx, name, true)
 	if err != nil {
 		return snap, nil // taken; pruning waits for the next one
@@ -319,15 +341,89 @@ func Snapshot(ctx context.Context, name string, at time.Time, keep int, imagesJS
 		}
 		countable = append(countable, s)
 	}
-	if keep < 0 {
-		keep = 0
-	}
 	for len(countable) > keep {
 		target := countable[0]
 		countable = countable[1:]
 		_, _ = run(ctx, "destroy", "-d", target.Name)
 	}
 	return snap, nil
+}
+
+// SnapshotScheduled takes a scheduled daily restore point
+// (<name>@fjord-scheduled-<unix>) with optional running image metadata.
+func SnapshotScheduled(ctx context.Context, name string, at time.Time, imagesJSON ...string) (string, error) {
+	snap := fmt.Sprintf("%s@%s%d", name, ScheduledSnapPrefix, at.Unix())
+	args := []string{"snapshot"}
+	if len(imagesJSON) > 0 && imagesJSON[0] != "" {
+		args = append(args, "-o", PropImages+"="+imagesJSON[0])
+	}
+	args = append(args, snap)
+	if _, err := run(ctx, args...); err != nil {
+		return "", fmt.Errorf("zfs snapshot %s: %w", snap, err)
+	}
+	return snap, nil
+}
+
+// PruneAutomaticSnapshots removes automatic restore points (pre-update and
+// scheduled) older than maxAge using deferred destroy (-d), while always
+// keeping the newest countable automatic restore point whatever its age so an
+// app that updates infrequently never loses its last safety net. Manual
+// restore points and clone-held or already-deferred snapshots are never touched.
+func PruneAutomaticSnapshots(ctx context.Context, name string, maxAge time.Duration, now time.Time) (int, error) {
+	if maxAge <= 0 {
+		return 0, nil
+	}
+	all, err := ListSnapshots(ctx, name, true)
+	if err != nil {
+		return 0, err
+	}
+	var countable []SnapInfo
+	for _, s := range all {
+		if (s.Kind != "update" && s.Kind != "scheduled") || s.DeferDestroy || len(s.Clones) > 0 {
+			continue
+		}
+		countable = append(countable, s)
+	}
+	if len(countable) <= 1 {
+		return 0, nil
+	}
+	pruned := 0
+	// Always keep countable[len(countable)-1] (the newest automatic restore point).
+	for _, s := range countable[:len(countable)-1] {
+		if !s.Created.IsZero() && now.Sub(s.Created) > maxAge {
+			if _, err := run(ctx, "destroy", "-d", s.Name); err == nil {
+				pruned++
+			}
+		}
+	}
+	return pruned, nil
+}
+
+// WrittenSince returns ZFS's `written@<snap>` property for name (bytes written
+// since fullSnap, ignoring any snapshots from other tools taken in between).
+func WrittenSince(ctx context.Context, name, fullSnap string) (int64, error) {
+	_, shortName, ok := strings.Cut(fullSnap, "@")
+	if !ok || shortName == "" {
+		return 0, fmt.Errorf("invalid snapshot name %q", fullSnap)
+	}
+	out, err := run(ctx, "get", "-Hp", "-o", "value", "written@"+shortName, name)
+	if err != nil {
+		return 0, fmt.Errorf("zfs get written@%s %s: %w", shortName, name, err)
+	}
+	v, err := strconv.ParseInt(strings.TrimSpace(string(out)), 10, 64)
+	if err != nil || v < 0 {
+		return 0, fmt.Errorf("zfs get written@%s %s: unexpected value %q", shortName, name, strings.TrimSpace(string(out)))
+	}
+	return v, nil
+}
+
+// SnapshotExists reports whether fullSnap (<dataset>@<snap>) exists.
+func SnapshotExists(ctx context.Context, fullSnap string) bool {
+	if !strings.Contains(fullSnap, "@") {
+		return false
+	}
+	_, err := run(ctx, "list", "-H", "-t", "snapshot", "-o", "name", fullSnap)
+	return err == nil
 }
 
 // Rollback puts name's data back to snap, one of fjord's own snapshots of it.

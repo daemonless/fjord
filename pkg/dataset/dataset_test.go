@@ -230,3 +230,140 @@ func TestRollbackRefusesWhenCloneDependsOnNewerSnapshot(t *testing.T) {
 		}
 	}
 }
+
+func TestScheduledSnapshotAndPruneAutomatic(t *testing.T) {
+	ds := "zroot/containers/app"
+	if !IsScheduledSnap(ds, ds+"@fjord-scheduled-1700000100") || !IsFjordSnap(ds, ds+"@fjord-scheduled-1700000100") {
+		t.Fatal("scheduled snapshot not recognized")
+	}
+	now := time.Unix(1700000000+40*86400, 0)
+	snapList := strings.Join([]string{
+		ds + "@fjord-manual-1700000000\t1700000000\t1000\toff\t-",
+		ds + "@fjord-update-1700000100\t1700000100\t1000\toff\t-",
+		ds + "@fjord-scheduled-1700000200\t1700000200\t1000\toff\t-",
+		ds + "@fjord-scheduled-1702592000\t1702592000\t1000\toff\t-", // 10 days old
+	}, "\n") + "\n"
+	f := &fake{answers: map[string]string{"list -H -p -t snapshot": snapList}}
+	f.install(t)
+
+	pruned, err := PruneAutomaticSnapshots(context.Background(), ds, 30*24*time.Hour, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pruned != 2 {
+		t.Fatalf("pruned=%d, want 2", pruned)
+	}
+	var destroyed []string
+	for _, c := range f.ran {
+		if strings.HasPrefix(c, "destroy ") {
+			destroyed = append(destroyed, c)
+		}
+	}
+	want := []string{
+		"destroy -d " + ds + "@fjord-update-1700000100",
+		"destroy -d " + ds + "@fjord-scheduled-1700000200",
+	}
+	if strings.Join(destroyed, "|") != strings.Join(want, "|") {
+		t.Fatalf("destroyed %v, want %v", destroyed, want)
+	}
+
+	// Even when every automatic snapshot is older than maxAge, the newest one stays.
+	oldOnly := strings.Join([]string{
+		ds + "@fjord-update-1700000100\t1700000100\t1000\toff\t-",
+		ds + "@fjord-update-1700000200\t1700000200\t1000\toff\t-",
+	}, "\n") + "\n"
+	f2 := &fake{answers: map[string]string{"list -H -p -t snapshot": oldOnly}}
+	f2.install(t)
+	pruned2, err := PruneAutomaticSnapshots(context.Background(), ds, 30*24*time.Hour, now)
+	if err != nil || pruned2 != 1 {
+		t.Fatalf("oldOnly: pruned=%d err=%v, want 1", pruned2, err)
+	}
+	for _, c := range f2.ran {
+		if strings.Contains(c, "@fjord-update-1700000200") && strings.HasPrefix(c, "destroy ") {
+			t.Fatalf("pruned newest automatic snapshot: %s", c)
+		}
+	}
+}
+
+func TestDestroySnapshotAllKinds(t *testing.T) {
+	ds := "zroot/containers/app"
+	f := &fake{answers: map[string]string{
+		"list -H -r -o name,fjord:stack": ds + "\tapp\n",
+		"list -H -p -o used":             "4096\n",
+	}}
+	f.install(t)
+
+	for _, snap := range []string{
+		ds + "@fjord-update-1700000100",
+		ds + "@fjord-scheduled-1700000100",
+		ds + "@fjord-manual-1700000100",
+	} {
+		if used, err := DestroySnapshot(context.Background(), ds, snap, "app"); err != nil || used != 4096 {
+			t.Fatalf("%s: used=%d err=%v", snap, used, err)
+		}
+	}
+	if _, err := DestroySnapshot(context.Background(), ds, ds+"@user-snap", "app"); err == nil {
+		t.Fatal("expected error deleting non-fjord snapshot")
+	}
+}
+
+func TestSnapshotNegativeKeepSkipsCountPrune(t *testing.T) {
+	ds := "zroot/containers/app"
+	snapList := strings.Join([]string{
+		ds + "@fjord-update-1700000100\t1700000100\t1000\toff\t-",
+		ds + "@fjord-update-1700000200\t1700000200\t1000\toff\t-",
+		ds + "@fjord-update-1700000300\t1700000300\t1000\toff\t-",
+		ds + "@fjord-update-1700000400\t1700000400\t1000\toff\t-",
+		ds + "@fjord-update-1700000500\t1700000500\t1000\toff\t-",
+	}, "\n") + "\n"
+	f := &fake{answers: map[string]string{"list -H -p -t snapshot": snapList}}
+	f.install(t)
+
+	got, err := Snapshot(context.Background(), ds, time.Unix(1700000500, 0), -1)
+	if err != nil || got != ds+"@fjord-update-1700000500" {
+		t.Fatalf("got %q err=%v", got, err)
+	}
+	for _, c := range f.ran {
+		if strings.HasPrefix(c, "destroy ") {
+			t.Fatalf("negative keep must not count-prune, ran: %s", c)
+		}
+	}
+}
+
+func TestWrittenSinceAndSnapshotExists(t *testing.T) {
+	ds := "zroot/containers/app"
+	snap := ds + "@fjord-scheduled-1700000000"
+	f := &fake{answers: map[string]string{
+		"get -Hp -o value written@fjord-scheduled-1700000000 " + ds: "0\n",
+		"list -H -t snapshot -o name " + snap:                       snap + "\n",
+		"list -H -t snapshot -o name " + ds + "@x":                  "ERR dataset does not exist",
+	}}
+	f.install(t)
+
+	w, err := WrittenSince(context.Background(), ds, snap)
+	if err != nil || w != 0 {
+		t.Fatalf("WrittenSince(0) = %d, %v", w, err)
+	}
+	if !SnapshotExists(context.Background(), snap) {
+		t.Fatal("expected SnapshotExists true")
+	}
+	if SnapshotExists(context.Background(), ds+"@x") {
+		t.Fatal("expected SnapshotExists false for missing snap")
+	}
+
+	f2 := &fake{answers: map[string]string{
+		"get -Hp -o value written@fjord-scheduled-1700000000 " + ds: "40960\n",
+	}}
+	f2.install(t)
+	if w, err := WrittenSince(context.Background(), ds, snap); err != nil || w != 40960 {
+		t.Fatalf("WrittenSince(40960) = %d, %v", w, err)
+	}
+
+	f3 := &fake{answers: map[string]string{
+		"get -Hp -o value written@fjord-scheduled-1700000000 " + ds: "ERR permission denied",
+	}}
+	f3.install(t)
+	if _, err := WrittenSince(context.Background(), ds, snap); err == nil {
+		t.Fatal("expected error from failing zfs get written@snap")
+	}
+}

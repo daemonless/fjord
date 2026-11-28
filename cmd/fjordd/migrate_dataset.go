@@ -28,7 +28,9 @@ type migratePreview struct {
 	HasZFS         bool   `json:"hasZfs"`
 	SourceDir      string `json:"sourceDir,omitempty"`
 	TargetLocation string `json:"targetLocation,omitempty"`
+	TargetDir      string `json:"targetDir,omitempty"`
 	TargetDataset  string `json:"targetDataset,omitempty"`
+	CrossLocation  bool   `json:"crossLocation,omitempty"`
 	SizeBytes      int64  `json:"sizeBytes"`
 	NeededBytes    int64  `json:"neededBytes"`
 	FreeBytes      int64  `json:"freeBytes"`
@@ -50,7 +52,9 @@ type storageStackInfo struct {
 	PlainFolder   string `json:"plainFolder,omitempty"`
 	Eligible      bool   `json:"eligible"`
 	Reason        string `json:"reason,omitempty"`
+	TargetDir     string `json:"targetDir,omitempty"`
 	TargetDataset string `json:"targetDataset,omitempty"`
+	CrossLocation bool   `json:"crossLocation,omitempty"`
 	SizeBytes     int64  `json:"sizeBytes"`
 }
 
@@ -87,6 +91,91 @@ func (s *server) ownDataDirs(st *stack.Stack) []string {
 	return out
 }
 
+func isPathPrefixPrev(b byte) bool {
+	switch b {
+	case '=', ':', '"', '\'', ' ', '\t', '-', '\n', '\r', '(', '[', '{', ',':
+		return true
+	}
+	return false
+}
+
+func isPathPrefixNext(b byte) bool {
+	switch b {
+	case '/', ':', '"', '\'', ' ', '\t', '\n', '\r', ')', ']', '}', ',', ';':
+		return true
+	}
+	return false
+}
+
+// rewritePathPrefix replaces oldDir with newDir only on clean path boundaries
+// so /containers/app matches /containers/app and /containers/app/config, never
+// /containers/app2 or /other/containers/app.
+func rewritePathPrefix(text, oldDir, newDir string) (string, bool) {
+	oldDir = filepath.Clean(oldDir)
+	newDir = filepath.Clean(newDir)
+	if oldDir == "" || oldDir == "/" || oldDir == newDir || !strings.Contains(text, oldDir) {
+		return text, false
+	}
+	var out strings.Builder
+	out.Grow(len(text))
+	changed := false
+	i := 0
+	for i < len(text) {
+		idx := strings.Index(text[i:], oldDir)
+		if idx < 0 {
+			out.WriteString(text[i:])
+			break
+		}
+		pos := i + idx
+		end := pos + len(oldDir)
+		prevOK := pos == 0 || isPathPrefixPrev(text[pos-1])
+		nextOK := end == len(text) || isPathPrefixNext(text[end])
+		out.WriteString(text[i:pos])
+		if prevOK && nextOK {
+			out.WriteString(newDir)
+			changed = true
+		} else {
+			out.WriteString(oldDir)
+		}
+		i = end
+	}
+	return out.String(), changed
+}
+
+// firstDatasetLocation returns the highest-priority configured App data
+// location backed by a dedicated non-boot-env ZFS dataset.
+func (s *server) firstDatasetLocation(ctx context.Context) (loc, ds string, ok bool) {
+	for _, cand := range s.appDataLocations() {
+		cand = filepath.Clean(cand)
+		if cand == "/" {
+			continue
+		}
+		if candDS, found := dataset.At(ctx, cand); found && !dataset.IsBootEnv(candDS) {
+			return cand, candDS, true
+		}
+	}
+	return "", "", false
+}
+
+// stackHasRewritablePath reports whether st's compose, .env, or AppJail
+// director bundle references srcDir on a clean path boundary.
+func stackHasRewritablePath(st *stack.Stack, srcDir string) bool {
+	if _, ok := rewritePathPrefix(st.Compose, srcDir, srcDir+".check"); ok {
+		return true
+	}
+	if _, ok := rewritePathPrefix(st.Env, srcDir, srcDir+".check"); ok {
+		return true
+	}
+	if st.Dir != "" {
+		if b, err := os.ReadFile(filepath.Join(st.Dir, "appjail-director.yml")); err == nil {
+			if _, ok := rewritePathPrefix(string(b), srcDir, srcDir+".check"); ok {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func (s *server) planMigrateDataset(ctx context.Context, st *stack.Stack) migratePreview {
 	p := migratePreview{HasZFS: dataset.HasZFS(ctx)}
 	if !p.HasZFS {
@@ -115,14 +204,37 @@ func (s *server) planMigrateDataset(ctx context.Context, st *stack.Stack) migrat
 	loc := filepath.Dir(srcDir)
 
 	parentDS, ok := dataset.At(ctx, loc)
-	if !ok || loc == "/" || dataset.IsBootEnv(parentDS) {
-		p.ZFSCreateHint = zfsCreateHintForHost(ctx)
-		p.Reason = loc + " sits on the OS root filesystem instead of its own ZFS dataset"
-		return p
+	if ok && loc != "/" && !dataset.IsBootEnv(parentDS) {
+		p.TargetLocation = loc
+		p.TargetDir = srcDir
+		p.TargetDataset = parentDS + "/" + st.Name
+	} else {
+		candLoc, candDS, hasCand := s.firstDatasetLocation(ctx)
+		if !hasCand {
+			p.ZFSCreateHint = zfsCreateHintForHost(ctx)
+			p.Reason = loc + " sits on the OS root filesystem instead of its own ZFS dataset"
+			return p
+		}
+		targetDir := filepath.Join(candLoc, st.Name)
+		targetDS := candDS + "/" + st.Name
+		if _, err := os.Lstat(targetDir); err == nil {
+			p.Reason = targetDir + " already exists; remove or rename it first so fjord never overwrites existing data"
+			return p
+		}
+		if dataset.Exists(ctx, targetDS) {
+			p.Reason = targetDS + " already exists"
+			return p
+		}
+		if !stackHasRewritablePath(st, srcDir) {
+			p.Reason = "Could not locate " + srcDir + " in this app's compose or .env to rewrite safely"
+			return p
+		}
+		parentDS = candDS
+		p.TargetLocation = candLoc
+		p.TargetDir = targetDir
+		p.TargetDataset = targetDS
+		p.CrossLocation = true
 	}
-
-	p.TargetLocation = loc
-	p.TargetDataset = parentDS + "/" + st.Name
 
 	sizeBytes, _ := dirSize(srcDir, 3*time.Second)
 	p.SizeBytes = sizeBytes
@@ -219,10 +331,15 @@ func statOwnerMode(path string) (uid, gid int, mode os.FileMode, ok bool) {
 }
 
 // reconcileMigrateDataset recovers an interrupted Move to dataset on boot:
-// if the backup folder still exists and the target dataset was only half
-// created, destroy the incomplete dataset and rename the original folder back.
+// destroys any half-created target dataset and, for same-location migrations
+// that renamed the original folder first, renames the original folder back.
 func reconcileMigrateDataset(ctx context.Context, stackName, targetDataset, backupFolder string) string {
 	if backupFolder == "" {
+		if targetDataset != "" && dataset.Exists(ctx, targetDataset) {
+			if err := dataset.Destroy(ctx, targetDataset, stackName); err == nil {
+				return "cleaned up interrupted dataset migration (original folder untouched)"
+			}
+		}
 		return ""
 	}
 	if _, err := os.Stat(backupFolder); err != nil {
@@ -297,24 +414,58 @@ func (s *server) stackMigrateDataset(w http.ResponseWriter, r *http.Request, nam
 	wasRunning := st.State != nil && st.State.DesiredState == "running"
 	now := time.Now().UTC()
 	backupDir := plan.SourceDir + ".pre-dataset-" + now.Format("20060102-150405")
+	dstDir := plan.TargetDir
+	if dstDir == "" {
+		dstDir = plan.SourceDir
+	}
 
+	origCompose := st.Compose
+	origEnv := st.Env
+	directorPath := ""
+	var origDirector []byte
+	directorRewritten := false
+	if plan.CrossLocation && st.Dir != "" {
+		cand := filepath.Join(st.Dir, "appjail-director.yml")
+		if b, rerr := os.ReadFile(cand); rerr == nil {
+			directorPath = cand
+			origDirector = b
+		}
+	}
+
+	pendingKept := backupDir
+	if plan.CrossLocation {
+		pendingKept = "" // original folder stays untouched until the stack is running on the new dataset
+	}
 	_ = s.manager.UpdateState(name, func(state *stack.State) *stack.State {
 		if state != nil {
 			state.PendingDatasetOp = &stack.PendingDatasetOp{
 				Kind:        "migrate_dataset",
 				LiveDataset: plan.TargetDataset,
-				KeptDataset: backupDir,
+				KeptDataset: pendingKept,
 				StartedAt:   now,
 			}
 		}
 		return state
 	})
 
+	configRewritten := false
 	rollbackMigration := func(dsCreated bool, reason error) {
+		if configRewritten {
+			_, _ = s.manager.Update(name, func(cur *stack.Stack) error {
+				cur.Compose = origCompose
+				cur.Env = origEnv
+				return nil
+			})
+		}
+		if directorRewritten && directorPath != "" {
+			_ = os.WriteFile(directorPath, origDirector, 0o644)
+		}
 		if dsCreated {
 			_ = dataset.Destroy(ctx, plan.TargetDataset, name)
 		}
-		_ = os.Rename(backupDir, plan.SourceDir)
+		if !plan.CrossLocation {
+			_ = os.Rename(backupDir, plan.SourceDir)
+		}
 		_ = s.manager.UpdateState(name, func(state *stack.State) *stack.State {
 			if state != nil {
 				state.Dataset = ""
@@ -322,6 +473,9 @@ func (s *server) stackMigrateDataset(w http.ResponseWriter, r *http.Request, nam
 			}
 			return state
 		})
+		if fresh, gerr := s.manager.Get(name); gerr == nil {
+			st = fresh
+		}
 		if wasRunning {
 			if stream, uerr := be.Up(ctx, st); uerr == nil {
 				io.Copy(io.Discard, stream)
@@ -331,9 +485,13 @@ func (s *server) stackMigrateDataset(w http.ResponseWriter, r *http.Request, nam
 		http.Error(w, reason.Error(), http.StatusConflict)
 	}
 
-	if err := os.Rename(plan.SourceDir, backupDir); err != nil {
-		rollbackMigration(false, fmt.Errorf("rename %s: %w", plan.SourceDir, err))
-		return
+	copySrc := plan.SourceDir
+	if !plan.CrossLocation {
+		if err := os.Rename(plan.SourceDir, backupDir); err != nil {
+			rollbackMigration(false, fmt.Errorf("rename %s: %w", plan.SourceDir, err))
+			return
+		}
+		copySrc = backupDir
 	}
 
 	createdDS, err := dataset.Create(ctx, parentDS, name)
@@ -342,25 +500,66 @@ func (s *server) stackMigrateDataset(w http.ResponseWriter, r *http.Request, nam
 		return
 	}
 
+	if fi, serr := os.Stat(dstDir); serr != nil || !fi.IsDir() {
+		rollbackMigration(true, fmt.Errorf("target dataset mount %s not available", dstDir))
+		return
+	}
+
 	if hasOwner {
-		if err := os.Chown(plan.SourceDir, uid, gid); err != nil {
-			log.Printf("migrate %s: chown %s: %v", name, plan.SourceDir, err)
+		if err := os.Chown(dstDir, uid, gid); err != nil {
+			log.Printf("migrate %s: chown %s: %v", name, dstDir, err)
 		}
-		if err := os.Chmod(plan.SourceDir, mode); err != nil {
-			log.Printf("migrate %s: chmod %s: %v", name, plan.SourceDir, err)
+		if err := os.Chmod(dstDir, mode); err != nil {
+			log.Printf("migrate %s: chmod %s: %v", name, dstDir, err)
 		}
 	}
 
-	if err := copyTreePreserving(ctx, backupDir, plan.SourceDir); err != nil {
+	if err := copyTreePreserving(ctx, copySrc, dstDir); err != nil {
 		rollbackMigration(true, err)
 		return
 	}
 
+	if plan.CrossLocation {
+		newCompose, cChanged := rewritePathPrefix(origCompose, plan.SourceDir, dstDir)
+		newEnv, eChanged := rewritePathPrefix(origEnv, plan.SourceDir, dstDir)
+		newDirector := ""
+		dChanged := false
+		if directorPath != "" {
+			newDirector, dChanged = rewritePathPrefix(string(origDirector), plan.SourceDir, dstDir)
+		}
+		if !cChanged && !eChanged && !dChanged {
+			rollbackMigration(true, fmt.Errorf("could not rewrite %s in stack configuration", plan.SourceDir))
+			return
+		}
+		if cChanged || eChanged {
+			if _, err := s.manager.Update(name, func(cur *stack.Stack) error {
+				cur.Compose = newCompose
+				cur.Env = newEnv
+				return nil
+			}); err != nil {
+				rollbackMigration(true, fmt.Errorf("update stack config: %w", err))
+				return
+			}
+			configRewritten = true
+		}
+		if dChanged && directorPath != "" {
+			if err := stack.WriteFileAtomic(directorPath, []byte(newDirector), 0o644); err != nil {
+				rollbackMigration(true, fmt.Errorf("update appjail-director.yml: %w", err))
+				return
+			}
+			directorRewritten = true
+		}
+	}
+
 	_, _ = dataset.SnapshotManual(ctx, createdDS, name, "Moved to dataset", now, imagesJSON)
 
+	rpDef, _, _ := restorePointSettingsOf(loadSettings(s.fjordRoot))
 	_ = s.manager.UpdateState(name, func(state *stack.State) *stack.State {
 		if state != nil {
 			state.Dataset = createdDS
+			if state.RestorePointPolicy == "" {
+				state.RestorePointPolicy = rpDef
+			}
 			state.PendingDatasetOp = nil
 		}
 		return state
@@ -379,7 +578,17 @@ func (s *server) stackMigrateDataset(w http.ResponseWriter, r *http.Request, nam
 		stream.Close()
 	}
 
-	if !keepOld {
+	if plan.CrossLocation {
+		if keepOld {
+			if err := os.Rename(plan.SourceDir, backupDir); err != nil {
+				log.Printf("migrate %s: rename backup %s: %v", name, plan.SourceDir, err)
+				backupDir = plan.SourceDir
+			}
+		} else {
+			_ = os.RemoveAll(plan.SourceDir)
+			backupDir = ""
+		}
+	} else if !keepOld {
 		_ = os.RemoveAll(backupDir)
 		backupDir = ""
 	}
@@ -393,6 +602,7 @@ func (s *server) stackMigrateDataset(w http.ResponseWriter, r *http.Request, nam
 	json.NewEncoder(w).Encode(map[string]any{
 		"ok":        true,
 		"dataset":   createdDS,
+		"targetDir": dstDir,
 		"backupDir": backupDir,
 	})
 }
@@ -454,7 +664,9 @@ func (s *server) handleStorageDatasets(w http.ResponseWriter, r *http.Request) {
 				item.PlainFolder = plan.SourceDir
 				item.Eligible = plan.Eligible
 				item.Reason = plan.Reason
+				item.TargetDir = plan.TargetDir
 				item.TargetDataset = plan.TargetDataset
+				item.CrossLocation = plan.CrossLocation
 				item.SizeBytes = plan.SizeBytes
 			}
 			resp.Stacks = append(resp.Stacks, item)

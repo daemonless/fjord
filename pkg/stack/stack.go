@@ -91,6 +91,9 @@ type State struct {
 	// database can be stricter than the app in front of it.
 	UpdatePolicy  string            `json:"update_policy,omitempty"`
 	ServicePolicy map[string]string `json:"service_policy,omitempty"`
+	// RestorePointPolicy is how automatic ZFS restore points run for this stack:
+	// "" or "updates" = before updates, "daily" = before updates + daily, "off" = manual only.
+	RestorePointPolicy string `json:"restore_point_policy,omitempty"`
 	// Choices are the stack's answers at install (choice id -> option id),
 	// the default included: what the install was told to run with.
 	Choices map[string]string `json:"choices,omitempty"`
@@ -610,6 +613,18 @@ func (m *Manager) SetUpdatePolicy(id, policy string, services map[string]string)
 		if len(services) == 0 {
 			st.ServicePolicy = nil
 		}
+		return st
+	})
+}
+
+// SetRestorePointPolicy records a stack's automatic restore point policy
+// ("off", "updates", or "daily").
+func (m *Manager) SetRestorePointPolicy(id, policy string) error {
+	return m.UpdateState(id, func(st *State) *State {
+		if st == nil {
+			st = &State{SchemaVersion: stateSchemaVersion}
+		}
+		st.RestorePointPolicy = policy
 		return st
 	})
 }

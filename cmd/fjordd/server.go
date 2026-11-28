@@ -41,15 +41,16 @@ type server struct {
 	origin     string
 	defEngine  string // default engine for new installs
 	cat        *catalog.Cache
-	fjordRoot  string       // parent of the stacks dir; provisioned volumes live here
-	hist       *history.Log // what happened to each stack; nil in tests that don't need it
-	stacksDir  string       // reported by /api/about
-	listenAddr string       // reported by /api/about
-	fleet      fleetUpdates // cached fleet-wide update state
-	seen       *firstSeen   // when each update candidate was first seen (soak)
-	auto       *autoState   // automatic updates: running, last run (autoupdate.go)
-	live       *liveStatus  // status for the pages, never waiting long on the engine
-	events     *eventHub    // SSE pub/sub; fed by runEventLoop
+	fjordRoot  string           // parent of the stacks dir; provisioned volumes live here
+	hist       *history.Log     // what happened to each stack; nil in tests that don't need it
+	stacksDir  string           // reported by /api/about
+	listenAddr string           // reported by /api/about
+	fleet      fleetUpdates     // cached fleet-wide update state
+	seen       *firstSeen       // when each update candidate was first seen (soak)
+	auto       *autoState       // automatic updates: running, last run (autoupdate.go)
+	rpSched    *rpScheduleState // daily restore points scheduler state (restore_points_schedule.go)
+	live       *liveStatus      // status for the pages, never waiting long on the engine
+	events     *eventHub        // SSE pub/sub; fed by runEventLoop
 	conds      *conditionsState
 	health     *healthMonitor
 	booting    atomic.Bool
@@ -235,6 +236,8 @@ func (s *server) routes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/ports/free", s.handleFreePorts)
 	mux.HandleFunc("/api/settings/storage", s.handleStorageSettings)
 	mux.HandleFunc("/api/settings/storage/datasets", s.handleStorageDatasets)
+	mux.HandleFunc("/api/settings/restore-points", s.handleRestorePointSettings)
+	mux.HandleFunc("/api/settings/restore-points/run", s.handleRestorePointSettings)
 	mux.HandleFunc("/api/settings/wizard", s.handleWizardSettings)
 	mux.HandleFunc("/api/settings/restart", s.handleRestartSettings)
 	mux.HandleFunc("/api/settings/network", s.handleDefaultNetwork)

@@ -68,6 +68,12 @@ type savedSettings struct {
 	// reverse proxy on another machine. A stack of this fjord that provides
 	// names wins over it.
 	NamesLink *NamesLink `json:"namesLink,omitempty"`
+	// Automatic ZFS restore points (Settings, Restore points): new-app default
+	// policy (off | updates | daily), age retention in days (7 | 14 | 30 | 90),
+	// and daily schedule time (HH:MM).
+	RestorePointDefault       string `json:"restorePointDefault,omitempty"`
+	RestorePointRetentionDays *int   `json:"restorePointRetentionDays,omitempty"`
+	RestorePointDailyTime     string `json:"restorePointDailyTime,omitempty"`
 }
 
 func settingsPath(fjordRoot string) string {
