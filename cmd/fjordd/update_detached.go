@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -14,16 +15,34 @@ import (
 	"github.com/daemonless/fjord/pkg/stack"
 )
 
+var errSnapshotAborted = errors.New("no restore point before automatic update")
+
+type requireSnapshotKey struct{}
+
+func withRequireSnapshot(ctx context.Context) context.Context {
+	return context.WithValue(ctx, requireSnapshotKey{}, true)
+}
+
+func requireSnapshot(ctx context.Context) bool {
+	v, _ := ctx.Value(requireSnapshotKey{}).(bool)
+	return v
+}
+
 // updateStream is an update as the daemon runs it, whoever asked: the
-// rollback record taken (not for a rollback, which must keep the one that
-// worked), the addresses it keeps said first, the engine's pull and
-// recreate, and the changes a Save left pending cleared as they land.
+// pre-update snapshot taken first (so an aborted automatic update never
+// clobbers the existing rollback record), the rollback record saved next,
+// the addresses it keeps said first, the engine's pull and recreate, and
+// the changes a Save left pending cleared as they land.
 // services nil is the whole stack.
 func (s *server) updateStream(ctx context.Context, st *stack.Stack, read uint64, services []string, record bool) (io.ReadCloser, error) {
 	var snapNote string
 	if record {
+		var snapErr error
+		snapNote, snapErr = s.snapshotBeforeUpdate(ctx, st)
+		if snapErr != nil && requireSnapshot(ctx) {
+			return nil, fmt.Errorf("%w: %w", errSnapshotAborted, snapErr)
+		}
 		s.recordRollback(ctx, st, services)
-		snapNote = s.snapshotBeforeUpdate(ctx, st)
 	}
 	note := snapNote + keptNote(s.keepAddresses(ctx, st))
 	stream, err := s.backendFor(st).Update(watchable(ctx, st.Name), st, services)
@@ -59,28 +78,35 @@ func (s *server) updateDetached(name string, unlock func(), services []string, t
 
 // runDetachedUpdate runs one stack's update under the caller's lock, keeps
 // its output, records its outcome, and forgets the fleet's verdict on it.
-func (s *server) runDetachedUpdate(name string, services []string, trigger string) {
+// Returns the setup error (such as errSnapshotAborted) when the update
+// could not start before touching running containers.
+func (s *server) runDetachedUpdate(name string, services []string, trigger string) error {
 	note := newNote(history.Update, trigger, services...)
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Minute)
 	defer cancel()
+	if trigger == history.ByAutomatic {
+		ctx = withRequireSnapshot(ctx)
+	}
 	read := s.pending.now()
 	st, err := s.manager.Get(name)
 	if err != nil {
 		log.Printf("update %s: %v", name, err)
-		return
+		return err
 	}
 	log.Printf("update %s (%s)", name, st.EngineName())
 	var stream io.ReadCloser
+	var startErr error
 	if problems := s.preflight(ctx, st); len(problems) > 0 {
 		stream = errorStream("pre-flight failed:\n  " + strings.Join(problems, "\n  "))
-	} else if stream, err = s.updateStream(ctx, st, read, services, true); err != nil {
-		stream = errorStream(err.Error())
+	} else if stream, startErr = s.updateStream(ctx, st, read, services, true); startErr != nil {
+		stream = errorStream(startErr.Error())
 	} else {
 		stream = s.keepAfter(ctx, st, stream)
 	}
 	io.Copy(io.Discard, s.recordOutcome(name, "update", note, stream))
 	stream.Close()
 	s.fleet.forget(name)
+	return startErr
 }
 
 // errorStream is an action's output when it could not start: the one line

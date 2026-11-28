@@ -243,6 +243,7 @@ func (s *server) routes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/autoupdate/run", s.handleAutoUpdate)
 	mux.HandleFunc("/api/autoupdate/resume", s.handleAutoUpdate)
 	mux.HandleFunc("/api/autoupdate/offer", s.handleAutoUpdate)
+	mux.HandleFunc("/api/autoupdate/all", s.handleAutoUpdate)
 	mux.HandleFunc("/api/setup/state", s.handleSetupState)
 	mux.HandleFunc("/api/setup/install", s.handleSetupInstall)
 	mux.HandleFunc("/api/system/netavark", s.handleNetavarkSwitchState)

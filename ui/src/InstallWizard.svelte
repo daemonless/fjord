@@ -142,8 +142,8 @@
   let hostMode = false;
   // Runtime engines available for this install (podman, appjail, ...).
   let engines: { name: string; available: boolean; default: boolean; warning?: string; restartPolicies?: string[]; restartOnExit?: boolean; keepsUpToDate?: boolean }[] = [];
-  // Keep up to date: on for a new install, where its engine can do it.
-  let keepUpToDate = true;
+  // Keep up to date: starts from the host default (off until turned on in Settings or Setup).
+  let keepUpToDate = false;
   // The restart policy, from the engine's choices, starting from its default
   // in Settings; picking another engine starts again from that one's. An
   // engine that offers none installs without one.

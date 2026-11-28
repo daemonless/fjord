@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -518,7 +519,7 @@ func (s *server) autoUpdateStack(act autoAction) autoResult {
 			return res
 		}
 	}
-	s.runDetachedUpdate(act.Stack, act.Services, history.ByAutomatic)
+	startErr := s.runDetachedUpdate(act.Stack, act.Services, history.ByAutomatic)
 	state, _ := s.manager.LoadState(act.Stack)
 	if state == nil || state.LastFailure == nil || state.LastFailure.At.Before(started) {
 		res.Result = "updated"
@@ -526,6 +527,17 @@ func (s *server) autoUpdateStack(act autoAction) autoResult {
 		return res
 	}
 	why := history.FirstLine(state.LastFailure.Message)
+	// Aborted before pulling or stopping containers because taking the
+	// pre-update restore point failed: put compose/.env back if retagged,
+	// leave the rollback record untouched, and report the failure without
+	// rolling back running containers.
+	if errors.Is(startErr, errSnapshotAborted) {
+		if len(act.Unholds) > 0 || len(act.Retags) > 0 {
+			s.restoreCompose(act.Stack, prevCompose, prevEnv)
+		}
+		res.Result, res.Reason = "failed", why
+		return res
+	}
 	back, backWhy := s.autoRollback(act, prevCompose, prevEnv, state)
 	tags := map[string]string{}
 	for _, rt := range act.Retags {
@@ -667,6 +679,10 @@ func (s *server) handleAutoUpdate(w http.ResponseWriter, r *http.Request) {
 		s.autoUpdateOffer(w, r)
 		return
 	}
+	if strings.HasSuffix(r.URL.Path, "/all") {
+		s.autoUpdateAll(w, r)
+		return
+	}
 	if strings.HasSuffix(r.URL.Path, "/resume") {
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -699,7 +715,8 @@ func (s *server) handleAutoUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	switch r.Method {
 	case http.MethodGet:
-		start, end := autoWindowOf(loadSettings(s.fjordRoot))
+		saved := loadSettings(s.fjordRoot)
+		start, end := autoWindowOf(saved)
 		_, opened := windowAt(time.Now(), start, end)
 		s.auto.mu.Lock()
 		last, running, pausedAt := s.auto.f.Last, s.auto.running, s.auto.f.PausedAt
@@ -708,30 +725,50 @@ func (s *server) handleAutoUpdate(w http.ResponseWriter, r *http.Request) {
 		if !last.Window.Before(opened) { // this window's pass is done
 			_, next = windowAt(opened.Add(24*time.Hour), start, end)
 		}
+		stacksOn, stacksTotal := s.autoUpdateCounts()
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{
-			"start":   start,
-			"end":     end,
-			"running": running,
-			"next":    rfc3339OrEmpty(next),
-			"last":    last,
-			"paused":  rfc3339OrEmpty(pausedAt),
-			"offer":   s.unasked(),
+			"start":         start,
+			"end":           end,
+			"defaultForNew": saved.AutoUpdateDefault,
+			"stacksOn":      stacksOn,
+			"stacksTotal":   stacksTotal,
+			"running":       running,
+			"next":          rfc3339OrEmpty(next),
+			"last":          last,
+			"paused":        rfc3339OrEmpty(pausedAt),
+			"offer":         s.unasked(),
 		})
 	case http.MethodPost:
-		var req struct{ Start, End string }
+		var req struct {
+			Start         string `json:"start"`
+			End           string `json:"end"`
+			DefaultForNew *bool  `json:"defaultForNew"`
+		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "invalid JSON payload", 400)
 			return
 		}
-		s0, ok1 := parseHM(req.Start)
-		e0, ok2 := parseHM(req.End)
-		if !ok1 || !ok2 || s0 == e0 {
-			http.Error(w, "start and end are times like 03:00, and not the same", 400)
+		hasWindow := req.Start != "" || req.End != ""
+		if !hasWindow && req.DefaultForNew == nil {
+			http.Error(w, "start/end or defaultForNew is required", 400)
 			return
 		}
+		if hasWindow {
+			s0, ok1 := parseHM(req.Start)
+			e0, ok2 := parseHM(req.End)
+			if !ok1 || !ok2 || s0 == e0 {
+				http.Error(w, "start and end are times like 03:00, and not the same", 400)
+				return
+			}
+		}
 		if err := updateSettings(s.fjordRoot, func(st *savedSettings) {
-			st.AutoUpdateStart, st.AutoUpdateEnd = req.Start, req.End
+			if hasWindow {
+				st.AutoUpdateStart, st.AutoUpdateEnd = req.Start, req.End
+			}
+			if req.DefaultForNew != nil {
+				st.AutoUpdateDefault = *req.DefaultForNew
+			}
 		}); err != nil {
 			http.Error(w, "persist: "+err.Error(), 500)
 			return
@@ -794,4 +831,90 @@ func (s *server) autoUpdateOffer(w http.ResponseWriter, r *http.Request) {
 	log.Printf("auto-update: offer answered %s (%d stacks on)", req.Answer, len(turned))
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{"on": turned})
+}
+
+func policyIsOn(raw string) bool {
+	return raw != "" && raw != string(updates.Off) && raw != string(updates.Notify)
+}
+
+func (s *server) autoUpdateCounts() (on, total int) {
+	stacks, err := s.manager.List()
+	if err != nil {
+		return 0, 0
+	}
+	for _, st := range stacks {
+		state, _ := s.manager.LoadState(st.Name)
+		if state != nil && state.DesiredState == "deleting" {
+			continue
+		}
+		total++
+		if state != nil && policyIsOn(state.UpdatePolicy) {
+			on++
+		}
+	}
+	return on, total
+}
+
+// autoUpdateAll sets Keep up to date on or off for every existing stack:
+// POST /api/autoupdate/all {"on": true | false}. Individual stacks can still
+// be changed afterwards in their Settings tab.
+func (s *server) autoUpdateAll(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		On *bool `json:"on"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.On == nil {
+		http.Error(w, `send {"on": true | false}`, 400)
+		return
+	}
+	policy := string(updates.Off)
+	if *req.On {
+		policy = string(updates.Minors)
+	}
+	stacks, err := s.manager.List()
+	if err != nil {
+		http.Error(w, "list stacks: "+err.Error(), 500)
+		return
+	}
+	updated := 0
+	for _, st := range stacks {
+		state, _ := s.manager.LoadState(st.Name)
+		if state != nil && state.DesiredState == "deleting" {
+			continue
+		}
+		cur := ""
+		if state != nil {
+			cur = state.UpdatePolicy
+		}
+		if *req.On && policyIsOn(cur) {
+			continue
+		}
+		if !*req.On && cur == string(updates.Off) {
+			continue
+		}
+		var svcPol map[string]string
+		if state != nil {
+			svcPol = state.ServicePolicy
+		}
+		if err := s.manager.SetUpdatePolicy(st.Name, policy, svcPol); err != nil {
+			http.Error(w, st.Name+": "+err.Error(), 500)
+			return
+		}
+		updated++
+	}
+	if err := updateSettings(s.fjordRoot, func(st *savedSettings) { st.AutoUpdateOffered = true }); err != nil {
+		http.Error(w, "persist: "+err.Error(), 500)
+		return
+	}
+	on, total := s.autoUpdateCounts()
+	log.Printf("auto-update: set all %v (%d updated, %d/%d on)", *req.On, updated, on, total)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{
+		"updated":     updated,
+		"stacksOn":    on,
+		"stacksTotal": total,
+	})
 }

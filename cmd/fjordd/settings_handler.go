@@ -49,6 +49,7 @@ type savedSettings struct {
 	CatalogRefresh    string            `json:"catalogRefresh,omitempty"`    // automatic catalog refresh: off | 1h | 6h (default) | 24h
 	AutoUpdateStart   string            `json:"autoUpdateStart,omitempty"`   // automatic updates' window, HH:MM (default 03:00)
 	AutoUpdateEnd     string            `json:"autoUpdateEnd,omitempty"`     // and its end (default 05:00); may cross midnight
+	AutoUpdateDefault bool              `json:"autoUpdateDefault,omitempty"` // Keep up to date default for new installs (false = off)
 	AutoUpdateOffered bool              `json:"autoUpdateOffered,omitempty"` // the offer to turn it on for existing stacks was answered
 	SetupDone         bool              `json:"setupDone,omitempty"`         // first-run setup wizard finished (or skipped)
 	// The default catalog was added once on first run. Never re-added after

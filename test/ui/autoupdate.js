@@ -52,10 +52,9 @@ const detail = async (page) => (await page.request.get(BASE + '/api/stacks/' + N
     await page.getByText('Advanced', { exact: true }).click();
     await page.getByPlaceholder(/Custom tag/).fill('2.1.3');
     await sleep(1500);
-    // The wizard asks, on for a new install; this one says no.
+    // The wizard starts off by default; keep this install off.
     const ask = page.locator('[data-wizard-keep-up-to-date]').getByRole('switch', { name: 'Keep up to date' });
-    note('the wizard asks, on by default', (await ask.getAttribute('aria-checked').catch(() => '')) === 'true', 'checked');
-    await ask.click();
+    note('the wizard asks, off by default', (await ask.getAttribute('aria-checked').catch(() => '')) === 'false', 'unchecked');
     await install.click();
     let d;
     for (let i = 0; i < 100; i++) { d = await detail(page).catch(() => ({})); if (!d?.busy && (d?.status?.state === 'running' || d?.state?.last_failure)) break; await sleep(3000); }
@@ -75,9 +74,22 @@ const detail = async (page) => (await page.request.get(BASE + '/api/stacks/' + N
     note('on: says what it will do and when', (await keep.getAttribute('aria-checked')) === 'true' && /Between \d\d:\d\d and \d\d:\d\d/.test(said) && /major versions wait/.test(said), said.replace(/\s+/g, ' '));
     note('stored as minor', (await detail(page))?.state?.update_policy === 'minor', String((await detail(page))?.state?.update_policy));
 
-    // Settings -> Updates: the window, moved and kept.
+    // Settings -> Updates: the window, new-app default switch, and bulk confirm dialog.
     await openPage(page, BASE + '/?t=' + Date.now() + '#/settings/updates');
     await page.locator('[data-updates-settings]').waitFor();
+    const defSw = page.locator('[data-au-default-for-new]').getByRole('switch', { name: 'Keep new apps up to date' });
+    note('new-app default starts off in Settings', (await defSw.getAttribute('aria-checked').catch(() => '')) === 'false', 'unchecked');
+    await defSw.click();
+    await sleep(600);
+    const defOn = await (await page.request.get(BASE + '/api/autoupdate')).json();
+    note('new-app default persists on', defOn.defaultForNew === true, String(defOn.defaultForNew));
+    await defSw.click();
+    await sleep(600);
+    await page.getByRole('button', { name: 'Turn off for all' }).click();
+    const dlg = page.getByRole('dialog');
+    await dlg.waitFor();
+    note('bulk toggle opens confirmation dialog', /Turn Keep up to date off for all apps/.test(await dlg.innerText()), 'confirm');
+    await dlg.getByRole('button', { name: 'Cancel' }).click();
     await page.locator('#au-start').fill('01:30');
     await page.locator('#au-start').dispatchEvent('change');
     await page.locator('#au-end').fill('02:45');
@@ -142,10 +154,11 @@ const detail = async (page) => (await page.request.get(BASE + '/api/stacks/' + N
     await page.getByText('Advanced', { exact: true }).click();
     await page.getByPlaceholder(/Custom tag/).fill('2.1.3');
     await sleep(1500);
+    await page.locator('[data-wizard-keep-up-to-date]').getByRole('switch', { name: 'Keep up to date' }).click();
     await install.click();
     let e2;
     for (let i = 0; i < 100; i++) { e2 = await d2(); if (!e2?.busy && (e2?.status?.state === 'running' || e2?.state?.last_failure)) break; await sleep(3000); }
-    // Left on in the wizard: stored as on, nothing else needed.
+    // Turned on in the wizard: stored as on, nothing else needed.
     note('the wizard\'s yes is stored as minor', e2?.state?.update_policy === 'minor', String(e2?.state?.update_policy));
     const lastAt = async () => (await (await page.request.get(BASE + '/api/autoupdate')).json()).last?.at;
     const runOnce = async () => {
