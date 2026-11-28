@@ -9,7 +9,7 @@
 // autoupdate.sh makes the newer versions old enough to take.
 // needs: freebsd
 const { chromium } = require('playwright-core');
-const { signedIn, openPage } = require('./session');
+const { signedIn, openPage, customTag } = require('./session');
 const BASE = 'http://127.0.0.1:3567';
 const NAME = 't-au';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -50,7 +50,7 @@ const detail = async (page) => (await page.request.get(BASE + '/api/stacks/' + N
     if ((await netSel.count()) === 0) await page.getByRole('button', { name: /\+ interface/ }).first().click();
     await netSel.first().selectOption('bridge');
     await page.getByText('Advanced', { exact: true }).click();
-    await page.getByPlaceholder(/Custom tag/).fill('2.1.3');
+    await (await customTag(page)).fill('2.1.3');
     await sleep(1500);
     // The wizard starts off by default; keep this install off.
     const ask = page.locator('[data-wizard-keep-up-to-date]').getByRole('switch', { name: 'Keep up to date' });
@@ -152,7 +152,7 @@ const detail = async (page) => (await page.request.get(BASE + '/api/stacks/' + N
     if ((await netSel2.count()) === 0) await page.getByRole('button', { name: /\+ interface/ }).first().click();
     await netSel2.first().selectOption('bridge');
     await page.getByText('Advanced', { exact: true }).click();
-    await page.getByPlaceholder(/Custom tag/).fill('2.1.3');
+    await (await customTag(page)).fill('2.1.3');
     await sleep(1500);
     await page.locator('[data-wizard-keep-up-to-date]').getByRole('switch', { name: 'Keep up to date' }).click();
     await install.click();

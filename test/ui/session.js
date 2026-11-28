@@ -89,8 +89,21 @@ async function streamed(page, re, timeout = 180000) {
   return '';
 }
 
+// customTag is the Change Version modal's free-text tag field. Since the tag
+// picker it sits behind a "Custom tag" link until opened; the install wizard
+// still shows it at once, with a placeholder.
+async function customTag(page) {
+  const byLabel = page.getByLabel('Custom tag', { exact: true });
+  if (await byLabel.isVisible().catch(() => false)) return byLabel;
+  const byPlaceholder = page.getByPlaceholder(/Custom tag/);
+  if (await byPlaceholder.isVisible().catch(() => false)) return byPlaceholder;
+  await page.getByRole('button', { name: 'Custom tag', exact: true }).click();
+  await byLabel.waitFor();
+  return byLabel;
+}
+
 const BASE = process.env.FJORD || 'http://127.0.0.1:3567';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const note = (id, ok, msg) => console.log(`${ok ? 'PASS' : 'FAIL'} ${id}: ${msg}`);
 
-module.exports = { BASE, sleep, note, signedIn, settled, openPage, keepStreams, streamed };
+module.exports = { BASE, sleep, note, signedIn, settled, openPage, keepStreams, streamed, customTag };

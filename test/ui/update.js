@@ -4,7 +4,7 @@
 // the health watch passed and Roll back is offered.
 // needs: freebsd
 const { chromium } = require('playwright-core');
-const { signedIn, openPage, streamed } = require('./session');
+const { signedIn, openPage, streamed, customTag } = require('./session');
 const BASE = 'http://127.0.0.1:3567';
 const NAME = 't-upd';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -28,7 +28,7 @@ const detail = async (page) => (await page.request.get(BASE + '/api/stacks/' + N
     if ((await netSel.count()) === 0) await page.getByRole('button', { name: /\+ interface/ }).first().click();
     await netSel.first().selectOption('bridge');
     await page.getByText('Advanced', { exact: true }).click();
-    await page.getByPlaceholder(/Custom tag/).fill('2.1.3');
+    await (await customTag(page)).fill('2.1.3');
     await sleep(1500);
     await install.click();
     let d;

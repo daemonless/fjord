@@ -119,6 +119,7 @@ async function switched(page, target) {
     }
   } catch (e) {
     note('run', false, e.message.split('\n')[0]);
+  } finally {
+    await b.close();
   }
-  await b.close();
 })();

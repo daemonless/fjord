@@ -3,7 +3,7 @@
 // Driven with a tag that does not exist, so the pull fails.
 // needs: freebsd
 const { chromium } = require('playwright-core');
-const { signedIn, openPage } = require('./session');
+const { signedIn, openPage, customTag } = require('./session');
 const BASE = 'http://127.0.0.1:3567';
 const NAME = 't-fail';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -40,7 +40,7 @@ const detail = async (page) => (await page.request.get(BASE + '/api/stacks/' + N
     const banner = page.getByText(/Install failed at/).first();
     const bannerText = await banner.innerText().catch(() => '');
     await page.screenshot({ path: '/out/outcome-failed.png', fullPage: true });
-    note('stack page says the install failed, with the reason', /^Install failed at \d\d?:\d\d( [AP]M)? — .+/.test(bannerText), `"${bannerText}"`);
+    note('stack page says the install failed, with the reason', /^Install failed at (\d{4}-\d\d-\d\d )?\d\d?:\d\d( [AP]M)? — .+/.test(bannerText), `"${bannerText}"`);
     // Read again: the failure is recorded as the install ends, which can be
     // a moment after busy clears.
     d = await detail(page).catch(() => ({}));
@@ -53,7 +53,7 @@ const detail = async (page) => (await page.request.get(BASE + '/api/stacks/' + N
     await page.getByRole('button', { name: 'More Actions' }).click();
     await page.getByRole('button', { name: /Change Version/ }).click();
     await page.getByText(/Loading published versions/).waitFor({ state: 'hidden', timeout: 30000 }).catch(() => {});
-    await page.getByPlaceholder(/Custom tag/).fill('latest');
+    await (await customTag(page)).fill('latest');
     await sleep(1500);
     await page.getByRole('button', { name: /Change & Redeploy/ }).click();
     // Running comes before the verdict: the failure is cleared when the

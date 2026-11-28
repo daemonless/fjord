@@ -3,7 +3,7 @@
 // comes back on the new tag. Through the pages, on a stack made for it.
 // needs: freebsd
 const { chromium } = require('playwright-core');
-const { signedIn, openPage } = require('./session');
+const { signedIn, openPage, customTag } = require('./session');
 const BASE = 'http://127.0.0.1:3567';
 const NAME = 't-var';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -30,7 +30,7 @@ const detail = async (page) => (await page.request.get(BASE + '/api/stacks/' + N
     const current = await page.getByText(/Currently running/).first().innerText().catch(() => '');
     note('the modal shows the tag as it runs, not the variable', /:latest/.test(current) && !/\$\{/.test(current), `"${current}"`);
     await page.getByText(/Loading published versions/).waitFor({ state: 'hidden', timeout: 30000 }).catch(() => {});
-    await page.getByPlaceholder(/Custom tag/).fill('2.0.5');
+    await (await customTag(page)).fill('2.0.5');
     await sleep(1500);
     await page.getByRole('button', { name: /Change & Redeploy/ }).click();
     // Not busy and running is also true in the moment before the update
