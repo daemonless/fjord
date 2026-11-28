@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { changeLines, historyTitle, imageLabel, whenLabel, type HistoryEntry } from './history';
+import { changeLines, hasLogExcerpt, historyTitle, imageLabel, whenLabel, type HistoryEntry } from './history';
 
 const e = (p: Partial<HistoryEntry>): HistoryEntry => ({
   at: '2026-11-23T03:00:00Z',
@@ -52,5 +52,13 @@ describe('whenLabel', () => {
   it('is the date and time, even a minute ago', () => {
     expect(whenLabel(new Date('2026-11-22T09:30:00').toISOString())).toBe('2026-11-22 09:30');
     expect(whenLabel(new Date(Date.now() - 60000).toISOString())).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
+  });
+});
+
+describe('hasLogExcerpt', () => {
+  it('is true only for failed entries with non-empty excerpts', () => {
+    expect(hasLogExcerpt(e({ result: 'failed', excerpt: 'line 1\n[error] fail' }))).toBe(true);
+    expect(hasLogExcerpt(e({ result: 'failed', excerpt: '   ' }))).toBe(false);
+    expect(hasLogExcerpt(e({ result: 'ok', excerpt: 'line 1' }))).toBe(false);
   });
 });

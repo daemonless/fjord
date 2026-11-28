@@ -20,6 +20,7 @@ type histNote struct {
 	services          []string
 	start             time.Time
 	detail            string // said even when it went fine (why recovery acted)
+	excerpt           string // first 10 + last 10 lines of output on failed update/restore/migrate
 	skipFailedHistory bool   // repeated unattended failure updates its notice instead of spamming History
 }
 
@@ -61,6 +62,9 @@ func (s *server) writeHistory(name string, n *histNote, failed bool, msg string)
 	if failed {
 		e.Result = history.Failed
 		e.Message = history.FirstLine(msg)
+		if n.excerpt != "" {
+			e.Excerpt = n.excerpt
+		}
 	} else if n.detail != "" {
 		e.Message = history.FirstLine(n.detail)
 	}

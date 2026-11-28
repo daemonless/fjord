@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/daemonless/fjord/pkg/dataset"
@@ -53,8 +54,8 @@ func TestReconcileMigrateDatasetRestoresBackupFolder(t *testing.T) {
 	}
 
 	note := reconcileMigrateDataset(context.Background(), "syncthing", "", backup)
-	if note == "" {
-		t.Fatal("expected recovery note")
+	if !strings.Contains(strings.ToLower(note), "restart interrupted") {
+		t.Fatalf("expected restart-interrupted recovery note, got %q", note)
 	}
 	if _, err := os.Stat(filepath.Join(orig, "marker")); err != nil {
 		t.Fatalf("original folder not restored: %v", err)

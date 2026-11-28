@@ -10,6 +10,7 @@ import (
 
 	composepkg "github.com/daemonless/fjord/pkg/compose"
 	"github.com/daemonless/fjord/pkg/engine"
+	"github.com/daemonless/fjord/pkg/history"
 	"github.com/daemonless/fjord/pkg/stack"
 )
 
@@ -216,8 +217,17 @@ func (e *errorWatch) Message() string {
 func (s *server) recordOutcome(name, action string, note *histNote, stream io.ReadCloser) io.ReadCloser {
 	watch := &errorWatch{}
 	kept := outputs.current(name, action)
-	return &thenReader{r: io.TeeReader(io.TeeReader(stream, watch), kept), c: stream, after: func() string {
+	var r io.Reader = io.TeeReader(io.TeeReader(stream, watch), kept)
+	var ex *history.ExcerptWriter
+	if note != nil && (note.action == history.Update || note.action == history.Rollback) {
+		ex = history.NewExcerptWriter()
+		r = io.TeeReader(r, ex)
+	}
+	return &thenReader{r: r, c: stream, after: func() string {
 		kept.finish()
+		if watch.seen && ex != nil && note != nil {
+			note.excerpt = ex.String()
+		}
 		s.settleOutcome(name, action, note, watch.seen, watch.Message())
 		return ""
 	}}

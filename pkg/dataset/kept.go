@@ -557,7 +557,7 @@ func ReconcilePending(ctx context.Context, liveName, keptName, newKeptName, drop
 				if keptExists {
 					_, _ = run(ctx, "set", "readonly=on", keptName)
 				}
-				return "restored live dataset from interrupted delete swap"
+				return "A restart interrupted a restore; put the app's data back where it was"
 			}
 		}
 		if newKeptExists {
@@ -570,7 +570,7 @@ func ReconcilePending(ctx context.Context, liveName, keptName, newKeptName, drop
 				if keptExists {
 					_, _ = run(ctx, "set", "readonly=on", keptName)
 				}
-				return "restored live dataset from interrupted kept-copy swap"
+				return "A restart interrupted a restore; put the app's data back where it was"
 			}
 		}
 		if keptExists {
@@ -580,7 +580,7 @@ func ReconcilePending(ctx context.Context, liveName, keptName, newKeptName, drop
 					_, _ = run(ctx, "set", "mountpoint="+localMP, liveName)
 				}
 				clearKeptProps(ctx, liveName)
-				return "restored live dataset from interrupted restore"
+				return "A restart interrupted a restore; put the app's data back where it was"
 			}
 		}
 		return ""
@@ -588,17 +588,17 @@ func ReconcilePending(ctx context.Context, liveName, keptName, newKeptName, drop
 	clearKeptProps(ctx, liveName)
 	if dropExists {
 		_, _ = run(ctx, "destroy", "-f", "-r", dropName)
-		return "cleaned up interrupted delete dataset"
+		return "A restart interrupted a restore; cleaned up the leftover dataset"
 	}
 	if newKeptExists {
 		_, _ = run(ctx, "promote", liveName)
 		_, _ = run(ctx, "set", "readonly=on", newKeptName)
-		return "completed interrupted kept-copy swap"
+		return "A restart interrupted a restore; finished saving the previous copy"
 	}
 	if keptExists {
 		_, _ = run(ctx, "promote", liveName)
 		_, _ = run(ctx, "set", "readonly=on", keptName)
-		return "completed interrupted promote and read-only lock"
+		return "A restart interrupted a restore; finished locking the previous copy"
 	}
 	return ""
 }

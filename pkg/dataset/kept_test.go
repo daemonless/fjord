@@ -181,8 +181,8 @@ func TestReconcilePendingRecoversMissingLiveDataset(t *testing.T) {
 	f.install(t)
 
 	note := ReconcilePending(context.Background(), ds, kept, newKept, "", "")
-	if note == "" {
-		t.Fatal("expected recovery note")
+	if !strings.Contains(strings.ToLower(note), "restart interrupted") {
+		t.Fatalf("expected restart-interrupted recovery note, got %q", note)
 	}
 	var renamed bool
 	for _, c := range f.ran {
@@ -202,8 +202,8 @@ func TestReconcilePendingRecoversMissingLiveDataset(t *testing.T) {
 		"list -H -o name -t filesystem " + drop: drop + "\n",
 	}}
 	f2.install(t)
-	if note := ReconcilePending(context.Background(), ds, kept, "", drop, ""); note == "" {
-		t.Fatal("expected cleanup note")
+	if note := ReconcilePending(context.Background(), ds, kept, "", drop, ""); !strings.Contains(strings.ToLower(note), "restart interrupted") {
+		t.Fatalf("expected restart-interrupted cleanup note, got %q", note)
 	}
 	var cleared, destroyed bool
 	for _, c := range f2.ran {

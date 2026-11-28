@@ -3082,10 +3082,12 @@ msgstr "{0} choses"
 msgid "After this, {0} for you to run in a terminal."
 msgstr "Ensuite, {0} à exécuter vous-même dans un terminal."
 
+#: src/HistoryList.svelte
 #: src/SetupReady.svelte
 msgid "Hide output"
 msgstr "Masquer la sortie"
 
+#: src/HistoryList.svelte
 #: src/SetupReady.svelte
 msgid "Show output"
 msgstr "Afficher la sortie"

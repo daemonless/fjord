@@ -1,8 +1,10 @@
 package history
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -81,5 +83,54 @@ func TestBadName(t *testing.T) {
 func TestFirstLine(t *testing.T) {
 	if got := FirstLine("  pull failed\nmore\n"); got != "pull failed" {
 		t.Fatalf("%q", got)
+	}
+}
+
+func TestExcerptShortAndLong(t *testing.T) {
+	if got := Excerpt(""); got != "" {
+		t.Fatalf("empty excerpt = %q", got)
+	}
+
+	// Short output (<= 20 lines) is kept whole.
+	var short []string
+	for i := 1; i <= 12; i++ {
+		short = append(short, fmt.Sprintf("line %d", i))
+	}
+	if got := Excerpt(strings.Join(short, "\n") + "\n"); got != strings.Join(short, "\n") {
+		t.Fatalf("short excerpt mismatch:\ngot:\n%s\nwant:\n%s", got, strings.Join(short, "\n"))
+	}
+
+	// Exactly 20 lines is kept whole without omission marker.
+	var exact20 []string
+	for i := 1; i <= 20; i++ {
+		exact20 = append(exact20, fmt.Sprintf("line %d", i))
+	}
+	if got := Excerpt(strings.Join(exact20, "\n")); got != strings.Join(exact20, "\n") {
+		t.Fatalf("exact 20 excerpt mismatch:\n%s", got)
+	}
+
+	// Long output (> 20 lines) keeps first 10, omission marker, and last 10.
+	var long []string
+	for i := 1; i <= 35; i++ {
+		long = append(long, fmt.Sprintf("line %d", i))
+	}
+	got := Excerpt(strings.Join(long, "\n"))
+	gotLines := strings.Split(got, "\n")
+	if len(gotLines) != 21 {
+		t.Fatalf("long excerpt line count = %d, want 21:\n%s", len(gotLines), got)
+	}
+	if gotLines[0] != "line 1" || gotLines[9] != "line 10" {
+		t.Fatalf("head mismatch: %v", gotLines[:10])
+	}
+	if gotLines[10] != "... (15 lines omitted) ..." {
+		t.Fatalf("marker = %q, want omitted 15", gotLines[10])
+	}
+	if gotLines[11] != "line 26" || gotLines[20] != "line 35" {
+		t.Fatalf("tail mismatch: %v", gotLines[11:])
+	}
+
+	// ANSI escapes are stripped cleanly.
+	if got := Excerpt("\x1b[31m[error] boom\x1b[0m\n"); got != "[error] boom" {
+		t.Fatalf("ansi excerpt = %q", got)
 	}
 }
