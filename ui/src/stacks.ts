@@ -3,6 +3,7 @@ import { busyWord } from './busyStep';
 import { health } from './stackHealth';
 import { networkLabel, HOST_NETWORK, DEFAULT_NETWORK } from './network';
 import type { StackRestart } from './restartPolicy';
+import type { FailureNotice } from './failureNotices';
 
 export type ContainerStatus = {
   name: string;
@@ -55,6 +56,7 @@ export type StackState = {
   choices?: Record<string, string>;
   pending_services?: string[];
   last_failure?: { action: string; at: string; message: string };
+  failure_notices?: FailureNotice[];
 };
 
 export type Stack = {

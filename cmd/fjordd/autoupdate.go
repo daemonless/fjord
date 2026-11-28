@@ -509,6 +509,9 @@ func (s *server) autoUpdateStack(act autoAction) autoResult {
 			return nil
 		}); err != nil {
 			res.Result, res.Reason = "failed", "give back its tag: "+err.Error()
+			if s.recordFailureNotice(act.Stack, stack.NoticeAutoUpdate, res.Reason, time.Now()) {
+				s.writeHistory(act.Stack, newNote(history.Update, history.ByAutomatic, act.Services...), true, res.Reason)
+			}
 			return res
 		}
 	}
@@ -516,6 +519,9 @@ func (s *server) autoUpdateStack(act autoAction) autoResult {
 		if err := s.retagForUpdate(act.Stack, rt.service, rt.tag); err != nil {
 			res.Result, res.Reason = "failed", "retag "+rt.service+": "+err.Error()
 			s.restoreCompose(act.Stack, prevCompose, prevEnv)
+			if s.recordFailureNotice(act.Stack, stack.NoticeAutoUpdate, res.Reason, time.Now()) {
+				s.writeHistory(act.Stack, newNote(history.Update, history.ByAutomatic, act.Services...), true, res.Reason)
+			}
 			return res
 		}
 	}
@@ -524,6 +530,8 @@ func (s *server) autoUpdateStack(act autoAction) autoResult {
 	if state == nil || state.LastFailure == nil || state.LastFailure.At.Before(started) {
 		res.Result = "updated"
 		s.clearAutoHold(act.Stack, act.Services)
+		s.clearFailureNotice(act.Stack, stack.NoticeAutoUpdate)
+		s.clearFailureNotice(act.Stack, stack.NoticeAutoUpdateNoSnapshot)
 		return res
 	}
 	why := history.FirstLine(state.LastFailure.Message)
@@ -536,6 +544,7 @@ func (s *server) autoUpdateStack(act autoAction) autoResult {
 			s.restoreCompose(act.Stack, prevCompose, prevEnv)
 		}
 		res.Result, res.Reason = "failed", why
+		s.recordFailureNotice(act.Stack, stack.NoticeAutoUpdateNoSnapshot, why, time.Now())
 		return res
 	}
 	back, backWhy := s.autoRollback(act, prevCompose, prevEnv, state)
@@ -566,6 +575,7 @@ func (s *server) autoUpdateStack(act autoAction) autoResult {
 	} else {
 		res.Result, res.Reason = "failed", why+"; going back failed too: "+backWhy
 	}
+	s.recordFailureNotice(act.Stack, stack.NoticeAutoUpdate, res.Reason, time.Now())
 	return res
 }
 

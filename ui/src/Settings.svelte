@@ -2,6 +2,7 @@
   import Account from './Account.svelte';
   import { isoDateTime } from './when';
   import { zfsHintMountpoint } from './restorePoints';
+  import { groupNoticesByKind, type FleetNotice } from './failureNotices';
   import { onMount, onDestroy, createEventDispatcher, tick } from 'svelte';
   import { resultLine, runSummary, type AutoUpdate } from './autoupdate';
   import Icon from './Icon.svelte';
@@ -435,7 +436,7 @@
       const r = await fetch('/api/settings/restore-points/run', { method: 'POST' });
       if (!r.ok) throw new Error((await r.text()).trim() || `HTTP ${r.status}`);
       rpNotifyDone = true;
-      await loadRestorePointSettings();
+      await Promise.all([loadRestorePointSettings(), loadNotices()]);
     } catch (e: any) {
       toast(e.message || 'Failed to save restore points', { kind: 'error' });
     } finally {
@@ -458,9 +459,19 @@
     } catch {}
   }
 
+  let fleetNotices: FleetNotice[] = [];
+  async function loadNotices() {
+    try {
+      const r = await fetch('/api/notices');
+      if (r.ok) fleetNotices = (await r.json()).notices || [];
+    } catch {}
+  }
+  $: noticeGroups = groupNoticesByKind(fleetNotices);
+
   $: if (activeTab === 'maintenance') {
     loadRestorePointSettings();
     loadStorageDatasets();
+    loadNotices();
   }
 
   async function moveStackToDataset(name: string) {
@@ -1419,6 +1430,34 @@
     {#if activeTab === 'maintenance'}
       {#key `${dateFormat}:${timeFormat}`}
       <div class="max-w-2xl flex flex-col gap-6" data-updates-settings>
+        {#if noticeGroups.length > 0}
+          <div data-maintenance-notices class="rounded-xl border border-fjord-danger/30 bg-fjord-danger/10 px-4 py-3 text-sm text-fjord-fg-body space-y-2.5">
+            {#each noticeGroups as g (g.kind)}
+              <div>
+                <div class="font-semibold text-fjord-danger">
+                  {#if g.kind === 'daily-restore-point'}
+                    {g.items.length === 1 ? '1 app has failing restore points' : `${g.items.length} apps have failing restore points`}
+                  {:else if g.kind === 'auto-update-no-snapshot'}
+                    {g.items.length === 1 ? '1 app skipped automatic updates (no restore point)' : `${g.items.length} apps skipped automatic updates (no restore point)`}
+                  {:else}
+                    {g.items.length === 1 ? '1 app has failing automatic updates' : `${g.items.length} apps have failing automatic updates`}
+                  {/if}
+                </div>
+                <div class="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs">
+                  {#each g.items as item (item.stack)}
+                    <button
+                      type="button"
+                      on:click={() => dispatch('select-stack', item.stack)}
+                      class="underline decoration-dotted text-fjord-fg hover:text-fjord-accent transition-colors"
+                      title={item.message || undefined}
+                    >{item.displayName || item.stack}{#if item.count > 1} ({item.count}×){/if}{#if item.dismissed} (dismissed){/if}</button>
+                  {/each}
+                </div>
+              </div>
+            {/each}
+          </div>
+        {/if}
+
         {#if au?.paused}
           <div data-au-paused class="flex items-center gap-3 px-4 py-2.5 rounded-xl bg-fjord-danger/10 border border-fjord-danger/25 text-sm text-fjord-fg-body">
             <span class="flex-1">
@@ -1556,22 +1595,6 @@
           {@const rpCardDisabled = readyCount === 0 && (dsStacks.length > 0 || needsZfsDatasetLoc)}
           {@const showDailyRows = rpDefaultPolicy === 'daily' || dailyCount > 0}
           <div class="flex flex-col gap-6" data-restore-points-settings>
-            {#if (rpSettings?.last?.failed ?? 0) > 0}
-              <div class="rounded-xl border border-fjord-danger/30 bg-fjord-danger/10 px-4 py-3 text-xs text-fjord-fg-body">
-                <div class="font-semibold text-fjord-danger">
-                  Last daily run failed for {rpSettings?.last?.failed} {rpSettings?.last?.failed === 1 ? 'app' : 'apps'}
-                  {#if rpSettings?.last?.at}({isoDateTime(rpSettings.last.at)}){/if}
-                </div>
-                {#if rpSettings?.last?.errors?.length}
-                  <ul class="mt-1 space-y-0.5 font-mono text-fjord-fg-muted">
-                    {#each rpSettings.last.errors as errLine}
-                      <li>{errLine}</li>
-                    {/each}
-                  </ul>
-                {/if}
-              </div>
-            {/if}
-
             <div>
               <h3 class="text-xs font-semibold text-fjord-fg-secondary uppercase tracking-wide mb-2 px-0.5">Restore points</h3>
               <div class="rounded-xl border border-fjord-border bg-fjord-card divide-y divide-fjord-border overflow-hidden {rpCardDisabled ? 'opacity-65' : ''}">

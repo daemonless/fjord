@@ -117,6 +117,114 @@ type State struct {
 	// RecoveryEvents is a bounded record of recent failed health checks and
 	// recovery attempts on this stack.
 	RecoveryEvents []RecoveryEvent `json:"recovery_events,omitempty"`
+	// FailureNotices tracks ongoing unattended failures (one per kind), with
+	// count, first/last timestamps, last message, and dismissed state. Cleared
+	// automatically when the corresponding unattended task succeeds again.
+	FailureNotices []FailureNotice `json:"failure_notices,omitempty"`
+}
+
+// Unattended failure notice kinds.
+const (
+	NoticeDailyRestorePoint    = "daily-restore-point"
+	NoticeAutoUpdate           = "auto-update"
+	NoticeAutoUpdateNoSnapshot = "auto-update-no-snapshot"
+)
+
+// FailureNotice represents one ongoing unattended failure on a stack.
+// Kept free of UI assumptions so future delivery channels (email, ntfy) can
+// read the same model.
+type FailureNotice struct {
+	Kind      string    `json:"kind"`
+	Count     int       `json:"count"`
+	FirstAt   time.Time `json:"firstAt"`
+	LastAt    time.Time `json:"lastAt"`
+	Message   string    `json:"message,omitempty"`
+	Dismissed bool      `json:"dismissed,omitempty"`
+}
+
+// ValidNoticeKind reports whether kind is a known unattended failure notice kind.
+func ValidNoticeKind(kind string) bool {
+	switch kind {
+	case NoticeDailyRestorePoint, NoticeAutoUpdate, NoticeAutoUpdateNoSnapshot:
+		return true
+	default:
+		return false
+	}
+}
+
+// HasFailureNotice reports whether s currently has an active notice of kind
+// (whether dismissed or not).
+func (s *State) HasFailureNotice(kind string) bool {
+	if s == nil {
+		return false
+	}
+	for _, n := range s.FailureNotices {
+		if n.Kind == kind {
+			return true
+		}
+	}
+	return false
+}
+
+// RecordFailureNotice opens a new notice for kind or increments the existing
+// one. Returns true when the notice was newly opened (first failure in a run)
+// and false when an existing notice was incremented. Dismissed stays as set.
+func (s *State) RecordFailureNotice(kind, message string, at time.Time) bool {
+	if s == nil {
+		return false
+	}
+	if at.IsZero() {
+		at = time.Now().UTC()
+	} else {
+		at = at.UTC()
+	}
+	for i := range s.FailureNotices {
+		if s.FailureNotices[i].Kind == kind {
+			s.FailureNotices[i].Count++
+			s.FailureNotices[i].LastAt = at
+			s.FailureNotices[i].Message = message
+			return false
+		}
+	}
+	s.FailureNotices = append(s.FailureNotices, FailureNotice{
+		Kind:    kind,
+		Count:   1,
+		FirstAt: at,
+		LastAt:  at,
+		Message: message,
+	})
+	return true
+}
+
+// ClearFailureNotice removes the notice for kind and returns a copy of the
+// cleared notice, or nil when no notice of that kind was present.
+func (s *State) ClearFailureNotice(kind string) *FailureNotice {
+	if s == nil {
+		return nil
+	}
+	for i, n := range s.FailureNotices {
+		if n.Kind == kind {
+			cleared := n
+			s.FailureNotices = append(s.FailureNotices[:i], s.FailureNotices[i+1:]...)
+			return &cleared
+		}
+	}
+	return nil
+}
+
+// DismissFailureNotice marks the notice for kind as dismissed so the app banner
+// and sidebar warning mark stay hidden while the same failure continues.
+func (s *State) DismissFailureNotice(kind string) bool {
+	if s == nil {
+		return false
+	}
+	for i := range s.FailureNotices {
+		if s.FailureNotices[i].Kind == kind {
+			s.FailureNotices[i].Dismissed = true
+			return true
+		}
+	}
+	return false
 }
 
 const (
