@@ -8,7 +8,7 @@
     zfsHintMountpoint,
   } from './restorePoints';
   import { toast } from './toast';
-  import { changeLines, historyTitle, imageLabel, whenLabel, type HistoryEntry } from './history';
+  import { changeLines, hasLogExcerpt, historyTitle, imageLabel, whenLabel, type HistoryEntry } from './history';
 
   export let stack = '';
   export let limit = 100;
@@ -101,6 +101,7 @@
 
   let filter: 'all' | 'restore' = 'all';
   let expandedPaths: Record<string, boolean> = {};
+  let expandedExcerpts: Record<string, boolean> = {};
   let openMenuFor = '';
   let busy = false;
   let actionError = '';
@@ -817,7 +818,22 @@
                 {#if e.message && !matchedCopy}
                   <span class="text-xs text-fjord-fg-muted break-words">{e.message}</span>
                 {/if}
+                {#if hasLogExcerpt(e)}
+                  {@const exKey = entryKey(e, idx)}
+                  <button
+                    type="button"
+                    data-excerpt-toggle
+                    class="text-xs text-fjord-accent hover:underline"
+                    on:click={() => (expandedExcerpts = { ...expandedExcerpts, [exKey]: !expandedExcerpts[exKey] })}
+                  >{expandedExcerpts[exKey] ? 'Hide output' : 'Show output'}</button>
+                {/if}
               </div>
+              {#if hasLogExcerpt(e) && expandedExcerpts[entryKey(e, idx)]}
+                <pre
+                  data-history-excerpt
+                  class="mt-2 rounded-md border border-fjord-border bg-fjord-inset px-3 py-2 text-xs font-mono text-fjord-fg-body whitespace-pre-wrap break-all overflow-x-auto"
+                >{e.excerpt}</pre>
+              {/if}
               {#if changes.length > 1}
                 {#each changes as line}
                   <div class="text-xs text-fjord-fg-muted font-mono">{line}</div>

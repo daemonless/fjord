@@ -337,7 +337,7 @@ func reconcileMigrateDataset(ctx context.Context, stackName, targetDataset, back
 	if backupFolder == "" {
 		if targetDataset != "" && dataset.Exists(ctx, targetDataset) {
 			if err := dataset.Destroy(ctx, targetDataset, stackName); err == nil {
-				return "cleaned up interrupted dataset migration (original folder untouched)"
+				return "A restart interrupted moving data to a dataset; cleaned up the partial dataset and kept the original folder"
 			}
 		}
 		return ""
@@ -354,7 +354,7 @@ func reconcileMigrateDataset(ctx context.Context, stackName, targetDataset, back
 	}
 	if _, err := os.Stat(origDir); os.IsNotExist(err) {
 		if err := os.Rename(backupFolder, origDir); err == nil {
-			return "restored original folder from interrupted dataset migration"
+			return "A restart interrupted moving data to a dataset; put the original folder back"
 		}
 	}
 	return ""
@@ -450,6 +450,9 @@ func (s *server) stackMigrateDataset(w http.ResponseWriter, r *http.Request, nam
 
 	configRewritten := false
 	rollbackMigration := func(dsCreated bool, reason error) {
+		var opLog strings.Builder
+		fmt.Fprintf(&opLog, "Moving %s (%s -> %s)\n", name, plan.SourceDir, plan.TargetDataset)
+		fmt.Fprintf(&opLog, "Error: %v\n", reason)
 		if configRewritten {
 			_, _ = s.manager.Update(name, func(cur *stack.Stack) error {
 				cur.Compose = origCompose
@@ -478,10 +481,15 @@ func (s *server) stackMigrateDataset(w http.ResponseWriter, r *http.Request, nam
 		}
 		if wasRunning {
 			if stream, uerr := be.Up(ctx, st); uerr == nil {
-				io.Copy(io.Discard, stream)
+				if out, _ := io.ReadAll(stream); len(out) > 0 {
+					opLog.Write(out)
+				}
 				stream.Close()
 			}
 		}
+		n := newNote(history.Snapshot, triggerOf(r))
+		n.excerpt = history.Excerpt(opLog.String())
+		s.writeHistory(name, n, true, "Move to dataset failed: "+history.FirstLine(reason.Error()))
 		http.Error(w, reason.Error(), http.StatusConflict)
 	}
 

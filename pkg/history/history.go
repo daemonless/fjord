@@ -8,8 +8,10 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -72,6 +74,7 @@ type Entry struct {
 	Trigger  string    `json:"trigger"`
 	Result   string    `json:"result"`
 	Message  string    `json:"message,omitempty"`
+	Excerpt  string    `json:"excerpt,omitempty"`
 	Services []string  `json:"services,omitempty"`
 	Changes  []Change  `json:"changes,omitempty"`
 }
@@ -216,4 +219,111 @@ func FirstLine(msg string) string {
 		msg = msg[:500]
 	}
 	return msg
+}
+
+const (
+	// ExcerptHead and ExcerptTail bound the lines kept on a failed History entry.
+	ExcerptHead    = 10
+	ExcerptTail    = 10
+	excerptLineCap = 512
+)
+
+var ansiSeqRe = regexp.MustCompile(`\x1b\[[0-9;?]*[ -/]*[@-~]`)
+
+func cleanExcerptLine(line string) string {
+	line = ansiSeqRe.ReplaceAllString(line, "")
+	line = strings.TrimRight(line, " \t\r")
+	if len(line) > excerptLineCap {
+		line = line[:excerptLineCap] + "..."
+	}
+	return line
+}
+
+// Excerpt keeps up to the first 10 and last 10 lines of raw action output.
+// Short outputs (20 lines or fewer) are kept whole; longer ones are cut in the
+// middle with a line count marker.
+func Excerpt(raw string) string {
+	w := NewExcerptWriter()
+	_, _ = w.Write([]byte(raw))
+	return w.String()
+}
+
+// ExcerptWriter streams action output in O(1) memory, retaining only the first
+// ExcerptHead lines and a ring of the last ExcerptTail lines.
+type ExcerptWriter struct {
+	head    []string
+	tail    []string
+	total   int
+	partial bytes.Buffer
+}
+
+// NewExcerptWriter returns a streaming writer that builds a failed-entry excerpt.
+func NewExcerptWriter() *ExcerptWriter {
+	return &ExcerptWriter{}
+}
+
+func (w *ExcerptWriter) Write(p []byte) (int, error) {
+	for _, b := range p {
+		if b == '\r' || b == '\n' {
+			w.pushLine(w.partial.String())
+			w.partial.Reset()
+			continue
+		}
+		if w.partial.Len() < excerptLineCap+64 {
+			w.partial.WriteByte(b)
+		}
+	}
+	return len(p), nil
+}
+
+func (w *ExcerptWriter) pushLine(raw string) {
+	line := cleanExcerptLine(raw)
+	if line == "" && w.total == 0 {
+		return
+	}
+	w.total++
+	if len(w.head) < ExcerptHead {
+		w.head = append(w.head, line)
+		return
+	}
+	if len(w.tail) < ExcerptTail {
+		w.tail = append(w.tail, line)
+		return
+	}
+	copy(w.tail, w.tail[1:])
+	w.tail[len(w.tail)-1] = line
+}
+
+// String finishes any trailing unterminated line and returns the formatted excerpt.
+func (w *ExcerptWriter) String() string {
+	if w.partial.Len() > 0 {
+		w.pushLine(w.partial.String())
+		w.partial.Reset()
+	}
+	// Trim trailing blank lines from tail (or head when tail is empty).
+	for len(w.tail) > 0 && w.tail[len(w.tail)-1] == "" {
+		w.tail = w.tail[:len(w.tail)-1]
+		w.total--
+	}
+	if len(w.tail) == 0 {
+		for len(w.head) > 0 && w.head[len(w.head)-1] == "" {
+			w.head = w.head[:len(w.head)-1]
+			w.total--
+		}
+	}
+	if len(w.head) == 0 {
+		return ""
+	}
+	if w.total <= ExcerptHead+ExcerptTail {
+		all := make([]string, 0, len(w.head)+len(w.tail))
+		all = append(all, w.head...)
+		all = append(all, w.tail...)
+		return strings.Join(all, "\n")
+	}
+	omitted := w.total - len(w.head) - len(w.tail)
+	lines := make([]string, 0, len(w.head)+1+len(w.tail))
+	lines = append(lines, w.head...)
+	lines = append(lines, fmt.Sprintf("... (%d lines omitted) ...", omitted))
+	lines = append(lines, w.tail...)
+	return strings.Join(lines, "\n")
 }

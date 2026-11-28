@@ -377,7 +377,13 @@ func (s *server) stackRestore(w http.ResponseWriter, r *http.Request, name strin
 	lp, _ := dataset.LocalProperties(ctx, dsName)
 
 	be := s.backendFor(st)
+	var opLog strings.Builder
+	fmt.Fprintf(&opLog, "Restoring %s to %s\n", name, snap)
 	if err := stopStackForZFS(ctx, be, st); err != nil {
+		fmt.Fprintf(&opLog, "Stop failed: %v\n", err)
+		n := newNote(history.Rollback, triggerOf(r))
+		n.excerpt = history.Excerpt(opLog.String())
+		s.writeHistory(name, n, true, err.Error())
 		http.Error(w, err.Error(), http.StatusConflict)
 		return
 	}
@@ -413,12 +419,18 @@ func (s *server) stackRestore(w http.ResponseWriter, r *http.Request, name strin
 		err = dataset.Rollback(ctx, dsName, snap)
 	}
 	if err != nil {
+		fmt.Fprintf(&opLog, "Restore failed: %v\n", err)
 		if wasRunning {
 			if stream, uerr := be.Up(ctx, st); uerr == nil {
-				io.Copy(io.Discard, stream)
+				if out, _ := io.ReadAll(stream); len(out) > 0 {
+					opLog.Write(out)
+				}
 				stream.Close()
 			}
 		}
+		n := newNote(history.Rollback, triggerOf(r))
+		n.excerpt = history.Excerpt(opLog.String())
+		s.writeHistory(name, n, true, err.Error())
 		http.Error(w, err.Error(), http.StatusConflict)
 		return
 	}
@@ -526,7 +538,13 @@ func (s *server) stackKeptRestore(w http.ResponseWriter, r *http.Request, name s
 	lp, _ := dataset.LocalProperties(ctx, dsName)
 
 	be := s.backendFor(st)
+	var opLog strings.Builder
+	fmt.Fprintf(&opLog, "Restoring kept copy %s for %s\n", target.Dataset, name)
 	if err := stopStackForZFS(ctx, be, st); err != nil {
+		fmt.Fprintf(&opLog, "Stop failed: %v\n", err)
+		n := newNote(history.Rollback, triggerOf(r))
+		n.excerpt = history.Excerpt(opLog.String())
+		s.writeHistory(name, n, true, err.Error())
 		http.Error(w, err.Error(), http.StatusConflict)
 		return
 	}
@@ -565,12 +583,18 @@ func (s *server) stackKeptRestore(w http.ResponseWriter, r *http.Request, name s
 		return state
 	})
 	if err != nil {
+		fmt.Fprintf(&opLog, "Restore failed: %v\n", err)
 		if wasRunning {
 			if stream, uerr := be.Up(ctx, st); uerr == nil {
-				io.Copy(io.Discard, stream)
+				if out, _ := io.ReadAll(stream); len(out) > 0 {
+					opLog.Write(out)
+				}
 				stream.Close()
 			}
 		}
+		n := newNote(history.Rollback, triggerOf(r))
+		n.excerpt = history.Excerpt(opLog.String())
+		s.writeHistory(name, n, true, err.Error())
 		http.Error(w, err.Error(), http.StatusConflict)
 		return
 	}

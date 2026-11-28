@@ -3091,10 +3091,12 @@ msgstr "{0} things"
 msgid "After this, {0} for you to run in a terminal."
 msgstr "After this, {0} for you to run in a terminal."
 
+#: src/HistoryList.svelte
 #: src/SetupReady.svelte
 msgid "Hide output"
 msgstr "Hide output"
 
+#: src/HistoryList.svelte
 #: src/SetupReady.svelte
 msgid "Show output"
 msgstr "Show output"

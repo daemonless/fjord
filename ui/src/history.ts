@@ -20,6 +20,7 @@ export interface HistoryEntry {
   trigger: string;
   result: 'ok' | 'failed' | string;
   message?: string;
+  excerpt?: string;
   services?: string[];
   changes?: HistoryChange[];
 }
@@ -98,4 +99,9 @@ export function changeLines(e: HistoryEntry): string[] {
 /** "2026-11-12 09:30", the date in the chosen format; never "3 min ago". */
 export function whenLabel(at: string): string {
   return isoDateTime(at);
+}
+
+/** True when a failed History entry carries an expandable output excerpt. */
+export function hasLogExcerpt(e: HistoryEntry): boolean {
+  return e.result === 'failed' && !!(e.excerpt && e.excerpt.trim());
 }
