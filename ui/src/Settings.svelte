@@ -1546,7 +1546,9 @@
         {#if storageDatasets?.hasZfs}
           {@const dsStacks = storageDatasets.stacks || []}
           {@const readyCount = dsStacks.filter((st) => !!st.dataset).length}
-          {@const plainCount = dsStacks.length - readyCount}
+          {@const plainCount = dsStacks.filter((st) => !st.dataset && !!st.plainFolder).length}
+          {@const noDataCount = dsStacks.filter((st) => !st.dataset && !st.plainFolder).length}
+          {@const statefulCount = readyCount + plainCount}
           {@const datasetLocs = storageDatasets.locations.filter((l) => l.isDataset)}
           {@const nonDatasetLocs = storageDatasets.locations.filter((l) => !l.isDataset)}
           {@const needsZfsDatasetLoc = datasetLocs.length === 0 && nonDatasetLocs.length > 0 && !!storageDatasets.zfsCreateHint}
@@ -1684,13 +1686,21 @@
                 >
                   <div class="min-w-0">
                     <div class="text-sm font-medium text-fjord-fg">
-                      {readyCount} of {dsStacks.length} {dsStacks.length === 1 ? 'app ready' : 'apps ready'} for restore points
+                      {#if statefulCount > 0}
+                        {readyCount} of {statefulCount} {statefulCount === 1 ? 'app ready' : 'apps ready'} for restore points
+                      {:else}
+                        No apps with a data folder
+                      {/if}
                     </div>
                     <div class="text-xs text-fjord-fg-muted mt-0.5">
                       {#if needsZfsDatasetLoc}
                         {nonDatasetLocs.map((l) => l.path).join(', ')} sits on the OS root dataset.
                       {:else if plainCount > 0}
                         Each app needs its own ZFS dataset.
+                      {:else if noDataCount > 0 && readyCount > 0}
+                        Every app with a data folder has its own ZFS dataset ({noDataCount} without app data).
+                      {:else if noDataCount > 0}
+                        None of these apps use a dedicated app data folder.
                       {:else}
                         Every app on this host has its own ZFS dataset.
                       {/if}
@@ -1701,7 +1711,7 @@
                       <span class="rounded-full border border-fjord-accent/40 bg-fjord-accent/10 px-2 py-0.5 text-[11px] font-medium text-fjord-accent">Setup needed</span>
                     {:else if plainCount > 0}
                       <span class="rounded-full border border-fjord-accent/40 bg-fjord-accent/10 px-2 py-0.5 text-[11px] font-medium text-fjord-accent">{plainCount} plain {plainCount === 1 ? 'folder' : 'folders'}</span>
-                    {:else if dsStacks.length > 0}
+                    {:else if readyCount > 0}
                       <span class="rounded-full border border-fjord-success/40 bg-fjord-success/10 px-2 py-0.5 text-[11px] font-medium text-fjord-success">All ready</span>
                     {/if}
                     <span class="text-xs text-fjord-fg-muted">{datasetsExpanded ? 'Hide' : 'Manage'}</span>
@@ -1769,8 +1779,10 @@
                                   on:click={() => (confirmMigrateStack = st)}
                                   class="rounded-md border border-fjord-border bg-fjord-card px-2.5 py-1 text-xs font-medium text-fjord-fg hover:bg-fjord-border disabled:opacity-50"
                                 >{migratingStack === st.name ? 'Moving…' : 'Move to dataset…'}</button>
-                              {:else}
+                              {:else if st.plainFolder}
                                 <span class="rounded-full border border-fjord-border px-2 py-0.5 text-[11px] text-fjord-fg-dim">Plain folder</span>
+                              {:else}
+                                <span class="rounded-full border border-fjord-border px-2 py-0.5 text-[11px] text-fjord-fg-dim">No app data</span>
                               {/if}
                             </div>
                           </li>
