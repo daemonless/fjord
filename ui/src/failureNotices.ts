@@ -43,3 +43,16 @@ export function groupNoticesByKind(notices?: FleetNotice[]): { kind: NoticeKind;
   }
   return out;
 }
+
+// A failed automatic update is told by its notice. The plain "Update failed"
+// banner for that same failure stays away while the notice exists, dismissed
+// or not: dismissing the notice must not bring the same failure back in other
+// words. A later failure (an update by hand) is newer than the notice and
+// shows as usual.
+export function toldByNotice(failure: { at?: string } | null | undefined, notices?: FailureNotice[]): boolean {
+  const at = Date.parse(failure?.at ?? '');
+  if (Number.isNaN(at)) return false;
+  return (notices ?? []).some(
+    (n) => (n.kind === 'auto-update' || n.kind === 'auto-update-no-snapshot') && at <= Date.parse(n.lastAt) + 60_000,
+  );
+}

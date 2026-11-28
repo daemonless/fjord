@@ -15,13 +15,17 @@ import (
 // histNote is what an action's History entry needs that its outcome does
 // not tell: what it was, who or what started it, and when.
 type histNote struct {
-	action            string
-	trigger           string
-	services          []string
-	start             time.Time
-	detail            string // said even when it went fine (why recovery acted)
-	excerpt           string // first 10 + last 10 lines of output on failed update/restore/migrate
-	skipFailedHistory bool   // repeated unattended failure updates its notice instead of spamming History
+	action   string
+	trigger  string
+	services []string
+	start    time.Time
+	detail   string // said even when it went fine (why recovery acted)
+	excerpt  string // first 10 + last 10 lines of output on failed update/restore/migrate
+	// skipFailedIfSame names a failure-notice kind: a failure whose reason is
+	// the one that notice already carries only counts on the notice, instead
+	// of filling History with the same line every night. A different reason
+	// gets its entry, and its excerpt.
+	skipFailedIfSame string
 }
 
 func newNote(action, trigger string, services ...string) *histNote {
@@ -55,7 +59,7 @@ func (s *server) writeHistory(name string, n *histNote, failed bool, msg string)
 	if s.hist == nil || n == nil {
 		return
 	}
-	if failed && n.skipFailedHistory {
+	if failed && n.skipFailedIfSame != "" && s.failureNoticeMessage(name, n.skipFailedIfSame) == history.FirstLine(msg) {
 		return
 	}
 	e := history.Entry{Stack: name, Action: n.action, Trigger: n.trigger, Result: history.OK, Services: n.services}

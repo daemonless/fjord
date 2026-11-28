@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { activeNotices, groupNoticesByKind, hasActiveNotices, type FleetNotice } from './failureNotices';
+import { activeNotices, groupNoticesByKind, hasActiveNotices, toldByNotice, type FleetNotice } from './failureNotices';
 
 describe('failureNotices helpers', () => {
   it('filters out dismissed notices for app banners and sidebar marks', () => {
@@ -24,5 +24,21 @@ describe('failureNotices helpers', () => {
     expect(groups.map((g) => g.kind)).toEqual(['daily-restore-point', 'auto-update-no-snapshot']);
     expect(groups[0].items.map((i) => i.stack)).toEqual(['radarr', 'lidarr']);
     expect(groups[0].items[0].dismissed).toBe(true);
+  });
+});
+
+describe('toldByNotice', () => {
+  const notice = { kind: 'auto-update' as const, count: 2, firstAt: '2026-11-22T03:00:00Z', lastAt: '2026-11-23T03:00:09Z' };
+  it('covers the failure the notice was raised for, dismissed or not', () => {
+    expect(toldByNotice({ at: '2026-11-23T03:00:05Z' }, [notice])).toBe(true);
+    expect(toldByNotice({ at: '2026-11-23T03:00:05Z' }, [{ ...notice, dismissed: true }])).toBe(true);
+  });
+  it('does not cover a later failure, such as an update by hand', () => {
+    expect(toldByNotice({ at: '2026-11-23T10:15:00Z' }, [{ ...notice, dismissed: true }])).toBe(false);
+  });
+  it('is false with no notice, another kind, or no failure', () => {
+    expect(toldByNotice({ at: '2026-11-23T03:00:05Z' }, [])).toBe(false);
+    expect(toldByNotice({ at: '2026-11-23T03:00:05Z' }, [{ ...notice, kind: 'daily-restore-point' as const }])).toBe(false);
+    expect(toldByNotice(undefined, [notice])).toBe(false);
   });
 });

@@ -105,9 +105,9 @@ func (s *server) runDetachedUpdate(name string, services []string, trigger strin
 	}
 	if trigger == history.ByAutomatic {
 		if errors.Is(startErr, errSnapshotAborted) {
-			note.skipFailedHistory = s.hasFailureNotice(name, stack.NoticeAutoUpdateNoSnapshot)
+			note.skipFailedIfSame = stack.NoticeAutoUpdateNoSnapshot
 		} else {
-			note.skipFailedHistory = s.hasFailureNotice(name, stack.NoticeAutoUpdate)
+			note.skipFailedIfSame = stack.NoticeAutoUpdate
 		}
 	}
 	io.Copy(io.Discard, s.recordOutcome(name, "update", note, stream))
