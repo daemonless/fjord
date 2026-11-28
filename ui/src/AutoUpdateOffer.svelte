@@ -59,7 +59,7 @@
     <span class="flex-1 min-w-[16rem]">
       <b>fjord can keep your apps up to date by itself.</b> Each night between {start} and {end} it installs rebuilds and new
       minor versions, one app at a time, and rolls back any that fails. New major versions still wait for you.
-      <a href="#/settings/updates" class="text-fjord-accent hover:underline">Change the time</a>
+      <a href="#/settings/maintenance" class="text-fjord-accent hover:underline">Change the time</a>
     </span>
     <button
       on:click={() => answer('all')}

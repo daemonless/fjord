@@ -71,7 +71,7 @@
   let originalMakejail = '';
   let currentView: 'stacks' | 'store' | 'volumes' | 'networks' | 'system' | 'settings' | 'adopt' = 'stacks';
   // Settings sub-tab, mirrored into the URL (#/settings/<tab>) like the views.
-  let settingsTab: 'storage' | 'extensions' | 'catalogs' | 'updates' | 'advanced' | 'account' = 'storage';
+  let settingsTab: 'storage' | 'extensions' | 'catalogs' | 'maintenance' | 'names' | 'advanced' | 'account' = 'storage';
 
   // Draft for the "+" button: an image that comes Up as-is, so a blank stack
   // is immediately a box you can open a shell in -- FreeBSD's base image, or
@@ -646,8 +646,15 @@
       await selectStack(null);
     } else if (section === 'settings') {
       currentView = 'settings';
-      // 'plugins' is the pre-rename route; keep it working for old links
-      settingsTab = name === 'extensions' || name === 'plugins' ? 'extensions' : name === 'catalogs' || name === 'updates' || name === 'advanced' || name === 'account' ? name : 'storage';
+      // 'plugins', 'updates', and 'restore-points' are pre-rename routes; keep them working for old links
+      settingsTab =
+        name === 'extensions' || name === 'plugins'
+          ? 'extensions'
+          : name === 'maintenance' || name === 'updates' || name === 'restore-points'
+            ? 'maintenance'
+            : name === 'catalogs' || name === 'names' || name === 'advanced' || name === 'account'
+              ? name
+              : 'storage';
       await selectStack(null);
     } else if (section === 'stacks' && name) {
       currentView = 'stacks';

@@ -10,6 +10,7 @@
   import RestartPolicy from './RestartPolicy.svelte';
   import RecoveryPolicy from './RecoveryPolicy.svelte';
   import KeepUpToDate from './KeepUpToDate.svelte';
+  import RestorePointPolicy from './RestorePointPolicy.svelte';
   import DirPicker from './DirPicker.svelte';
   import Spinner from './Spinner.svelte';
   import LoginButton from './LoginButton.svelte';
@@ -1518,6 +1519,13 @@
             <KeepUpToDate
               name={stack.name}
               policy={stack.state?.update_policy}
+              disabled={busyNow}
+              on:changed={async () => {
+                await onSelectStack({ name: stack.name } as Stack);
+              }}
+            />
+            <RestorePointPolicy
+              name={stack.name}
               disabled={busyNow}
               on:changed={async () => {
                 await onSelectStack({ name: stack.name } as Stack);

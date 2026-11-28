@@ -352,11 +352,20 @@
     }
   }
 
+  let hasZfs = false;
+  async function loadZfsState() {
+    try {
+      const r = await fetch('/api/settings/restore-points');
+      if (r.ok) hasZfs = !!(await r.json()).hasZfs;
+    } catch {}
+  }
+
   onMount(() => {
     loadEngine();
     loadStorage();
     loadCatalog();
     loadAutoUpdate();
+    loadZfsState();
     // Up front, not on the way into the step: the indicator has to know from
     // the first screen whether there is an "Already running" step at all.
     lookForCandidates();
@@ -526,6 +535,7 @@
             { icon: 'store', title: 'App Store', text: 'Browse, pick an app, press Install. The wizard asks only what it must; the defaults are chosen so the app works untouched.' },
             { icon: 'list', title: 'Stacks', text: 'Everything running, with logs, a shell, updates and delete. Each app is a compose file you can open and edit.' },
             { icon: 'drive', title: 'Volumes', text: 'App data lives in the location you just picked, one folder per app, plus any named volumes an app declares.' },
+            ...(hasZfs ? [{ icon: 'history', title: 'Restore points', text: 'Apps on ZFS save a restore point before updates automatically. Turn on daily restore points per app or in Settings → Maintenance.' }] : []),
             { icon: 'settings', title: 'Settings', text: 'Storage, engines, catalogs, and the knobs you will not need on day one. Setup can be run again from Advanced.' },
           ] as g}
             <div class="flex items-start gap-3">

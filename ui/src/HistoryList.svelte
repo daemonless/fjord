@@ -1,7 +1,8 @@
 <script lang="ts">
   import { createEventDispatcher, onMount } from 'svelte';
   import { isoDate, isoDateTime } from './when';
-  import { changeLines, historyTitle, whenLabel, type HistoryEntry } from './history';
+  import { notCoveredParts, zfsHintMountpoint } from './restorePoints';
+  import { changeLines, historyTitle, imageLabel, whenLabel, type HistoryEntry } from './history';
 
   export let stack = '';
   export let limit = 100;
@@ -37,10 +38,33 @@
     pinned: boolean;
     pinnedServices?: string[];
     currentVersion?: string;
+    policy?: string;
+    retentionDays?: number;
+    dailyTime?: string;
     restoredFolders: string[];
     notRestoredFolders: string[];
+    notCovered?: string[];
     snapshots: RestoreSnapshot[];
     keptCopies: KeptCopy[];
+  }
+
+  function restoreButtonLabel(e: HistoryEntry): string {
+    if (e.action !== 'update') return 'Restore';
+    const label = imageLabel(e.changes?.[0]?.from);
+    if (label && !label.startsWith('sha256:') && label.length <= 20) return `Restore ${label}`;
+    return 'Restore prior';
+  }
+
+  function snapTitle(s: RestoreSnapshot): string {
+    if (s.kind === 'manual') return s.note || 'Manual restore point';
+    if (s.kind === 'scheduled') return 'Daily restore point';
+    return 'Before update';
+  }
+
+  function snapBadge(s: RestoreSnapshot): string {
+    if (s.kind === 'manual') return 'Manual';
+    if (s.kind === 'scheduled') return 'Daily';
+    return 'Before update';
   }
 
   interface MigratePreview {
@@ -49,7 +73,9 @@
     hasZfs: boolean;
     sourceDir?: string;
     targetLocation?: string;
+    targetDir?: string;
     targetDataset?: string;
+    crossLocation?: boolean;
     sizeBytes: number;
     neededBytes: number;
     freeBytes: number;
@@ -60,6 +86,7 @@
   let entries: HistoryEntry[] = [];
   let rp: RestorePointsData | null = null;
   let migratePlan: MigratePreview | null = null;
+  let zfsLocations: string[] = [];
   let migrateModalOpen = false;
   let migrateKeepOld = true;
   let loading = true;
@@ -180,14 +207,25 @@
       if (rr && rr.ok) {
         rp = await rr.json();
         if (rp && rp.hasZfs && !rp.dataset) {
-          const mr = await fetch(`/api/stacks/${encodeURIComponent(stack)}/migrate-dataset`);
+          const [mr, sr] = await Promise.all([
+            fetch(`/api/stacks/${encodeURIComponent(stack)}/migrate-dataset`),
+            fetch('/api/settings/storage/datasets'),
+          ]);
           migratePlan = mr.ok ? await mr.json() : null;
+          if (sr.ok) {
+            const sd = await sr.json();
+            zfsLocations = (sd?.locations ?? []).filter((l: any) => l?.isDataset && l?.path).map((l: any) => l.path);
+          } else {
+            zfsLocations = [];
+          }
         } else {
           migratePlan = null;
+          zfsLocations = [];
         }
       } else {
         rp = null;
         migratePlan = null;
+        zfsLocations = [];
       }
       failedToLoad = false;
     } catch {
@@ -211,6 +249,7 @@
     snapshots.reduce((sum, s) => sum + (s.usedBytes || 0), 0) +
     keptCopies.reduce((sum, c) => sum + (c.usedBytes || 0), 0);
   $: isPlainOnZfs = !!(stack && rp && rp.hasZfs && !rp.dataset);
+  $: notCovered = notCoveredParts(rp?.notCovered);
   $: newerSnapsForModal = restoreSnap
     ? snapshots.filter((s) => Date.parse(s.createdAt) > Date.parse(restoreSnap!.createdAt))
     : [];
@@ -274,8 +313,12 @@
         actionError = (await r.text()) || `Migration failed (${r.status})`;
         return;
       }
+      const data = await r.json().catch(() => null);
       migrateModalOpen = false;
-      statusNote = 'Moved to its own ZFS dataset. Data restore points are now on.';
+      const ds = data?.dataset || migratePlan?.targetDataset || 'its own ZFS dataset';
+      statusNote = data?.backupDir
+        ? `Moved to ${ds}. Restore points are now on. Original folder kept at ${data.backupDir}.`
+        : `Moved to ${ds}. Restore points are now on.`;
       await load(stack, reload + 1);
       dispatch('changed');
     } catch (err) {
@@ -485,7 +528,7 @@
             Pinned{rp.currentVersion ? ` to ${rp.currentVersion}` : ''}. Automatic updates are paused.{#if latestKept} Your {latestKept.version ? `${latestKept.version} ` : ''}data is {latestKept.until ? `kept until ${isoDate(latestKept.until)}` : 'kept forever'}.{/if}
           </span>
           <button
-            class="rounded-md border border-fjord-border bg-fjord-surface px-2.5 py-1 text-xs font-medium hover:bg-fjord-border"
+            class="rounded-md border border-fjord-border bg-fjord-card px-2.5 py-1 text-xs font-medium hover:bg-fjord-border"
             disabled={busy}
             on:click={onResumeClick}
           >Resume updates</button>
@@ -493,103 +536,125 @@
       {/if}
 
       {#if isPlainOnZfs}
-        <div class="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-fjord-accent/40 bg-fjord-accent/10 px-3.5 py-2.5 text-sm">
-          <div class="min-w-0 flex-1">
-            <span>
-              Data restore points are off because <strong>{stack}</strong> uses a plain folder instead of its own dataset.
-            </span>
-            {#if migratePlan && !migratePlan.eligible && migratePlan.reason}
-              <div class="mt-1 text-xs text-fjord-fg-muted">{migratePlan.reason}.</div>
-            {/if}
-            {#if migratePlan?.zfsCreateHint}
-              <div class="mt-1.5 flex flex-wrap items-center gap-2 text-xs">
-                <code class="rounded border border-fjord-border bg-fjord-bg px-2 py-0.5 font-mono text-fjord-fg">{migratePlan.zfsCreateHint}</code>
-                <button class="text-fjord-accent hover:underline" on:click={() => copyPath(migratePlan?.zfsCreateHint || '')}>Copy</button>
-              </div>
+        <div class="flex flex-wrap items-start justify-between gap-3 rounded-lg border border-fjord-accent/40 bg-fjord-accent/10 px-3.5 py-3 text-sm">
+          <div class="min-w-0 flex-1 space-y-1.5">
+            <div class="font-medium text-fjord-fg">
+              Restore points are off for <strong>{stack}</strong>
+            </div>
+            {#if migratePlan?.eligible}
+              {#if migratePlan.crossLocation}
+                <p class="text-xs text-fjord-fg-muted">
+                  Its data is in <span class="font-mono">{migratePlan.sourceDir}</span> on the OS root filesystem. Move it to a dedicated ZFS dataset at <span class="font-mono">{migratePlan.targetDir}</span> (<span class="font-mono">{migratePlan.targetDataset}</span>) to enable restore points with zero data loss.
+                </p>
+              {:else}
+                <p class="text-xs text-fjord-fg-muted">
+                  Its data is in a plain folder{#if migratePlan.sourceDir} (<span class="font-mono">{migratePlan.sourceDir}</span>){/if} instead of its own ZFS dataset. Move it into <span class="font-mono">{migratePlan.targetDataset}</span> to enable restore points.
+                </p>
+              {/if}
+            {:else if migratePlan?.zfsCreateHint}
+              <p class="text-xs text-fjord-fg-muted">
+                Its data is in <span class="font-mono">{migratePlan.sourceDir || 'a plain folder'}</span>, which sits on the OS root filesystem. fjord only snapshots dedicated app datasets so a restore never touches the OS.
+              </p>
+              {#if zfsLocations.length > 0}
+                <p class="text-xs text-fjord-fg-muted">
+                  This host already has a ZFS App data location (<span class="font-mono">{zfsLocations[0]}</span>). New apps installed there get restore points automatically.
+                </p>
+              {:else}
+                <ol class="list-decimal list-inside space-y-1.5 text-xs text-fjord-fg-muted pt-0.5">
+                  <li>
+                    Create a dedicated ZFS dataset on the host:
+                    <span class="mt-1 flex flex-wrap items-center gap-2">
+                      <code class="rounded border border-fjord-border bg-fjord-bg px-2 py-0.5 font-mono text-fjord-fg">{migratePlan.zfsCreateHint}</code>
+                      <button type="button" class="text-fjord-accent hover:underline" on:click={() => copyPath(migratePlan?.zfsCreateHint || '')}>Copy</button>
+                    </span>
+                  </li>
+                  <li>
+                    Add <span class="font-mono">{zfsHintMountpoint(migratePlan.zfsCreateHint)}</span> in <a href="#/settings/storage" class="text-fjord-accent hover:underline">Settings → Storage</a> and move it to the top so new apps get their own dataset automatically.
+                  </li>
+                </ol>
+                <div class="flex flex-wrap items-center gap-3 pt-1 text-xs text-fjord-fg-muted">
+                  <span>Once added, click Check again and fjord will walk you through moving <strong>{stack}</strong> with zero data loss.</span>
+                  <button
+                    type="button"
+                    class="shrink-0 rounded-md border border-fjord-border bg-fjord-card px-2.5 py-1 text-xs font-medium text-fjord-fg hover:bg-fjord-border"
+                    on:click={() => load(stack, reload + 1)}
+                  >Check again</button>
+                </div>
+              {/if}
+            {:else if migratePlan && migratePlan.reason}
+              <p class="text-xs text-fjord-fg-muted">{migratePlan.reason}.</p>
+            {:else}
+              <p class="text-xs text-fjord-fg-muted">
+                Uses a plain folder instead of its own ZFS dataset. Check <a href="#/settings/storage" class="text-fjord-accent hover:underline">Settings → Storage</a> to configure a ZFS App data location.
+              </p>
             {/if}
           </div>
           {#if migratePlan?.eligible}
             <button
-              class="shrink-0 rounded-md bg-fjord-accent px-2.5 py-1 text-xs font-semibold text-white hover:opacity-90 disabled:opacity-50"
+              class="shrink-0 rounded-md bg-fjord-accent px-3 py-1.5 text-xs font-semibold text-white hover:opacity-90 disabled:opacity-50"
               disabled={busy}
               on:click={() => {
                 actionError = '';
                 migrateKeepOld = true;
                 migrateModalOpen = true;
               }}
-            >Move to dataset</button>
+            >Move to dataset…</button>
           {/if}
         </div>
       {/if}
     </div>
   {/if}
 
-  {#if stack && rp}
+  {#if stack && rp?.hasZfs}
     <div class="mb-3 flex flex-wrap items-center justify-between gap-2 border-b border-fjord-border pb-3 text-xs">
-      <div class="flex flex-wrap items-center gap-3">
-        <div class="inline-flex rounded-lg border border-fjord-border bg-fjord-surface p-0.5">
-          <button
-            class="rounded-md px-2.5 py-1 {filter === 'all' ? 'bg-fjord-border font-semibold text-fjord-fg' : 'text-fjord-fg-muted hover:text-fjord-fg'}"
-            on:click={() => (filter = 'all')}
-          >All</button>
-          <button
-            class="rounded-md px-2.5 py-1 {filter === 'restore' ? 'bg-fjord-border font-semibold text-fjord-fg' : 'text-fjord-fg-muted hover:text-fjord-fg'}"
-            on:click={() => (filter = 'restore')}
-          >Restore points ({totalPointCount}{totalPointBytes ? ` · ${fmtBytes(totalPointBytes)}` : ''})</button>
-        </div>
-        {#if rp.currentVersion}
-          <span class="text-fjord-fg-muted">
-            Running now: <code class="rounded border border-fjord-border bg-fjord-surface px-1.5 py-0.5 font-mono text-fjord-fg">{rp.currentVersion}</code>
-          </span>
-        {/if}
-      </div>
-      <div class="flex items-center gap-2">
-        {#if !rp.dataset}
-          <span class="text-fjord-fg-muted">{rp.hasZfs ? 'Needs its own dataset' : 'Data snapshots need ZFS'}</span>
-        {/if}
+      <div class="inline-flex rounded-lg border border-fjord-border bg-fjord-inset p-0.5">
         <button
-          class="rounded-md border border-fjord-border px-2.5 py-1 text-xs font-medium hover:bg-fjord-border disabled:opacity-50"
-          disabled={busy || !rp.dataset}
-          on:click={() => {
-            actionError = '';
-            saveNote = '';
-            saveModalOpen = true;
-          }}
-        >+ Save restore point</button>
+          class="rounded-md px-2.5 py-1 {filter === 'all' ? 'bg-fjord-card font-semibold text-fjord-fg' : 'text-fjord-fg-muted hover:text-fjord-fg'}"
+          on:click={() => (filter = 'all')}
+        >All</button>
+        <button
+          class="rounded-md px-2.5 py-1 disabled:opacity-40 {filter === 'restore' ? 'bg-fjord-card font-semibold text-fjord-fg' : 'text-fjord-fg-muted hover:text-fjord-fg'}"
+          disabled={!rp.dataset}
+          on:click={() => (filter = 'restore')}
+        >Restore points ({rp.dataset ? totalPointCount : 0}{rp.dataset && totalPointBytes ? ` · ${fmtBytes(totalPointBytes)}` : ''})</button>
       </div>
+      <button
+        class="rounded-md border border-fjord-border px-2.5 py-1 text-xs font-medium hover:bg-fjord-border disabled:opacity-40"
+        disabled={busy || !rp.dataset}
+        on:click={() => {
+          actionError = '';
+          saveNote = '';
+          saveModalOpen = true;
+        }}
+      >+ Save restore point</button>
     </div>
   {/if}
 
-  {#if filter === 'restore' && stack}
+  {#if filter === 'restore' && stack && rp?.dataset}
     {#if unifiedPoints.length === 0}
       <p class="text-sm text-fjord-fg-muted">No saved restore points yet.</p>
     {:else}
-      <ul class="divide-y divide-fjord-border text-sm" data-restore-points>
+      <ul class="rounded-xl border border-fjord-border bg-fjord-card divide-y divide-fjord-border text-sm" data-restore-points>
         {#each unifiedPoints as item (item.id)}
           {#if item.copy}
             {@const c = item.copy}
-            <li class="py-2.5 flex items-start justify-between gap-4">
-              <div class="flex gap-4 min-w-0 flex-1">
-                <span class="w-32 shrink-0 text-fjord-fg-muted tabular-nums" title={isoDateTime(c.createdAt, true)}>{whenLabel(c.createdAt)}</span>
-                <div class="min-w-0 flex-1">
-                  <div class="text-fjord-fg font-medium">Restored</div>
-                  <div class="text-xs text-emerald-400 flex flex-wrap items-center gap-1.5">
-                    <span>{c.version ? `${c.version} data` : 'Data'} saved before restore · {fmtBytes(c.usedBytes)} · {c.until ? `kept until ${isoDate(c.until)}` : 'kept forever'}</span>
-                    {#if c.mountpoint && c.mountpoint !== 'none'}
-                      <span>·</span>
-                      <button
-                        class="text-fjord-accent hover:underline"
-                        on:click={() => (expandedPaths = { ...expandedPaths, [c.dataset]: !expandedPaths[c.dataset] })}
-                      >{expandedPaths[c.dataset] ? 'Hide path' : 'Host path'}</button>
-                    {/if}
-                  </div>
-                  {#if expandedPaths[c.dataset] && c.mountpoint}
-                    <div class="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-md border border-fjord-border bg-fjord-bg px-2.5 py-1.5 text-xs">
-                      <code class="font-mono text-fjord-fg-muted break-all">{c.mountpoint}</code>
-                      <button class="rounded border border-fjord-border px-2 py-0.5 text-xs hover:bg-fjord-border" on:click={() => copyPath(c.mountpoint)}>Copy path</button>
-                    </div>
-                  {/if}
+            <li class="px-4 py-3 flex items-center justify-between gap-4">
+              <div class="min-w-0 flex-1">
+                <div class="flex flex-wrap items-center gap-2 text-fjord-fg font-medium">
+                  <span>{c.version ? `${c.version} saved before restore` : 'Saved before restore'}</span>
+                  <span class="rounded-full border border-fjord-border px-2 py-0.5 text-[11px] font-medium text-fjord-fg-muted">Before restore</span>
                 </div>
+                <div class="text-xs text-fjord-fg-muted mt-0.5 tabular-nums">
+                  <span title={isoDateTime(c.createdAt, true)}>{whenLabel(c.createdAt)}</span>
+                  · {fmtBytes(c.usedBytes)}
+                  · {c.until ? `Kept until ${isoDate(c.until)}` : 'Kept forever'}
+                </div>
+                {#if expandedPaths[c.dataset] && c.mountpoint}
+                  <div class="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-md border border-fjord-border bg-fjord-bg px-2.5 py-1.5 text-xs">
+                    <code class="font-mono text-fjord-fg-muted break-all">{c.mountpoint}</code>
+                    <button class="rounded border border-fjord-border px-2 py-0.5 text-xs hover:bg-fjord-border" on:click={() => copyPath(c.mountpoint)}>Copy path</button>
+                  </div>
+                {/if}
               </div>
               <div class="flex items-center gap-1.5 shrink-0 relative">
                 {#if c.kind === 'rollback'}
@@ -606,10 +671,19 @@
                   on:click={() => (openMenuFor = openMenuFor === item.id ? '' : item.id)}
                 >⋯</button>
                 {#if openMenuFor === item.id}
-                  <div class="absolute right-0 top-full mt-1 z-20 min-w-44 rounded-lg border border-fjord-border bg-fjord-surface p-1 shadow-xl flex flex-col text-xs">
+                  <div class="absolute right-0 top-full mt-1 z-20 min-w-44 rounded-lg border border-fjord-border bg-fjord-card p-1 shadow-xl flex flex-col text-xs">
                     <button class="rounded px-2.5 py-1.5 text-left hover:bg-fjord-border" on:click={() => toggleForever(c)}>
                       {c.until ? 'Keep forever' : `Expire on ${isoDate30DaysFromNow()}`}
                     </button>
+                    {#if c.mountpoint && c.mountpoint !== 'none'}
+                      <button
+                        class="rounded px-2.5 py-1.5 text-left hover:bg-fjord-border"
+                        on:click={() => {
+                          openMenuFor = '';
+                          copyPath(c.mountpoint);
+                        }}
+                      >Copy host path</button>
+                    {/if}
                     <button
                       class="rounded px-2.5 py-1.5 text-left text-fjord-danger hover:bg-fjord-border"
                       on:click={() => {
@@ -624,52 +698,55 @@
             </li>
           {:else if item.snap}
             {@const s = item.snap}
-            <li class="py-2.5 flex items-start justify-between gap-4">
-              <div class="flex gap-4 min-w-0">
-                <span class="w-32 shrink-0 text-fjord-fg-muted tabular-nums" title={isoDateTime(s.createdAt, true)}>{whenLabel(s.createdAt)}</span>
-                <div class="min-w-0">
-                  <div class="text-fjord-fg font-medium flex items-center gap-2">
-                    <span>{s.kind === 'manual' ? 'Saved restore point' : 'Updated'}</span>
-                    {#if s.kind === 'manual'}
-                      <span class="rounded border border-fjord-accent/40 bg-fjord-accent/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-fjord-accent">Manual</span>
-                    {/if}
-                  </div>
-                  {#if s.note}
-                    <div class="text-xs text-fjord-fg">{s.note}</div>
-                  {/if}
-                  <div class="text-xs text-emerald-400 flex flex-wrap items-center gap-1.5">
-                    <span>{s.kind === 'manual' ? `Data saved · ${fmtBytes(s.usedBytes)} · kept forever` : `Data saved before update · ${fmtBytes(s.usedBytes)}`}</span>
-                    {#if s.hostPath}
-                      <span>·</span>
-                      <button
-                        class="text-fjord-accent hover:underline"
-                        on:click={() => (expandedPaths = { ...expandedPaths, [s.name]: !expandedPaths[s.name] })}
-                      >{expandedPaths[s.name] ? 'Hide path' : 'Host path'}</button>
-                    {/if}
-                  </div>
-                  {#if expandedPaths[s.name] && s.hostPath}
-                    <div class="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-md border border-fjord-border bg-fjord-bg px-2.5 py-1.5 text-xs">
-                      <code class="font-mono text-fjord-fg-muted break-all">{s.hostPath}</code>
-                      <button class="rounded border border-fjord-border px-2 py-0.5 text-xs hover:bg-fjord-border" on:click={() => copyPath(s.hostPath || '')}>Copy path</button>
-                    </div>
-                  {/if}
+            <li class="px-4 py-3 flex items-center justify-between gap-4">
+              <div class="min-w-0 flex-1">
+                <div class="flex flex-wrap items-center gap-2 text-fjord-fg font-medium">
+                  <span>{snapTitle(s)}</span>
+                  <span class="rounded-full px-2 py-0.5 text-[11px] font-medium border {s.kind === 'manual' ? 'border-fjord-accent/40 bg-fjord-accent/10 text-fjord-accent' : 'border-fjord-border text-fjord-fg-muted'}">{snapBadge(s)}</span>
                 </div>
+                <div class="text-xs text-fjord-fg-muted mt-0.5 tabular-nums">
+                  <span title={isoDateTime(s.createdAt, true)}>{whenLabel(s.createdAt)}</span>
+                  · {fmtBytes(s.usedBytes)}{s.kind === 'manual' ? ' · Kept forever' : ''}
+                </div>
+                {#if expandedPaths[s.name] && s.hostPath}
+                  <div class="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-md border border-fjord-border bg-fjord-bg px-2.5 py-1.5 text-xs">
+                    <code class="font-mono text-fjord-fg-muted break-all">{s.hostPath}</code>
+                    <button class="rounded border border-fjord-border px-2 py-0.5 text-xs hover:bg-fjord-border" on:click={() => copyPath(s.hostPath || '')}>Copy path</button>
+                  </div>
+                {/if}
               </div>
-              <div class="flex items-center gap-2 shrink-0">
+              <div class="flex items-center gap-1.5 shrink-0 relative">
                 <button
                   class="rounded-md border border-fjord-border px-2.5 py-1 text-xs font-medium hover:bg-fjord-border"
                   disabled={busy}
                   on:click={() => openRestoreSnapshot(s)}
                 >Restore</button>
-                {#if s.kind === 'manual'}
-                  <button
-                    class="rounded-md px-2 py-1 text-xs text-fjord-fg-muted hover:bg-fjord-border hover:text-fjord-danger"
-                    disabled={busy}
-                    on:click={() => {
-                      actionError = '';
-                      deleteSnapTarget = s;
-                    }}
-                  >Delete</button>
+                <button
+                  class="rounded-md px-2 py-1 text-xs text-fjord-fg-muted hover:bg-fjord-border hover:text-fjord-fg"
+                  disabled={busy}
+                  aria-label="More options"
+                  on:click={() => (openMenuFor = openMenuFor === item.id ? '' : item.id)}
+                >⋯</button>
+                {#if openMenuFor === item.id}
+                  <div class="absolute right-0 top-full mt-1 z-20 min-w-44 rounded-lg border border-fjord-border bg-fjord-card p-1 shadow-xl flex flex-col text-xs">
+                    {#if s.hostPath}
+                      <button
+                        class="rounded px-2.5 py-1.5 text-left hover:bg-fjord-border"
+                        on:click={() => {
+                          openMenuFor = '';
+                          copyPath(s.hostPath || '');
+                        }}
+                      >Copy host path</button>
+                    {/if}
+                    <button
+                      class="rounded px-2.5 py-1.5 text-left text-fjord-danger hover:bg-fjord-border"
+                      on:click={() => {
+                        openMenuFor = '';
+                        actionError = '';
+                        deleteSnapTarget = s;
+                      }}
+                    >Delete ({fmtBytes(s.usedBytes)})</button>
+                  </div>
                 {/if}
               </div>
             </li>
@@ -677,13 +754,17 @@
         {/each}
       </ul>
     {/if}
+    <p class="mt-3 text-xs text-fjord-fg-dim" data-retention-note>
+      Automatic restore points are kept for {rp.retentionDays ?? 30} days. Manual points stay until deleted.
+      <a href="#/settings/maintenance" class="ml-1 text-fjord-accent hover:underline">Change in Settings</a>
+    </p>
   {:else if entries.length === 0}
     <p class="text-sm text-fjord-fg-muted" data-history-empty>Nothing has happened here yet.</p>
   {:else}
     <ul class="divide-y divide-fjord-border text-sm" data-history>
       {#each entries as e, idx (e.at + e.stack + e.action + idx)}
-        {@const matchedSnap = stack ? (entrySnapMap.get(entryKey(e, idx)) ?? null) : null}
-        {@const matchedCopy = stack ? keptCopyForEntry(e, keptCopies) : null}
+        {@const matchedSnap = stack && rp?.dataset ? (entrySnapMap.get(entryKey(e, idx)) ?? null) : null}
+        {@const matchedCopy = stack && rp?.dataset ? keptCopyForEntry(e, keptCopies) : null}
         {@const menuKey = 'row:' + e.at + e.action}
         {@const changes = changeLines(e)}
         <li class="py-2 flex items-start justify-between gap-4" data-history-entry data-action={e.action} data-result={e.result}>
@@ -706,57 +787,22 @@
                   <div class="text-xs text-fjord-fg-muted font-mono">{line}</div>
                 {/each}
               {/if}
-              {#if matchedSnap && expandedPaths[matchedSnap.name] && matchedSnap.hostPath}
-                <div class="mt-1.5 flex flex-wrap items-center justify-between gap-2 rounded-md border border-fjord-border bg-fjord-bg px-2.5 py-1.5 text-xs">
-                  <code class="font-mono text-fjord-fg-muted break-all">{matchedSnap.hostPath}</code>
-                  <button class="rounded border border-fjord-border px-2 py-0.5 text-xs hover:bg-fjord-border" on:click={() => copyPath(matchedSnap.hostPath || '')}>Copy path</button>
-                </div>
-              {/if}
               {#if matchedCopy}
-                <div class="mt-0.5 text-xs text-emerald-400 flex flex-wrap items-center gap-1.5">
-                  <span>{matchedCopy.version ? `${matchedCopy.version} data saved` : 'Data saved'} · {fmtBytes(matchedCopy.usedBytes)} · {matchedCopy.until ? `until ${isoDate(matchedCopy.until)}` : 'kept forever'}</span>
-                  {#if matchedCopy.mountpoint && matchedCopy.mountpoint !== 'none'}
-                    <span>·</span>
-                    <button
-                      class="text-fjord-accent hover:underline"
-                      on:click={() => (expandedPaths = { ...expandedPaths, [matchedCopy.dataset]: !expandedPaths[matchedCopy.dataset] })}
-                    >{expandedPaths[matchedCopy.dataset] ? 'Hide path' : 'Path'}</button>
-                  {/if}
+                <div class="mt-0.5 text-xs text-fjord-fg-muted">
+                  {matchedCopy.version ? `${matchedCopy.version} saved before restore` : 'Saved before restore'} · {fmtBytes(matchedCopy.usedBytes)} · {matchedCopy.until ? `until ${isoDate(matchedCopy.until)}` : 'kept forever'}
                 </div>
-                {#if expandedPaths[matchedCopy.dataset] && matchedCopy.mountpoint}
-                  <div class="mt-1.5 flex flex-wrap items-center justify-between gap-2 rounded-md border border-fjord-border bg-fjord-bg px-2.5 py-1.5 text-xs">
-                    <code class="font-mono text-fjord-fg-muted break-all">{matchedCopy.mountpoint}</code>
-                    <button class="rounded border border-fjord-border px-2 py-0.5 text-xs hover:bg-fjord-border" on:click={() => copyPath(matchedCopy.mountpoint)}>Copy path</button>
-                  </div>
-                {/if}
               {/if}
             </div>
           </div>
 
           {#if matchedSnap}
             <div class="flex items-center gap-2 shrink-0">
-              <span class="text-xs text-emerald-400 tabular-nums">{fmtBytes(matchedSnap.usedBytes)}</span>
-              {#if matchedSnap.hostPath}
-                <button
-                  class="text-xs text-fjord-fg-muted hover:text-fjord-accent"
-                  on:click={() => (expandedPaths = { ...expandedPaths, [matchedSnap.name]: !expandedPaths[matchedSnap.name] })}
-                >{expandedPaths[matchedSnap.name] ? 'Hide' : 'Path'}</button>
-              {/if}
+              <span class="text-xs text-fjord-fg-muted tabular-nums">{fmtBytes(matchedSnap.usedBytes)}</span>
               <button
                 class="rounded-md border border-fjord-border px-2.5 py-1 text-xs font-medium hover:bg-fjord-border"
                 disabled={busy}
                 on:click={() => openRestoreSnapshot(matchedSnap)}
-              >Restore</button>
-              {#if matchedSnap.kind === 'manual'}
-                <button
-                  class="rounded-md px-2 py-1 text-xs text-fjord-fg-muted hover:bg-fjord-border hover:text-fjord-danger"
-                  disabled={busy}
-                  on:click={() => {
-                    actionError = '';
-                    deleteSnapTarget = matchedSnap;
-                  }}
-                >Delete</button>
-              {/if}
+              >{restoreButtonLabel(e)}</button>
             </div>
           {:else if matchedCopy}
             <div class="flex items-center gap-1.5 shrink-0 relative">
@@ -774,7 +820,7 @@
                 on:click={() => (openMenuFor = openMenuFor === menuKey ? '' : menuKey)}
               >⋯</button>
               {#if openMenuFor === menuKey}
-                <div class="absolute right-0 top-full mt-1 z-20 min-w-44 rounded-lg border border-fjord-border bg-fjord-surface p-1 shadow-xl flex flex-col text-xs">
+                <div class="absolute right-0 top-full mt-1 z-20 min-w-44 rounded-lg border border-fjord-border bg-fjord-card p-1 shadow-xl flex flex-col text-xs">
                   <button class="rounded px-2.5 py-1.5 text-left hover:bg-fjord-border" on:click={() => toggleForever(matchedCopy)}>
                     {matchedCopy.until ? 'Keep forever' : `Expire on ${isoDate30DaysFromNow()}`}
                   </button>
@@ -798,28 +844,48 @@
 {/if}
 
 {#if migrateModalOpen && migratePlan}
-  <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" role="dialog" aria-modal="true">
-    <div class="w-full max-w-lg rounded-xl border border-fjord-border bg-fjord-surface p-5 shadow-xl flex flex-col gap-3.5 text-sm">
+  <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4" role="dialog" aria-modal="true">
+    <div class="w-full max-w-lg rounded-xl border border-fjord-border bg-fjord-card p-5 shadow-xl flex flex-col gap-3.5 text-sm">
       <h2 class="text-base font-semibold text-fjord-fg">Move {stack} to its own dataset?</h2>
-      <p class="text-xs text-fjord-fg-muted">
-        Creates <code class="font-mono text-fjord-fg">{migratePlan.targetDataset}</code> and copies {fmtBytes(migratePlan.sizeBytes)} from <code class="font-mono text-fjord-fg">{migratePlan.sourceDir}</code> so fjord can take instant data restore points before updates.
-      </p>
+      <div class="rounded-lg border border-fjord-border bg-fjord-bg px-3 py-2.5 text-xs space-y-1.5">
+        <div class="flex items-baseline justify-between gap-2">
+          <span class="text-[10px] uppercase tracking-wide text-fjord-fg-muted shrink-0">From</span>
+          <code class="font-mono text-fjord-fg truncate">{migratePlan.sourceDir}</code>
+        </div>
+        <div class="flex items-baseline justify-between gap-2">
+          <span class="text-[10px] uppercase tracking-wide text-fjord-fg-muted shrink-0">To</span>
+          <span class="min-w-0 text-right">
+            <code class="font-mono text-fjord-fg">{migratePlan.targetDir || migratePlan.sourceDir}</code>
+            <span class="block text-[11px] font-mono text-fjord-fg-dim">{migratePlan.targetDataset}</span>
+          </span>
+        </div>
+      </div>
       <div class="grid grid-cols-2 gap-3 rounded-lg border border-fjord-border bg-fjord-bg px-3 py-2.5 text-xs">
         <div>
           <div class="text-[10px] uppercase tracking-wide text-fjord-fg-muted">Estimated downtime</div>
-          <div class="mt-0.5 font-medium text-fjord-fg">~{migratePlan.estSeconds}s ({fmtBytes(migratePlan.sizeBytes)} at ~100 MB/s)</div>
+          <div class="mt-0.5 font-medium text-fjord-fg">~{migratePlan.estSeconds}s ({fmtBytes(migratePlan.sizeBytes)})</div>
         </div>
         <div>
           <div class="text-[10px] uppercase tracking-wide text-fjord-fg-muted">Space needed</div>
           <div class="mt-0.5 font-medium text-fjord-fg">{fmtBytes(migratePlan.neededBytes)} ({fmtBytes(migratePlan.freeBytes)} free)</div>
         </div>
       </div>
-      <div class="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
-        {stack} stops while files are copied, then starts again automatically. If anything fails, the original folder is restored untouched.
+      <div class="rounded-lg border border-fjord-border bg-fjord-bg/60 px-3 py-2.5 text-xs text-fjord-fg-muted space-y-1">
+        <div class="font-medium text-fjord-fg">How fjord keeps your data safe</div>
+        <ol class="list-decimal list-inside space-y-1">
+          <li>Stops <strong>{stack}</strong> cleanly so no files change during the copy.</li>
+          <li>
+            Creates <code class="font-mono text-fjord-fg">{migratePlan.targetDataset}</code>, copies {fmtBytes(migratePlan.sizeBytes)} with permissions preserved{#if migratePlan.crossLocation}, updates volume paths to <code class="font-mono text-fjord-fg">{migratePlan.targetDir}</code>,{/if} and saves an initial restore point.
+          </li>
+          <li>Starts <strong>{stack}</strong> automatically. If anything fails, fjord reverts to <code class="font-mono text-fjord-fg">{migratePlan.sourceDir}</code> untouched.</li>
+        </ol>
       </div>
-      <label class="flex items-center gap-2 text-xs text-fjord-fg cursor-pointer">
-        <input type="checkbox" bind:checked={migrateKeepOld} />
-        <span>Keep the old folder as a safety copy (uses ~{fmtBytes(migratePlan.sizeBytes * 2)} total until removed)</span>
+      <label class="flex items-start gap-2 text-xs text-fjord-fg cursor-pointer">
+        <input type="checkbox" bind:checked={migrateKeepOld} class="mt-0.5" />
+        <span>
+          Keep the original folder as a backup copy
+          <span class="block text-fjord-fg-muted">Renamed beside the original (<code class="font-mono">{migratePlan.sourceDir}.pre-dataset-…</code>); uses ~{fmtBytes(migratePlan.sizeBytes * 2)} total until you remove it.</span>
+        </span>
       </label>
       {#if actionError}
         <p class="text-xs text-fjord-danger">{actionError}</p>
@@ -837,8 +903,8 @@
 {/if}
 
 {#if resumeModalOpen && latestKept}
-  <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" role="dialog" aria-modal="true">
-    <div class="w-full max-w-md rounded-xl border border-fjord-border bg-fjord-surface p-5 shadow-xl flex flex-col gap-3.5 text-sm">
+  <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4" role="dialog" aria-modal="true">
+    <div class="w-full max-w-md rounded-xl border border-fjord-border bg-fjord-card p-5 shadow-xl flex flex-col gap-3.5 text-sm">
       <h2 class="text-base font-semibold text-fjord-fg">Resume automatic updates?</h2>
       <p class="text-xs text-fjord-fg-muted">
         You rolled back from {latestKept.version || 'the newer version'}. Resuming all updates will pull it back in on the next update window.
@@ -863,22 +929,39 @@
 {/if}
 
 {#if saveModalOpen}
-  <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" role="dialog" aria-modal="true">
-    <div class="w-full max-w-md rounded-xl border border-fjord-border bg-fjord-surface p-5 shadow-xl flex flex-col gap-3.5 text-sm">
+  <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4" role="dialog" aria-modal="true">
+    <div class="w-full max-w-md rounded-xl border border-fjord-border bg-fjord-card p-5 shadow-xl flex flex-col gap-3.5 text-sm">
       <h2 class="text-base font-semibold text-fjord-fg">Save restore point</h2>
       <p class="text-xs text-fjord-fg-muted">
         Saves a snapshot of {stack}'s data right now. The app keeps running with no interruption.
       </p>
-      <label class="flex flex-col gap-1.5 text-xs">
-        <span class="text-fjord-fg-muted">Note (optional)</span>
+      <div class="flex flex-col gap-1.5 text-xs">
+        <div class="flex items-center justify-between gap-2">
+          <label for="rp-save-note" class="text-fjord-fg-muted">Note (optional)</label>
+          <button
+            type="button"
+            on:click={() => {
+              const stamp = isoDate(new Date().toISOString());
+              const cur = saveNote.trim();
+              if (!cur) saveNote = stamp;
+              else if (!cur.includes(stamp)) saveNote = `${cur} (${stamp})`;
+            }}
+            title="Insert today's date"
+            class="inline-flex items-center gap-1 rounded-md border border-fjord-border bg-fjord-bg px-2 py-0.5 text-[11px] font-medium text-fjord-fg-muted hover:text-fjord-fg hover:border-fjord-accent/50 transition-colors"
+          >+ Date</button>
+        </div>
         <input
+          id="rp-save-note"
           type="text"
           bind:value={saveNote}
           maxlength={120}
           placeholder="e.g. Before changing settings"
+          on:keydown={(e) => {
+            if (e.key === 'Enter' && !busy) confirmSavePoint();
+          }}
           class="rounded-lg border border-fjord-border bg-fjord-bg px-3 py-2 text-sm text-fjord-fg focus:border-fjord-accent focus:outline-none"
         />
-      </label>
+      </div>
       {#if actionError}
         <p class="text-xs text-fjord-danger">{actionError}</p>
       {/if}
@@ -895,11 +978,11 @@
 {/if}
 
 {#if deleteSnapTarget}
-  <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" role="dialog" aria-modal="true">
-    <div class="w-full max-w-md rounded-xl border border-fjord-border bg-fjord-surface p-5 shadow-xl flex flex-col gap-3.5 text-sm">
+  <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4" role="dialog" aria-modal="true">
+    <div class="w-full max-w-md rounded-xl border border-fjord-border bg-fjord-card p-5 shadow-xl flex flex-col gap-3.5 text-sm">
       <h2 class="text-base font-semibold text-fjord-fg">Delete restore point?</h2>
       <p class="text-xs text-fjord-fg-muted">
-        Permanently removes the manual restore point from {whenLabel(deleteSnapTarget.createdAt)} ({fmtBytes(deleteSnapTarget.usedBytes)}). Running data is not affected.
+        Permanently removes this restore point from {whenLabel(deleteSnapTarget.createdAt)} ({fmtBytes(deleteSnapTarget.usedBytes)}). Running data is not affected.
       </p>
       {#if actionError}
         <p class="text-xs text-fjord-danger">{actionError}</p>
@@ -917,8 +1000,8 @@
 {/if}
 
 {#if restoreSnap && rp}
-  <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" role="dialog" aria-modal="true">
-    <div class="w-full max-w-lg rounded-xl border border-fjord-border bg-fjord-surface p-5 shadow-xl flex flex-col gap-3.5 text-sm">
+  <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4" role="dialog" aria-modal="true">
+    <div class="w-full max-w-lg rounded-xl border border-fjord-border bg-fjord-card p-5 shadow-xl flex flex-col gap-3.5 text-sm">
       <h2 class="text-base font-semibold text-fjord-fg">Restore {stack} to {whenLabel(restoreSnap.createdAt)}?</h2>
 
       <div class="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
@@ -942,8 +1025,14 @@
           {#if rp.restoredFolders.length > 0}
             <span class="text-xs text-fjord-fg-muted"><strong>Restored:</strong> {rp.restoredFolders.join(', ')}</span>
           {/if}
-          {#if rp.notRestoredFolders.length > 0}
-            <span class="text-xs text-fjord-fg-muted"><strong>Not restored:</strong> {rp.notRestoredFolders.join(', ')}</span>
+          {#if notCovered}
+            <span class="text-xs text-fjord-fg-muted" data-not-covered>
+              {#if notCovered.extra > 0}
+                Not included: {notCovered.shown} and {notCovered.extra} more. These folders stay as they are.
+              {:else}
+                Not included: {notCovered.shown}. These folders stay as they are.
+              {/if}
+            </span>
           {/if}
           {#if newerSnapsForModal.length > 0}
             <span class="text-xs text-fjord-fg-muted">
@@ -993,8 +1082,8 @@
 {/if}
 
 {#if restoreCopyTarget}
-  <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" role="dialog" aria-modal="true">
-    <div class="w-full max-w-md rounded-xl border border-fjord-border bg-fjord-surface p-5 shadow-xl flex flex-col gap-3.5 text-sm">
+  <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4" role="dialog" aria-modal="true">
+    <div class="w-full max-w-md rounded-xl border border-fjord-border bg-fjord-card p-5 shadow-xl flex flex-col gap-3.5 text-sm">
       <h2 class="text-base font-semibold text-fjord-fg">Restore {stack} to {whenLabel(restoreCopyTarget.createdAt)}?</h2>
       <p class="text-xs text-fjord-fg-muted">
         Restores {stack}{restoreCopyTarget.version ? ` to ${restoreCopyTarget.version}` : ''} along with the data saved before your rollback.
@@ -1027,8 +1116,8 @@
 {/if}
 
 {#if deleteCopyTarget}
-  <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" role="dialog" aria-modal="true">
-    <div class="w-full max-w-md rounded-xl border border-fjord-border bg-fjord-surface p-5 shadow-xl flex flex-col gap-3.5 text-sm">
+  <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4" role="dialog" aria-modal="true">
+    <div class="w-full max-w-md rounded-xl border border-fjord-border bg-fjord-card p-5 shadow-xl flex flex-col gap-3.5 text-sm">
       <h2 class="text-base font-semibold text-fjord-fg">Delete restore point?</h2>
       <p class="text-xs text-fjord-fg-muted">
         Permanently removes the data saved before restore on {whenLabel(deleteCopyTarget.createdAt)} ({fmtBytes(deleteCopyTarget.usedBytes)}). Running data is not affected.
