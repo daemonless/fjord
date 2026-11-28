@@ -123,10 +123,29 @@ func Create(ctx context.Context, parent, stack string) (string, error) {
 	return name, nil
 }
 
+// validDatasetName rejects empty strings, leading dashes (which zfs would
+// parse as CLI flags), snapshot/bookmark separators, whitespace, and control
+// characters so untrusted API parameters can never inject zfs options.
+func validDatasetName(name string) bool {
+	if name == "" || name[0] == '-' || name[0] == '/' || strings.HasSuffix(name, "/") {
+		return false
+	}
+	for i := 0; i < len(name); i++ {
+		c := name[i]
+		if c <= 0x20 || c >= 0x7f || c == '@' || c == '#' {
+			return false
+		}
+	}
+	return true
+}
+
 // Owned says whether name and every dataset under it carry stack's tag. A
 // child fjord did not make is named in the error, so it is never destroyed
 // along with the app.
 func Owned(ctx context.Context, name, stack string) error {
+	if !validDatasetName(name) {
+		return fmt.Errorf("invalid dataset name %q", name)
+	}
 	out, err := run(ctx, "list", "-H", "-r", "-o", "name,"+Tag, "-t", "filesystem,volume", name)
 	if err != nil {
 		return fmt.Errorf("zfs list %s: %w", name, err)

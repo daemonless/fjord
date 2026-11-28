@@ -228,11 +228,24 @@ const (
 	excerptLineCap = 512
 )
 
-var ansiSeqRe = regexp.MustCompile(`\x1b\[[0-9;?]*[ -/]*[@-~]`)
+var (
+	ansiSeqRe      = regexp.MustCompile(`\x1b\[[0-9;?]*[ -/]*[@-~]`)
+	urlCredRe      = regexp.MustCompile(`([a-zA-Z][a-zA-Z0-9+.-]*://[^:@/\s]+):([^@/\s]+)@`)
+	authHeaderRe   = regexp.MustCompile(`(?i)(Authorization:\s*(?:Bearer|Basic|Token)\s+)(\S+)`)
+	secretAssignRe = regexp.MustCompile(`(?i)\b([A-Z0-9_]*(?:PASS|PASSWORD|PASSWD|PWD|SECRET|TOKEN|API_KEY|APIKEY|PRIVATE_KEY|CREDENTIAL|AUTH)[A-Z0-9_]*)=("[^"]*"|'[^']*'|\S+)`)
+)
+
+func redactExcerptLine(line string) string {
+	line = urlCredRe.ReplaceAllString(line, "${1}:[redacted]@")
+	line = authHeaderRe.ReplaceAllString(line, "${1}[redacted]")
+	line = secretAssignRe.ReplaceAllString(line, "${1}=[redacted]")
+	return line
+}
 
 func cleanExcerptLine(line string) string {
 	line = ansiSeqRe.ReplaceAllString(line, "")
 	line = strings.TrimRight(line, " \t\r")
+	line = redactExcerptLine(line)
 	if len(line) > excerptLineCap {
 		line = line[:excerptLineCap] + "..."
 	}

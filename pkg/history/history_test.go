@@ -134,3 +134,24 @@ func TestExcerptShortAndLong(t *testing.T) {
 		t.Fatalf("ansi excerpt = %q", got)
 	}
 }
+
+func TestExcerptRedactsSecrets(t *testing.T) {
+	raw := strings.Join([]string{
+		"connecting to postgres://admin:s3cr3tPass@db:5432/app",
+		"podman run -e DB_PASSWORD=topsecret -e API_TOKEN='tok123' -e PORT=8080 img",
+		"Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.payload.sig",
+		"normal error: image not found",
+	}, "\n")
+	got := Excerpt(raw)
+	for _, leaked := range []string{"s3cr3tPass", "topsecret", "tok123", "eyJhbGciOiJIUzI1NiJ9"} {
+		if strings.Contains(got, leaked) {
+			t.Errorf("secret %q leaked into excerpt:\n%s", leaked, got)
+		}
+	}
+	if !strings.Contains(got, "postgres://admin:[redacted]@db:5432/app") {
+		t.Errorf("expected redacted URL in excerpt:\n%s", got)
+	}
+	if !strings.Contains(got, "PORT=8080") || !strings.Contains(got, "normal error: image not found") {
+		t.Errorf("non-secret output altered:\n%s", got)
+	}
+}
