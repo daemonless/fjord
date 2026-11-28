@@ -6614,7 +6614,7 @@ msgstr ""
 msgid "Every app on this host has its own ZFS dataset."
 msgstr ""
 
-#. 0: readyCount; 1: dsStacks.length; 2: dsStacks.length === 1 ? 'app ready' \\: 'apps ready'
+#. 0: readyCount; 1: statefulCount; 2: statefulCount === 1 ? 'app ready' \\: 'apps ready'
 #: src/Settings.svelte
 msgid "{0} of {1} {2} for restore points"
 msgstr ""
@@ -6698,3 +6698,20 @@ msgstr ""
 #: src/HistoryList.svelte
 msgid "+ Date"
 msgstr ""
+
+#: src/Settings.svelte
+msgid "No apps with a data folder"
+msgstr "Aucune application avec un dossier de données"
+
+#. 0: noDataCount
+#: src/Settings.svelte
+msgid "Every app with a data folder has its own ZFS dataset ({0} without app data)."
+msgstr "Chaque application avec un dossier de données a son propre jeu de données ZFS ({0} sans données d'application)."
+
+#: src/Settings.svelte
+msgid "None of these apps use a dedicated app data folder."
+msgstr "Aucune de ces applications n'utilise de dossier de données dédié."
+
+#: src/Settings.svelte
+msgid "No app data"
+msgstr "Aucune donnée"
